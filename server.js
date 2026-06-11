@@ -14,6 +14,7 @@ const Groq = require('groq-sdk');
 const AdmZip = require('adm-zip'); 
 
 const app = express();
+app.use(cors({ origin: '*' }));
 
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "474929925590-a0it7ijp845oqbni72iaqpsvqdvnu0jd.apps.googleusercontent.com";
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
@@ -37,13 +38,10 @@ app.use(helmet({
         }
     }
 }));
-app.use(cors({ origin: '*', methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'], allowedHeaders: ['Content-Type', 'Authorization'] }));
-
 const apiLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 150 });
 app.use('/api/', apiLimiter);
 
 mongoose.set('strictQuery', true);
-
 // ==========================================
 // ENTERPRISE DATABASE SCHEMA & INDEXING
 // ==========================================
@@ -173,14 +171,14 @@ const storage = multer.diskStorage({ destination: os.tmpdir(), filename: (req, f
 const upload = multer({ storage: storage, limits: { fileSize: 100 * 1024 * 1024 } }); // Hard limit to prevent RAM death
 
 mongoose.connect(process.env.MONGO_URI, { maxPoolSize: 500, serverSelectionTimeoutMS: 5000, socketTimeoutMS: 45000 })
-    .then(() => console.log('🗄️ ZELREX DB ACTIVE (Enterprise Pool)'))
+    .then(() => console.log('🗄️ AXELR DB ACTIVE (Enterprise Pool)'))
     .catch(err => console.error('💥 MONGO ERROR:', err));
 
 app.post('/api/billing/checkout', authenticateUser, async (req, res) => {
     try {
         const requestedTier = req.body.tier || 'pro';
         const price = requestedTier === 'designer' ? 3000 : 1500;
-        const name = requestedTier === 'designer' ? 'ZELREX DESIGNER Tier' : 'ZELREX PRO Tier';
+        const name = requestedTier === 'designer' ? 'AXELR DESIGNER Tier' : 'AXELR PRO Tier';
 
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'], mode: 'subscription', client_reference_id: req.currentUser.googleId,
@@ -392,9 +390,9 @@ let currentSession = null; let contentsTurnArray = [];
         // 🟢 FIX: Initialize systemPrompt FIRST
         let systemPrompt = "";
         if (workspaceMode === 'design') {
-            systemPrompt = "You are ZELREX ARCHITECT, an elite Senior UI/UX Engineer. Generate flawless, responsive HTML and Tailwind CSS code wrapped in ```html tags. Prioritize modern aesthetics, accessibility, and clean component structure.";
+            systemPrompt = "You are AXELR ARCHITECT, an elite Senior UI/UX Engineer. Generate flawless, responsive HTML and Tailwind CSS code wrapped in ```html tags. Prioritize modern aesthetics, accessibility, and clean component structure.";
         } else {
-            systemPrompt = "You are ZELREX DATA, an elite Senior Data Analyst. ONLY extract and structure data into a precise CSV array wrapped in [JSON-DATA] tags IF the user explicitly uploads data to be extracted, requests a table, or asks for a CSV. Otherwise, provide standard text analysis.";
+            systemPrompt = "You are AXELR DATA, an elite Senior Data Analyst. ONLY extract and structure data into a precise CSV array wrapped in [JSON-DATA] tags IF the user explicitly uploads data to be extracted, requests a table, or asks for a CSV. Otherwise, provide standard text analysis.";
         }
         
         // 🟢 NOW we can safely append to it without crashing
@@ -503,5 +501,15 @@ let currentSession = null; let contentsTurnArray = [];
     }
 });
 
+// ... [Your existing app.post('/api/extract', ...) and other routes] ...
+
+// 🟢 MOVE THESE ROUTES UP: They must be registered BEFORE app.listen
+app.get('/', (req, res) => res.status(200).send('Axelr API Online'));
+
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: "Axelr System Online" });
+});
+
+// 🟢 FINALLY, LISTEN
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🟢 ZELREX SYSTEM SECURITY ONLINE ON PORT ${PORT}`));
+app.listen(PORT, () => console.log(`🟢 ALEXR SYSTEM SECURITY ONLINE ON PORT ${PORT}`));
