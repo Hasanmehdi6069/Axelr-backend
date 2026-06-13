@@ -1,18 +1,40 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <meta http-equiv="Expires" content="0">
-    <meta name="description" content="AXELR AI: The Intelligence Execution Platform. Unstructured data conversion and automated workflows for enterprise teams.">
+    
+    <title>Axelr AI | Intelligence Execution Platform</title>
+    <meta name="description" content="Axelr AI is a powerful intelligence execution platform. Convert unstructured data and automate UI/UX development with our AI-driven architecture.">
+    <meta name="keywords" content="Axelr, Axelr AI, AI Data Extraction, UI UX Automation, React Tailwind Generator">
+    
+    <link rel="canonical" href="https://axelr.in" />
+    <meta name="google-site-verification" content="e96SOh5vBpARlBZU6J30Mz4oUUC2VKJ-Bb-j57JxzTY" />
+    <link rel="icon" type="image/png" href="/favicon.png">
+
+    <meta property="og:title" content="Axelr AI">
+    <meta property="og:description" content="Unstructured data conversion and automated workflows.">
+    <meta property="og:url" content="https://axelr.in">
+    <meta property="og:type" content="website">
     <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.3/purify.min.js"></script>
+    <script type="application/ld+json">
+        {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Axelr AI",
+  "url": "https://axelr.in",
+  "description": "Axelr AI is an Intelligence Execution Platform for automated data extraction and UI/UX design.",
+  "logo": "https://axelr.in/favicon.png",
+  "sameAs": [
+    "https://axelr.in"
+  ]
+        }
+</script>
     
     <style>
         :root {
@@ -357,13 +379,60 @@
         }
         body.workspace-data .send-btn.btn-stop-active { color: #10b981 !important; border-color: rgba(16, 185, 129, 0.4) !important; }
         body.workspace-design .send-btn.btn-stop-active { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.4) !important; }
+        @media (max-width: 768px) {
+    /* Force sidebar to slide off-screen by default */
+    #sidebar-container-node { left: -100%; width: 85%; }
+    #sidebar-container-node.open { left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.8); }
+    
+    /* Make the viewport container fullscreen on mobile */
+    #viewport { padding: 80px 10px 120px 10px; }
+    
+    /* Shrink the logo on mobile to prevent overflow */
+    .brand-logo { font-size: 16px; }
+    
+    /* Ensure the chat bubbles aren't squashed */
+    .chat-bubble { max-width: 95%; }
+}
+/* 🟢 GOLD STANDARD MOBILE RESPONSIVENESS */
+@media (max-width: 768px) {
+    :root { --viewport-height: 100dvh; }
+    
+    body { height: var(--viewport-height); overflow: hidden; }
+     
+    #viewport { 
+        padding: 70px 10px 140px 10px; 
+        height: var(--viewport-height);
+    }
+
+    .command-wrapper { 
+        padding-bottom: 20px; 
+        width: 87%; 
+        padding-left: 10px; 
+        padding-right: 10px;
+    }
+    
+    /* Force touch-friendly sizes */
+    .action-btn { width: 44px !important; height: 44px !important; }
+    textarea { font-size: 16px !important; } /* Prevents iOS auto-zoom on focus */
+}
+    /* Mobile Chat Bubbles */
+    .chat-bubble { max-width: 95% !important; padding: 12px 14px !important; }
+    #viewport { padding-top: 60px !important; padding-bottom: 120px !important; }
         @media (max-width: 768px) { .command-wrapper { max-width: 100%; padding: 10px; } #viewport { padding: 80px 15px 140px 15px; } .workspace-header { padding-left: 40px; } }
     </style>
+    
+    <script>
+    !function(t,e){var o,n,p,r;e.__SV||(window.posthog && window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="rn sn init kn Qr wn Cn yn capture calculateEventProperties Rn register register_once register_for_session unregister unregister_for_session An getFeatureFlag getFeatureFlagPayload getFeatureFlagResult isFeatureEnabled reloadFeatureFlags updateFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey displaySurvey cancelPendingSurvey canRenderSurvey canRenderSurveyAsync Fn identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset setIdentity clearIdentity get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException addExceptionStep captureLog startExceptionAutocapture stopExceptionAutocapture loadToolbar get_property getSessionProperty On En createPersonProfile setInternalOrTestUser Ln gn $n opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing get_explicit_consent_status is_capturing clear_opt_in_out_capturing In debug Kr Pn getPageViewId captureTraceFeedback captureTraceMetric vn".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
+    posthog.init('phc_wfcTP6cKvtLQBbDpQ7GdDUZRusaBJca3QCbLfivv3Hc3', {
+        api_host: 'https://us.i.posthog.com',
+        defaults: '2026-05-30',
+        person_profiles: 'identified_only', // or 'always' to create profiles for anonymous users as well
+    })
+</script>
 </head>
 <body class="workspace-data">
 
     <div id="offline-banner">⚠️ Network Disconnected. Axelr is in standby mode. Data preserved locally.</div>
-
     <div id="auth-wall">
         <div class="auth-card">
             <div class="auth-logo" style="font-family: 'Inter', sans-serif; letter-spacing: -0.5px;">
@@ -629,9 +698,10 @@
             </div>
             <input type="file" id="omni-file-input" multiple style="display: none;">
             <div style="color: var(--text-muted); font-size: 11px; margin-top: 8px; text-align: center;">Axelr can make mistakes. Verify critical matrix outputs.</div>
+            
         </div>
     </div>
-
+    
     <script>
         const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
             ? "http://localhost:5000" 
@@ -1546,6 +1616,8 @@ async function switchVariant(logId, msgId, newIndex) {
             const type = document.getElementById('report-type').value; const description = document.getElementById('feedback-input').value.trim(); if (!description) return; const btn = document.querySelector('#feedback-modal .modal-submit-btn'); const originalText = btn.innerText; btn.innerText = "Dispatching..."; btn.disabled = true;
             try { const response = await fetch(`${API_BASE_URL}/api/reports`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${googleAuthUserToken}` }, body: JSON.stringify({ type, description }) }); if (response.ok) { btn.innerText = "Log Secured"; btn.style.background = "var(--accent-secondary)"; btn.style.color = "#fff"; setTimeout(() => { closeModals(); document.getElementById('feedback-input').value = ''; btn.innerText = originalText; btn.style.background = "#fff"; btn.style.color = "#000"; btn.disabled = false; }, 1500); } } catch (error) { btn.innerText = originalText; btn.disabled = false; }
         }
+        
     </script>
+    
 </body>
 </html>

@@ -1,3 +1,11 @@
+const Sentry = require("@sentry/node");
+const { nodeProfilingIntegration } = require("@sentry/profiling-node");
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN, // 🟢 Securely fetches from Render Environment
+  integrations: [ nodeProfilingIntegration(), Sentry.autoDiscoverNodePerformanceMonitoringMiddleware(), ],
+  tracesSampleRate: 1.0,
+});
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
@@ -14,8 +22,12 @@ const Groq = require('groq-sdk');
 const AdmZip = require('adm-zip'); 
 
 const app = express();
-app.use(cors({ origin: '*' }));
-
+// 🟢 Enterprise CORS Security: Only allows requests from your actual website
+app.use(cors({ 
+    origin: process.env.CLIENT_APP_URL || 'https://axelr.in',
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true
+}));
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID || "474929925590-a0it7ijp845oqbni72iaqpsvqdvnu0jd.apps.googleusercontent.com";
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
