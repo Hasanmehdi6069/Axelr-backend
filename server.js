@@ -1,11 +1,11 @@
-const Sentry = require("@sentry/node");
-const { nodeProfilingIntegration } = require("@sentry/profiling-node");
+// const Sentry = require("@sentry/node");
+// const { nodeProfilingIntegration } = require("@sentry/profiling-node");
 
-Sentry.init({
-  dsn: process.env.SENTRY_DSN, // 🟢 Securely fetches from Render Environment
-  integrations: [ nodeProfilingIntegration(), Sentry.autoDiscoverNodePerformanceMonitoringMiddleware(), ],
-  tracesSampleRate: 1.0,
-});
+// Sentry.init({
+//   dsn: process.env.SENTRY_DSN, 
+//   integrations: [ nodeProfilingIntegration(), Sentry.autoDiscoverNodePerformanceMonitoringMiddleware(), ],
+//   tracesSampleRate: 1.0,
+// });
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
