@@ -398,19 +398,41 @@ let currentSession = null; let contentsTurnArray = [];
         } else {
             contentsTurnArray.push({ role: 'user', parts: [...fileParts, { text: userCommand }] });
         }
+        // 🟢 GEMINI FATAL CRASH FIX: Gemini completely rejects arrays that start with 'model'. 
+let recentHistory = historyToKeep.slice(-6);
 
-        // 🟢 FIX: Initialize systemPrompt FIRST
+if (recentHistory.length > 0 && recentHistory[0].role === 'model') {
+    recentHistory.shift(); // Strips the rogue AI message so it strictly starts with 'user'
+}
+
+recentHistory.forEach(msg => {
+    contentsTurnArray.push({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] });
+});
+
+        // 🟢 THE "ANTI-BS" COMMUNICATION DIRECTIVE
+        const COMMUNICATION_DIRECTIVE = `
+COMMUNICATION RULES (STRICT ENFORCEMENT):
+1. ZERO FLUFF: Never use conversational filler. Do not say "Hello", "Sure, I can help", "Here is the code", or "Let me explain". Just give the answer.
+2. EXTREME CONCISENESS: Get straight to the point. If a one-sentence answer works, use it. Never generate giant walls of text.
+3. ADAPTIVE LANGUAGE: Always reply in the exact language, dialect, and tone the user uses (e.g., if they speak Roman Urdu/Hindi, you MUST reply in Roman Urdu/Hindi).
+4. ERROR PROTOCOL: If the user asks to fix an error or bug, structure your final response STRICTLY as:
+   - **Root Cause**: (1 sentence maximum)
+   - **Solution**: (1-2 sentences maximum)
+   - **Code**: (Provide the exact fix)
+5. FORMATTING: Use bolding for key terms. Use short bullet points if listing items.`;
+
+        // 🟢 INJECT DIRECTIVES INTO THE WORKSPACES
         let systemPrompt = "";
         if (workspaceMode === 'design') {
-            systemPrompt = "You are AXELR ARCHITECT, an elite Senior UI/UX Engineer. Generate flawless, responsive HTML and Tailwind CSS code wrapped in ```html tags. Prioritize modern aesthetics, accessibility, and clean component structure.";
+            systemPrompt = `You are AXELR ARCHITECT, an elite Senior UI/UX Engineer. Generate flawless, responsive HTML and Tailwind CSS code wrapped in \`\`\`html tags. Prioritize modern aesthetics and clean component structure.\n${COMMUNICATION_DIRECTIVE}`;
         } else {
-            systemPrompt = "You are AXELR DATA, an elite Senior Data Analyst. ONLY extract and structure data into a precise CSV array wrapped in [JSON-DATA] tags IF the user explicitly uploads data to be extracted, requests a table, or asks for a CSV. Otherwise, provide standard text analysis.";
+            systemPrompt = `You are AXELR DATA, an elite Senior Data Analyst. ONLY extract data into a precise CSV array wrapped in [JSON-DATA] tags IF the user explicitly uploads data to be extracted. Otherwise, answer questions normally.\n${COMMUNICATION_DIRECTIVE}`;
         }
         
-        // 🟢 NOW we can safely append to it without crashing
+        // 🟢 MAINTAIN CUSTOM INSTRUCTIONS & HIDDEN REASONING
         if (req.currentUser.customInstructions) systemPrompt += `\nUSER DATA: ${req.currentUser.customInstructions}`;
-        systemPrompt += "\nCRITICAL INSTRUCTION: Before providing your final answer, you MUST write out your step-by-step thinking process wrapped entirely inside <think> ... </think> tags.";
-
+        
+        systemPrompt += "\nCRITICAL INSTRUCTION: Before providing your final answer, you MUST write out your step-by-step thinking process wrapped entirely inside <think> ... </think> tags. After the </think> tag, output ONLY your strictly formatted, concise response.";
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
 
         let clientDisconnected = false;

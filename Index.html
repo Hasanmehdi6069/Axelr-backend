@@ -378,51 +378,82 @@
             border-radius: 12px !important;
         }
         body.workspace-data .send-btn.btn-stop-active { color: #10b981 !important; border-color: rgba(16, 185, 129, 0.4) !important; }
-        body.workspace-design .send-btn.btn-stop-active { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.4) !important; }
-       
-        
- @media (max-width: 768px) {
-    /* Force sidebar to slide off-screen by default */
-    #sidebar-container-node { left: -100%; width: 85%; }
-    #sidebar-container-node.open { left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.8); }
-    
-    /* Make the viewport container fullscreen on mobile */
-    #viewport { padding: 80px 10px 120px 10px; }
-    
-    /* Shrink the logo on mobile to prevent overflow */
-    .brand-logo { font-size: 16px; }
-    
-    /* Ensure the chat bubbles aren't squashed */
-    .chat-bubble { max-width: 95%; }
-}
-/* 🟢 GOLD STANDARD MOBILE RESPONSIVENESS */
+        body.workspace-design .send-btn.btn-stop-active { color: #ef4444 !important; border-color: rgba(239, 68, 68, 0.4) !important; 
+        }
+        /* =========================================================
+   🟢 MOBILE UI & RESPONSIVENESS (Strictly Insulated) 
+   ========================================================= */
 @media (max-width: 768px) {
     :root { --viewport-height: 100dvh; }
-    
     body { height: var(--viewport-height); overflow: hidden; }
-     
-    #viewport { 
-        padding: 70px 10px 140px 10px; 
-        height: var(--viewport-height);
+
+    /* 1. Sidebar & Viewport Formatting */
+    #sidebar-container-node { left: -100%; width: 85%; }
+    #sidebar-container-node.open { left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.8); }
+    #viewport { padding: 80px 15px 140px 15px !important; height: var(--viewport-height); }
+    .workspace-header { padding-left: 40px !important; }
+    .brand-logo { font-size: 16px; }
+    .chat-bubble { max-width: 95% !important; padding: 12px 14px !important; }
+
+    /* 2. Hero Section (Protect from Vault overlap) */
+    .hero-text { 
+        padding-left: 42px !important; 
+        padding-right: 15px !important;
+        margin-top: 15vh !important; 
+    }
+    .hero-text h1 { font-size: 24px !important; }
+    .hero-text p { font-size: 13px !important; padding: 0; }
+
+    /* 3. Command Bar (Fix right gap, protect left from Vault) */
+    .command-wrapper { 
+        width: 100% !important; 
+        max-width: 100% !important;
+        padding-left: 42px !important; 
+        padding-right: 15px !important; 
+        padding-bottom: 20px !important;
+        left: 0 !important;
+        transform: none !important;
     }
 
-    .command-wrapper { 
-        padding-bottom: 20px; 
-        width: 87%; 
-        padding-left: 10px; 
-        padding-right: 10px;
+    /* 4. True Gemini Native Input (One line, grows UP) */
+    .input-row {
+        flex-wrap: nowrap !important; /* NEVER breaks into two rows */
+        align-items: flex-end !important; /* Buttons stay on the bottom line */
+        gap: 6px !important;
     }
-    
-    /* Force touch-friendly sizes */
-    .action-btn { width: 44px !important; height: 44px !important; }
-    textarea { font-size: 16px !important; } /* Prevents iOS auto-zoom on focus */
+    textarea {
+        font-size: 16px !important; /* Stops iOS zoom */
+        padding: 6px 4px !important;
+        max-height: 35vh !important; /* Expands upward naturally via JS */
+        margin-bottom: 0 !important;
+    }
+    .action-btn { width: 36px !important; height: 36px !important; }
+
+    /* 5. Gemini Mic/Send Swap Logic */
+    .input-frame:not(.has-text) #send-trigger:not(.btn-stop-active) { display: none !important; }
+    .input-frame.has-text #mic-trigger { display: none !important; }
+    .input-frame:has(#send-trigger.btn-stop-active) #mic-trigger { display: none !important; }
 }
-    /* Mobile Chat Bubbles */
-    .chat-bubble { max-width: 95% !important; padding: 12px 14px !important; }
-    #viewport { padding-top: 60px !important; padding-bottom: 120px !important; }
-        @media (max-width: 768px) { .command-wrapper { max-width: 100%; padding: 10px; } #viewport { padding: 80px 15px 140px 15px; } .workspace-header { padding-left: 40px; } }
-       @media (max-width: 768px) { .command-wrapper { max-width: 100%; padding: 10px; } #viewport { padding: 80px 15px 140px 15px; } .workspace-header { padding-left: 40px; } }
-    </style>
+
+/* =========================================================
+   🟢 ULTRA-SLIM DEVICE OPTIMIZATION (Below 385px) 
+   ========================================================= */
+@media (max-width: 385px) {
+    .command-wrapper { padding-left: 38px !important; padding-right: 10px !important; padding-bottom: 15px !important; }
+    .input-frame { padding: 6px 8px !important; }
+    .action-btn { width: 32px !important; height: 32px !important; }
+}
+
+/* =========================================================
+   🟢 EXTREME NARROW PROTECTION (Galaxy Fold / iPhone SE) 
+   ========================================================= */
+@media (max-width: 320px) {
+    .hero-text h1 { font-size: 20px !important; }
+    .hero-text p { font-size: 11px !important; }
+    .workspace-header { padding-left: 35px !important; }
+}
+</style>
+
     
     <script>
     !function(t,e){var o,n,p,r;e.__SV||(window.posthog && window.posthog.__loaded)||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.crossOrigin="anonymous",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="rn sn init kn Qr wn Cn yn capture calculateEventProperties Rn register register_once register_for_session unregister unregister_for_session An getFeatureFlag getFeatureFlagPayload getFeatureFlagResult isFeatureEnabled reloadFeatureFlags updateFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey displaySurvey cancelPendingSurvey canRenderSurvey canRenderSurveyAsync Fn identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset setIdentity clearIdentity get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException addExceptionStep captureLog startExceptionAutocapture stopExceptionAutocapture loadToolbar get_property getSessionProperty On En createPersonProfile setInternalOrTestUser Ln gn $n opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing get_explicit_consent_status is_capturing clear_opt_in_out_capturing In debug Kr Pn getPageViewId captureTraceFeedback captureTraceMetric vn".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
@@ -706,6 +737,7 @@
     </div>
     
     <script>
+        
         const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
             ? "http://localhost:5000" 
             : "https://zelrex-backend.onrender.com"; 
@@ -724,6 +756,15 @@
         }
 
         const promptInput = document.getElementById('prompt-input');
+        promptInput.addEventListener('input', function() {
+    // 1. Reset height to calculate true scrollHeight
+    this.style.height = 'auto'; 
+    
+    // 2. Set height based on content
+    // We cap it at 35% of the viewport height so it doesn't cover the whole screen
+    const maxHeight = window.innerHeight * 0.35;
+    this.style.height = Math.min(this.scrollHeight, maxHeight) + 'px';
+});
         const fileInput = document.getElementById('omni-file-input');
         const fileStaging = document.getElementById('file-staging');
         const viewport = document.getElementById('viewport');
@@ -758,6 +799,7 @@
             document.getElementById('offline-banner').style.display = 'none';
             validateSendCommand();
         });
+
 
         function escapeHtmlEntities(str) { const div = document.createElement('div'); div.appendChild(document.createTextNode(str)); return div.innerHTML; }
 
@@ -891,6 +933,7 @@
             micBtn.style.display = 'none'; 
         }
 
+        
         sidebarTriggerArea.addEventListener('click', (e) => { e.stopPropagation(); sidebarNode.classList.toggle('open'); });
         
         function toggleAccountDropdown(e) { e.stopPropagation(); accountDropdownCard.style.display = accountDropdownCard.style.display === 'flex' ? 'none' : 'flex'; modelDropdownCard.style.display = 'none'; document.querySelectorAll('.actions-dropdown-list').forEach(d => d.classList.remove('active')); }
@@ -904,6 +947,7 @@
             if (!e.target.closest('.history-options-btn')) document.querySelectorAll('.actions-dropdown-list').forEach(d => d.classList.remove('active'));
         });
 
+        
         const renderer = new marked.Renderer();
         renderer.code = function(code, language) { return `<pre><button class="copy-code-btn" onclick="navigator.clipboard.writeText(this.nextElementSibling.innerText); this.innerText='Copied!'; setTimeout(()=>this.innerText='Copy Code', 2000)">Copy Code</button><code>${code.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</code></pre>`; };
         marked.setOptions({ renderer: renderer, breaks: true });
@@ -1000,20 +1044,21 @@
 
         function removeStagedFile(idx) { stagedFiles.splice(idx,1); renderFileChips(); }
 
-        function renderFileChips() {
-            const stagingArea = document.getElementById('file-staging');
-            if (stagedFiles.length === 0) {
-                stagingArea.style.display = 'none'; stagingArea.innerHTML = ''; return;
-            }
-            stagingArea.style.display = 'flex';
-            stagingArea.innerHTML = stagedFiles.map((file, idx) => `
-                <div class="file-chip" style="display: flex; align-items: center; gap: 8px;">
-                    📄 ${escapeHtmlEntities(file.name)}
-                    <span style="cursor:pointer; color:#ef4444; font-weight:bold; font-size:12px;" onclick="removeStagedFile(${idx})">✕</span>
-                </div>
-            `).join('');
-            validateSendCommand();
-        }
+       // 🟢 SMART FILE TRUNCATION ENGINE
+function renderFileChips() {
+    const stagingArea = document.getElementById('file-staging');
+    if (stagedFiles.length === 0) {
+        stagingArea.style.display = 'none'; stagingArea.innerHTML = ''; return;
+    }
+    stagingArea.style.display = 'flex';
+    stagingArea.innerHTML = stagedFiles.map((file, idx) => `
+        <div class="file-chip" style="display: flex; align-items: center; gap: 8px; max-width: 100%;">
+            📄 <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; display: inline-block; vertical-align: middle;">${escapeHtmlEntities(file.name)}</span>
+            <span style="cursor:pointer; color:#ef4444; font-weight:bold; font-size:14px; flex-shrink: 0; padding-left: 4px;" onclick="removeStagedFile(${idx})">✕</span>
+        </div>
+    `).join('');
+    validateSendCommand();
+}
 
         function showWorkspaceSelector() {
             document.getElementById('workspace-selector').style.display = 'flex';
@@ -1110,8 +1155,19 @@
             location.reload(); 
         }
 
-        function validateSendCommand() { document.getElementById('send-trigger').disabled = !(promptInput.value.trim().length > 0 || stagedFiles.length > 0); }
+        // 🟢 GEMINI-STYLE DYNAMIC UI TOGGLE
+function validateSendCommand() { 
+    const hasInput = promptInput.value.trim().length > 0 || stagedFiles.length > 0;
+    document.getElementById('send-trigger').disabled = !hasInput; 
     
+    // This adds a hidden class to the frame so CSS knows exactly when to swap the buttons
+    const inputFrame = document.querySelector('.input-frame');
+    if (hasInput) {
+        inputFrame.classList.add('has-text');
+    } else {
+        inputFrame.classList.remove('has-text');
+    }
+}
         function filterSidebarLogs() {
             const query = document.getElementById('sidebar-search-input').value.toLowerCase();
             document.querySelectorAll('.history-item').forEach(item => { item.style.display = item.querySelector('.history-title').innerText.toLowerCase().includes(query) ? 'flex' : 'none'; });
@@ -1500,13 +1556,20 @@ async function switchVariant(logId, msgId, newIndex) {
                         if (chunk.startsWith('data: ')) {
                             try {
                                 const data = JSON.parse(chunk.substring(6));
-                                if (data.type === 'chunk') {
-                                    fullResponse += data.text;
-                                    nexusBubble.querySelector('.bubble-content').innerHTML = DOMPurify.sanitize(marked.parse(fullResponse));
-                                } else if (data.type === 'done') {
-                                    stagedFiles = [];
-                                    fileStaging.style.display = 'none';
-
+if (data.type === 'chunk') {
+    fullResponse += data.text;
+    nexusBubble.querySelector('.bubble-content').innerHTML = DOMPurify.sanitize(marked.parse(fullResponse));
+} else if (data.type === 'progress') {
+    // 🟢 UI FIX: Shows live backend status (e.g., "Extracting and structuring data...")
+    nexusBubble.querySelector('.bubble-content').innerHTML = `<span style="color:var(--text-muted); font-size: 13px;">${data.text}</span>`;
+} else if (data.type === 'error') {
+    // 🟢 CRITICAL BUG FIX: Stops the infinite loading state and shows the error to the user
+    nexusBubble.querySelector('.bubble-content').innerHTML = `⚠️ <strong style="color:#ef4444;">System Alert:</strong> ${data.message}`;
+    globalAbortController = null;
+    sendBtn.classList.remove('btn-stop-active');
+    sendBtn.innerHTML = originalBtnHtml;
+    return; // Kills the loop safely
+} else if (data.type === 'done') {
                                     const isBrandNewChat = !activeSessionId;
                                     activeSessionId = data.sessionId;
 
