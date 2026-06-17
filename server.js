@@ -343,18 +343,24 @@ app.put('/api/history/:logId/variant', authenticateUser, async (req, res) => {
     } catch (error) { res.status(500).json({ error: "Variant switch failed" }); }
 });
 
-// 🟢 THE EXTRACT ROUTE (Fixed systemPrompt ReferenceError)
+// 🟢 THE BULLETPROOF EXTRACT ROUTE
 app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req, res) => {
+    // 🛡️ Guard 1: Safe File Initialization
     const files = req.files || [];
     
     try {
+        // 🛡️ Guard 2: Absolute Context Verification
+        if (!req.currentUser || !req.currentUser._id) {
+            return res.status(401).json({ error: "AUTH_FAULT", message: "Pipeline access denied." });
+        }
+
         const userCommand = req.body.command || "Analyze";
         const workspaceMode = req.body.workspace || "data"; 
         let sessionId = req.body.sessionId !== 'null' && req.body.sessionId !== 'undefined' ? req.body.sessionId : null;
 
         const totalUploadSize = files.reduce((acc, file) => acc + file.size, 0);
 
-        // 🟢 OPTIMIZED: Strict limits to prevent API bankruptcy
+        // 🟢 OPTIMIZED: Strict limits
         let limit = 5, uiLimit = 2, byteLimit = 5 * 1024 * 1024; 
         if (req.currentUser.tier === 'pro') { limit = 50; uiLimit = 20; byteLimit = 100 * 1024 * 1024; } 
         if (req.currentUser.tier === 'designer') { limit = 100; uiLimit = 100; byteLimit = 50 * 1024 * 1024; } 
@@ -370,46 +376,42 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             if (!detectedMime || detectedMime === 'application/octet-stream') { detectedMime = 'text/plain'; }
             return { inlineData: { data, mimeType: detectedMime } };
         }));
-let currentSession = null; let contentsTurnArray = [];
+
+        let currentSession = null; 
+        let contentsTurnArray = [];
+        let historyToKeep = [];
+
         if (sessionId && mongoose.Types.ObjectId.isValid(sessionId)) {
             currentSession = await ChatSession.findOne({ _id: sessionId, userId: req.currentUser._id });
             if (currentSession) {
                 const isRetry = req.body.isRetry === 'true';
-                let historyToKeep = currentSession.messages;
+                historyToKeep = currentSession.messages;
 
-                // 🟢 FIX: If the user clicked retry, we must NOT send the bad AI response to the AI as history, 
-                // otherwise it will just repeat the bad answer. We slice it off the context array.
                 if (isRetry) {
                     if (historyToKeep.length > 0 && historyToKeep[historyToKeep.length - 1].role === 'model') {
                         historyToKeep = historyToKeep.slice(0, -2); 
                     }
                 }
-
-                // Push clean history to the matrix
-                historyToKeep.slice(-6).forEach(msg => {
-                    contentsTurnArray.push({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] });
-                });
             }
         }
 
         const fileNames = files.map(f => f.originalname);
+        let recentHistory = historyToKeep.slice(-6);
+
+        if (recentHistory.length > 0 && recentHistory[0].role === 'model') {
+            recentHistory.shift(); 
+        }
+
+        recentHistory.forEach(msg => {
+            contentsTurnArray.push({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] });
+        });
+
         if (contentsTurnArray.length > 0 && contentsTurnArray[contentsTurnArray.length - 1].role === 'user') {
             contentsTurnArray[contentsTurnArray.length - 1].parts.push(...fileParts, { text: userCommand });
         } else {
             contentsTurnArray.push({ role: 'user', parts: [...fileParts, { text: userCommand }] });
         }
-        // 🟢 GEMINI FATAL CRASH FIX: Gemini completely rejects arrays that start with 'model'. 
-let recentHistory = historyToKeep.slice(-6);
 
-if (recentHistory.length > 0 && recentHistory[0].role === 'model') {
-    recentHistory.shift(); // Strips the rogue AI message so it strictly starts with 'user'
-}
-
-recentHistory.forEach(msg => {
-    contentsTurnArray.push({ role: msg.role === 'user' ? 'user' : 'model', parts: [{ text: msg.text }] });
-});
-
-        // 🟢 THE "ANTI-BS" COMMUNICATION DIRECTIVE
         const COMMUNICATION_DIRECTIVE = `
 COMMUNICATION RULES (STRICT ENFORCEMENT):
 1. ZERO FLUFF: Never use conversational filler. Do not say "Hello", "Sure, I can help", "Here is the code", or "Let me explain". Just give the answer.
@@ -421,7 +423,6 @@ COMMUNICATION RULES (STRICT ENFORCEMENT):
    - **Code**: (Provide the exact fix)
 5. FORMATTING: Use bolding for key terms. Use short bullet points if listing items.`;
 
-        // 🟢 INJECT DIRECTIVES INTO THE WORKSPACES
         let systemPrompt = "";
         if (workspaceMode === 'design') {
             systemPrompt = `You are AXELR ARCHITECT, an elite Senior UI/UX Engineer. Generate flawless, responsive HTML and Tailwind CSS code wrapped in \`\`\`html tags. Prioritize modern aesthetics and clean component structure.\n${COMMUNICATION_DIRECTIVE}`;
@@ -429,10 +430,10 @@ COMMUNICATION RULES (STRICT ENFORCEMENT):
             systemPrompt = `You are AXELR DATA, an elite Senior Data Analyst. ONLY extract data into a precise CSV array wrapped in [JSON-DATA] tags IF the user explicitly uploads data to be extracted. Otherwise, answer questions normally.\n${COMMUNICATION_DIRECTIVE}`;
         }
         
-        // 🟢 MAINTAIN CUSTOM INSTRUCTIONS & HIDDEN REASONING
         if (req.currentUser.customInstructions) systemPrompt += `\nUSER DATA: ${req.currentUser.customInstructions}`;
         
         systemPrompt += "\nCRITICAL INSTRUCTION: Before providing your final answer, you MUST write out your step-by-step thinking process wrapped entirely inside <think> ... </think> tags. After the </think> tag, output ONLY your strictly formatted, concise response.";
+        
         res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
 
         let clientDisconnected = false;
@@ -526,17 +527,33 @@ COMMUNICATION RULES (STRICT ENFORCEMENT):
         res.end();
 
     } catch (error) { 
-        if (!res.headersSent) res.status(500).json({ error: "PIPELINE_FAULT", message: "Node runtime process drop." }); 
-        else res.end();
+        // 🛡️ Guard 4: Enhanced Telemetry Logging
+        console.error(`[Axelr Pipeline Error - User: ${req.currentUser?._id || 'Unknown'}]:`, error);
+
+        if (!res.headersSent) {
+            res.status(500).json({ 
+                error: "PIPELINE_FAULT", 
+                message: "Node runtime process drop.",
+                details: error.message 
+            }); 
+        } else {
+            res.end();
+        }
     } finally {
-        for (const file of files) {
-            try { await fs.promises.unlink(file.path); } catch (cleanupErr) { }
+        // 🛡️ Guard 5: Bulletproof Cleanup
+        if (Array.isArray(files) && files.length > 0) {
+            for (const file of files) {
+                if (file && file.path) {
+                    try { 
+                        await fs.promises.unlink(file.path); 
+                    } catch (cleanupErr) { 
+                        console.warn(`[Axelr Cleanup Warning] Could not remove temp file ${file.path}:`, cleanupErr.message);
+                    }
+                }
+            }
         }
     }
 });
-
-// ... [Your existing app.post('/api/extract', ...) and other routes] ...
-
 // 🟢 MOVE THESE ROUTES UP: They must be registered BEFORE app.listen
 app.get('/', (req, res) => res.status(200).send('Axelr API Online'));
 
