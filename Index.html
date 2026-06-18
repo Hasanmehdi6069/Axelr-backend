@@ -6,6 +6,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <title>Axelr AI | Intelligence Execution Platform</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png">
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png">
+    <meta name="theme-color" content="#050505">
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Axelr AI",
+      "operatingSystem": "Web Browser",
+      "applicationCategory": "BusinessApplication",
+      "url": "https://axelr.in",
+      "description": "Axelr AI is a powerful intelligence execution platform. Convert unstructured data and automate UI/UX development with our AI-driven architecture.",
+      "publisher": {
+        "@type": "Organization",
+        "name": "Axelr AI"
+      },
+      "offers": {
+        "@type": "Offer",
+        "price": "0.00",
+        "priceCurrency": "USD",
+        "description": "Free allocation available. Pro tiers start at $15/month."
+      }
+    }
+    </script>
     <meta name="description" content="Axelr AI is a powerful intelligence execution platform. Convert unstructured data and automate UI/UX development with our AI-driven architecture.">
     <meta name="keywords" content="Axelr, Axelr AI, AI Data Extraction, UI UX Automation, React Tailwind Generator">
     
@@ -22,18 +48,6 @@
     <script src="https://accounts.google.com/gsi/client" async defer></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.0.3/purify.min.js"></script>
-    <script type="application/ld+json">
-        {
-  "@context": "https://schema.org",
-  "@type": "Organization",
-  "name": "Axelr AI",
-  "url": "https://axelr.in",
-  "description": "Axelr AI is an Intelligence Execution Platform for automated data extraction and UI/UX design.",
-  "logo": "https://axelr.in/favicon.png",
-  "sameAs": [
-    "https://axelr.in"
-    }
-    </script>
     <style>
         :root {
             --bg-deep: #050505; --bg-sidebar: #090909; --bg-card: #101010; --bg-input: #121212;
@@ -1074,23 +1088,30 @@ function renderFileChips() {
             
             document.body.classList.remove('workspace-data', 'workspace-design');
             document.body.classList.add(`workspace-${type}`);
+            
+            const isMobile = window.innerWidth <= 768; // Detect mobile screen
+            const promptInput = document.getElementById('prompt-input');
+
             if (type === 'design') {
                 document.getElementById('sidebar-logo-text').innerText = 'AXELR DESIGN';
                 document.getElementById('hero-title-text').innerText = 'What are we designing today?';
                 document.getElementById('hero-sub-text').innerText = 'AI-powered UI/UX generation & live deployment.';
-                document.getElementById('prompt-input').placeholder = "Upload a mockup or request a UI component...";
+                promptInput.placeholder = isMobile ? "Upload a mockup..." : "Upload a mockup or request a UI component...";
             } else {
                 document.getElementById('sidebar-logo-text').innerText = 'AXELR DATA';
                 document.getElementById('hero-title-text').innerText = 'What are we building today?';
                 document.getElementById('hero-sub-text').innerText = 'AI-powered architecture and data execution.';
-                document.getElementById('prompt-input').placeholder = "Upload a receipt, invoice, or CSV for extraction...";
+                promptInput.placeholder = isMobile ? "Upload a receipt..." : "Upload a receipt, invoice, or CSV for extraction...";
             }
             resetToNewChat(isBoot); 
-            
-            // 🟢 ADD THIS LINE: Refresh the sidebar history when switching matrices
             if (!isBoot) loadArchiveLogs(); 
         }
 
+        // Add this listener so it updates if the user rotates their phone
+        window.addEventListener('resize', () => {
+            const currentWorkspace = localStorage.getItem('Axelr_workspace') || 'data';
+            activateWorkspace(currentWorkspace, true);
+        });
         function resetToNewChat(isBoot = false) {
             activeSessionId = null; runningStructuredCache = null; stagedFiles = []; renderFileChips(); 
             localStorage.removeItem('Axelr_active_session'); 
