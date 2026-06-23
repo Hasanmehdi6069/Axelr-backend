@@ -10,7 +10,7 @@
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon.png">
     <link rel="apple-touch-icon" sizes="180x180" href="/favicon.png">
     <meta name="theme-color" content="#050505">
-
+    <script src="https://unpkg.com/lucide@latest"></script>
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
@@ -33,8 +33,9 @@
     }
     </script>
     <meta name="description" content="Axelr AI is a powerful intelligence execution platform. Convert unstructured data and automate UI/UX development with our AI-driven architecture.">
-    <meta name="keywords" content="Axelr, Axelr AI, AI Data Extraction, UI UX Automation, React Tailwind Generator">
+    <meta name="keywords" content="Axelr, Axelr AI, axelr, axelr ai, AI Data Extraction, UI UX Automation, React Tailwind Generator">
     
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,600,1,0" rel="stylesheet" />
     <link rel="canonical" href="https://axelr.in" />
     <meta name="google-site-verification" content="e96SOh5vBpARlBZU6J30Mz4oUUC2VKJ-Bb-j57JxzTY" />
     <link rel="icon" type="image/png" href="/favicon.png">
@@ -318,8 +319,14 @@
 
         body.workspace-design #quota-fill-bar { background: #ef4444 !important; }
         body.workspace-design .matrix-dot { color: #ef4444 !important; }
-        body.workspace-design .ai-avatar-bubble svg path:nth-child(2) { stroke: #ef4444 !important; }
-        
+        body.workspace-design .ai-avatar-bubble svg path:nth-child(2) { stroke: #ef4444 !important;}
+        body.workspace-design .material-symbols-rounded {
+  font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  font-size: 35px;
+  margin-right: 6px;
+  color: #ef4444  /* Your red green brand color */
+}  
         /* 🟢 DYNAMIC SETTLING BANNER ANIMATIONS */
         @keyframes settleIn {
             0% { transform: translateY(40px) scale(0.95); opacity: 0; }
@@ -464,6 +471,218 @@
     .hero-text p { font-size: 11px !important; }
     .workspace-header { padding-left: 35px !important; }
 }
+.tab-content svg { width: 25px; height: 25x; margin-right: 8px; vertical-align: middle; margin-bottom: 8px ; }
+.material-symbols-rounded {
+  font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24;
+  vertical-align: middle;
+  font-size: 35px;
+  margin-right: 6px;
+  color: #10B981; /* Your neon green brand color */
+}
+
+/* Base Workspace Color Mappings */
+:root, :root.theme-data {
+    --brand-accent: #10B981;          /* High-Vibrancy Neon Emerald */
+    --brand-accent-glow: rgba(16, 185, 129, 0.25);
+    --workspace-bg-surface: #0A0F0D;   /* Dark Emerald Base Tint */
+}
+
+:root.theme-design {
+    --brand-accent: #EF4444;          /* High-Vibrancy Electric Crimson */
+    --brand-accent-glow: rgba(239, 68, 68, 0.25);
+    --workspace-bg-surface: #0F0A0A;   /* Dark Crimson Base Tint */
+}
+/* Dynamic Percentage Tracking Bar Wrapper */
+.quota-progress-container {
+    width: 100%;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    padding: 12px;
+    margin: 10px 0;
+}
+
+.quota-progress-track {
+    width: 100%;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+}
+
+.quota-progress-fill {
+    height: 100%;
+    width: 0%; /* Populated via runtime runtime JS execution */
+    background: linear-gradient(90deg, var(--brand-accent), #FFFFFF);
+    box-shadow: 0 0 8px var(--brand-accent-glow);
+    transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+/* ==========================================================================
+   AXELR ENGINE VISUAL IDENTITY PLATFORM - PLACE AT THE BOTTOM OF YOUR <style> TAG
+   ========================================================================== */
+
+/* 1. Global Dynamic Variable Anchors */
+:root, .workspace-mode-data {
+    --axelr-brand-dynamic: #10B981;          /* Neon Green */
+    --axelr-glow-dynamic: rgba(16, 185, 129, 0.2);
+}
+
+.workspace-mode-design {
+    --axelr-brand-dynamic: #EF4444;          /* Crimson Red */
+    --axelr-glow-dynamic: rgba(239, 68, 68, 0.2);
+}
+
+/* 2. Workspace Select Button Symbols Fix */
+.workspace-btn-data.active-state .material-symbols-rounded {
+    color: #10B981 !important;
+    text-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+}
+
+.workspace-btn-design.active-state .material-symbols-rounded {
+    color: #EF4444 !important;
+    text-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+}
+
+/* 3. Prompt Enhancer Dynamic Custom Skin */
+.prompt-enhancer-btn {
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    background: rgba(10, 10, 10, 0.8) !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Hover effects driven directly by active engine state */
+.prompt-enhancer-btn:hover {
+    border-color: var(--axelr-brand-dynamic) !important;
+    box-shadow: 0 0 14px var(--axelr-glow-dynamic) !important;
+}
+
+/* CRITICAL: Keeps your icon size exactly the same as original, only changes color */
+.prompt-enhancer-btn .material-symbols-rounded {
+    color: var(--axelr-brand-dynamic) !important;
+    font-size: 20px !important; /* Preserves your exact layout size */
+    transition: color 0.2s ease !important;
+}
+/* =========================================================
+   📱 THE ULTIMATE MOBILE MASTERPIECE FIX (Up to 480px)
+   ========================================================= */
+@media (max-width: 480px) {
+    /* 1. SMASH THE PRICING TIER OVERFLOW */
+    /* Overrides the inline minmax(320px) grid that breaks 280px phones */
+    .axelr-pricing-container > div[style*="display: grid"] {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        overflow-x: hidden !important;
+    }
+    .tier-card, .pro-premium, .business-premium {
+        width: 100% !important;
+        max-width: 100vw !important;
+        min-width: 0 !important;
+        padding: 20px 15px !important;
+        box-sizing: border-box !important;
+    }
+
+    /* 2. FIX THE SQUISHED AVATAR ICON */
+    /* Prevents flexbox from crushing the profile picture into an oval */
+    .user-avatar, img[referrerpolicy="no-referrer"] {
+        width: 32px !important;
+        height: 32px !important;
+        min-width: 32px !important;
+        min-height: 32px !important;
+        flex-shrink: 0 !important;
+        object-fit: cover !important;
+        border-radius: 50% !important;
+    }
+
+    /* 3. FIX THE GOOGLE LOGIN BUTTON ALIGNMENT */
+    /* Forces the icon and text to align cleanly without wrapping */
+    div[onclick*="signIn"], .auth-card button {
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 12px !important;
+        flex-wrap: nowrap !important;
+        white-space: nowrap !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+    }
+    div[onclick*="signIn"] img, div[onclick*="signIn"] svg {
+        flex-shrink: 0 !important;
+        width: 22px !important;
+        height: 22px !important;
+    }
+
+    /* 4. SUB-TIER TEXT WRAP FIX */
+    .tier-card label > div > div:first-child {
+        flex-wrap: wrap !important;
+        gap: 5px !important;
+    }
+    .tier-card label { padding: 10px !important; }
+}
+/* =========================================================
+   📱 ULTRA-MOBILE MASTERPIECE OPTIMIZATION (280px - 480px)
+   ========================================================= */
+@media (max-width: 480px) {
+    /* 1. Fix Workspace Selector Cards (Stop them from bleeding off screen) */
+    .workspace-card {
+        width: 100% !important;
+        max-width: 320px !important;
+        padding: 24px 16px !important; /* Reclaim internal padding space */
+        box-sizing: border-box !important;
+    }
+    .ws-icon { font-size: 36px !important; margin-bottom: 12px !important; }
+    .ws-title { font-size: 18px !important; }
+
+    /* 2. Fix Pricing Tiers & Sub-tier Matrix Collisions */
+    .axelr-pricing-container {
+        padding: 10px !important;
+    }
+    .tier-card {
+        padding: 20px 14px !important; /* Tighten the outer box */
+    }
+    .tier-card h3 { font-size: 16px !important; }
+    div[id$="-base-price-output"] { font-size: 28px !important; margin-bottom: 16px !important; }
+    
+    /* Force inner text rows to wrap gracefully instead of overlapping */
+    .tier-card label > div > div:first-child {
+        flex-wrap: wrap !important;
+        gap: 4px !important;
+    }
+    .tier-card label span { font-size: 12px !important; }
+    .tier-card label .sub-box-desc, 
+    .tier-card label div[style*="color: #888"],
+    .tier-card label div[style*="color: #666"] {
+        font-size: 10px !important; /* Shrink descriptions so they fit */
+    }
+
+    /* 3. Header Hubs (Prevent Avatar and Model Selector from colliding) */
+    .workspace-header { padding: 0 10px 0 40px !important; }
+    #model-selector { font-size: 12px !important; padding: 4px 8px !important; }
+    #model-selector .badge { font-size: 9px !important; }
+    .user-avatar { width: 28px !important; height: 28px !important; }
+
+    /* 4. Auth Wall Shrink */
+    .auth-card { padding: 25px 15px !important; }
+    .auth-logo svg { width: 28px !important; height: 28px !important; }
+    .auth-logo span { font-size: 22px !important; }
+
+    /* 5. Command Bar & Input Squeezing */
+    .command-wrapper { padding-left: 38px !important; padding-right: 10px !important; padding-bottom: 15px !important; }
+    .input-frame { padding: 8px 10px !important; border-radius: 18px !important; }
+    .action-btn { width: 30px !important; height: 30px !important; }
+    
+    /* Scale down the SVG icons inside the tiny buttons */
+    .action-btn svg, .enhance-btn .material-symbols-rounded { 
+        width: 16px !important; 
+        height: 16px !important; 
+        font-size: 16px !important; 
+    }
+}
+
 </style>
 
     
@@ -489,7 +708,7 @@
                 </svg>
                 <span style="font-weight: 900; letter-spacing: 3px; font-family: 'JetBrains Mono', monospace;">AXELR</span>
             </div>
-            <p class="auth-sub">Intelligence Execution Platform.<br>Cryptographic ID required to proceed.</p>
+            <p class="auth-sub">Intelligence Execution Platform.<br>Sign in to Continue.</p>
             
             <div id="g_id_onload"
                  data-client_id="474929925590-a0it7ijp845oqbni72iaqpsvqdvnu0jd.apps.googleusercontent.com"
@@ -514,15 +733,15 @@
     </div>
 
     <div id="workspace-selector">
-        <h2 style="color: #fff; margin-bottom: 30px; font-size: 28px;">Select Your Intelligence Matrix</h2>
+        <h2 style="color: #fff; margin-bottom: 30px; font-size: 28px;">Select Workspace</h2>
         <div class="ws-grid">
             <div class="workspace-card data" onclick="selectWorkspace('data')">
-                <div class="ws-icon">📊</div>
+                <span class="material-symbols-rounded">database</span> 
                 <h3 class="ws-title">Axelr Data</h3>
                 <p class="ws-desc">Transform documents, receipts, and CSVs into structured business intelligence.</p>
             </div>
             <div class="workspace-card design" onclick="selectWorkspace('design')">
-                <div class="ws-icon">🎨</div>
+                <span class="material-symbols-rounded">web</span> 
                 <h3 class="ws-title">Axelr Design</h3>
                 <p class="ws-desc">Convert mockups, wireframes, and screenshots into live React & Tailwind code.</p>
             </div>
@@ -574,32 +793,106 @@
                 <div class="modal-title">Upgrade Workspace</div>
                 <button class="close-modal-btn" onclick="closeModals()">✕</button>
             </div>
-            <div class="upgrade-grid">
-                <div class="tier-card">
-                    <div style="font-weight: 600; color: var(--text-muted); font-size: 16px;">Free</div>
-                    <div class="tier-price">$0<span>/month</span></div>
-                    <div class="tier-feature">✓ 5 Queries Per Day</div>
-                    <div class="tier-feature">✓ Standard Processing</div>
-                    <button class="modal-submit-btn" style="margin-top: auto; background: var(--bg-deep); color: var(--text-muted); cursor: default;" disabled>Current Plan</button>
-                </div>
-                <div class="tier-card pro">
-                    <div style="font-weight: 600; color: var(--accent-glow-pro); font-size: 16px;">Pro</div>
-                    <div class="tier-price">$15<span>/month</span></div>
-                    <div class="tier-feature">✓ 50 Extractions / Day</div>
-                    <div class="tier-feature">✓ Custom AI Personalization</div>
-                    <button class="modal-submit-btn" style="margin-top: auto; background: var(--accent-glow-pro); color: #000;" onclick="redirectToStripeBillingCheckout('pro')">Upgrade</button>
-                </div>
-                <div class="tier-card designer">
-                    <div style="font-weight: 600; color: var(--accent-glow-designer); font-size: 16px;">Designer</div>
-                    <div class="tier-price">$30<span>/month</span></div>
-                    <div class="tier-feature">✓ 100 UI/UX Generations / Day</div>
-                    <div class="tier-feature">✓ One-Click Live Deployment</div>
-                    <button class="modal-submit-btn" style="margin-top: auto; background: var(--accent-glow-designer); color: #fff;" onclick="redirectToStripeBillingCheckout('designer')">Upgrade</button>
-                </div>
+<div class="axelr-pricing-container" style="display: flex; flex-direction: column; gap: 24px; width: 100%; max-width: 1200px; margin: 0 auto; padding: 20px; box-sizing: border-box; font-family: system-ui, -apple-system, sans-serif;">
+    
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; width: 100%;">
+        
+        <div class="tier-card pro-premium" style="background: #0A0F0D; border: 1px solid rgba(16, 185, 129, 0.15); border-radius: 16px; padding: 28px; display: flex; flex-direction: column; position: relative; box-shadow: 0 8px 32px rgba(0,0,0,0.4); min-width: 0;">
+            <div style="position: absolute; top: 16px; right: 16px; background: rgba(16, 185, 129, 0.1); color: #10B981; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px; letter-spacing: 1px;">RECOMMENDED</div>
+            <h3 style="margin: 0 0 4px 0; font-size: 18px; color: #FFF; font-weight: 600;">Pro </h3>
+            <p style="margin: 0 0 20px 0; font-size: 13px; color: #888; line-height: 1.4;">Perfect for solo developers and freelancers who need reliable daily usage limits.</p>
+            
+            <div id="pro-base-price-output" style="font-size: 36px; font-weight: 700; color: #FFF; margin-bottom: 24px;">$15<span style="font-size: 14px; color: #555; font-weight: 400;">/mo</span></div>
+            
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px;">
+                
+                <label style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: rgba(255,255,255,0.02); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+                    <input type="radio" name="pro-sub-selector" value="full" checked onclick="syncTierMatrixEngine('pro', 'full', 15)" style="margin-top: 3px; accent-color: #10B981;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                            <span style="color: #FFF; font-size: 13px; font-weight: 600;">Full Stack Bundle</span>
+                            <span style="color: #10B981; font-size: 13px; font-weight: 700;">$15</span>
+                        </div>
+                        <div style="color: #888; font-size: 11px; line-height: 1.3;">10 UI Generations + 15 Data Extractions + 3 Prompt Enhances per day.</div>
+                    </div>
+                </label>
+
+                <label style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+                    <input type="radio" name="pro-sub-selector" value="data" onclick="syncTierMatrixEngine('pro', 'data', 8)" style="margin-top: 3px; accent-color: #10B981;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                            <span style="color: #CCC; font-size: 13px; font-weight: 500;">Data Extraction Only</span>
+                            <span style="color: #AAA; font-size: 13px; font-weight: 600;">$8</span>
+                        </div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">15 Data Extractions + 3 Prompt Enhances per day. No UI Generation access.</div>
+                    </div>
+                </label>
+
+                <label style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+                    <input type="radio" name="pro-sub-selector" value="design" onclick="syncTierMatrixEngine('pro', 'design', 9)" style="margin-top: 3px; accent-color: #10B981;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                            <span style="color: #CCC; font-size: 13px; font-weight: 500;">UI Generation Only</span>
+                            <span style="color: #AAA; font-size: 13px; font-weight: 600;">$9</span>
+                        </div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">10 UI Generations + 3 Prompt Enhances per day. No Data Extraction access.</div>
+                    </div>
+                </label>
+            </div>
+
+            <button style="width: 100%; padding: 14px; background: #10B981; color: #000; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity 0.2s ease; margin-top: auto;" onclick="dispatchCheckoutPipeline('pro')">Upgrade to Pro</button>
+        </div>
+
+        <div class="tier-card business-premium" style="background: #0F0A0A; border: 1px solid rgba(239, 68, 68, 0.15); border-radius: 16px; padding: 28px; display: flex; flex-direction: column; position: relative; box-shadow: 0 8px 32px rgba(0,0,0,0.4); min-width: 0;">
+            <div style="position: absolute; top: 16px; right: 16px; background: rgba(239, 68, 68, 0.1); color: #EF4444; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px; letter-spacing: 1px;">HEAVY HITTERS</div>
+            <h3 style="margin: 0 0 4px 0;margin-top: 15px; font-size: 18px; color: #FFF; font-weight: 600; padding-right: 110px;">Business</h3>
+            <p style="margin: 0 0 20px 0; font-size: 13px; color: #888; line-height: 1.4;">Built for agencies and power users who need maximum daily outputs.</p>
+            
+            <div id="business-base-price-output" style="font-size: 36px; font-weight: 700; color: #FFF; margin-bottom: 24px;">$29<span style="font-size: 14px; color: #555; font-weight: 400;">/mo</span></div>
+            
+            <div style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px;">
+                
+                <label style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: rgba(255,255,255,0.02); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+                    <input type="radio" name="business-sub-selector" value="full" checked onclick="syncTierMatrixEngine('business', 'full', 29)" style="margin-top: 3px; accent-color: #EF4444;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                            <span style="color: #FFF; font-size: 13px; font-weight: 600;">Full Stack Bundle</span>
+                            <span style="color: #EF4444; font-size: 13px; font-weight: 700;">$29</span>
+                        </div>
+                        <div style="color: #888; font-size: 11px; line-height: 1.3;">15 UI Generations + 20 Data Extractions + 5 Prompt Enhances per day.</div>
+                    </div>
+                </label>
+
+                <label style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+                    <input type="radio" name="business-sub-selector" value="data" onclick="syncTierMatrixEngine('business', 'data', 16)" style="margin-top: 3px; accent-color: #EF4444;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                            <span style="color: #CCC; font-size: 13px; font-weight: 500;">Data Ops</span>
+                            <span style="color: #AAA; font-size: 13px; font-weight: 600;">$16</span>
+                        </div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">20 Data Extractions + 5 Prompt Enhances per day. No UI Generation.</div>
+                    </div>
+                </label>
+
+                <label style="display: flex; align-items: flex-start; gap: 12px; padding: 14px; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.04); border-radius: 10px; cursor: pointer; transition: all 0.2s ease;">
+                    <input type="radio" name="business-sub-selector" value="design" onclick="syncTierMatrixEngine('business', 'design', 16)" style="margin-top: 3px; accent-color: #EF4444;">
+                    <div style="flex: 1; min-width: 0;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2px;">
+                            <span style="color: #CCC; font-size: 13px; font-weight: 500;">Designer</span>
+                            <span style="color: #AAA; font-size: 13px; font-weight: 600;">$16</span>
+                        </div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">15 UI Generations + 5 Prompt Enhances per day. No Data Extraction.</div>
+                    </div>
+                </label>
+            </div>
+
+            <button style="width: 100%; padding: 14px; background: #EF4444; color: #FFF; border: none; border-radius: 10px; font-size: 14px; font-weight: 700; cursor: pointer; transition: opacity 0.2s ease; margin-top: auto;" onclick="dispatchCheckoutPipeline('business')">Upgrade to Business</button>
+        </div>
             </div>
             <div style="font-size: 12px; color: var(--text-muted); margin-top: 10px; text-align: center;">Cancel anytime. Secure processing via Stripe.</div>
         </div>
     </div>
+</div>
 
     <div class="modal-overlay" id="subscription-modal">
         <div class="modal-card">
@@ -648,21 +941,26 @@
                 <button class="tab-btn" id="tab-archived" onclick="switchSidebarTab('archived')">Archive</button>
                 <button class="tab-btn" id="tab-trashed" onclick="switchSidebarTab('trashed')">Trash</button>
             </div>
-            <div class="sidebar-search-box"><input type="text" placeholder="Search matrix logs..." id="sidebar-search-input" onkeyup="filterSidebarLogs()"></div>
+            <div class="sidebar-search-box"><input type="text" placeholder="Search history..." id="sidebar-search-input" onkeyup="filterSidebarLogs()"></div>
             <div id="sidebar-content">
-                <div class="sidebar-section-label">Recent Intel</div>
+                <div class="sidebar-section-label">Recent Chats</div>
                 <div id="history-list-container"></div>
             </div>
             <div class="sidebar-footer">
                 <div class="sidebar-sub-box" onclick="showWorkspaceSelector()">
-                    <div class="sub-box-title">Switch Matrix <span style="font-size:14px">🔁</span></div>
+                    <div class="sub-box-title">Switch Workspace <span style="font-size:14px">🔁</span></div>
                     <div class="sub-box-desc">Change between Data & Design intelligence.</div>
                 </div>
 
-                <div class="sidebar-sub-box" style="cursor:default;">
-                    <div class="sub-box-title">Daily Quota <span id="quota-text" style="font-size: 10px; font-weight:normal; color:var(--text-muted);">0 / 5</span></div>
-                    <div style="width: 100%; height: 4px; background: var(--bg-deep); border-radius: 2px; overflow: hidden;"><div id="quota-fill-bar" style="height: 100%; width: 0%; background: var(--accent-glow); transition: width 0.3s;"></div></div>
-                </div>
+                <div class="axelr-quota-box" style="width: 100%; padding: 14px; background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; margin-bottom: 15px;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <span style="color: #888; font-size: 11px; font-family: monospace; letter-spacing: 0.5px;">WORKSPACE QUOTA</span>
+        <span id="quota-numerical-count" style="color: #FFF; font-size: 11px; font-family: monospace; font-weight: 600;">0/0 Used</span>
+    </div>
+    <div style="width: 100%; height: 5px; background: rgba(255,255,255,0.05); border-radius: 3px; overflow: hidden;">
+        <div id="quota-progress-bar-fill" style="width: 0%; height: 100%; background: linear-gradient(90deg, var(--axelr-brand-dynamic), #FFF); transition: width 0.4s ease;"></div>
+    </div>
+</div>
                 <div class="sidebar-sub-box" onclick="openBillingFlow()">
                     <div class="sub-box-title">Workspace Plan <span id="sidebar-plan-badge" style="background: var(--border-muted); padding: 2px 6px; border-radius: 4px; font-size: 9px;">FREE</span></div>
                     <div class="sub-box-desc">Manage your workspace access.</div>
@@ -736,7 +1034,8 @@
                     </button>
                     <textarea id="prompt-input" rows="1" placeholder="Issue command to the matrix..."></textarea>
                     <div class="input-actions">
-                        <button class="action-btn enhance-btn" id="enhance-trigger" title="✨ Auto-Enhance Prompt" onclick="enhanceUserPrompt()">✨</button>
+                        
+                        <button class="action-btn enhance-btn" id="enhance-trigger" title="✨ Auto-Enhance Prompt" onclick="enhanceUserPrompt()"><span class="material-symbols-rounded">Auto_awesome</span></button>
                         <button class="action-btn mic-btn" id="mic-trigger" title="Issue Vocal Command"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/><path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg></button>
                         <button class="action-btn send-btn" id="send-trigger" onclick="executeCommand()" disabled title="Execute Command"><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg></button>
                     </div>
@@ -1020,6 +1319,123 @@
         }
 
         // UNIFIED STATE MANAGEMENT 
+        // State manager for checkout matrix selection tabs
+function setPricingModalState(selectedMode) {
+    const dataAccessCheckbox = document.getElementById('sub-tier-data-toggle');
+    const designAccessCheckbox = document.getElementById('sub-tier-design-toggle');
+    const displayPriceElement = document.getElementById('checkout-total-price-string');
+
+    if (selectedMode === 'full_stack') {
+        dataAccessCheckbox.checked = true;
+        designAccessCheckbox.checked = true;
+        displayPriceElement.innerText = "$15/month";
+    } else if (selectedMode === 'data_only') {
+        dataAccessCheckbox.checked = true;
+        designAccessCheckbox.checked = false;
+        displayPriceElement.innerText = "$8/month";
+    } else if (selectedMode === 'design_only') {
+        dataAccessCheckbox.checked = false;
+        designAccessCheckbox.checked = true;
+        displayPriceElement.innerText = "$9/month";
+    }
+}
+function transitionActiveWorkspace(targetLayoutMode) {
+    const rootElement = document.documentElement;
+    const dataTabButton = document.getElementById('data-extraction-selector-tab');
+    const designTabButton = document.getElementById('ui-generation-selector-tab');
+
+    if (targetLayoutMode === 'design') {
+        rootElement.classList.remove('theme-workspace-data');
+        rootElement.classList.add('theme-workspace-design');
+        
+        // Update active class indicators for workspace layout elements
+        dataTabButton.classList.remove('data-tab-active');
+        designTabButton.classList.add('design-tab-active');
+    } else {
+        rootElement.classList.remove('theme-workspace-design');
+        rootElement.classList.add('theme-workspace-data');
+        
+        designTabButton.classList.remove('design-tab-active');
+        dataTabButton.classList.add('data-tab-active');
+    }
+}
+        function updateVisualQuotaMetrics(activeWorkspace) {
+    // Simulated operational state context vector derived from auth verification pipeline
+    const userDataMetrics = {
+        tier: 'pro',
+        subTierOptions: { hasDataAccess: true, hasDesignAccess: true },
+        usedExtractions: 6,
+        allowedExtractions: 15,
+        usedGenerations: 2,
+        allowedGenerations: 10
+    };
+
+    let percentageUsed = 0;
+    let computedLabel = "";
+
+    if (activeWorkspace === 'data') {
+        percentageUsed = (userDataMetrics.usedExtractions / userDataMetrics.allowedExtractions) * 100;
+        computedLabel = `Data Core Pipeline Allocation: ${userDataMetrics.usedExtractions} / ${userDataMetrics.allowedExtractions} Units Consumed`;
+    } else {
+        percentageUsed = (userDataMetrics.usedGenerations / userDataMetrics.allowedGenerations) * 100;
+        computedLabel = `UI Compute Core Engine Usage: ${userDataMetrics.usedGenerations} / ${userDataMetrics.allowedGenerations} Units Consumed`;
+    }
+
+    // Bind values straight to the presentation layers
+    document.getElementById('quota-percentage-text').innerText = computedLabel;
+    document.getElementById('quota-fill-indicator').style.width = `${Math.min(percentageUsed, 100)}%`;
+}
+// Paste this or update your existing workspace toggle logic
+function switchAxelrWorkspace(mode) {
+    const root = document.documentElement;
+    const dataButton = document.getElementById('data-tab-trigger'); // Use your actual element IDs
+    const designButton = document.getElementById('design-tab-trigger');
+
+    if (mode === 'design') {
+        root.classList.remove('workspace-mode-data');
+        root.classList.add('workspace-mode-design');
+        
+        designButton.classList.add('active-state');
+        dataButton.classList.remove('active-state');
+    } else {
+        root.classList.remove('workspace-mode-design');
+        root.classList.add('workspace-mode-data');
+        
+        dataButton.classList.add('active-state');
+        designButton.classList.remove('active-state');
+    }
+
+    // Instantly refresh the progress bar metrics based on the current workspace limit
+    renderLiveUsageMetrics(mode);
+}
+
+function renderLiveUsageMetrics(activeWorkspace) {
+    // Example operational context state vector values
+    const mockUserMetrics = {
+        tier: 'pro',
+        usedData: 4,
+        maxData: 15,
+        usedDesign: 2,
+        maxDesign: 10
+    };
+
+    let used = 0;
+    let max = 0;
+
+    if (activeWorkspace === 'design') {
+        used = mockUserMetrics.usedDesign;
+        max = mockUserMetrics.maxDesign;
+    } else {
+        used = mockUserMetrics.usedData;
+        max = mockUserMetrics.maxData;
+    }
+
+    const percentage = (used / max) * 100;
+
+    // Direct UI updates
+    document.getElementById('quota-numerical-count').innerText = `${used}/${max} Used (${Math.round(percentage)}%)`;
+    document.getElementById('quota-progress-bar-fill').style.width = `${Math.min(percentage, 100)}%`;
+}
         fileInput.addEventListener('change', (e) => { 
             let maxBytes = 5 * 1024 * 1024; 
             let maxFilesAllowed = 2;
@@ -1106,7 +1522,22 @@ function renderFileChips() {
             resetToNewChat(isBoot); 
             if (!isBoot) loadArchiveLogs(); 
         }
-
+function selectWorkspaceContext(targetEngine) {
+    const rootElement = document.documentElement;
+    
+    if (targetEngine === 'design') {
+        rootElement.classList.remove('theme-data');
+        rootElement.classList.add('theme-design');
+        console.log("[Axelr Engine Context] Design Workspace Active. Crimson Palette Implemented.");
+    } else {
+        rootElement.classList.remove('theme-design');
+        rootElement.classList.add('theme-data');
+        console.log("[Axelr Engine Context] Data Workspace Active. Emerald Palette Implemented.");
+    }
+    
+    // Rerender interface parameters to draw appropriate limits
+    updateVisualQuotaMetrics(targetEngine);
+}
         // Add this listener so it updates if the user rotates their phone
         window.addEventListener('resize', () => {
             const currentWorkspace = localStorage.getItem('Axelr_workspace') || 'data';
@@ -1701,8 +2132,89 @@ if (data.type === 'chunk') {
             const type = document.getElementById('report-type').value; const description = document.getElementById('feedback-input').value.trim(); if (!description) return; const btn = document.querySelector('#feedback-modal .modal-submit-btn'); const originalText = btn.innerText; btn.innerText = "Dispatching..."; btn.disabled = true;
             try { const response = await fetch(`${API_BASE_URL}/api/reports`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${googleAuthUserToken}` }, body: JSON.stringify({ type, description }) }); if (response.ok) { btn.innerText = "Log Secured"; btn.style.background = "var(--accent-secondary)"; btn.style.color = "#fff"; setTimeout(() => { closeModals(); document.getElementById('feedback-input').value = ''; btn.innerText = originalText; btn.style.background = "#fff"; btn.style.color = "#000"; btn.disabled = false; }, 1500); } } catch (error) { btn.innerText = originalText; btn.disabled = false; }
         }
-        
-    </script>
+        let isolatedSelectionElementTarget = null;
+
+function bindComponentIsolationListener(iframeDOMReference) {
+    const targetIframeDocument = iframeDOMReference.contentDocument || iframeDOMReference.contentWindow.document;
+
+    targetIframeDocument.addEventListener('mouseover', (e) => {
+        const componentContainerNode = e.target.closest('[data-component-id]');
+        if (componentContainerNode) {
+            componentContainerNode.style.outline = "2px dashed var(--brand-accent)";
+            componentContainerNode.style.cursor = "pointer";
+        }
+    });
+
+    targetIframeDocument.addEventListener('mouseout', (e) => {
+        const componentContainerNode = e.target.closest('[data-component-id]');
+        if (componentContainerNode) {
+            componentContainerNode.style.outline = "none";
+        }
+    });
+
+    targetIframeDocument.addEventListener('click', (e) => {
+        const componentContainerNode = e.target.closest('[data-component-id]');
+        if (componentContainerNode) {
+            e.preventDefault();
+            e.stopPropagation();
+
+            isolatedSelectionElementTarget = {
+                componentId: componentContainerNode.getAttribute('data-component-id'),
+                sourceRawCodeBlock: componentContainerNode.outerHTML
+            };
+            if(typeof openSurgicalModificationPromptInterface === "function") {
+                openSurgicalModificationPromptInterface(isolatedSelectionElementTarget.componentId);
+            }
+        }
+    });
+}
+
+function syncTierMatrixEngine(tierGroup, subTierSelection, derivedCostValue) {
+    const targetOutputNode = document.getElementById(`${tierGroup}-base-price-output`);
+    if (targetOutputNode) {
+        targetOutputNode.innerHTML = `$${derivedCostValue}<span style="font-size: 14px; color: #555; font-weight: 400;">/mo</span>`;
+    }
+}
+
+async function dispatchCheckoutPipeline(targetBaseTier) {
+    const selectedSubConfig = document.querySelector(`input[name="${targetBaseTier}-sub-selector"]:checked`).value;
+    const checkoutBtn = document.querySelector(`.${targetBaseTier}-premium button`);
+    const originalText = checkoutBtn.innerText;
     
+    checkoutBtn.innerText = "Connecting to Stripe...";
+    checkoutBtn.style.opacity = "0.7";
+    checkoutBtn.disabled = true;
+    
+    try { 
+        const response = await fetch(`${API_BASE_URL}/api/billing/checkout`, { 
+            method: 'POST', 
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${googleAuthUserToken}` }, 
+            body: JSON.stringify({ tier: targetBaseTier, subTier: selectedSubConfig }) 
+        }); 
+        const data = await response.json(); 
+        if (data.url) {
+            window.location.href = data.url; 
+        } else {
+            checkoutBtn.innerText = "Checkout Failed";
+            setTimeout(() => { checkoutBtn.innerText = originalText; checkoutBtn.disabled = false; checkoutBtn.style.opacity = "1"; }, 2000);
+        }
+    } catch(e) {
+        checkoutBtn.innerText = "Network Error";
+        setTimeout(() => { checkoutBtn.innerText = originalText; checkoutBtn.disabled = false; checkoutBtn.style.opacity = "1"; }, 2000);
+    }
+}
+// KILLS THE FATAL COMPONENT ISOLATION BUG
+function openSurgicalModificationPromptInterface(componentId) {
+    const promptInput = document.getElementById('prompt-input');
+    promptInput.value = `[Modifying Isolated Target: ${componentId}] -> `;
+    promptInput.focus();
+    // Flash the input box red so the user knows they are in surgical mode
+    promptInput.style.boxShadow = "0 0 15px rgba(239, 68, 68, 0.8)";
+    setTimeout(() => promptInput.style.boxShadow = "none", 1500);
+}
+    </script>
+    <script>
+  lucide.createIcons();
+</script>
 </body>
 </html>
