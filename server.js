@@ -1,12 +1,16 @@
-// const Sentry = require("@sentry/node");
-// const { nodeProfilingIntegration } = require("@sentry/profiling-node");
-
-// Sentry.init({
-//   dsn: process.env.SENTRY_DSN, 
-//   integrations: [ nodeProfilingIntegration(), Sentry.autoDiscoverNodePerformanceMonitoringMiddleware(), ],
-//   tracesSampleRate: 1.0,
-// });
+const Sentry = require("@sentry/node");
+Sentry.init({
+  dsn: process.env.SENTRY_DSN,
+  environment: process.env.NODE_ENV
+});
+process.on('SIGTERM', async () => {
+  console.log('Shutting down gracefully...');
+  await mongoose.disconnect();
+  server.close(() => process.exit(0));
+});
 require('dotenv').config();
+process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
+process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Rejection:', reason));
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet'); 
@@ -119,27 +123,31 @@ const BugReportSchema = new mongoose.Schema({
 BugReportSchema.index({ createdAt: -1 });
 const BugReport = mongoose.model('BugReport', BugReportSchema);
 
+// Replace authenticateUser with this:
 const authenticateUser = async (req, res, next) => {
-    try {
-        const authHeader = req.headers.authorization;
-        if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: "Auth missing." });
-
-        const token = authHeader.split(' ')[1];
-        const ticket = await googleClient.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
-        const payload = ticket.getPayload();
-
-        let user = await User.findOne({ googleId: payload.sub });
-        if (!user) user = await User.create({ googleId: payload.sub, email: payload.email, name: payload.name });
-
-        const today = new Date().setHours(0, 0, 0, 0);
-        const lastUsage = new Date(user.lastUsageDate).setHours(0, 0, 0, 0);
-
-        if (today > lastUsage) {
-            user.dailyUsage = 0; user.dailyUiUxUsage = 0; user.storageBytesUsed = 0; user.lastUsageDate = new Date(); await user.save();
-        }
-
-        req.currentUser = user; next();
-    } catch (e) { res.status(401).json({ error: "Session Expired." }); }
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ error: "AUTH_REQUIRED" });
+    }
+    
+    const token = authHeader.split(' ')[1];
+    const ticket = await googleClient.verifyIdToken({ 
+      idToken: token, 
+      audience: GOOGLE_CLIENT_ID 
+    });
+    
+    const user = await User.findOneAndUpdate(
+      { googleId: ticket.getPayload().sub },
+      { $setOnInsert: { email: ticket.getPayload().email } },
+{ upsert: true, returnDocument: 'after' });
+    
+    req.currentUser = user;
+    next();
+  } catch (error) {
+    console.error('[AUTH_FAIL]', error);
+    res.status(401).json({ error: "SESSION_EXPIRED" });
+  }
 };
 
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
@@ -163,7 +171,7 @@ app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
     } catch (e) { res.status(500).json({ error: "TELEMETRY_FAILED" }); }
 });
 
-app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), async (req, res) => {
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: '10kb' }), async (req, res) => {
     const sig = req.headers['stripe-signature'];
     let event;
     try { event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET); } 
@@ -198,6 +206,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), asyn
 });
 
 app.use(express.json());
+app.use((req, res, next) => { req.setTimeout(120000); next(); });
 
 const storage = multer.diskStorage({ destination: os.tmpdir(), filename: (req, file, cb) => cb(null, `${Date.now()}-${file.originalname}`) });
 const upload = multer({ storage: storage, limits: { fileSize: 100 * 1024 * 1024 } }); // Hard limit to prevent RAM death
@@ -351,7 +360,7 @@ app.post('/api/rename-chat', authenticateUser, async (req, res) => {
 
 const enforceAxelrPipelineQuotas = async (req, res, next) => {
     try {
-        const user = await mongoose.model('User').findById(req.currentUser?._id);
+        const user = await User.findById(req.currentUser?._id);
         if (!user) return res.status(401).json({ error: "UNAUTHORIZED_ACCESS" });
 
         const now = new Date();
@@ -364,7 +373,7 @@ const enforceAxelrPipelineQuotas = async (req, res, next) => {
             user.quotas.dailyGenerationsUsed = 0;
             user.quotas.dailyEnhancementsUsed = 0;
             user.quotas.lastQuotaResetTimestamp = now;
-            await user.save();
+            await findOneAndUpdate
         }
 
         // Determine request target path constraints
@@ -457,8 +466,8 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
         if (req.currentUser.tier === 'designer') { limit = 100; uiLimit = 100; byteLimit = 50 * 1024 * 1024; } 
         const isUiRequest = workspaceMode === 'design';
 
-        if (req.currentUser.dailyUsage >= limit || (isUiRequest && req.currentUser.dailyUiUxUsage >= uiLimit) || (req.currentUser.storageBytesUsed + totalUploadSize) > byteLimit) {
-            return res.status(403).json({ error: "LIMIT_REACHED", usage: req.currentUser.dailyUsage, limit: limit });
+        if (req.currentUser.quotas.dailyExtractionsUsed>= limit || (isUiRequest && req.currentUser.dailyUiUxUsage >= uiLimit) || (req.currentUser.storageBytesUsed + totalUploadSize) > byteLimit) {
+            return res.status(403).json({ error: "LIMIT_REACHED", usage: req.currentUser.quotas.dailyExtractionsUsed, limit: limit });
         }
 
         let fileParts = await Promise.all(files.map(async (file) => {
