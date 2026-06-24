@@ -24,7 +24,12 @@ const AdmZip = require('adm-zip');
 const app = express();
 // 🟢 Enterprise CORS Security: Only allows requests from your actual website
 app.use(cors({ 
-    origin: process.env.CLIENT_APP_URL || 'https://axelr.in',
+    origin: [
+        'https://axelr.in', 
+        'https://www.axelr.in', 
+        'https://axelr-frontend.pages.dev',
+        process.env.CLIENT_APP_URL
+    ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     credentials: true
 }));
