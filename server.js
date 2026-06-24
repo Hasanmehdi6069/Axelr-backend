@@ -337,7 +337,7 @@ app.post('/api/rename-chat', authenticateUser, async (req, res) => {
         
         const model = genAI.getGenerativeModel({ 
             model: "gemini-2.5-flash",
-            systemInstruction: `You are a titling assistant. Read the following chat start and reply with a short, catchy 3-4 word title. NO quotes, NO extra punctuation. Just the title.`
+            systemInstruction: "You are a titling assistant. Read the following chat start and reply with a short, catchy 3-4 word title. NO quotes, NO extra punctuation. Just the title."
         });
         
         const response = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: chatContext }] }] });
