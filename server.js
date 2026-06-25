@@ -833,13 +833,3 @@ const secureSubTierRouteGuard = async (req, res, next) => {
 
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => console.log(`🟢 ALEXR SYSTEM SECURITY ONLINE ON PORT ${PORT}`));
-
-const gracefulShutdown = async (signal) => {
-    console.log(`\n🟡 ${signal} received - Starting graceful shutdown...`);
-    server.close(() => console.log('🔴 HTTP server closed'));
-    setTimeout(() => process.exit(1), 15000);
-    if (mongoose.connection.readyState === 1) await mongoose.disconnect();
-    process.exit(0);
-};
-process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
-process.on('SIGINT', () => gracefulShutdown('SIGINT'));
