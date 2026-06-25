@@ -61,10 +61,17 @@ mongoose.set('strictQuery', true);
 // ==========================================
 
 const UserSchema = new mongoose.Schema({
-    googleId: String,
+    googleId: { type: String, unique: true },
     email: String,
     displayName: String,
     tier: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
+    // ← ADD THESE MISSING FIELDS
+    dailyUsage: { type: Number, default: 0 },
+    dailyUiUxUsage: { type: Number, default: 0 },
+    storageBytesUsed: { type: Number, default: 0 },
+    lastUsageDate: { type: Date, default: Date.now },
+    customInstructions: { type: String, default: '' },
+    stripeCustomerId: { type: String, sparse: true },
     subTierOptions: {
         hasDataAccess: { type: Boolean, default: false },
         hasDesignAccess: { type: Boolean, default: false }
@@ -116,7 +123,6 @@ const BugReportSchema = new mongoose.Schema({
 BugReportSchema.index({ createdAt: -1 });
 const BugReport = mongoose.model('BugReport', BugReportSchema);
 
-// Replace authenticateUser with this:
 const authenticateUser = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -130,10 +136,51 @@ const authenticateUser = async (req, res, next) => {
       audience: GOOGLE_CLIENT_ID 
     });
     
-    const user = await User.findOneAndUpdate(
-      { googleId: ticket.getPayload().sub },
-      { $setOnInsert: { email: ticket.getPayload().email } },
-{ upsert: true, returnDocument: 'after' });
+    const payload = ticket.getPayload();
+    let user = await User.findOne({ googleId: payload.sub });
+    
+    if (!user) {
+      // Create new user with ALL required fields
+      user = await User.create({
+        googleId: payload.sub,
+        email: payload.email,
+        displayName: payload.name || payload.email,
+        tier: 'free',
+        dailyUsage: 0,  // ← ADD THIS
+        dailyUiUxUsage: 0,  // ← ADD THIS
+        storageBytesUsed: 0,  // ← ADD THIS
+        lastUsageDate: new Date(),  // ← ADD THIS
+        customInstructions: '',
+        subTierOptions: {
+          hasDataAccess: false,
+          hasDesignAccess: false
+        },
+        quotas: {
+          dailyExtractionsUsed: 0,
+          dailyGenerationsUsed: 0,
+          dailyEnhancementsUsed: 0,
+          monthlyEnhancementsLimit: 3,
+          lastQuotaResetTimestamp: new Date()
+        }
+      });
+    } else {
+      // Reset daily quotas if needed
+      const today = new Date().setHours(0, 0, 0, 0);
+      const lastUsage = user.lastUsageDate ? new Date(user.lastUsageDate).setHours(0, 0, 0, 0) : 0;
+      
+      if (today > lastUsage) {
+        user.dailyUsage = 0;
+        user.dailyUiUxUsage = 0;
+        user.storageBytesUsed = 0;
+        user.lastUsageDate = new Date();
+        // Also reset quotas
+        user.quotas.dailyExtractionsUsed = 0;
+        user.quotas.dailyGenerationsUsed = 0;
+        user.quotas.dailyEnhancementsUsed = 0;
+        user.quotas.lastQuotaResetTimestamp = new Date();
+        await user.save();
+      }
+    }
     
     req.currentUser = user;
     next();
@@ -142,7 +189,6 @@ const authenticateUser = async (req, res, next) => {
     res.status(401).json({ error: "SESSION_EXPIRED" });
   }
 };
-
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
     const ADMIN_EMAIL = "shanh1346@gmail.com"; 
     if (req.currentUser.email !== ADMIN_EMAIL) {
@@ -435,7 +481,11 @@ app.put('/api/history/:logId/variant', authenticateUser, async (req, res) => {
         res.status(200).json({ success: true });
     } catch (error) { res.status(500).json({ error: "Variant switch failed" }); }
 });
-
+// 🟢 HEALTH ROUTES - MUST BE BEFORE /api/extract
+app.get('/', (req, res) => res.status(200).send('Axelr API Online'));
+app.get('/api/health', (req, res) => {
+    res.status(200).json({ status: "Axelr System Online", timestamp: new Date().toISOString() });
+});
 // 🟢 THE BULLETPROOF EXTRACT ROUTE
 app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req, res) => {
     // 🛡️ Guard 1: Safe File Initialization
@@ -828,6 +878,20 @@ const secureSubTierRouteGuard = async (req, res, next) => {
         res.status(500).json({ error: "GUARD_RUNTIME_FAULT", details: routeGuardError.message });
     }
 };
+
+// Global error handler - MUST be after all routes
+app.use((err, req, res, next) => {
+    console.error('💥 Global Error:', err.stack);
+    res.status(500).json({ 
+        error: "INTERNAL_SERVER_ERROR",
+        message: process.env.NODE_ENV === 'production' ? "Something went wrong" : err.message 
+    });
+});
+
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({ error: "API endpoint not found" });
+});
 
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => console.log(`🟢 ALEXR SYSTEM SECURITY ONLINE ON PORT ${PORT}`));
