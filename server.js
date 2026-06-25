@@ -3,14 +3,9 @@ Sentry.init({
   dsn: process.env.SENTRY_DSN,
   environment: process.env.NODE_ENV
 });
-process.on('SIGTERM', async () => {
-  console.log('Shutting down gracefully...');
-  await mongoose.disconnect();
-  server.close(() => process.exit(0));
-});
-require('dotenv').config();
 process.on('uncaughtException', (err) => console.error('Uncaught Exception:', err));
 process.on('unhandledRejection', (reason, promise) => console.error('Unhandled Rejection:', reason));
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet'); 
@@ -373,7 +368,7 @@ const enforceAxelrPipelineQuotas = async (req, res, next) => {
             user.quotas.dailyGenerationsUsed = 0;
             user.quotas.dailyEnhancementsUsed = 0;
             user.quotas.lastQuotaResetTimestamp = now;
-            await findOneAndUpdate
+            await user.save();
         }
 
         // Determine request target path constraints
@@ -447,14 +442,84 @@ app.put('/api/history/:logId/variant', authenticateUser, async (req, res) => {
 app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req, res) => {
     // 🛡️ Guard 1: Safe File Initialization
     const files = req.files || [];
-    
+    // ====== REPLACE the entire manual validation block with this ======
+const { z } = require('zod'); // Add at top of file if not present
+
+
+const FileSchema = z.object({
+    size: z.number().max(10 * 1024 * 1024, "File exceeds 10MB limit"),
+    mimetype: z.string().refine(mime => ALLOWED_MIME_TYPES.includes(mime) || false, {
+        message: "Invalid MIME type"
+    }),
+    originalname: z.string()
+});
+
+const PayloadSchema = z.object({
+    files: z.array(FileSchema).max(5, "Maximum 5 files allowed"),
+    command: z.string().max(10000, "Command too long")
+        .refine(cmd => !/<script|javascript:|onerror=|onload=/i.test(cmd), {
+            message: "Command contains disallowed patterns"
+        }),
+    totalSize: z.number().max(50 * 1024 * 1024, "Total upload size exceeds 50MB")
+});
+    // 🛡️ STRICT PAYLOAD VALIDATION - Before any AI call
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB per file
+const MAX_TOTAL_SIZE = 50 * 1024 * 1024; // 50MB total
+const ALLOWED_MIME_TYPES = [
+    'text/plain', 'text/html', 'text/css', 'text/csv',
+    'application/json', 'application/pdf',
+    'image/png', 'image/jpeg', 'image/webp',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+];
+const MAX_COMMAND_LENGTH = 10000;
+const MAX_FILES = 5;
+
+// Validate file count
+if (files.length > MAX_FILES) {
+    return res.status(400).json({ error: "MAX_FILES_EXCEEDED", message: `Maximum ${MAX_FILES} files allowed` });
+}
+
+// Validate each file
+for (const file of files) {
+    if (file.size > MAX_FILE_SIZE) {
+        return res.status(400).json({ 
+            error: "FILE_TOO_LARGE", 
+            message: `File ${file.originalname} exceeds ${MAX_FILE_SIZE / 1024 / 1024}MB limit` 
+        });
+    }
+}
+
+// Validate total size
+const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+if (totalSize > MAX_TOTAL_SIZE) {
+    return res.status(400).json({ 
+        error: "TOTAL_SIZE_EXCEEDED", 
+        message: `Total upload size ${(totalSize / 1024 / 1024).toFixed(1)}MB exceeds ${MAX_TOTAL_SIZE / 1024 / 1024}MB limit` 
+    });
+}
+
+// Validate command
+const userCommand = (req.body.command || "Analyze").toString().trim();
+if (userCommand.length > MAX_COMMAND_LENGTH) {
+    return res.status(400).json({ 
+        error: "COMMAND_TOO_LONG", 
+        message: `Command exceeds ${MAX_COMMAND_LENGTH} character limit` 
+    });
+}
+
+// Sanitize command - prevent obvious injection
+if (userCommand.match(/<script|javascript:|onerror=|onload=/i)) {
+    return res.status(400).json({ 
+        error: "INVALID_COMMAND", 
+        message: "Command contains disallowed patterns" 
+    });
+}
     try {
         // 🛡️ Guard 2: Absolute Context Verification
         if (!req.currentUser || !req.currentUser._id) {
             return res.status(401).json({ error: "AUTH_FAULT", message: "Pipeline access denied." });
         }
 
-        const userCommand = req.body.command || "Analyze";
         const workspaceMode = req.body.workspace || "data"; 
         let sessionId = req.body.sessionId !== 'null' && req.body.sessionId !== 'undefined' ? req.body.sessionId : null;
 
@@ -529,48 +594,116 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
         
         systemPrompt += "\nCRITICAL INSTRUCTION: Before providing your final answer, you MUST write out your step-by-step thinking process wrapped entirely inside <think> ... </think> tags. After the </think> tag, output ONLY your strictly formatted, concise response.";
         
-        res.writeHead(200, { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', 'Connection': 'keep-alive' });
+      
+// ====== REPLACE THIS ENTIRE BLOCK (from res.writeHead to the end of streaming) ======
+const SSE_TIMEOUT = 120000; // 2 minutes
+let sseTimer;
+let clientDisconnected = false; // Must be defined here
+let cleanAiResponse = "";
+let structuredData = [];
+let abortController = new AbortController();
 
-        let clientDisconnected = false;
-        req.on('close', () => { clientDisconnected = true; });
+const cleanupSSE = () => {
+    clearTimeout(sseTimer);
+    try { res.end(); } catch(e) {}
+    // Nullify large references for GC
+    cleanAiResponse = null;
+    structuredData = null;
+    abortController = null;
+};
 
-        let cleanAiResponse = ""; 
-        let structuredData = []; 
+res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-store, must-revalidate',
+    'Connection': 'keep-alive',
+    'X-Accel-Buffering': 'no'
+});
 
-        res.write(`data: ${JSON.stringify({ type: 'progress', text: 'Initializing neural pipeline...' })}\n\n`);
+req.on('close', () => {
+    clientDisconnected = true;
+    if (abortController) abortController.abort();
+    cleanupSSE();
+});
 
+req.on('error', cleanupSSE);
+
+sseTimer = setTimeout(() => {
+    if (!clientDisconnected) {
+        res.write(`data: ${JSON.stringify({ type: 'timeout', message: 'Stream timeout exceeded' })}
+
+`);
+        cleanupSSE();
+    }
+}, SSE_TIMEOUT);
+
+res.write(`data: ${JSON.stringify({ type: 'progress', text: 'Initializing neural pipeline...' })}
+
+`);
+
+try {
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    if (contentsTurnArray.length > 0 && contentsTurnArray[0].role === 'user') {
+        contentsTurnArray[0].parts.unshift({ text: `[SYSTEM INSTRUCTION: ${systemPrompt}]
+
+` });
+    }
+
+    res.write(`data: ${JSON.stringify({ type: 'progress', text: 'Extracting and structuring data...' })}
+
+`);
+
+    const result = await model.generateContentStream({
+        contents: contentsTurnArray,
+        signal: abortController.signal
+    });
+
+    for await (const chunk of result.stream) {
+        if (clientDisconnected) break;
+        const chunkText = chunk.text();
+        cleanAiResponse += chunkText;
+        res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunkText })}
+
+`);
+    }
+} catch (primaryError) {
+    if (clientDisconnected) { cleanupSSE(); return; }
+    if (primaryError.name !== 'AbortError') {
         try {
-            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-            if (contentsTurnArray.length > 0 && contentsTurnArray[0].role === 'user') contentsTurnArray[0].parts.unshift({ text: `[SYSTEM INSTRUCTION: ${systemPrompt}]\n\n` });
-            
-            res.write(`data: ${JSON.stringify({ type: 'progress', text: 'Extracting and structuring data...' })}\n\n`);
+            const backupResponse = await groq.chat.completions.create({
+                model: "llama3-70b-8192",
+                messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userCommand }],
+                temperature: 0.2,
+                max_tokens: 3000,
+                stream: true
+            });
+            for await (const chunk of backupResponse) {
+                if (clientDisconnected) break;
+                const text = chunk.choices[0]?.delta?.content || "";
+                cleanAiResponse += text;
+                res.write(`data: ${JSON.stringify({ type: 'chunk', text })}
 
-            const result = await model.generateContentStream({ contents: contentsTurnArray });
-            
-            for await (const chunk of result.stream) {
-                if (clientDisconnected) break; 
-                const chunkText = chunk.text();
-                cleanAiResponse += chunkText;
-                res.write(`data: ${JSON.stringify({ type: 'chunk', text: chunkText })}\n\n`);
+`);
             }
-        } catch (primaryError) {
-            try {
-                const backupResponse = await groq.chat.completions.create({ model: "llama3-70b-8192", messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userCommand }], temperature: 0.2, max_tokens: 3000, stream: true });
-                for await (const chunk of backupResponse) {
-                    if (clientDisconnected) break; 
-                    const text = chunk.choices[0]?.delta?.content || "";
-                    cleanAiResponse += text;
-                    res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
-                }
-            } catch (totalFailure) { 
-                if (!clientDisconnected) res.write(`data: ${JSON.stringify({ type: 'error', message: 'Matrix network routes congested.' })}\n\n`);
-                return res.end();
+        } catch (totalFailure) {
+            if (!clientDisconnected) {
+                res.write(`data: ${JSON.stringify({ type: 'error', message: 'Matrix network routes congested.' })}
+
+`);
             }
+            cleanupSSE();
+            return;
         }
+    } else {
+        cleanupSSE();
+        return;
+    }
+}
 
-        if (clientDisconnected) return res.end(); 
-
+if (clientDisconnected) { cleanupSSE(); return; }
+clearTimeout(sseTimer);
+// Continue with JSON parsing and response processing below this line (unchanged)
+// Continue with response processing...
         const jsonMatch = cleanAiResponse.match(/\[JSON-DATA\]([\s\S]*?)\[\/JSON-DATA\]/);
         if (jsonMatch) { 
             try { structuredData = JSON.parse(jsonMatch[1].trim()); } catch (e) { structuredData = []; } 
@@ -697,6 +830,16 @@ const secureSubTierRouteGuard = async (req, res, next) => {
         res.status(500).json({ error: "GUARD_RUNTIME_FAULT", details: routeGuardError.message });
     }
 };
-// 🟢 FINALLY, LISTEN
+
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`🟢 ALEXR SYSTEM SECURITY ONLINE ON PORT ${PORT}`));
+const server = app.listen(PORT, () => console.log(`🟢 ALEXR SYSTEM SECURITY ONLINE ON PORT ${PORT}`));
+
+const gracefulShutdown = async (signal) => {
+    console.log(`\n🟡 ${signal} received - Starting graceful shutdown...`);
+    server.close(() => console.log('🔴 HTTP server closed'));
+    setTimeout(() => process.exit(1), 15000);
+    if (mongoose.connection.readyState === 1) await mongoose.disconnect();
+    process.exit(0);
+};
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
