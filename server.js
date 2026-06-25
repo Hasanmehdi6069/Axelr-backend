@@ -1,14 +1,27 @@
-const Sentry = require("@sentry/node");
-// Zod is optional - we'll use a fallback if not installed
+// ==========================================
+// SAFE IMPORTS (Optional dependencies)
+// ==========================================
+let Sentry;
+try { Sentry = require("@sentry/node"); } catch(e) { Sentry = null; }
 let Zod;
 try { Zod = require('zod'); } catch(e) { Zod = null; }
 
 const crypto = require('crypto');
+require('dotenv').config();
 
 // ==========================================
-// SENTRY INIT (with error filtering)
+// LOG CRITICAL ENV WARNINGS (DO NOT EXIT)
 // ==========================================
-if (process.env.SENTRY_DSN) {
+const REQUIRED_ENV = ['MONGO_URI', 'STRIPE_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GEMINI_API_KEY', 'GROQ_API_KEY'];
+const missing = REQUIRED_ENV.filter(k => !process.env[k]);
+if (missing.length) {
+  console.warn(`⚠️ Missing env vars: ${missing.join(', ')} (some features may fail)`);
+}
+
+// ==========================================
+// INIT SENTRY (only if installed and DSN provided)
+// ==========================================
+if (Sentry && process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
     environment: process.env.NODE_ENV || 'production',
@@ -22,18 +35,9 @@ if (process.env.SENTRY_DSN) {
       return event;
     }
   });
-}
-
-require('dotenv').config();
-
-// ==========================================
-// ENVIRONMENT VALIDATION (fail fast)
-// ==========================================
-const REQUIRED_ENV = ['MONGO_URI', 'STRIPE_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GEMINI_API_KEY', 'GROQ_API_KEY'];
-const missing = REQUIRED_ENV.filter(k => !process.env[k]);
-if (missing.length) {
-  console.error(`❌ Missing env: ${missing.join(', ')}`);
-  process.exit(1);
+  console.log('📡 Sentry enabled');
+} else {
+  console.log('📡 Sentry disabled (missing DSN or package)');
 }
 
 const express = require('express');
@@ -44,7 +48,7 @@ const multer = require('multer');
 const mongoose = require('mongoose');
 const fs = require('fs').promises;
 const os = require('os');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OAuth2Client } = require('google-auth-library');
 const Groq = require('groq-sdk');
@@ -53,7 +57,7 @@ const AdmZip = require('adm-zip');
 const app = express();
 
 // ==========================================
-// GLOBAL PROCESS PROTECTION
+// GLOBAL PROCESS PROTECTION (never exit)
 // ==========================================
 process.on('uncaughtException', (err) => {
   console.error('💀 UNCAUGHT EXCEPTION:', err);
@@ -180,8 +184,8 @@ const BugReport = mongoose.model('BugReport', BugReportSchema);
 // AUTH SETUP
 // ==========================================
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'dummy' });
 const CLIENT_APP_URL = process.env.CLIENT_APP_URL || "http://localhost:5500";
 
 // ==========================================
@@ -277,7 +281,7 @@ const upload = multer({
 let dbConnected = false;
 async function connectDB() {
   try {
-    await mongoose.connect(process.env.MONGO_URI, {
+    await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/test', {
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
