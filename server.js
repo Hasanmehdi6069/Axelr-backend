@@ -22,19 +22,21 @@ if (missing.length) {
 // INIT SENTRY (only if installed and DSN provided)
 // ==========================================
 if (Sentry && process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    environment: process.env.NODE_ENV || 'production',
-    integrations: [new Sentry.Integrations.Http({ tracing: true })],
-    tracesSampleRate: 0.1,
-    beforeSend(event) {
-      if (event.exception && event.exception.values) {
-        const status = event?.request?.headers?.status || 0;
-        if (status >= 400 && status < 500) return null;
+  try {
+    Sentry.init({
+      dsn: process.env.SENTRY_DSN,
+      environment: process.env.NODE_ENV || 'production',
+      integrations: [new Sentry.Integrations.Http({ tracing: true })],
+      tracesSampleRate: 0.1,
+      beforeSend(event) {
+        // ...
       }
-      return event;
-    }
-  });
+    });
+    console.log('📡 Sentry enabled');
+  } catch (err) {
+    console.error('⚠️ Sentry init failed:', err.message);
+    Sentry = null; // Disable Sentry to prevent further issues
+  }
   console.log('📡 Sentry enabled');
 } else {
   console.log('📡 Sentry disabled (missing DSN or package)');
