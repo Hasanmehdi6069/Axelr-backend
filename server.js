@@ -6,8 +6,6 @@ try { Sentry = require("@sentry/node"); } catch(e) { Sentry = null; }
 let Zod;
 try { Zod = require('zod'); } catch(e) { Zod = null; }
 
-const Sentry = require("@sentry/node");
-// Zod is optional - we'll use a fallback if not installed
 const crypto = require('crypto');
 require('dotenv').config();
 
