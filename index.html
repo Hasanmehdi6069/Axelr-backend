@@ -1578,7 +1578,7 @@ function selectWorkspaceContext(targetEngine) {
 
         async function loadUserProfile() {
             try {
-                const resp = await fetch(`${API_BASE_URL}/api/user/profile`, { headers: {'Authorization': `Bearer ${googleAuthUserToken}`} });
+                const resp = await fetch(`${API_BASE_URL}https://zelrex-backend.onrender.com/api/user/profile`, { headers: {'Authorization': `Bearer ${googleAuthUserToken}`} });
                 if (resp.ok) {
                     const data = await resp.json();
                     document.getElementById('instructions-input').value = data.customInstructions || "";
@@ -1640,7 +1640,7 @@ function validateSendCommand() {
         async function loadArchiveLogs() {
             try {
                 const currentWorkspace = localStorage.getItem('Axelr_workspace') || 'data';
-                const response = await fetch(`${API_BASE_URL}/api/history?status=${currentTab}&workspace=${currentWorkspace}`, { headers: { 'Authorization': `Bearer ${googleAuthUserToken}` } });
+                const response = await fetch(`${API_BASE_URL}https://zelrex-backend.onrender.com/api/history?status=${currentTab}&workspace=${currentWorkspace}`, { headers: { 'Authorization': `Bearer ${googleAuthUserToken}` } });
                 if (response.status === 401) return executeGlobalLogout();
                 cachedLogHistory = (await response.json()).logs; 
                 
