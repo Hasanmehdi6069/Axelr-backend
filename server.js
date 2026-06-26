@@ -22,6 +22,16 @@ let Zod;
 try { Zod = require('zod'); } catch (_) { Zod = null; }
 
 // ==========================================
+// ALLOWED MIME TYPES (Global)
+// ==========================================
+const ALLOWED_MIME_TYPES = [
+  'text/plain', 'text/html', 'text/css', 'text/csv',
+  'application/json', 'application/pdf',
+  'image/png', 'image/jpeg', 'image/webp',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+];
+
+// ==========================================
 // STRIPE & GROQ (Graceful init)
 // ==========================================
 let stripe, groq;
@@ -261,7 +271,7 @@ const upload = multer({
   storage,
   limits: { fileSize: 10 * 1024 * 1024, files: 5 },
   fileFilter: (req, file, cb) => {
-    const allowed = ['text/plain', 'text/html', 'text/css', 'text/csv', 'application/json', 'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
+    const allowed = ALLOWED_MIME_TYPES;
     if (allowed.includes(file.mimetype) || /\.(html|js|css|json|txt|csv|md)$/i.test(file.originalname)) {
       cb(null, true);
     } else {
@@ -455,16 +465,39 @@ app.get('/api/history', authenticateUser, asyncHandler(async (req, res) => {
 app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) => {
   const { promptText } = req.body;
   if (!promptText) return res.status(400).json({ error: "No text." });
-  const limit = req.currentUser.tier === 'free' ? 5 : 50;
-  if (req.currentUser.dailyUsage >= limit) return res.status(403).json({ error: "LIMIT_REACHED" });
+
+  // Fetch fresh user to get quotas
+  const user = await User.findById(req.currentUser._id);
+  if (!user) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+  // Reset daily quotas if needed
+  const now = new Date();
+  if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
+    user.quotas.dailyExtractionsUsed = 0;
+    user.quotas.dailyGenerationsUsed = 0;
+    user.quotas.dailyEnhancementsUsed = 0;
+    user.quotas.lastQuotaResetTimestamp = now;
+    await user.save();
+  }
+
+  // Determine limit based on tier
+  let limit = user.tier === 'free' ? 3 : 20; // free:3, pro/business:20 (or use monthlyEnhancementsLimit)
+  // Actually monthlyEnhancementsLimit is for monthly? We'll use dailyEnhancementsLimit based on tier.
+  if (user.tier === 'free') limit = 3;
+  else if (user.tier === 'pro') limit = 10;
+  else if (user.tier === 'business') limit = 20;
+
+  if (user.quotas.dailyEnhancementsUsed >= limit) {
+    return res.status(403).json({ error: "LIMIT_REACHED", usage: user.quotas.dailyEnhancementsUsed, limit });
+  }
+
   const instruction = "You are an elite prompt engineer. Rewrite the user's input into a detailed professional prompt. Return ONLY the rewritten prompt. No quotes, no intro.";
+  let enhanced = promptText;
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     const response = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: `[SYSTEM: ${instruction}]\n\n${promptText}` }] }] });
-    req.currentUser.dailyUsage += 1;
-    await req.currentUser.save();
-    res.json({ success: true, enhanced: response.response.text().trim() });
+    enhanced = response.response.text().trim();
   } catch (e) {
     if (!groq) return res.status(503).json({ error: "AI service unavailable." });
     const backup = await groq.chat.completions.create({
@@ -473,9 +506,15 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
       temperature: 0.2,
       max_tokens: 1000
     });
-    const fallback = backup.choices[0]?.message?.content?.trim() || promptText;
-    res.json({ success: true, enhanced: fallback });
+    enhanced = backup.choices[0]?.message?.content?.trim() || promptText;
   }
+
+  // Increment quotas
+  user.quotas.dailyEnhancementsUsed += 1;
+  user.dailyUsage += 1; // legacy
+  await user.save();
+
+  res.json({ success: true, enhanced });
 }));
 
 // Rename
@@ -550,8 +589,6 @@ const enforceQuotas = async (req, res, next) => {
 };
 
 // ---- EXTRACT (SSE) ----
-const ALLOWED_MIME_TYPES = ['text/plain', 'text/html', 'text/css', 'text/csv', 'application/json', 'application/pdf', 'image/png', 'image/jpeg', 'image/webp', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'];
-
 // Zod validation (if available)
 let validatePayload = (data) => data;
 if (Zod) {
@@ -584,9 +621,9 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
 
   const user = req.resolvedUser || req.currentUser;
   // Limits from quotas
-  const limit = user.tier === 'pro' ? 50 : user.tier === 'designer' ? 100 : 5;
-  const uiLimit = user.tier === 'pro' ? 20 : user.tier === 'designer' ? 100 : 2;
-  const byteLimit = user.tier === 'pro' ? 100 * 1024 * 1024 : user.tier === 'designer' ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
+  const limit = user.tier === 'pro' ? 50 : user.tier === 'business' ? 100 : 5;
+  const uiLimit = user.tier === 'pro' ? 20 : user.tier === 'business' ? 100 : 2;
+  const byteLimit = user.tier === 'pro' ? 100 * 1024 * 1024 : user.tier === 'business' ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
   const isUi = workspaceMode === 'design';
 
   // Check quotas
@@ -668,7 +705,6 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
 
   const cleanup = () => {
     clearTimeout(sseTimer);
-    // Abort any ongoing stream
     try { abortCtrl.abort(); } catch (_) {}
     try { res.end(); } catch (_) {}
     aiResponse = '';
@@ -826,7 +862,7 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
   }
 }));
 
-// ---- SUB-TIER GUARD (kept) ----
+// ---- SUB-TIER GUARD (kept but not used) ----
 const secureSubTierRouteGuard = async (req, res, next) => {
   try {
     if (!req.currentUser) return next();
@@ -847,7 +883,12 @@ const secureSubTierRouteGuard = async (req, res, next) => {
   }
 };
 
-// ---- GLOBAL ERROR HANDLER ----
+// ---- 404 CATCH-ALL (placed before global error handler) ----
+app.use((req, res) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+// ---- GLOBAL ERROR HANDLER (last) ----
 app.use((err, req, res, next) => {
   console.error('💥 GLOBAL ERROR:', err);
   if (!res.headersSent) {
@@ -856,10 +897,6 @@ app.use((err, req, res, next) => {
       message: process.env.NODE_ENV === 'production' ? "Service unavailable" : err.message
     });
   }
-});
-
-app.use((req, res) => {
-  res.status(404).json({ error: "Not found" });
 });
 
 // ---- GRACEFUL SHUTDOWN ----
