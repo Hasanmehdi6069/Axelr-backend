@@ -32,7 +32,6 @@
       }
     }
     </script>
-    
     <meta name="description" content="Axelr AI is a powerful intelligence execution platform. Convert unstructured data and automate UI/UX development with our AI-driven architecture.">
     <meta name="keywords" content="Axelr, Axelr AI, axelr, axelr ai, AI Data Extraction, UI UX Automation, React Tailwind Generator">
     
@@ -1056,7 +1055,7 @@
         
        const API_BASE_URL = window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1" 
     ? "http://localhost:5000" 
-    : "https://axelr-backend.onrender.com"; // Make sure this is your EXACT Render URL
+    : "https://zelrex-backend.onrender.com"; // Make sure this is your EXACT Render URL
 
         const AXELR_AVATAR_SVG = `<svg viewBox="0 0 100 100" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M50 15 L20 32.5 L20 67.5 L50 85" stroke="#ffffff" stroke-width="6" stroke-linejoin="bevel" fill="rgba(255,255,255,0.05)"/><path d="M50 15 L80 32.5 L50 50 L80 67.5 L50 85" stroke="currentColor" stroke-width="6" stroke-linejoin="bevel" fill="none"/><path d="M20 32.5 L50 50 L20 67.5" stroke="#ffffff" stroke-width="3" stroke-linejoin="bevel" opacity="0.5"/></svg>`;
         const COPY_ICON = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`;
@@ -1320,8 +1319,7 @@
             }
             
             await loadUserProfile(); 
-            await loadArchiveLogs();
-             
+            await loadArchiveLogs(); 
         }
 
         // UNIFIED STATE MANAGEMENT 
@@ -1578,34 +1576,33 @@ function selectWorkspaceContext(targetEngine) {
             if (window.innerWidth <= 768) sidebarNode.classList.remove('open');
         }
 
-       async function loadUserProfile() {
-  try {
-    const resp = await fetch(`${API_BASE_URL}/api/user/profile`, { headers: { 'Authorization': `Bearer ${googleAuthUserToken}` } });
-    if (resp.ok) {
-      const data = await resp.json();
-      document.getElementById('instructions-input').value = data.customInstructions || "";
-      // Use existing elements:
-      document.getElementById('quota-numerical-count').innerText = `${data.dailyUsage} / ${data.limit}`;
-      document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
-      
-      if (data.tier === 'pro' || data.tier === 'designer') {
-        document.body.classList.remove('pro-tier', 'designer-tier');
-        document.body.classList.add(`${data.tier}-tier`);
-        document.getElementById('model-text-display').innerText = 'Model Hyper-Precise';
-        document.getElementById('model-badge-display').innerText = data.tier.toUpperCase();
-        document.getElementById('sidebar-plan-badge').innerText = data.tier.toUpperCase();
-        document.getElementById('sidebar-plan-badge').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
-        document.getElementById('sidebar-plan-badge').style.color = "#fff";
-        document.getElementById('quota-progress-bar-fill').style.width = '100%';
-        document.getElementById('quota-progress-bar-fill').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
-        document.getElementById('sub-plan-name').innerText = data.tier.toUpperCase() + ' Tier';
-      } else {
-        const pct = Math.min((data.dailyUsage / data.limit) * 100, 100);
-        document.getElementById('quota-progress-bar-fill').style.width = `${pct}%`;
-      }
-    }
-  } catch(e) {}
-}
+        async function loadUserProfile() {
+            try {
+                const resp = await fetch(`${API_BASE_URL}/api/user/profile`, { headers: {'Authorization': `Bearer ${googleAuthUserToken}`} });
+                if (resp.ok) {
+                    const data = await resp.json();
+                    document.getElementById('instructions-input').value = data.customInstructions || "";
+                    document.getElementById('quota-text').innerText = `${data.dailyUsage} / ${data.limit}`;
+                    document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
+                    
+                    if (data.tier === 'pro' || data.tier === 'designer') {
+                        document.body.classList.remove('pro-tier', 'designer-tier');
+                        document.body.classList.add(`${data.tier}-tier`);
+                        document.getElementById('model-text-display').innerText = 'Model Hyper-Precise';
+                        document.getElementById('model-badge-display').innerText = data.tier.toUpperCase();
+                        document.getElementById('sidebar-plan-badge').innerText = data.tier.toUpperCase();
+                        document.getElementById('sidebar-plan-badge').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
+                        document.getElementById('sidebar-plan-badge').style.color = "#fff";
+                        document.getElementById('quota-fill-bar').style.width = '100%';
+                        document.getElementById('quota-fill-bar').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
+                        document.getElementById('sub-plan-name').innerText = data.tier.toUpperCase() + ' Tier';
+                    } else {
+                        const pct = Math.min((data.dailyUsage / data.limit) * 100, 100);
+                        document.getElementById('quota-fill-bar').style.width = `${pct}%`;
+                    }
+                }
+            } catch(e) {}
+        }
 
         function executeGlobalLogout() { 
             localStorage.removeItem('google_auth_token'); 
@@ -2219,7 +2216,6 @@ function openSurgicalModificationPromptInterface(componentId) {
     promptInput.style.boxShadow = "0 0 15px rgba(239, 68, 68, 0.8)";
     setTimeout(() => promptInput.style.boxShadow = "none", 1500);
 }
-
     </script>
     <script>
   lucide.createIcons();
