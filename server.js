@@ -191,7 +191,7 @@ const BugReport = mongoose.model('BugReport', BugReportSchema);
 // ==========================================
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
-const CLIENT_APP_URL = process.env.CLIENT_APP_URL || "http://axelr.in";
+const CLIENT_APP_URL = process.CLIENT_APP_URL || "http://axelr.in";
 
 // ==========================================
 // AUTHENTICATION MIDDLEWARE
@@ -286,7 +286,7 @@ const upload = multer({
 let dbConnected = false;
 async function connectDB() {
   try {
-    await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/test', {
+    await mongoose.connect(process.env.MONGO_URI || {
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
       socketTimeoutMS: 45000,
