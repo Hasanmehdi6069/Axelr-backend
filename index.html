@@ -32,6 +32,7 @@
       }
     }
     </script>
+    
     <meta name="description" content="Axelr AI is a powerful intelligence execution platform. Convert unstructured data and automate UI/UX development with our AI-driven architecture.">
     <meta name="keywords" content="Axelr, Axelr AI, axelr, axelr ai, AI Data Extraction, UI UX Automation, React Tailwind Generator">
     
@@ -1319,7 +1320,8 @@
             }
             
             await loadUserProfile(); 
-            await loadArchiveLogs(); 
+            await loadArchiveLogs();
+             
         }
 
         // UNIFIED STATE MANAGEMENT 
@@ -1576,33 +1578,34 @@ function selectWorkspaceContext(targetEngine) {
             if (window.innerWidth <= 768) sidebarNode.classList.remove('open');
         }
 
-        async function loadUserProfile() {
-            try {
-                const resp = await fetch(`${API_BASE_URL}/api/user/profile`, { headers: {'Authorization': `Bearer ${googleAuthUserToken}`} });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    document.getElementById('instructions-input').value = data.customInstructions || "";
-                    document.getElementById('quota-text').innerText = `${data.dailyUsage} / ${data.limit}`;
-                    document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
-                    
-                    if (data.tier === 'pro' || data.tier === 'designer') {
-                        document.body.classList.remove('pro-tier', 'designer-tier');
-                        document.body.classList.add(`${data.tier}-tier`);
-                        document.getElementById('model-text-display').innerText = 'Model Hyper-Precise';
-                        document.getElementById('model-badge-display').innerText = data.tier.toUpperCase();
-                        document.getElementById('sidebar-plan-badge').innerText = data.tier.toUpperCase();
-                        document.getElementById('sidebar-plan-badge').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
-                        document.getElementById('sidebar-plan-badge').style.color = "#fff";
-                        document.getElementById('quota-fill-bar').style.width = '100%';
-                        document.getElementById('quota-fill-bar').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
-                        document.getElementById('sub-plan-name').innerText = data.tier.toUpperCase() + ' Tier';
-                    } else {
-                        const pct = Math.min((data.dailyUsage / data.limit) * 100, 100);
-                        document.getElementById('quota-fill-bar').style.width = `${pct}%`;
-                    }
-                }
-            } catch(e) {}
-        }
+       async function loadUserProfile() {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/api/user/profile`, { headers: { 'Authorization': `Bearer ${googleAuthUserToken}` } });
+    if (resp.ok) {
+      const data = await resp.json();
+      document.getElementById('instructions-input').value = data.customInstructions || "";
+      // Use existing elements:
+      document.getElementById('quota-numerical-count').innerText = `${data.dailyUsage} / ${data.limit}`;
+      document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
+      
+      if (data.tier === 'pro' || data.tier === 'designer') {
+        document.body.classList.remove('pro-tier', 'designer-tier');
+        document.body.classList.add(`${data.tier}-tier`);
+        document.getElementById('model-text-display').innerText = 'Model Hyper-Precise';
+        document.getElementById('model-badge-display').innerText = data.tier.toUpperCase();
+        document.getElementById('sidebar-plan-badge').innerText = data.tier.toUpperCase();
+        document.getElementById('sidebar-plan-badge').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
+        document.getElementById('sidebar-plan-badge').style.color = "#fff";
+        document.getElementById('quota-progress-bar-fill').style.width = '100%';
+        document.getElementById('quota-progress-bar-fill').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
+        document.getElementById('sub-plan-name').innerText = data.tier.toUpperCase() + ' Tier';
+      } else {
+        const pct = Math.min((data.dailyUsage / data.limit) * 100, 100);
+        document.getElementById('quota-progress-bar-fill').style.width = `${pct}%`;
+      }
+    }
+  } catch(e) {}
+}
 
         function executeGlobalLogout() { 
             localStorage.removeItem('google_auth_token'); 
@@ -2216,6 +2219,7 @@ function openSurgicalModificationPromptInterface(componentId) {
     promptInput.style.boxShadow = "0 0 15px rgba(239, 68, 68, 0.8)";
     setTimeout(() => promptInput.style.boxShadow = "none", 1500);
 }
+
     </script>
     <script>
   lucide.createIcons();

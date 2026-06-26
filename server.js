@@ -1,10 +1,26 @@
 // ==========================================
 // SAFE IMPORTS (Optional dependencies)
 // ==========================================
+const Groq = require('groq-sdk');   // Moved to top
+
 let Sentry;
 try { Sentry = require("@sentry/node"); } catch(e) { Sentry = null; }
 let Zod;
 try { Zod = require('zod'); } catch(e) { Zod = null; }
+
+let stripe, groq;
+try {
+  stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
+} catch (e) {
+  console.warn('⚠️ Stripe init failed:', e.message);
+  stripe = null;
+}
+try {
+  groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'dummy' });
+} catch (e) {
+  console.warn('⚠️ Groq init failed:', e.message);
+  groq = null;
+}
 
 const crypto = require('crypto');
 require('dotenv').config();
@@ -29,7 +45,12 @@ if (Sentry && process.env.SENTRY_DSN) {
       integrations: [new Sentry.Integrations.Http({ tracing: true })],
       tracesSampleRate: 0.1,
       beforeSend(event) {
-        // ...
+        // Filter out 4xx errors
+        if (event.exception && event.exception.values) {
+          const status = event?.request?.headers?.status || 0;
+          if (status >= 400 && status < 500) return null;
+        }
+        return event;
       }
     });
     console.log('📡 Sentry enabled');
@@ -37,7 +58,6 @@ if (Sentry && process.env.SENTRY_DSN) {
     console.error('⚠️ Sentry init failed:', err.message);
     Sentry = null; // Disable Sentry to prevent further issues
   }
-  console.log('📡 Sentry enabled');
 } else {
   console.log('📡 Sentry disabled (missing DSN or package)');
 }
@@ -50,10 +70,8 @@ const multer = require('multer');
 const mongoose = require('mongoose');
 const fs = require('fs').promises;
 const os = require('os');
-const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OAuth2Client } = require('google-auth-library');
-const Groq = require('groq-sdk');
 const AdmZip = require('adm-zip');
 
 const app = express();
@@ -187,7 +205,6 @@ const BugReport = mongoose.model('BugReport', BugReportSchema);
 // ==========================================
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY || 'dummy' });
 const CLIENT_APP_URL = process.env.CLIENT_APP_URL || "http://localhost:5500";
 
 // ==========================================
@@ -342,7 +359,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
 // ==========================================
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(err => {
-    console.error('Route Error:', err);
+    console.error('❌ Route Error:', err.stack);
     if (Sentry) Sentry.captureException(err);
     if (!res.headersSent) {
       res.status(500).json({ error: "INTERNAL_ERROR", message: "Service temporarily unavailable." });
