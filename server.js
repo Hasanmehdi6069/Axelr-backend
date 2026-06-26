@@ -1,13 +1,29 @@
 // ==========================================
-// SAFE IMPORTS (Optional dependencies)
+// STRICT IMPORTS (Top‑level, no duplicates)
 // ==========================================
-const Groq = require('groq-sdk');   // Moved to top
+const crypto = require('crypto');
+require('dotenv').config();
 
-let Sentry;
-try { Sentry = require("@sentry/node"); } catch(e) { Sentry = null; }
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const mongoose = require('mongoose');
+const fs = require('fs').promises;
+const os = require('os');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { OAuth2Client } = require('google-auth-library');
+const AdmZip = require('adm-zip');
+const Groq = require('groq-sdk');
+
+// Optional dependencies (soft fail)
 let Zod;
-try { Zod = require('zod'); } catch(e) { Zod = null; }
+try { Zod = require('zod'); } catch (_) { Zod = null; }
 
+// ==========================================
+// STRIPE & GROQ (Graceful init)
+// ==========================================
 let stripe, groq;
 try {
   stripe = require('stripe')(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder');
@@ -22,74 +38,32 @@ try {
   groq = null;
 }
 
-const crypto = require('crypto');
-require('dotenv').config();
-
 // ==========================================
-// LOG CRITICAL ENV WARNINGS (DO NOT EXIT)
+// ENV WARNINGS (Do NOT exit)
 // ==========================================
 const REQUIRED_ENV = ['MONGO_URI', 'STRIPE_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GEMINI_API_KEY', 'GROQ_API_KEY'];
 const missing = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missing.length) {
-  console.warn(`⚠️ Missing env vars: ${missing.join(', ')} (some features may fail)`);
+  console.warn(`⚠️ Missing env: ${missing.join(', ')} (some features may fail)`);
 }
 
 // ==========================================
-// INIT SENTRY (only if installed and DSN provided)
+// EXPRESS APP
 // ==========================================
-if (Sentry && process.env.SENTRY_DSN) {
-  try {
-    Sentry.init({
-      dsn: process.env.SENTRY_DSN,
-      environment: process.env.NODE_ENV || 'production',
-      integrations: [new Sentry.Integrations.Http({ tracing: true })],
-      tracesSampleRate: 0.1,
-      beforeSend(event) {
-        // Filter out 4xx errors
-        if (event.exception && event.exception.values) {
-          const status = event?.request?.headers?.status || 0;
-          if (status >= 400 && status < 500) return null;
-        }
-        return event;
-      }
-    });
-    console.log('📡 Sentry enabled');
-  } catch (err) {
-    console.error('⚠️ Sentry init failed:', err.message);
-    Sentry = null; // Disable Sentry to prevent further issues
-  }
-} else {
-  console.log('📡 Sentry disabled (missing DSN or package)');
-}
-
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const multer = require('multer');
-const mongoose = require('mongoose');
-const fs = require('fs').promises;
-const os = require('os');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { OAuth2Client } = require('google-auth-library');
-const AdmZip = require('adm-zip');
-
 const app = express();
 
 // ==========================================
-// GLOBAL PROCESS PROTECTION (never exit)
+// GLOBAL PROCESS PROTECTION
 // ==========================================
 process.on('uncaughtException', (err) => {
   console.error('💀 UNCAUGHT EXCEPTION:', err);
-  if (Sentry) Sentry.captureException(err);
 });
 process.on('unhandledRejection', (reason) => {
   console.error('💀 UNHANDLED REJECTION:', reason);
-  if (Sentry) Sentry.captureException(reason);
 });
 
 // ==========================================
-// CORS (Strict)
+// CORS
 // ==========================================
 const allowedOrigins = [
   'https://axelr.in',
@@ -112,7 +86,7 @@ app.use(cors({
 }));
 
 // ==========================================
-// SECURITY HEADERS
+// HELMET (Security Headers)
 // ==========================================
 app.use(helmet({
   crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
@@ -151,12 +125,14 @@ const UserSchema = new mongoose.Schema({
   email: { type: String, required: true },
   displayName: String,
   tier: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
+  // Legacy counters (kept for backward compatibility)
   dailyUsage: { type: Number, default: 0 },
   dailyUiUxUsage: { type: Number, default: 0 },
   storageBytesUsed: { type: Number, default: 0 },
   lastUsageDate: { type: Date, default: Date.now },
   customInstructions: { type: String, default: '' },
   stripeCustomerId: { type: String, sparse: true },
+  // Primary quota system
   subTierOptions: {
     hasDataAccess: { type: Boolean, default: false },
     hasDesignAccess: { type: Boolean, default: false }
@@ -244,6 +220,7 @@ const authenticateUser = async (req, res, next) => {
         }
       });
     } else {
+      // Reset daily quotas if day has changed
       const today = new Date().setHours(0, 0, 0, 0);
       const last = user.lastUsageDate ? new Date(user.lastUsageDate).setHours(0, 0, 0, 0) : 0;
       if (today > last) {
@@ -262,7 +239,6 @@ const authenticateUser = async (req, res, next) => {
     next();
   } catch (error) {
     console.error('[AUTH_FAIL]', error);
-    if (Sentry) Sentry.captureException(error);
     res.status(401).json({ error: "SESSION_EXPIRED" });
   }
 };
@@ -360,7 +336,6 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(err => {
     console.error('❌ Route Error:', err.stack);
-    if (Sentry) Sentry.captureException(err);
     if (!res.headersSent) {
       res.status(500).json({ error: "INTERNAL_ERROR", message: "Service temporarily unavailable." });
     }
@@ -401,6 +376,7 @@ app.get('/api/admin/metrics', authenticateUser, asyncHandler(async (req, res) =>
 
 // Billing
 app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res) => {
+  if (!stripe) return res.status(503).json({ error: "Payment service unavailable." });
   const { tier = 'pro', subTier = 'full' } = req.body;
   let price = 1500, name = 'Pro Full Stack';
   if (tier === 'pro') {
@@ -425,11 +401,12 @@ app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res
 
 // Profile
 app.get('/api/user/profile', authenticateUser, (req, res) => {
+  const user = req.currentUser;
   res.json({
-    tier: req.currentUser.tier,
-    dailyUsage: req.currentUser.dailyUsage,
-    limit: req.currentUser.tier === 'free' ? 5 : 500,
-    customInstructions: req.currentUser.customInstructions
+    tier: user.tier,
+    dailyUsage: user.dailyUsage,
+    limit: user.tier === 'free' ? 5 : 500,
+    customInstructions: user.customInstructions
   });
 });
 app.put('/api/user/instructions', authenticateUser, asyncHandler(async (req, res) => {
@@ -489,6 +466,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
     await req.currentUser.save();
     res.json({ success: true, enhanced: response.response.text().trim() });
   } catch (e) {
+    if (!groq) return res.status(503).json({ error: "AI service unavailable." });
     const backup = await groq.chat.completions.create({
       model: "llama3-70b-8192",
       messages: [{ role: "system", content: instruction }, { role: "user", content: promptText }],
@@ -605,13 +583,24 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   }
 
   const user = req.resolvedUser || req.currentUser;
+  // Limits from quotas
   const limit = user.tier === 'pro' ? 50 : user.tier === 'designer' ? 100 : 5;
   const uiLimit = user.tier === 'pro' ? 20 : user.tier === 'designer' ? 100 : 2;
   const byteLimit = user.tier === 'pro' ? 100 * 1024 * 1024 : user.tier === 'designer' ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
   const isUi = workspaceMode === 'design';
 
-  if (user.quotas.dailyExtractionsUsed >= limit || (isUi && user.dailyUiUxUsage >= uiLimit) || (user.storageBytesUsed + totalSize) > byteLimit) {
-    return res.status(403).json({ error: "LIMIT_REACHED", usage: user.quotas.dailyExtractionsUsed, limit });
+  // Check quotas
+  if (isUi) {
+    if (user.quotas.dailyGenerationsUsed >= uiLimit) {
+      return res.status(403).json({ error: "LIMIT_REACHED", usage: user.quotas.dailyGenerationsUsed, limit: uiLimit });
+    }
+  } else {
+    if (user.quotas.dailyExtractionsUsed >= limit) {
+      return res.status(403).json({ error: "LIMIT_REACHED", usage: user.quotas.dailyExtractionsUsed, limit });
+    }
+  }
+  if ((user.storageBytesUsed + totalSize) > byteLimit) {
+    return res.status(403).json({ error: "STORAGE_LIMIT_REACHED" });
   }
 
   // Read files
@@ -679,11 +668,14 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
 
   const cleanup = () => {
     clearTimeout(sseTimer);
-    try { res.end(); } catch (e) {}
+    // Abort any ongoing stream
+    try { abortCtrl.abort(); } catch (_) {}
+    try { res.end(); } catch (_) {}
     aiResponse = '';
     structured = [];
   };
 
+  // Set up headers
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache, no-store, must-revalidate',
@@ -691,9 +683,9 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
     'X-Accel-Buffering': 'no'
   });
 
+  // Client disconnect handler
   req.on('close', () => {
     clientClosed = true;
-    abortCtrl.abort();
     cleanup();
   });
   req.on('error', cleanup);
@@ -730,28 +722,37 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
   } catch (primaryErr) {
     if (clientClosed) { cleanup(); return; }
     if (primaryErr.name !== 'AbortError') {
-      try {
-        const backup = await groq.chat.completions.create({
-          model: "llama3-70b-8192",
-          messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userCommand }],
-          temperature: 0.2,
-          max_tokens: 3000,
-          stream: true
-        });
-        for await (const chunk of backup) {
-          if (clientClosed) break;
-          const text = chunk.choices[0]?.delta?.content || '';
-          aiResponse += text;
-          res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
+      if (groq) {
+        try {
+          const backup = await groq.chat.completions.create({
+            model: "llama3-70b-8192",
+            messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userCommand }],
+            temperature: 0.2,
+            max_tokens: 3000,
+            stream: true
+          });
+          for await (const chunk of backup) {
+            if (clientClosed) break;
+            const text = chunk.choices[0]?.delta?.content || '';
+            aiResponse += text;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
+          }
+        } catch (fallbackErr) {
+          if (!clientClosed) {
+            res.write(`data: ${JSON.stringify({ type: 'error', message: 'All AI services unavailable.' })}\n\n`);
+          }
+          cleanup();
+          return;
         }
-      } catch (fallbackErr) {
+      } else {
         if (!clientClosed) {
-          res.write(`data: ${JSON.stringify({ type: 'error', message: 'All AI services unavailable.' })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service unavailable.' })}\n\n`);
         }
         cleanup();
         return;
       }
     } else {
+      // AbortError – client disconnected, already cleaned up
       cleanup();
       return;
     }
@@ -768,7 +769,12 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
   }
   if (!aiResponse.trim()) aiResponse = "Task completed successfully.";
 
-  // Update user quotas
+  // Update user quotas (using quotas subdocument)
+  if (isUi) {
+    user.quotas.dailyGenerationsUsed += 1;
+  } else {
+    user.quotas.dailyExtractionsUsed += 1;
+  }
   user.dailyUsage += 1;
   user.storageBytesUsed += totalSize;
   if (isUi) user.dailyUiUxUsage += 1;
@@ -814,9 +820,9 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
   res.write(`data: ${JSON.stringify({ type: 'done', sessionId: currentSession._id, structuredData: structured, filename: `${currentSession.filename}.csv` })}\n\n`);
   res.end();
 
-  // Cleanup files
+  // Cleanup temp files
   for (const f of files) {
-    try { await fs.unlink(f.path); } catch (e) {}
+    try { await fs.unlink(f.path); } catch (_) {}
   }
 }));
 
@@ -844,7 +850,6 @@ const secureSubTierRouteGuard = async (req, res, next) => {
 // ---- GLOBAL ERROR HANDLER ----
 app.use((err, req, res, next) => {
   console.error('💥 GLOBAL ERROR:', err);
-  if (Sentry) Sentry.captureException(err);
   if (!res.headersSent) {
     res.status(500).json({
       error: "INTERNAL_ERROR",
@@ -864,7 +869,7 @@ const gracefulShutdown = async () => {
   shuttingDown = true;
   console.log('🛑 Shutting down...');
   server.close(async () => {
-    try { await mongoose.connection.close(); } catch (e) {}
+    try { await mongoose.connection.close(); } catch (_) {}
     console.log('✅ Shutdown complete.');
     process.exit(0);
   });
