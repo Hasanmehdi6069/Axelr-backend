@@ -2003,15 +2003,16 @@ while (true) {
             try {
                 const data = JSON.parse(line.substring(6));
                 
-                if (data.type === 'chunk') {
-                    fullResponse += data.text;
-                    // 🟢 ULTRA-FAST MARKDOWN RENDER – NO THINK PARSE
-                    const bubbleContent = nexusBubble.querySelector('.bubble-content');
-                    if (bubbleContent) {
-                        // Simple render: markdown sanitized
-                        bubbleContent.innerHTML = DOMPurify.sanitize(marked.parse(fullResponse));
-                    }
-                } else if (data.type === 'progress') {
+                // Inside the chunk handling
+if (data.type === 'chunk') {
+    fullResponse += data.text;
+    // Strip any <think> tags and their content (if they slip through)
+    const cleanResponse = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '');
+    const bubbleContent = nexusBubble.querySelector('.bubble-content');
+    if (bubbleContent) {
+        bubbleContent.innerHTML = DOMPurify.sanitize(marked.parse(cleanResponse));
+    }
+} else if (data.type === 'progress') {
                     // Show progress messages
                     const bubbleContent = nexusBubble.querySelector('.bubble-content');
                     if (bubbleContent) {
