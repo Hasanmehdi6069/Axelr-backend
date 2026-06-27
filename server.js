@@ -1,5 +1,5 @@
 // ==========================================
-// CRITICAL: ALL IMPORTS AT TOP
+// CRITICAL: ALL REQUIRES AT THE ABSOLUTE TOP
 // ==========================================
 const crypto = require('crypto');
 require('dotenv').config();
@@ -17,7 +17,7 @@ const { OAuth2Client } = require('google-auth-library');
 const AdmZip = require('adm-zip');
 const Groq = require('groq-sdk');
 
-// Optional dependencies with graceful fallback
+// Optional dependencies (soft fail)
 let Zod;
 try {
   Zod = require('zod');
@@ -201,7 +201,7 @@ const BugReport = mongoose.model('BugReport', BugReportSchema);
 // ==========================================
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
-const CLIENT_APP_URL = process.env.CLIENT_APP_URL || "http://axelr.in"; // FIXED: was process.CLIENT_APP_URL
+const CLIENT_APP_URL = process.env.CLIENT_APP_URL || "http://axelr.in";
 
 // ==========================================
 // AUTHENTICATION MIDDLEWARE
@@ -505,7 +505,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   let enhanced = promptText;
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // ✅ Upgraded to 2.5
     const response = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: `[SYSTEM: ${instruction}]\n\n${promptText}` }] }] });
     enhanced = response.response.text().trim();
   } catch (e) {
@@ -534,7 +534,7 @@ app.post('/api/rename-chat', authenticateUser, asyncHandler(async (req, res) => 
   const chatContext = log.messages.slice(0, 2).map(m => m.text).join('\n');
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.5-flash", // ✅ Upgraded to 2.5
     systemInstruction: "You are a titling assistant. Read the chat start and reply with a short, catchy 3-4 word title. NO quotes, NO extra punctuation. Just the title."
   });
   const response = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: chatContext }] }] });
@@ -777,7 +777,7 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
 
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" }); // ✅ Upgraded to 2.5
     if (contents.length && contents[0].role === 'user') {
       contents[0].parts.unshift({ text: `[SYSTEM INSTRUCTION: ${systemPrompt}]\n\n` });
     }

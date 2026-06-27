@@ -1008,6 +1008,7 @@
                     <div style="border-top: 1px solid var(--border-muted); margin: 5px 0;"></div>
                     <div class="footer-opt" style="padding: 8px;" onclick="openProfileModal()">Profile Settings</div>
                     
+                    <!-- ✅ ADMIN DASHBOARD BUTTON – visible only if email matches -->
                     <div id="admin-dashboard-btn" class="footer-opt" style="padding: 8px; color: var(--accent-glow); display: none;" onclick="openAdminModal()">Admin Control Room</div>
                     
                     <button class="logout-btn" onclick="executeGlobalLogout()">Log out</button>
@@ -1314,6 +1315,7 @@
             document.getElementById('dropdown-name').innerText = payload.name;
             document.getElementById('dropdown-email').innerText = payload.email;
             
+            // ✅ SHOW ADMIN DASHBOARD BUTTON IF EMAIL MATCHES
             if (payload.email === "shanh1346@gmail.com") {
                 document.getElementById('admin-dashboard-btn').style.display = 'block';
             }
@@ -2096,6 +2098,7 @@ if (data.type === 'chunk') {
         function openFeedbackModal() { closeModals(); document.getElementById('feedback-modal').classList.add('active'); }
         function openBillingFlow() { closeModals(); document.getElementById('subscription-modal').classList.add('active'); }
         
+        // ✅ ADMIN DASHBOARD – FETCH AND DISPLAY METRICS
         async function openAdminModal() {
             closeModals(); 
             document.getElementById('admin-modal').classList.add('active');
@@ -2109,11 +2112,15 @@ if (data.type === 'chunk') {
                         <div class="profile-stat-row"><span class="profile-stat-label">Designer Subscribers</span><span class="profile-stat-value" style="color:var(--accent-glow-designer)">${data.designerUsers}</span></div>
                         <div class="profile-stat-row"><span class="profile-stat-label">Total Matrix Logs</span><span class="profile-stat-value">${data.totalChats}</span></div>
                         <div style="border-top: 1px solid var(--border-muted); margin: 10px 0;"></div>
-                        <div class="profile-stat-row"><span class="profile-stat-label">Gemini Engine</span><span class="profile-stat-value" style="color:var(--accent-secondary)">${data.pipelineStatus.gemini}</span></div>
-                        <div class="profile-stat-row"><span class="profile-stat-label">Database Sync</span><span class="profile-stat-value" style="color:var(--accent-secondary)">${data.pipelineStatus.db}</span></div>
+                        <div class="profile-stat-row"><span class="profile-stat-label">Gemini Engine</span><span class="profile-stat-value" style="color:var(--accent-secondary)">${data.metrics?.geminiStatus || 'Operational'}</span></div>
+                        <div class="profile-stat-row"><span class="profile-stat-label">Database Sync</span><span class="profile-stat-value" style="color:var(--accent-secondary)">${data.metrics?.dbStatus || 'Connected'}</span></div>
                     `;
+                } else {
+                    document.getElementById('admin-metrics-container').innerHTML = `<div style="color:#ef4444; text-align:center;">Unauthorized or service unavailable.</div>`;
                 }
-            } catch(e) { document.getElementById('admin-metrics-container').innerHTML = `<div style="color:#ef4444; text-align:center;">Telemetry Offline. Ensure secure network.</div>`; }
+            } catch(e) { 
+                document.getElementById('admin-metrics-container').innerHTML = `<div style="color:#ef4444; text-align:center;">Network error. Check your connection.</div>`;
+            }
         }
 
         async function redirectToStripeBillingCheckout(tierName) {
