@@ -698,10 +698,9 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
     : `You are AXELR DATA, an elite Senior Data Analyst. ONLY extract data into a precise CSV array wrapped in [JSON-DATA] tags IF the user explicitly uploads data to be extracted. Otherwise, answer questions normally.\n${SYSTEM_DIRECTIVE}`;
 
   if (user.customInstructions) systemPrompt += `\nUSER DATA: ${user.customInstructions}`;
-  systemPrompt += "\nCRITICAL INSTRUCTION: Before providing your final answer, you MUST write out your step-by-step thinking process wrapped entirely inside <think> ... </think> tags. After the </think> tag, output ONLY your strictly formatted, concise response.";
-
+  systemPrompt += "\nCRITICAL INSTRUCTION: Before providing your final answer, you MUST write out your step-by-step thinking process wrapped entirely inside <think> ... </think> tags. Keep your thoughts concise – under 100 words – and ensure you ALWAYS close the </think> tag. After the </think> tag, output ONLY your strictly formatted, concise response. If you cannot fit your thinking in 100 words, summarise the key steps.";
   // SSE setup
-  const SSE_TIMEOUT = 120000;
+  const SSE_TIMEOUT = 8000; // 3 minutes – enough for deep reasoning
   let clientClosed = false;
   let aiResponse = '';
   let structured = [];

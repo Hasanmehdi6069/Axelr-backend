@@ -1998,53 +1998,133 @@ async function switchVariant(logId, msgId, newIndex) {
                     }
                     return;
                 }
-
                 const reader = response.body.getReader();
-                const decoder = new TextDecoder();
-                let fullResponse = "";
+const decoder = new TextDecoder();
+let fullResponse = "";
+let thinkOpen = false;
 
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
 
-                    const chunks = decoder.decode(value, { stream: true }).split('\n\n');
-                    for (const chunk of chunks) {
-                        if (chunk.startsWith('data: ')) {
-                            try {
-                                const data = JSON.parse(chunk.substring(6));
-if (data.type === 'chunk') {
-    fullResponse += data.text;
-    nexusBubble.querySelector('.bubble-content').innerHTML = DOMPurify.sanitize(marked.parse(fullResponse));
-} else if (data.type === 'progress') {
-    // 🟢 UI FIX: Shows live backend status (e.g., "Extracting and structuring data...")
-    nexusBubble.querySelector('.bubble-content').innerHTML = `<span style="color:var(--text-muted); font-size: 13px;">${data.text}</span>`;
-} else if (data.type === 'error') {
-    // 🟢 CRITICAL BUG FIX: Stops the infinite loading state and shows the error to the user
-    nexusBubble.querySelector('.bubble-content').innerHTML = `⚠️ <strong style="color:#ef4444;">System Alert:</strong> ${data.message}`;
-    globalAbortController = null;
-    sendBtn.classList.remove('btn-stop-active');
-    sendBtn.innerHTML = originalBtnHtml;
-    return; // Kills the loop safely
-} else if (data.type === 'done') {
-                                    const isBrandNewChat = !activeSessionId;
-                                    activeSessionId = data.sessionId;
-
-                                    localStorage.setItem('axelr_active_session', activeSessionId);
-                                    localStorage.removeItem('axelr_draft_prompt');
-
-                                    runningStructuredCache = data.structuredData;
-                                    runningFileTitle = data.filename;
-                                    
-                                    loadUserProfile();
-
-                                    // 🟢 FIX: We force a 500ms delay to allow MongoDB to complete the write 
-                                    // before we fetch the history, ensuring the response doesn't "disappear".
-                                    setTimeout(async () => {
-                                        await loadArchiveLogs();
-                                        viewPastLogById(activeSessionId);
-                                    }, 500); 
-                                }
-                            } catch (e) { }
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n\n');
+    for (const line of lines) {
+        if (line.startsWith('data: ')) {
+            try {
+                const data = JSON.parse(line.substring(6));
+                
+                if (data.type === 'chunk') {
+                    fullResponse += data.text;
+                    
+                    // --- FAULT‑TOLERANT RENDER ---
+                    // 1. Extract any complete <think> block
+                    const thinkMatch = fullResponse.match(/<think>([\s\S]*?)<\/think>/i);
+                    let thinkContent = "";
+                    let mainContent = fullResponse;
+                    
+                    if (thinkMatch) {
+                        thinkContent = thinkMatch[1].trim();
+                        // Remove the entire think block from the main display
+                        mainContent = fullResponse.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+                        thinkOpen = false;
+                    } else {
+                        // Check if we have an opening <think> without a closing one
+                        const openTag = fullResponse.lastIndexOf('<think>');
+                        const closeTag = fullResponse.lastIndexOf('</think>');
+                        if (openTag > closeTag) {
+                            thinkOpen = true;
+                            // Show the thinking as a details block (but we don't have the full content yet)
+                            // We'll render the part before the opening tag as main content
+                            const beforeThink = fullResponse.substring(0, openTag);
+                            mainContent = beforeThink;
+                            // For the thinking, we can show the raw partial text in the details
+                            const partialThink = fullResponse.substring(openTag + 7); // after <think>
+                            thinkContent = partialThink + ' … (thinking)';
+                        } else {
+                            thinkOpen = false;
+                            mainContent = fullResponse;
+                        }
+                    }
+                    
+                    // Build the final HTML for the bubble
+                    let html = '';
+                    if (thinkContent) {
+                        // Show the thinking inside a collapsible details tag
+                        const escapedThink = DOMPurify.sanitize(marked.parse(thinkContent));
+                        html += `<details class="think-block" ${thinkOpen ? 'open' : ''}>
+                                    <summary>🧠 AI Reasoning Process</summary>
+                                    <div class="think-content">${escapedThink}</div>
+                                </details>`;
+                    }
+                    // Render the main content (always)
+                    html += DOMPurify.sanitize(marked.parse(mainContent || ' '));
+                    
+                    // Update the bubble content
+                    const bubbleContent = nexusBubble.querySelector('.bubble-content');
+                    if (bubbleContent) {
+                        bubbleContent.innerHTML = html;
+                    }
+                } else if (data.type === 'progress') {
+                    // Show progress messages
+                    const bubbleContent = nexusBubble.querySelector('.bubble-content');
+                    if (bubbleContent) {
+                        bubbleContent.innerHTML = `<span style="color:var(--text-muted); font-size: 13px;">${data.text}</span>`;
+                    }
+                } else if (data.type === 'error') {
+                    // Critical: stop the stream and show error
+                    nexusBubble.querySelector('.bubble-content').innerHTML = `⚠️ <strong style="color:#ef4444;">System Alert:</strong> ${data.message}`;
+                    // Clean up
+                    globalAbortController = null;
+                    sendBtn.classList.remove('btn-stop-active');
+                    sendBtn.innerHTML = originalBtnHtml;
+                    return; // exit the function entirely
+                } else if (data.type === 'done') {
+                    // --- FORCE CLOSE ANY OPEN THINK TAG ---
+                    // If the AI never closed the think tag, we now close it gracefully.
+                    // Also, ensure we render the final complete response.
+                    // We'll use the already accumulated fullResponse, but we can also rely on the server's final message.
+                    // However, we have the fullResponse from chunks, so we can re-render it with a forced close.
+                    
+                    // Force close think if open
+                    let finalResponse = fullResponse;
+                    if (thinkOpen) {
+                        // Add a closing tag
+                        finalResponse += '</think>';
+                        // Re-run the think extraction to render properly
+                        const thinkMatchFinal = finalResponse.match(/<think>([\s\S]*?)<\/think>/i);
+                        if (thinkMatchFinal) {
+                            const thinkContentFinal = thinkMatchFinal[1].trim();
+                            const mainContentFinal = finalResponse.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
+                            const htmlFinal = `<details class="think-block">
+                                                <summary>🧠 AI Reasoning Process</summary>
+                                                <div class="think-content">${DOMPurify.sanitize(marked.parse(thinkContentFinal))}</div>
+                                            </details>
+                                            ${DOMPurify.sanitize(marked.parse(mainContentFinal || ' '))}`;
+                            const bubbleContent = nexusBubble.querySelector('.bubble-content');
+                            if (bubbleContent) bubbleContent.innerHTML = htmlFinal;
+                        }
+                    }
+                    
+                    // Update session state
+                    const isBrandNewChat = !activeSessionId;
+                    activeSessionId = data.sessionId;
+                    localStorage.setItem('axelr_active_session', activeSessionId);
+                    localStorage.removeItem('axelr_draft_prompt');
+                    runningStructuredCache = data.structuredData;
+                    runningFileTitle = data.filename;
+                    
+                    loadUserProfile();
+                    
+                    // Reload history and re-render the chat with the final persisted message
+                    setTimeout(async () => {
+                        await loadArchiveLogs();
+                        viewPastLogById(activeSessionId);
+                    }, 500);
+                }
+            } catch (e) {
+                // ignore parse errors for incomplete JSON
+            }
                         }
                     }
                 }
