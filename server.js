@@ -495,7 +495,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   let enhanced = promptText;
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const response = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: `[SYSTEM: ${instruction}]\n\n${promptText}` }] }] });
     enhanced = response.response.text().trim();
   } catch (e) {
@@ -525,7 +525,7 @@ app.post('/api/rename-chat', authenticateUser, asyncHandler(async (req, res) => 
   const chatContext = log.messages.slice(0, 2).map(m => m.text).join('\n');
   const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash",
+    model: "gemini-1.5-flash",
     systemInstruction: "You are a titling assistant. Read the chat start and reply with a short, catchy 3-4 word title. NO quotes, NO extra punctuation. Just the title."
   });
   const response = await model.generateContent({ contents: [{ role: 'user', parts: [{ text: chatContext }] }] });
@@ -737,7 +737,7 @@ STRICT RULE: NEVER narrate your instructions. Just execute the task flawlessly.`
 
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     if (contents.length && contents[0].role === 'user') {
       contents[0].parts.unshift({ text: `[SYSTEM INSTRUCTION: ${systemPrompt}]\n\n` });
     }
