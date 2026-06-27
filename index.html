@@ -1814,18 +1814,8 @@ function viewPastLogById(logId) {
             injectActionButtons(bubble.querySelector('.bubble-content'), msg.text, true);
         } else { 
             let rawResponse = msg.text || "";
-            const thinkMatch = rawResponse.match(/<think>([\s\S]*?)<\/think>/i);
-            let thinkingHtml = '';
-            if (thinkMatch) {
-                thinkingHtml = `<details class="think-block"><summary>🧠 View AI Reasoning Process</summary><div class="think-content">${DOMPurify.sanitize(marked.parse(thinkMatch[1].trim()))}</div></details>`;
-                rawResponse = rawResponse.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
-            }
-
-            if (rawResponse.trim() === "") {
-                rawResponse = "Intelligence matrix execution complete.";
-            }
-
-            bubble.innerHTML = `<div class="ai-avatar-bubble">${AXELR_AVATAR_SVG}</div><div class="bubble-content" style="flex:1;">${thinkingHtml}${DOMPurify.sanitize(marked.parse(rawResponse))}</div>`;
+            // No think parsing – directly render markdown
+            bubble.innerHTML = `<div class="ai-avatar-bubble">${AXELR_AVATAR_SVG}</div><div class="bubble-content" style="flex:1;">${DOMPurify.sanitize(marked.parse(rawResponse))}</div>`;
             appendPayloadDownload(bubble.querySelector('.bubble-content'));
             
             const rawCode = extractHtmlCode(rawResponse);
@@ -2001,7 +1991,6 @@ async function switchVariant(logId, msgId, newIndex) {
                 const reader = response.body.getReader();
 const decoder = new TextDecoder();
 let fullResponse = "";
-let thinkOpen = false;
 
 while (true) {
     const { done, value } = await reader.read();
@@ -2016,54 +2005,11 @@ while (true) {
                 
                 if (data.type === 'chunk') {
                     fullResponse += data.text;
-                    
-                    // --- FAULT‑TOLERANT RENDER ---
-                    // 1. Extract any complete <think> block
-                    const thinkMatch = fullResponse.match(/<think>([\s\S]*?)<\/think>/i);
-                    let thinkContent = "";
-                    let mainContent = fullResponse;
-                    
-                    if (thinkMatch) {
-                        thinkContent = thinkMatch[1].trim();
-                        // Remove the entire think block from the main display
-                        mainContent = fullResponse.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
-                        thinkOpen = false;
-                    } else {
-                        // Check if we have an opening <think> without a closing one
-                        const openTag = fullResponse.lastIndexOf('<think>');
-                        const closeTag = fullResponse.lastIndexOf('</think>');
-                        if (openTag > closeTag) {
-                            thinkOpen = true;
-                            // Show the thinking as a details block (but we don't have the full content yet)
-                            // We'll render the part before the opening tag as main content
-                            const beforeThink = fullResponse.substring(0, openTag);
-                            mainContent = beforeThink;
-                            // For the thinking, we can show the raw partial text in the details
-                            const partialThink = fullResponse.substring(openTag + 7); // after <think>
-                            thinkContent = partialThink + ' … (thinking)';
-                        } else {
-                            thinkOpen = false;
-                            mainContent = fullResponse;
-                        }
-                    }
-                    
-                    // Build the final HTML for the bubble
-                    let html = '';
-                    if (thinkContent) {
-                        // Show the thinking inside a collapsible details tag
-                        const escapedThink = DOMPurify.sanitize(marked.parse(thinkContent));
-                        html += `<details class="think-block" ${thinkOpen ? 'open' : ''}>
-                                    <summary>🧠 AI Reasoning Process</summary>
-                                    <div class="think-content">${escapedThink}</div>
-                                </details>`;
-                    }
-                    // Render the main content (always)
-                    html += DOMPurify.sanitize(marked.parse(mainContent || ' '));
-                    
-                    // Update the bubble content
+                    // 🟢 ULTRA-FAST MARKDOWN RENDER – NO THINK PARSE
                     const bubbleContent = nexusBubble.querySelector('.bubble-content');
                     if (bubbleContent) {
-                        bubbleContent.innerHTML = html;
+                        // Simple render: markdown sanitized
+                        bubbleContent.innerHTML = DOMPurify.sanitize(marked.parse(fullResponse));
                     }
                 } else if (data.type === 'progress') {
                     // Show progress messages
@@ -2080,32 +2026,6 @@ while (true) {
                     sendBtn.innerHTML = originalBtnHtml;
                     return; // exit the function entirely
                 } else if (data.type === 'done') {
-                    // --- FORCE CLOSE ANY OPEN THINK TAG ---
-                    // If the AI never closed the think tag, we now close it gracefully.
-                    // Also, ensure we render the final complete response.
-                    // We'll use the already accumulated fullResponse, but we can also rely on the server's final message.
-                    // However, we have the fullResponse from chunks, so we can re-render it with a forced close.
-                    
-                    // Force close think if open
-                    let finalResponse = fullResponse;
-                    if (thinkOpen) {
-                        // Add a closing tag
-                        finalResponse += '</think>';
-                        // Re-run the think extraction to render properly
-                        const thinkMatchFinal = finalResponse.match(/<think>([\s\S]*?)<\/think>/i);
-                        if (thinkMatchFinal) {
-                            const thinkContentFinal = thinkMatchFinal[1].trim();
-                            const mainContentFinal = finalResponse.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
-                            const htmlFinal = `<details class="think-block">
-                                                <summary>🧠 AI Reasoning Process</summary>
-                                                <div class="think-content">${DOMPurify.sanitize(marked.parse(thinkContentFinal))}</div>
-                                            </details>
-                                            ${DOMPurify.sanitize(marked.parse(mainContentFinal || ' '))}`;
-                            const bubbleContent = nexusBubble.querySelector('.bubble-content');
-                            if (bubbleContent) bubbleContent.innerHTML = htmlFinal;
-                        }
-                    }
-                    
                     // Update session state
                     const isBrandNewChat = !activeSessionId;
                     activeSessionId = data.sessionId;
