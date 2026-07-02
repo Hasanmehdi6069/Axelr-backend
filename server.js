@@ -30,7 +30,7 @@ const AI_CONFIG = {
   },
   FALLBACK: {
     provider: 'groq',
-    model: 'llama-3.3-70b-versatile', // or 'llama-3.1-8b-instant'
+    model: 'llama-3.3-70b-versatile',
     maxOutputTokens: 2048,
     temperature: 0.2,
     timeoutMs: 30000,
@@ -367,11 +367,8 @@ function stripThinkTags(text) {
 // ==========================================
 function cleanAssistantMessage(text) {
   if (!text) return '';
-  // Remove markdown code blocks (```...```)
   let cleaned = text.replace(/```[\s\S]*?```/g, '[code block omitted]');
-  // Remove Markdown tables (simple heuristic: lines with | and -)
   cleaned = cleaned.replace(/\|.*\|.*\n/g, '');
-  // Remove excessive whitespace
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   return cleaned;
 }
@@ -399,34 +396,23 @@ function generateChatName(command, files) {
 // ==========================================
 // STREAMING AI ENGINE (Primary + Silent Fallback)
 // ==========================================
-/**
- * Streams a response from the AI, writing SSE events to the HTTP response.
- * @param {string} systemPrompt
- * @param {string} userContent
- * @param {Array} history - array of {role, text} messages (last N)
- * @param {express.Response} res - the HTTP response object for SSE
- */
 async function streamAIResponse(systemPrompt, userContent, history, res) {
   const startTime = Date.now();
   const primaryModel = AI_CONFIG.PRIMARY;
   const fallbackModel = AI_CONFIG.FALLBACK;
 
-  // Build history: keep last 6 messages, clean assistant texts
   const recentHistory = history.slice(-6).map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
     parts: [{ text: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text }]
   }));
 
-  // Prepare the final user message
   const finalUserContent = { role: 'user', parts: [{ text: userContent }] };
   const contents = [...recentHistory, finalUserContent];
 
-  // Helper to write SSE chunks
   const writeChunk = (text) => {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
   };
 
-  // Try Primary (Gemini) streaming
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
@@ -448,18 +434,15 @@ async function streamAIResponse(systemPrompt, userContent, history, res) {
     for await (const chunk of stream) {
       const chunkText = chunk.text();
       fullText += chunkText;
-      // Send chunk immediately
       writeChunk(chunkText);
     }
 
     console.log(`[AI] Primary (${primaryModel.model}) stream succeeded in ${Date.now() - startTime}ms`);
-    return fullText; // return full response for storage
+    return fullText;
   } catch (primaryErr) {
     console.error(`[AI] Primary (${primaryModel.model}) stream failed:`, primaryErr.message);
-    // --- SILENT FALLBACK TO GROQ STREAMING ---
     try {
       if (!groq) throw new Error('Groq client unavailable');
-      // Transform history to Groq format
       const messages = [
         { role: 'system', content: systemPrompt },
         ...history.slice(-6).map(msg => ({
@@ -490,7 +473,6 @@ async function streamAIResponse(systemPrompt, userContent, history, res) {
       return fullText;
     } catch (fallbackErr) {
       console.error(`[AI] Fallback (${fallbackModel.model}) stream failed:`, fallbackErr.message);
-      // Both failed – send a generic error message as a single chunk
       const errorMsg = "I am Axelr AI. I encountered a temporary technical issue. Please try again shortly.";
       writeChunk(errorMsg);
       return errorMsg;
@@ -519,6 +501,7 @@ app.get('/api/admin/metrics', authenticateUser, asyncHandler(async (req, res) =>
   res.json({ success: true, totalUsers, proUsers, designerUsers, totalChats, metrics });
 }));
 
+// ---------- STRIPE CHECKOUT (SECURE DYNAMIC URL) ----------
 app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res) => {
   if (!stripe) {
     console.error('Stripe is not initialized – check STRIPE_SECRET_KEY');
@@ -535,10 +518,13 @@ app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res
     else if (subTier === 'design') { price = 1600; name = 'Business Design'; }
   }
 
-  // Dynamically determine the client base URL
-  const clientOrigin = req.headers.origin || process.env.CLIENT_APP_URL || 'https://axelr.in';
-  const successUrl = `${clientOrigin}/index.html?billing=success`;
-  const cancelUrl = `${clientOrigin}/index.html?billing=cancelled`;
+  // Secure URL construction – no fallback to hardcoded domains
+  const origin = req.headers.origin;
+  if (!origin) {
+    return res.status(400).json({ error: "Missing origin header" });
+  }
+  const successUrl = new URL('/index.html?billing=success', origin).href;
+  const cancelUrl = new URL('/index.html?billing=cancelled', origin).href;
 
   const session = await stripe.checkout.sessions.create({
     payment_method_types: ['card'],
@@ -608,7 +594,6 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   const user = await User.findById(req.currentUser._id);
   if (!user) return res.status(401).json({ error: "UNAUTHORIZED" });
 
-  // Reset daily enhancements if needed
   const now = new Date();
   if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
     user.quotas.dailyEnhancementsUsed = 0;
@@ -624,7 +609,6 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   const systemPrompt = instruction;
   const userContent = promptText;
   try {
-    // Use the non-streaming generateAIResponse for this route (we'll keep it)
     const enhanced = await generateAIResponse(systemPrompt, userContent, []);
     user.quotas.dailyEnhancementsUsed += 1;
     user.dailyUsage += 1;
@@ -636,11 +620,8 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   }
 }));
 
-// We'll reuse the old generateAIResponse for non-streaming routes (like enhance)
-// but we'll keep it as is. It uses the same fallback logic.
-
 // ==========================================
-// HELPER: generateAIResponse (non-streaming, for other routes)
+// HELPER: generateAIResponse (non-streaming)
 // ==========================================
 async function generateAIResponse(systemPrompt, userContent, history = []) {
   const startTime = Date.now();
@@ -653,7 +634,6 @@ async function generateAIResponse(systemPrompt, userContent, history = []) {
   }));
   const contents = [...recentHistory, { role: 'user', parts: [{ text: userContent }] }];
 
-  // Try Primary (Gemini)
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
@@ -711,7 +691,7 @@ async function generateAIResponse(systemPrompt, userContent, history = []) {
   }
 }
 
-// ---- QUOTA MIDDLEWARE ----
+// ---- QUOTA MIDDLEWARE (now only resets, no increments) ----
 const enforceQuotas = async (req, res, next) => {
   try {
     const user = await User.findById(req.currentUser?._id);
@@ -732,14 +712,14 @@ const enforceQuotas = async (req, res, next) => {
   }
 };
 
-// ---- EXTRACT (SSE with streaming) ----
+// ---- EXTRACT (ATOMIC QUOTA BUMP & ROLLBACK) ----
 app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 5), asyncHandler(async (req, res) => {
   const files = req.files || [];
   const userCommand = (req.body.command || "Analyze").slice(0, 10000);
   const workspaceMode = req.body.workspace === 'design' ? 'design' : 'data';
   const sessionId = (req.body.sessionId && req.body.sessionId !== 'null' && req.body.sessionId !== 'undefined') ? req.body.sessionId : null;
 
-  // Validation
+  // Validate files
   if (files.length > 5) return res.status(400).json({ error: "MAX_FILES_EXCEEDED" });
   const totalSize = files.reduce((s, f) => s + f.size, 0);
   if (totalSize > 50 * 1024 * 1024) return res.status(400).json({ error: "TOTAL_SIZE_EXCEEDED" });
@@ -751,6 +731,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   const byteLimit = user.tier === 'pro' ? 100 * 1024 * 1024 : user.tier === 'business' ? 50 * 1024 * 1024 : 5 * 1024 * 1024;
   const isUi = workspaceMode === 'design';
 
+  // Pre‑validation (no atomic yet)
   if (isUi) {
     if (user.quotas.dailyGenerationsUsed >= uiLimit) return res.status(403).json({ error: "LIMIT_REACHED", usage: user.quotas.dailyGenerationsUsed, limit: uiLimit });
   } else {
@@ -758,7 +739,25 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   }
   if ((user.storageBytesUsed + totalSize) > byteLimit) return res.status(403).json({ error: "STORAGE_LIMIT_REACHED" });
 
-  // System prompts
+  // ---------- ATOMIC QUOTA BUMP ----------
+  const incrementField = isUi ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed';
+  const quotaLimit = isUi ? uiLimit : limit;
+  const update = {
+    $inc: {
+      [incrementField]: 1,
+      dailyUsage: 1,
+      storageBytesUsed: totalSize,
+      ...(isUi ? { dailyUiUxUsage: 1 } : {})
+    }
+  };
+  const filter = { _id: user._id, [incrementField]: { $lt: quotaLimit } };
+  const updatedUser = await User.findOneAndUpdate(filter, update, { new: true });
+  if (!updatedUser) {
+    // Race condition – someone else consumed the last slot
+    return res.status(403).json({ error: "QUOTA_EXHAUSTED" });
+  }
+
+  // System prompts (unchanged)
   let systemPrompt;
   if (workspaceMode === 'design') {
     systemPrompt = `[SYSTEM DIRECTIVE]: You are AXELR ARCHITECT. You are an elite UI/UX code generator.
@@ -771,7 +770,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   }
   if (user.customInstructions) systemPrompt += `\nUSER DATA: ${user.customInstructions}`;
 
-  // Build history (last 6 messages, already cleaned via the streaming function)
+  // History
   let currentSession = null;
   let history = [];
   if (sessionId && mongoose.Types.ObjectId.isValid(sessionId)) {
@@ -785,14 +784,13 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     }
   }
 
-  // Build user content
   let userContent = userCommand;
   if (files.length > 0) {
     const fileNames = files.map(f => f.originalname).join(', ');
     userContent = `Files attached: ${fileNames}. Command: ${userCommand}`;
   }
 
-  // Set SSE headers
+  // SSE headers
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -800,17 +798,28 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     'X-Accel-Buffering': 'no'
   });
 
-  // Stream AI response
   let aiResponse = '';
   try {
     aiResponse = await streamAIResponse(systemPrompt, userContent, history, res);
   } catch (err) {
     console.error('[Extract] Streaming failed:', err);
     aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
+    // Rollback atomic increment
+    await User.updateOne(
+      { _id: user._id },
+      {
+        $inc: {
+          [incrementField]: -1,
+          dailyUsage: -1,
+          storageBytesUsed: -totalSize,
+          ...(isUi ? { dailyUiUxUsage: -1 } : {})
+        }
+      }
+    );
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: aiResponse })}\n\n`);
   }
 
-  // Post-process: extract JSON-DATA if present
+  // Post-process (unchanged)
   let structured = [];
   const jsonMatch = aiResponse.match(/\[JSON-DATA\]([\s\S]*?)\[\/JSON-DATA\]/);
   if (jsonMatch) {
@@ -819,15 +828,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   }
   if (!aiResponse.trim()) aiResponse = "I am Axelr AI. How can I help you?";
 
-  // Update quotas
-  if (isUi) user.quotas.dailyGenerationsUsed += 1;
-  else user.quotas.dailyExtractionsUsed += 1;
-  user.dailyUsage += 1;
-  user.storageBytesUsed += totalSize;
-  if (isUi) user.dailyUiUxUsage += 1;
-  await user.save();
-
-  // Save session
+  // Save session (unchanged)
   if (currentSession) {
     const isRetry = req.body.isRetry === 'true';
     if (isRetry && currentSession.messages.length && currentSession.messages[currentSession.messages.length - 1].role === 'model') {
@@ -859,11 +860,9 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     });
   }
 
-  // Send final done event
   res.write(`data: ${JSON.stringify({ type: 'done', sessionId: currentSession._id, structuredData: structured, filename: `${currentSession.filename}.csv` })}\n\n`);
   res.end();
 
-  // Cleanup temporary files
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 

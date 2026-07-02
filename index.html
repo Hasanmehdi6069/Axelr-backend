@@ -1291,6 +1291,16 @@
                     }
                 }
             } catch(err) { localStorage.removeItem('google_auth_token'); }
+            // After initializeSecureWorkspace or in window.onload, check URL
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get('billing') === 'success') {
+    // Optionally show a toast/alert
+    alert('🎉 Payment successful! Your workspace has been upgraded.');
+    // Remove the param to avoid showing again on refresh
+    window.history.replaceState({}, document.title, window.location.pathname);
+    // Refresh user profile
+    if (googleAuthUserToken) loadUserProfile();
+}
         };
 
         async function initializeSecureWorkspace(payload, token) {
@@ -1576,32 +1586,53 @@ function selectWorkspaceContext(targetEngine) {
         }
 
         async function loadUserProfile() {
-            try {
-               const resp = await fetch(`${API_BASE_URL}/api/user/profile`, { headers: {'Authorization': `Bearer ${googleAuthUserToken}`} });
-                if (resp.ok) {
-                    const data = await resp.json();
-                    document.getElementById('instructions-input').value = data.customInstructions || "";
-                    document.getElementById('quota-text').innerText = `${data.dailyUsage} / ${data.limit}`;
-                    document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
-                    
-                    if (data.tier === 'pro' || data.tier === 'designer') {
-                        document.body.classList.remove('pro-tier', 'designer-tier');
-                        document.body.classList.add(`${data.tier}-tier`);
-                        document.getElementById('model-text-display').innerText = 'Model Hyper-Precise';
-                        document.getElementById('model-badge-display').innerText = data.tier.toUpperCase();
-                        document.getElementById('sidebar-plan-badge').innerText = data.tier.toUpperCase();
-                        document.getElementById('sidebar-plan-badge').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
-                        document.getElementById('sidebar-plan-badge').style.color = "#fff";
-                        document.getElementById('quota-fill-bar').style.width = '100%';
-                        document.getElementById('quota-fill-bar').style.background = data.tier === 'designer' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
-                        document.getElementById('sub-plan-name').innerText = data.tier.toUpperCase() + ' Tier';
-                    } else {
-                        const pct = Math.min((data.dailyUsage / data.limit) * 100, 100);
-                        document.getElementById('quota-fill-bar').style.width = `${pct}%`;
-                    }
-                }
-            } catch(e) {}
+    try {
+        const resp = await fetch(`${API_BASE_URL}/api/user/profile`, {
+            headers: { 'Authorization': `Bearer ${googleAuthUserToken}` }
+        });
+        if (resp.ok) {
+            const data = await resp.json();
+            document.getElementById('instructions-input').value = data.customInstructions || "";
+            document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
+
+            // --- Update tier badges and model selector ---
+            if (data.tier === 'pro' || data.tier === 'business') {
+                document.body.classList.remove('pro-tier', 'business-tier');
+                document.body.classList.add(`${data.tier}-tier`);
+                document.getElementById('model-text-display').innerText = 'Model Hyper-Precise';
+                document.getElementById('model-badge-display').innerText = data.tier.toUpperCase();
+                document.getElementById('sidebar-plan-badge').innerText = data.tier.toUpperCase();
+                document.getElementById('sidebar-plan-badge').style.background =
+                    data.tier === 'business' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
+                document.getElementById('sidebar-plan-badge').style.color = "#fff";
+                document.getElementById('sub-plan-name').innerText = data.tier.toUpperCase() + ' Tier';
+            } else {
+                document.body.classList.remove('pro-tier', 'business-tier');
+                document.body.classList.add('free-tier');
+                document.getElementById('model-text-display').innerText = 'Model 2.5';
+                document.getElementById('model-badge-display').innerText = 'FLASH';
+                document.getElementById('sidebar-plan-badge').innerText = 'FREE';
+                document.getElementById('sidebar-plan-badge').style.background = 'var(--border-muted)';
+                document.getElementById('sidebar-plan-badge').style.color = 'var(--text-muted)';
+                document.getElementById('sub-plan-name').innerText = 'Free Allocation';
+            }
+
+            // --- UPDATE QUOTA BAR WITH REAL DATA ---
+            const currentWorkspace = localStorage.getItem('Axelr_workspace') || 'data';
+            let used = 0, limit = 0;
+            if (currentWorkspace === 'design') {
+                used = data.dailyUiUxUsage || 0;
+                limit = data.tier === 'free' ? 2 : (data.tier === 'pro' ? 20 : 100);
+            } else {
+                used = data.dailyUsage || 0;
+                limit = data.tier === 'free' ? 5 : (data.tier === 'pro' ? 50 : 100);
+            }
+            const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+            document.getElementById('quota-numerical-count').innerText = `${used}/${limit} Used (${Math.round(percentage)}%)`;
+            document.getElementById('quota-progress-bar-fill').style.width = `${percentage}%`;
         }
+    } catch (e) { console.warn('Profile load failed', e); }
+}
 
         function executeGlobalLogout() { 
             localStorage.removeItem('google_auth_token'); 
@@ -2183,43 +2214,6 @@ function syncTierMatrixEngine(tierGroup, subTierSelection, derivedCostValue) {
     if (targetOutputNode) {
         targetOutputNode.innerHTML = `$${derivedCostValue}<span style="font-size: 14px; color: #555; font-weight: 400;">/mo</span>`;
     }
-}
-
-async function dispatchCheckoutPipeline(targetBaseTier) {
-    const selectedSubConfig = document.querySelector(`input[name="${targetBaseTier}-sub-selector"]:checked`).value;
-    const checkoutBtn = document.querySelector(`.${targetBaseTier}-premium button`);
-    const originalText = checkoutBtn.innerText;
-    
-    checkoutBtn.innerText = "Connecting to Stripe...";
-    checkoutBtn.style.opacity = "0.7";
-    checkoutBtn.disabled = true;
-    
-    try { 
-        const response = await fetch(`${API_BASE_URL}/api/billing/checkout`, { 
-            method: 'POST', 
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${googleAuthUserToken}` }, 
-            body: JSON.stringify({ tier: targetBaseTier, subTier: selectedSubConfig }) 
-        }); 
-        const data = await response.json(); 
-        if (data.url) {
-            window.location.href = data.url; 
-        } else {
-            checkoutBtn.innerText = "Checkout Failed";
-            setTimeout(() => { checkoutBtn.innerText = originalText; checkoutBtn.disabled = false; checkoutBtn.style.opacity = "1"; }, 2000);
-        }
-    } catch(e) {
-        checkoutBtn.innerText = "Network Error";
-        setTimeout(() => { checkoutBtn.innerText = originalText; checkoutBtn.disabled = false; checkoutBtn.style.opacity = "1"; }, 2000);
-    }
-}
-// KILLS THE FATAL COMPONENT ISOLATION BUG
-function openSurgicalModificationPromptInterface(componentId) {
-    const promptInput = document.getElementById('prompt-input');
-    promptInput.value = `[Modifying Isolated Target: ${componentId}] -> `;
-    promptInput.focus();
-    // Flash the input box red so the user knows they are in surgical mode
-    promptInput.style.boxShadow = "0 0 15px rgba(239, 68, 68, 0.8)";
-    setTimeout(() => promptInput.style.boxShadow = "none", 1500);
 }
     </script>
     <script>
