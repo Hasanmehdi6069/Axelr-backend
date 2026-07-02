@@ -1617,14 +1617,14 @@ function selectWorkspaceContext(targetEngine) {
                 document.getElementById('sub-plan-name').innerText = 'Free Allocation';
             }
 
-            // --- UPDATE QUOTA BAR WITH REAL DATA ---
+            // --- UPDATE QUOTA BAR WITH REAL DATA USING NESTED QUOTAS ---
             const currentWorkspace = localStorage.getItem('Axelr_workspace') || 'data';
             let used = 0, limit = 0;
             if (currentWorkspace === 'design') {
-                used = data.dailyUiUxUsage || 0;
+                used = data.quotas?.dailyGenerationsUsed || 0;
                 limit = data.tier === 'free' ? 2 : (data.tier === 'pro' ? 20 : 100);
             } else {
-                used = data.dailyUsage || 0;
+                used = data.quotas?.dailyExtractionsUsed || 0;
                 limit = data.tier === 'free' ? 5 : (data.tier === 'pro' ? 50 : 100);
             }
             const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
@@ -1927,7 +1927,15 @@ async function switchVariant(logId, msgId, newIndex) {
         // 🟢 FIX: Added 'isRetry = false' to prevent the ReferenceError crash
         // 🟢 FLAWLESS RETRY & QUOTA SYNC ENGINE
         async function executeCommand(isRetry = false) {
-            if (currentTab === 'trashed' && activeSessionId) return alert("Restore chat from trash first.");
+            // --- FIX: Trash glitch handling ---
+            if (currentTab === 'trashed') {
+                // Automatically switch to active tab and clear session
+                switchSidebarTab('active');
+                activeSessionId = null;
+                localStorage.removeItem('axelr_active_session');
+                resetToNewChat(); // Clear view
+                // Allow the command to proceed normally
+            }
 
             const sendBtn = document.getElementById('send-trigger');
             const originalBtnHtml = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
