@@ -1975,6 +1975,11 @@ async function switchVariant(logId, msgId, newIndex) {
             // 🟢 Store the command for later regeneration
             window.lastUserCommand = command;
 
+            // ✅ INSTANTLY hide hero and clear input
+  document.getElementById('hero-display').style.display = 'none';
+  promptInput.value = '';
+  promptInput.style.height = 'auto';
+  validateSendCommand();
             if (!command && stagedFiles.length === 0 && !isRetry) return;
 
             promptInput.value = '';
@@ -2003,22 +2008,17 @@ async function switchVariant(logId, msgId, newIndex) {
                 userBubble.innerHTML = `<div class="bubble-content">${filesHtml}${escapeHtmlEntities(command || "")}</div>`;
                 viewport.appendChild(userBubble);
             }
-
-            setTimeout(() => viewport.scrollTop = viewport.scrollHeight, 50);
+// ✅ ALWAYS scroll to show new content (even before response)
+  setTimeout(() => viewport.scrollTop = viewport.scrollHeight, 50);
 
             const nexusBubble = document.createElement('div'); nexusBubble.className = 'chat-bubble nexus-bubble';
             nexusBubble.innerHTML = `<div class="ai-avatar-bubble">${AXELR_AVATAR_SVG}</div><div class="bubble-content" style="flex:1;"><span id="flow-state" style="color:var(--text-muted);">Initializing pipeline...</span></div>`;
             viewport.appendChild(nexusBubble);
             viewport.scrollTop = viewport.scrollHeight;
 
-            const flowStateSpan = nexusBubble.querySelector('#flow-state');
-            if (flowStateSpan) flowStateSpan.innerText = "Encrypting payload...";
-
-            if (stagedFiles.length > 0) {
-                setTimeout(() => { if(flowStateSpan) flowStateSpan.innerText = "Processing attached assets..."; }, 600);
-            }
-            setTimeout(() => { if(flowStateSpan) flowStateSpan.innerText = "Awaiting Matrix compilation..."; }, stagedFiles.length > 0 ? 1200 : 600);
-
+          // Show a simple "Thinking..." indicator
+const bubbleContent = nexusBubble.querySelector('.bubble-content');
+bubbleContent.innerHTML = `<span style="color:var(--text-muted);">Thinking...</span>`;
             const formData = new FormData();
             formData.append('command', command);
             if (activeSessionId) { formData.append('sessionId', activeSessionId); }
@@ -2048,6 +2048,10 @@ async function switchVariant(logId, msgId, newIndex) {
                     }
                     return;
                 }
+                if (!response.body) {
+  nexusBubble.querySelector('.bubble-content').innerHTML = `⚠️ No response body.`;
+  return;
+}
                 const reader = response.body.getReader();
 const decoder = new TextDecoder();
 let fullResponse = "";
@@ -2065,13 +2069,12 @@ while (true) {
                 
                 // Inside the chunk handling
 if (data.type === 'chunk') {
-    fullResponse += data.text;
-    // Strip any <think> tags and their content (if they slip through)
-    const cleanResponse = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '');
-    const bubbleContent = nexusBubble.querySelector('.bubble-content');
-    if (bubbleContent) {
-        bubbleContent.innerHTML = DOMPurify.sanitize(marked.parse(cleanResponse));
-    }
+  fullResponse += data.text;
+  const cleanResponse = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '');
+  const bubbleContent = nexusBubble.querySelector('.bubble-content');
+  if (bubbleContent) {
+    bubbleContent.innerHTML = DOMPurify.sanitize(marked.parse(cleanResponse));
+  }
 } else if (data.type === 'progress') {
                     // Show progress messages
                     const bubbleContent = nexusBubble.querySelector('.bubble-content');
@@ -2121,7 +2124,7 @@ if (data.type === 'chunk') {
                 sendBtn.innerHTML = originalBtnHtml;
                 setTimeout(() => viewport.scrollTop = viewport.scrollHeight, 50);
             }
-            
+        
     try {
         // ... (fetch and stream handling, including error checks) ...
 

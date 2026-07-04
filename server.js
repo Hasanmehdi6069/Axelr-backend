@@ -823,13 +823,13 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   }
 
   // ============================================================
-// UNIFIED QUOTA SYSTEM – STRICT TIER MATRIX
+// UNIFIED QUOTA SYSTEM – STRICT TIER MATRIX (UPDATED)
 // ============================================================
 const isFree = user.tier === 'free';
 const isPro = user.tier === 'pro';
 const isBusiness = user.tier === 'business';
 
-// Determine sub‑tier type
+// Determine sub‑tier type (for paid tiers)
 const hasData = user.subTierOptions.hasDataAccess;
 const hasDesign = user.subTierOptions.hasDesignAccess;
 let subTierType = 'full';
@@ -839,9 +839,9 @@ else if (!hasData && hasDesign) subTierType = 'design';
 // Define limits
 let dataLimit, uiLimit;
 if (isFree) {
-  // Free: combined total 3, UI throttle 2
-  dataLimit = 3;   // used as combined total
-  uiLimit = 2;     // design‑specific throttle
+  // Free: combined total 5 (across both workspaces), no separate UI limit
+  dataLimit = 5;
+  uiLimit = 0; // not used
 } else if (isPro) {
   if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
   else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
@@ -852,13 +852,10 @@ if (isFree) {
   else if (subTierType === 'design') { dataLimit = 0; uiLimit = 20; }
 }
 
-// For free: combined total check
+// For free: only check dailyUsage against dataLimit (5)
 if (isFree) {
   if (user.dailyUsage >= dataLimit) {
     return res.status(403).json({ error: "LIMIT_REACHED", usage: user.dailyUsage, limit: dataLimit });
-  }
-  if (workspaceMode === 'design' && user.dailyUiUxUsage >= uiLimit) {
-    return res.status(403).json({ error: "LIMIT_REACHED", usage: user.dailyUiUxUsage, limit: uiLimit });
   }
 } else {
   // Paid: check sub‑tier access and per‑type limits
@@ -899,9 +896,8 @@ if (isDesign) {
 // Atomic filter to prevent race conditions
 const filter = { _id: user._id };
 if (isFree) {
-  // Free: ensure combined and UI limits not exceeded
+  // Free: only ensure dailyUsage < 5
   filter.dailyUsage = { $lt: dataLimit };
-  if (isDesign) filter.dailyUiUxUsage = { $lt: uiLimit };
 } else {
   // Paid: ensure per‑type limit not exceeded and they have access
   const quotaField = isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed';
