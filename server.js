@@ -481,171 +481,6 @@ async function streamAIResponse(systemPrompt, userContent, history, res) {
 }
 
 // ==========================================
-// ROUTES
-// ==========================================
-app.get('/', (req, res) => res.send('Axelr API Online'));
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'operational', timestamp: new Date().toISOString(), db: dbConnected ? 'connected' : 'disconnected', uptime: process.uptime() });
-});
-
-app.get('/api/admin/metrics', authenticateUser, asyncHandler(async (req, res) => {
-  if (req.currentUser.email !== "shanh1346@gmail.com") return res.status(403).json({ error: "UNAUTHORIZED" });
-  const [totalUsers, proUsers, designerUsers, totalChats, usageData] = await Promise.all([
-    User.countDocuments(),
-    User.countDocuments({ tier: 'pro' }),
-    User.countDocuments({ tier: 'business' }),
-    ChatSession.countDocuments(),
-    User.aggregate([{ $group: { _id: null, totalQueries: { $sum: "$dailyUsage" }, totalBytes: { $sum: "$storageBytesUsed" } } }])
-  ]);
-  const metrics = usageData[0] || { totalQueries: 0, totalBytes: 0 };
-  res.json({ success: true, totalUsers, proUsers, designerUsers, totalChats, metrics });
-}));
-
-// ---------- STRIPE CHECKOUT (SECURE DYNAMIC URL) ----------
-app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res) => {
-  if (!stripe) {
-    console.error('Stripe is not initialized – check STRIPE_SECRET_KEY');
-    return res.status(503).json({ error: "Payment service unavailable." });
-  }
-  const { tier = 'pro', subTier = 'full' } = req.body;
-  let price = 1500, name = 'Pro Full Stack';
-  if (tier === 'pro') {
-    if (subTier === 'data') { price = 800; name = 'Pro Data'; }
-    else if (subTier === 'design') { price = 900; name = 'Pro Design'; }
-  } else if (tier === 'business') {
-    if (subTier === 'full') { price = 2900; name = 'Business Full'; }
-    else if (subTier === 'data') { price = 1600; name = 'Business Data'; }
-    else if (subTier === 'design') { price = 1600; name = 'Business Design'; }
-  }
-
-  // Secure URL construction – no fallback to hardcoded domains
-  const origin = req.headers.origin;
-  if (!origin) {
-    return res.status(400).json({ error: "Missing origin header" });
-  }
-  const successUrl = new URL('/index.html?billing=success', origin).href;
-  const cancelUrl = new URL('/index.html?billing=cancelled', origin).href;
-
-  const session = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
-    mode: 'subscription',
-    client_reference_id: req.currentUser.googleId,
-    metadata: { tier, subTier },
-    line_items: [{ price_data: { currency: 'usd', product_data: { name }, unit_amount: price, recurring: { interval: 'month' } }, quantity: 1 }],
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-  });
-  res.json({ url: session.url });
-}));
-
-// ==========================================
-// FIX: QUOTA DATA BINDING – expose nested quotas
-// ==========================================
-app.get('/api/user/profile', authenticateUser, (req, res) => {
-  const user = req.currentUser;
-  res.json({
-    tier: user.tier,
-    dailyUsage: user.dailyUsage,
-    dailyUiUxUsage: user.dailyUiUxUsage,
-    customInstructions: user.customInstructions,
-    quotas: user.quotas,
-    subTierOptions: user.subTierOptions
-  });
-});
-
-app.put('/api/user/instructions', authenticateUser, asyncHandler(async (req, res) => {
-  req.currentUser.customInstructions = req.body.instructions || '';
-  await req.currentUser.save();
-  res.json({ success: true });
-}));
-
-app.put('/api/history/:id', authenticateUser, asyncHandler(async (req, res) => {
-  const { action, payload } = req.body;
-  const log = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
-  if (!log) return res.status(404).json({ error: "Not found" });
-  if (action === 'rename') log.filename = payload;
-  if (action === 'pin') log.isPinned = !log.isPinned;
-  await log.save();
-  res.json({ success: true });
-}));
-
-app.put('/api/history/:id/status', authenticateUser, asyncHandler(async (req, res) => {
-  const { status } = req.body;
-  const update = { status };
-  if (status === 'trashed') update.trashedAt = new Date();
-  await ChatSession.findOneAndUpdate({ _id: req.params.id, userId: req.currentUser._id }, update);
-  res.json({ success: true });
-}));
-
-app.delete('/api/history/:id', authenticateUser, asyncHandler(async (req, res) => {
-  await ChatSession.deleteOne({ _id: req.params.id, userId: req.currentUser._id, status: 'trashed' });
-  res.json({ success: true });
-}));
-
-app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
-  await BugReport.create({ userId: req.currentUser._id, type: req.body.type || 'feedback', description: req.body.description });
-  res.json({ success: true });
-}));
-
-app.get('/api/history', authenticateUser, asyncHandler(async (req, res) => {
-  const allowed = ['data', 'design', 'general'];
-  const workspace = allowed.includes(req.query.workspace) ? req.query.workspace : 'data';
-  const logs = await ChatSession.find({
-    userId: req.currentUser._id,
-    status: req.query.status || 'active',
-    workspace
-  }).sort({ isPinned: -1, createdAt: -1 });
-  res.json({ logs });
-}));
-
-app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) => {
-  const { promptText } = req.body;
-  if (!promptText) return res.status(400).json({ error: "No text." });
-  const user = await User.findById(req.currentUser._id);
-  if (!user) return res.status(401).json({ error: "UNAUTHORIZED" });
-
-  const now = new Date();
-  if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
-    user.quotas.dailyEnhancementsUsed = 0;
-    user.quotas.lastQuotaResetTimestamp = now;
-    await user.save();
-  }
-  // ---- inside POST /api/enhance-prompt ----
-const user = await User.findById(req.currentUser._id);
-// ... reset logic ...
-
-let limit;
-if (user.tier === 'free') {
-  limit = 3;
-} else if (user.tier === 'pro') {
-  // Pro: full = 7, data/design only = 5
-  limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 7 : 5;
-} else if (user.tier === 'business') {
-  // Business: full = 15, data/design only = 10
-  limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 15 : 10;
-} else {
-  limit = 3; // fallback
-}
-if (user.quotas.dailyEnhancementsUsed >= limit) {
-  return res.status(403).json({ error: "LIMIT_REACHED", usage: user.quotas.dailyEnhancementsUsed, limit });
-}
-
-  const instruction = "You are an elite prompt engineer. Rewrite the user's input into a detailed professional prompt. Return ONLY the rewritten prompt. No quotes, no intro.";
-  const systemPrompt = instruction;
-  const userContent = promptText;
-  try {
-    const enhanced = await generateAIResponse(systemPrompt, userContent, []);
-    user.quotas.dailyEnhancementsUsed += 1;
-    user.dailyUsage += 1;
-    await user.save();
-    res.json({ success: true, enhanced });
-  } catch (err) {
-    console.error('[Enhance] Failed:', err);
-    res.status(503).json({ error: "AI service unavailable" });
-  }
-}));
-
-// ==========================================
 // HELPER: generateAIResponse (non-streaming)
 // ==========================================
 async function generateAIResponse(systemPrompt, userContent, history = []) {
@@ -716,7 +551,176 @@ async function generateAIResponse(systemPrompt, userContent, history = []) {
   }
 }
 
-// ---- QUOTA MIDDLEWARE (now only resets, no increments) ----
+// ==========================================
+// ROUTES
+// ==========================================
+app.get('/', (req, res) => res.send('Axelr API Online'));
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'operational', timestamp: new Date().toISOString(), db: dbConnected ? 'connected' : 'disconnected', uptime: process.uptime() });
+});
+
+app.get('/api/admin/metrics', authenticateUser, asyncHandler(async (req, res) => {
+  if (req.currentUser.email !== "shanh1346@gmail.com") return res.status(403).json({ error: "UNAUTHORIZED" });
+  const [totalUsers, proUsers, designerUsers, totalChats, usageData] = await Promise.all([
+    User.countDocuments(),
+    User.countDocuments({ tier: 'pro' }),
+    User.countDocuments({ tier: 'business' }),
+    ChatSession.countDocuments(),
+    User.aggregate([{ $group: { _id: null, totalQueries: { $sum: "$dailyUsage" }, totalBytes: { $sum: "$storageBytesUsed" } } }])
+  ]);
+  const metrics = usageData[0] || { totalQueries: 0, totalBytes: 0 };
+  res.json({ success: true, totalUsers, proUsers, designerUsers, totalChats, metrics });
+}));
+
+// ---------- STRIPE CHECKOUT (SECURE DYNAMIC URL) ----------
+app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res) => {
+  if (!stripe) {
+    console.error('Stripe is not initialized – check STRIPE_SECRET_KEY');
+    return res.status(503).json({ error: "Payment service unavailable." });
+  }
+  const { tier = 'pro', subTier = 'full' } = req.body;
+  let price = 1500, name = 'Pro Full Stack';
+  if (tier === 'pro') {
+    if (subTier === 'data') { price = 800; name = 'Pro Data'; }
+    else if (subTier === 'design') { price = 900; name = 'Pro Design'; }
+  } else if (tier === 'business') {
+    if (subTier === 'full') { price = 2900; name = 'Business Full'; }
+    else if (subTier === 'data') { price = 1600; name = 'Business Data'; }
+    else if (subTier === 'design') { price = 1600; name = 'Business Design'; }
+  }
+
+  // Secure URL construction – no fallback to hardcoded domains
+  const origin = req.headers.origin;
+  if (!origin) {
+    return res.status(400).json({ error: "Missing origin header" });
+  }
+  const successUrl = new URL('/index.html?billing=success', origin).href;
+  const cancelUrl = new URL('/index.html?billing=cancelled', origin).href;
+
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    mode: 'subscription',
+    client_reference_id: req.currentUser.googleId,
+    metadata: { tier, subTier },
+    line_items: [{ price_data: { currency: 'usd', product_data: { name }, unit_amount: price, recurring: { interval: 'month' } }, quantity: 1 }],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+  res.json({ url: session.url });
+}));
+
+// ==========================================
+// USER PROFILE
+// ==========================================
+app.get('/api/user/profile', authenticateUser, (req, res) => {
+  const user = req.currentUser;
+  res.json({
+    tier: user.tier,
+    dailyUsage: user.dailyUsage,
+    dailyUiUxUsage: user.dailyUiUxUsage,
+    customInstructions: user.customInstructions,
+    quotas: user.quotas,
+    subTierOptions: user.subTierOptions
+  });
+});
+
+app.put('/api/user/instructions', authenticateUser, asyncHandler(async (req, res) => {
+  req.currentUser.customInstructions = req.body.instructions || '';
+  await req.currentUser.save();
+  res.json({ success: true });
+}));
+
+// ==========================================
+// HISTORY ROUTES
+// ==========================================
+app.put('/api/history/:id', authenticateUser, asyncHandler(async (req, res) => {
+  const { action, payload } = req.body;
+  const log = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
+  if (!log) return res.status(404).json({ error: "Not found" });
+  if (action === 'rename') log.filename = payload;
+  if (action === 'pin') log.isPinned = !log.isPinned;
+  await log.save();
+  res.json({ success: true });
+}));
+
+app.put('/api/history/:id/status', authenticateUser, asyncHandler(async (req, res) => {
+  const { status } = req.body;
+  const update = { status };
+  if (status === 'trashed') update.trashedAt = new Date();
+  await ChatSession.findOneAndUpdate({ _id: req.params.id, userId: req.currentUser._id }, update);
+  res.json({ success: true });
+}));
+
+app.delete('/api/history/:id', authenticateUser, asyncHandler(async (req, res) => {
+  await ChatSession.deleteOne({ _id: req.params.id, userId: req.currentUser._id, status: 'trashed' });
+  res.json({ success: true });
+}));
+
+app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
+  await BugReport.create({ userId: req.currentUser._id, type: req.body.type || 'feedback', description: req.body.description });
+  res.json({ success: true });
+}));
+
+app.get('/api/history', authenticateUser, asyncHandler(async (req, res) => {
+  const allowed = ['data', 'design', 'general'];
+  const workspace = allowed.includes(req.query.workspace) ? req.query.workspace : 'data';
+  const logs = await ChatSession.find({
+    userId: req.currentUser._id,
+    status: req.query.status || 'active',
+    workspace
+  }).sort({ isPinned: -1, createdAt: -1 });
+  res.json({ logs });
+}));
+
+// ==========================================
+// ENHANCE PROMPT
+// ==========================================
+app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) => {
+  const { promptText } = req.body;
+  if (!promptText) return res.status(400).json({ error: "No text." });
+  const user = await User.findById(req.currentUser._id);
+  if (!user) return res.status(401).json({ error: "UNAUTHORIZED" });
+
+  const now = new Date();
+  if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
+    user.quotas.dailyEnhancementsUsed = 0;
+    user.quotas.lastQuotaResetTimestamp = now;
+    await user.save();
+  }
+
+  let limit;
+  if (user.tier === 'free') {
+    limit = 3;
+  } else if (user.tier === 'pro') {
+    limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 7 : 5;
+  } else if (user.tier === 'business') {
+    limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 15 : 10;
+  } else {
+    limit = 3;
+  }
+
+  if (user.quotas.dailyEnhancementsUsed >= limit) {
+    return res.status(403).json({ error: "LIMIT_REACHED", usage: user.quotas.dailyEnhancementsUsed, limit });
+  }
+
+  const instruction = "You are an elite prompt engineer. Rewrite the user's input into a detailed professional prompt. Return ONLY the rewritten prompt. No quotes, no intro.";
+  const systemPrompt = instruction;
+  const userContent = promptText;
+  try {
+    const enhanced = await generateAIResponse(systemPrompt, userContent, []);
+    user.quotas.dailyEnhancementsUsed += 1;
+    user.dailyUsage += 1;
+    await user.save();
+    res.json({ success: true, enhanced });
+  } catch (err) {
+    console.error('[Enhance] Failed:', err);
+    res.status(503).json({ error: "AI service unavailable" });
+  }
+}));
+
+// ==========================================
+// QUOTA MIDDLEWARE (reset only)
+// ==========================================
 const enforceQuotas = async (req, res, next) => {
   try {
     const user = await User.findById(req.currentUser?._id);
@@ -737,7 +741,9 @@ const enforceQuotas = async (req, res, next) => {
   }
 };
 
-// ---- EXTRACT (ATOMIC QUOTA BUMP & ROLLBACK) ----
+// ==========================================
+// EXTRACT (ATOMIC QUOTA BUMP & ROLLBACK)
+// ==========================================
 app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 5), asyncHandler(async (req, res) => {
   const files = req.files || [];
   const userCommand = (req.body.command || "Analyze").slice(0, 10000);
@@ -757,7 +763,6 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   // ============================================================
   const trimmedCommand = userCommand.trim();
   if (trimmedCommand === '//TEST_MATRIX_UI//') {
-    // Hardcoded React/Tailwind Dashboard
     const uiHtml = `\`\`\`html
 <!DOCTYPE html>
 <html lang="en">
@@ -823,96 +828,89 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   }
 
   // ============================================================
-// UNIFIED QUOTA SYSTEM – STRICT TIER MATRIX (UPDATED)
-// ============================================================
-const isFree = user.tier === 'free';
-const isPro = user.tier === 'pro';
-const isBusiness = user.tier === 'business';
+  // UNIFIED QUOTA SYSTEM – STRICT TIER MATRIX
+  // ============================================================
+  const isFree = user.tier === 'free';
+  const isPro = user.tier === 'pro';
+  const isBusiness = user.tier === 'business';
 
-// Determine sub‑tier type (for paid tiers)
-const hasData = user.subTierOptions.hasDataAccess;
-const hasDesign = user.subTierOptions.hasDesignAccess;
-let subTierType = 'full';
-if (hasData && !hasDesign) subTierType = 'data';
-else if (!hasData && hasDesign) subTierType = 'design';
+  const hasData = user.subTierOptions.hasDataAccess;
+  const hasDesign = user.subTierOptions.hasDesignAccess;
+  let subTierType = 'full';
+  if (hasData && !hasDesign) subTierType = 'data';
+  else if (!hasData && hasDesign) subTierType = 'design';
 
-// Define limits
-let dataLimit, uiLimit;
-if (isFree) {
-  // Free: combined total 5 (across both workspaces), no separate UI limit
-  dataLimit = 5;
-  uiLimit = 0; // not used
-} else if (isPro) {
-  if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
-  else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
-  else if (subTierType === 'design') { dataLimit = 0; uiLimit = 13; }
-} else if (isBusiness) {
-  if (subTierType === 'full') { dataLimit = 30; uiLimit = 25; }
-  else if (subTierType === 'data') { dataLimit = 28; uiLimit = 0; }
-  else if (subTierType === 'design') { dataLimit = 0; uiLimit = 20; }
-}
-
-// For free: only check dailyUsage against dataLimit (5)
-if (isFree) {
-  if (user.dailyUsage >= dataLimit) {
-    return res.status(403).json({ error: "LIMIT_REACHED", usage: user.dailyUsage, limit: dataLimit });
-  }
-} else {
-  // Paid: check sub‑tier access and per‑type limits
-  const isDesign = workspaceMode === 'design';
-  if (isDesign && !hasDesign) {
-    return res.status(403).json({ error: "SUB_TIER_RESTRICTION", message: "UI generation not included in your plan." });
-  }
-  if (!isDesign && !hasData) {
-    return res.status(403).json({ error: "SUB_TIER_RESTRICTION", message: "Data extraction not included in your plan." });
+  let dataLimit, uiLimit;
+  if (isFree) {
+    dataLimit = 5;
+    uiLimit = 0; // not used for free
+  } else if (isPro) {
+    if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
+    else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
+    else if (subTierType === 'design') { dataLimit = 0; uiLimit = 13; }
+  } else if (isBusiness) {
+    if (subTierType === 'full') { dataLimit = 30; uiLimit = 25; }
+    else if (subTierType === 'data') { dataLimit = 28; uiLimit = 0; }
+    else if (subTierType === 'design') { dataLimit = 0; uiLimit = 20; }
   }
 
-  const used = isDesign ? user.quotas.dailyGenerationsUsed : user.quotas.dailyExtractionsUsed;
-  const limit = isDesign ? uiLimit : dataLimit;
-  if (used >= limit) {
-    return res.status(403).json({ error: "LIMIT_REACHED", usage: used, limit });
-  }
-}
-
-// Storage limit (unchanged)
-const byteLimit = isFree ? 5 * 1024 * 1024 : (isPro ? 100 * 1024 * 1024 : 50 * 1024 * 1024);
-if ((user.storageBytesUsed + totalSize) > byteLimit) {
-  return res.status(403).json({ error: "STORAGE_LIMIT_REACHED" });
-}
-
-// ---------- ATOMIC QUOTA BUMP ----------
-const isDesign = workspaceMode === 'design';
-const incrementFields = {
-  dailyUsage: 1, // total counter for analytics
-  storageBytesUsed: totalSize,
-};
-if (isDesign) {
-  incrementFields['quotas.dailyGenerationsUsed'] = 1;
-  incrementFields.dailyUiUxUsage = 1;
-} else {
-  incrementFields['quotas.dailyExtractionsUsed'] = 1;
-}
-
-// Atomic filter to prevent race conditions
-const filter = { _id: user._id };
-if (isFree) {
-  // Free: only ensure dailyUsage < 5
-  filter.dailyUsage = { $lt: dataLimit };
-} else {
-  // Paid: ensure per‑type limit not exceeded and they have access
-  const quotaField = isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed';
-  filter[quotaField] = { $lt: isDesign ? uiLimit : dataLimit };
-  if (isDesign) {
-    filter['subTierOptions.hasDesignAccess'] = true;
+  // Free: check dailyUsage against 5
+  if (isFree) {
+    if (user.dailyUsage >= dataLimit) {
+      return res.status(403).json({ error: "LIMIT_REACHED", usage: user.dailyUsage, limit: dataLimit });
+    }
   } else {
-    filter['subTierOptions.hasDataAccess'] = true;
+    const isDesign = workspaceMode === 'design';
+    if (isDesign && !hasDesign) {
+      return res.status(403).json({ error: "SUB_TIER_RESTRICTION", message: "UI generation not included in your plan." });
+    }
+    if (!isDesign && !hasData) {
+      return res.status(403).json({ error: "SUB_TIER_RESTRICTION", message: "Data extraction not included in your plan." });
+    }
+    const used = isDesign ? user.quotas.dailyGenerationsUsed : user.quotas.dailyExtractionsUsed;
+    const limit = isDesign ? uiLimit : dataLimit;
+    if (used >= limit) {
+      return res.status(403).json({ error: "LIMIT_REACHED", usage: used, limit });
+    }
   }
-}
 
-const updatedUser = await User.findOneAndUpdate(filter, { $inc: incrementFields }, { new: true });
-if (!updatedUser) {
-  return res.status(403).json({ error: "LIMIT_REACHED" });
-}
+  // Storage limit
+  const byteLimit = isFree ? 5 * 1024 * 1024 : (isPro ? 100 * 1024 * 1024 : 50 * 1024 * 1024);
+  if ((user.storageBytesUsed + totalSize) > byteLimit) {
+    return res.status(403).json({ error: "STORAGE_LIMIT_REACHED" });
+  }
+
+  // ---------- ATOMIC QUOTA BUMP ----------
+  const isDesign = workspaceMode === 'design';
+  const incrementFields = {
+    dailyUsage: 1,
+    storageBytesUsed: totalSize,
+  };
+  if (isDesign) {
+    incrementFields['quotas.dailyGenerationsUsed'] = 1;
+    incrementFields.dailyUiUxUsage = 1;
+  } else {
+    incrementFields['quotas.dailyExtractionsUsed'] = 1;
+  }
+
+  const filter = { _id: user._id };
+  if (isFree) {
+    filter.dailyUsage = { $lt: dataLimit };
+  } else {
+    const quotaField = isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed';
+    filter[quotaField] = { $lt: isDesign ? uiLimit : dataLimit };
+    if (isDesign) {
+      filter['subTierOptions.hasDesignAccess'] = true;
+    } else {
+      filter['subTierOptions.hasDataAccess'] = true;
+    }
+  }
+
+  const updatedUser = await User.findOneAndUpdate(filter, { $inc: incrementFields }, { new: true });
+  if (!updatedUser) {
+    return res.status(403).json({ error: "LIMIT_REACHED" });
+  }
+
   // ============================================================
   // SYSTEM PROMPT (with GAG ORDER)
   // ============================================================
@@ -960,20 +958,22 @@ if (!updatedUser) {
   });
 
   let aiResponse = '';
+  let errorOccurred = false;
   try {
     aiResponse = await streamAIResponse(systemPrompt, userContent, history, res);
   } catch (err) {
     console.error('[Extract] Streaming failed:', err);
+    errorOccurred = true;
     aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
     // Rollback atomic increment
     const rollbackFields = {
       $inc: {
-        [isUi ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
+        [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
         dailyUsage: -1,
         storageBytesUsed: -totalSize,
       }
     };
-    if (isUi) rollbackFields.$inc.dailyUiUxUsage = -1;
+    if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
     await User.updateOne({ _id: user._id }, rollbackFields);
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: aiResponse })}\n\n`);
   }
@@ -1025,7 +1025,9 @@ if (!updatedUser) {
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 
-// ---- SUB-TIER GUARD ----
+// ==========================================
+// SUB-TIER GUARD
+// ==========================================
 const secureSubTierRouteGuard = async (req, res, next) => {
   try {
     if (!req.currentUser) return next();
@@ -1041,14 +1043,18 @@ const secureSubTierRouteGuard = async (req, res, next) => {
   } catch (err) { console.error('Guard error:', err); res.status(500).json({ error: "GUARD_FAILED" }); }
 };
 
-// ---- 404 & GLOBAL ERROR ----
+// ==========================================
+// 404 & GLOBAL ERROR
+// ==========================================
 app.use((req, res) => res.status(404).json({ error: "Not found" }));
 app.use((err, req, res, next) => {
   console.error('💥 GLOBAL ERROR:', err);
   if (!res.headersSent) res.status(500).json({ error: "INTERNAL_ERROR", message: process.env.NODE_ENV === 'production' ? "Service unavailable" : err.message });
 });
 
-// ---- GRACEFUL SHUTDOWN ----
+// ==========================================
+// GRACEFUL SHUTDOWN
+// ==========================================
 let shuttingDown = false;
 const gracefulShutdown = async () => {
   if (shuttingDown) return;
@@ -1064,7 +1070,9 @@ const gracefulShutdown = async () => {
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-// ---- START ----
+// ==========================================
+// START
+// ==========================================
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
   console.log(`🟢 AXELR FORTRESS ONLINE ON PORT ${PORT} (${process.env.NODE_ENV || 'development'})`);
