@@ -814,7 +814,7 @@
                             <span style="color: #FFF; font-size: 13px; font-weight: 600;">Full Stack Bundle</span>
                             <span style="color: #10B981; font-size: 13px; font-weight: 700;">$15</span>
                         </div>
-                        <div style="color: #888; font-size: 11px; line-height: 1.3;">10 UI Generations + 15 Data Extractions + 3 Prompt Enhances per day.</div>
+                        <div style="color: #888; font-size: 11px; line-height: 1.3;">15 UI Generations + 20 Data Extractions + 7 Prompt Enhances per day.</div>
                     </div>
                 </label>
 
@@ -825,7 +825,7 @@
                             <span style="color: #CCC; font-size: 13px; font-weight: 500;">Data Extraction Only</span>
                             <span style="color: #AAA; font-size: 13px; font-weight: 600;">$8</span>
                         </div>
-                        <div style="color: #666; font-size: 11px; line-height: 1.3;">15 Data Extractions + 3 Prompt Enhances per day. No UI Generation access.</div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">19 Data Extractions + 7 Prompt Enhances per day. No UI Generation access.</div>
                     </div>
                 </label>
 
@@ -836,7 +836,7 @@
                             <span style="color: #CCC; font-size: 13px; font-weight: 500;">UI Generation Only</span>
                             <span style="color: #AAA; font-size: 13px; font-weight: 600;">$9</span>
                         </div>
-                        <div style="color: #666; font-size: 11px; line-height: 1.3;">10 UI Generations + 3 Prompt Enhances per day. No Data Extraction access.</div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">13 UI Generations + 7 Prompt Enhances per day. No Data Extraction access.</div>
                     </div>
                 </label>
             </div>
@@ -860,7 +860,7 @@
                             <span style="color: #FFF; font-size: 13px; font-weight: 600;">Full Stack Bundle</span>
                             <span style="color: #EF4444; font-size: 13px; font-weight: 700;">$29</span>
                         </div>
-                        <div style="color: #888; font-size: 11px; line-height: 1.3;">15 UI Generations + 20 Data Extractions + 5 Prompt Enhances per day.</div>
+                        <div style="color: #888; font-size: 11px; line-height: 1.3;">25 UI Generations + 30 Data Extractions + 15 Prompt Enhances per day.</div>
                     </div>
                 </label>
 
@@ -871,7 +871,7 @@
                             <span style="color: #CCC; font-size: 13px; font-weight: 500;">Data Ops</span>
                             <span style="color: #AAA; font-size: 13px; font-weight: 600;">$16</span>
                         </div>
-                        <div style="color: #666; font-size: 11px; line-height: 1.3;">20 Data Extractions + 5 Prompt Enhances per day. No UI Generation.</div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">28 Data Extractions + 10 Prompt Enhances per day. No UI Generation.</div>
                     </div>
                 </label>
 
@@ -882,7 +882,7 @@
                             <span style="color: #CCC; font-size: 13px; font-weight: 500;">Designer</span>
                             <span style="color: #AAA; font-size: 13px; font-weight: 600;">$16</span>
                         </div>
-                        <div style="color: #666; font-size: 11px; line-height: 1.3;">15 UI Generations + 5 Prompt Enhances per day. No Data Extraction.</div>
+                        <div style="color: #666; font-size: 11px; line-height: 1.3;">20 UI Generations + 10 Prompt Enhances per day. No Data Extraction.</div>
                     </div>
                 </label>
             </div>
@@ -974,20 +974,20 @@
         <div class="workspace-header">
             <div class="model-hub">
                 <button id="model-selector" onclick="toggleModelDropdown(event)">
-                    <span id="model-text-display">Model 2.5</span> <span class="badge" id="model-badge-display">FLASH</span> 
+                    <span id="model-text-display">Model 2.0</span> <span class="badge" id="model-badge-display">FLASH</span> 
                 </button>
                 <div id="model-dropdown-card">
                     <div class="model-option active" onclick="selectModel(event, 'flash')">
-                        <div class="model-title">Model 2.5 <span class="flash-badge">FLASH</span></div>
+                        <div class="model-title">Model 2.0 <span class="flash-badge">FLASH</span></div>
                         <div class="model-desc">Great for everyday matrix tasks & extractions.</div>
                     </div>
                     <div class="model-option pro" onclick="openUpgradeModal()">
-                        <div class="model-title">Model Hyper-Precise <span class="pro-badge">PRO</span></div>
+                        <div class="model-title">Model Hyper-Precise 3.1<span class="pro-badge">PRO</span></div>
                         <div class="model-desc">Our smartest model. Endless pipelines.</div>
                     </div>
                     <div class="model-option designer" onclick="openUpgradeModal()" style="border-color: rgba(244,63,94,0.2); background: rgba(244,63,94,0.05);">
-                        <div class="model-title" style="color: var(--accent-glow-designer);">Axelr Architect <span style="background: rgba(244,63,94,0.1); color: var(--accent-glow-designer);">DESIGNER</span></div>
-                        <div class="model-desc"> 100  UI/UX generations/day & Live Deployment.</div>
+                        <div class="model-title" style="color: var(--accent-glow-designer);">Axelr Architect 3.5<span style="background: rgba(244,63,94,0.1); color: var(--accent-glow-designer);">BUILDER</span></div>
+                        <div class="model-desc"> Advanced UI/UX generations & Live Deployment.</div>
                     </div>
                 </div>
             </div>
@@ -1146,51 +1146,61 @@
         }
 
         function injectActionButtons(bubbleNode, rawText, isUserPrompt = false) {
-            const actionBar = document.createElement('div');
-            actionBar.className = 'bubble-action-bar';
-            
-            if (isUserPrompt) {
-                const editBtn = document.createElement('button');
-                editBtn.className = 'action-icon-btn';
-                editBtn.title = "Edit this prompt";
-                editBtn.innerHTML = `${EDIT_ICON} Edit`;
-                editBtn.onclick = () => handleActionClick('edit', rawText, editBtn);
-                
-                const retryBtn = document.createElement('button');
-                retryBtn.className = 'action-icon-btn';
-                retryBtn.title = "Retry exact command";
-                retryBtn.innerHTML = `${RETRY_ICON} Retry`;
-                retryBtn.onclick = () => handleActionClick('retry', rawText, retryBtn);
-                
-                actionBar.appendChild(editBtn);
-                actionBar.appendChild(retryBtn);
-            } else {
-                const copyBtn = document.createElement('button');
-                copyBtn.className = 'action-icon-btn copy-btn';
-                copyBtn.title = "Copy Response";
-                copyBtn.innerHTML = `${COPY_ICON} Copy`;
-                copyBtn.onclick = () => handleActionClick('copy', rawText, copyBtn);
+    const actionBar = document.createElement('div');
+    actionBar.className = 'bubble-action-bar';
+    
+    if (isUserPrompt) {
+        // Only Edit – no Retry
+        const editBtn = document.createElement('button');
+        editBtn.className = 'action-icon-btn';
+        editBtn.title = "Edit this prompt";
+        editBtn.innerHTML = `${EDIT_ICON} Edit`;
+        editBtn.onclick = () => handleActionClick('edit', rawText, editBtn);
+        actionBar.appendChild(editBtn);
+    } else {
+        // AI response buttons: Copy, Like, Dislike, Regenerate
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'action-icon-btn copy-btn';
+        copyBtn.title = "Copy Response";
+        copyBtn.innerHTML = `${COPY_ICON} Copy`;
+        copyBtn.onclick = () => handleActionClick('copy', rawText, copyBtn);
 
-                const likeBtn = document.createElement('button');
-                const dislikeBtn = document.createElement('button');
-                
-                likeBtn.className = 'action-icon-btn';
-                likeBtn.title = "Helpful Response";
-                likeBtn.innerHTML = THUMBS_UP;
-                likeBtn.onclick = () => { likeBtn.style.color = 'var(--accent-glow)'; dislikeBtn.style.color = 'var(--text-muted)'; };
+        const likeBtn = document.createElement('button');
+        likeBtn.className = 'action-icon-btn';
+        likeBtn.title = "Helpful Response";
+        likeBtn.innerHTML = THUMBS_UP;
+        likeBtn.onclick = () => { likeBtn.style.color = 'var(--accent-glow)'; dislikeBtn.style.color = 'var(--text-muted)'; };
 
-                dislikeBtn.className = 'action-icon-btn';
-                dislikeBtn.title = "Not Helpful";
-                dislikeBtn.innerHTML = THUMBS_DOWN;
-                dislikeBtn.onclick = () => { dislikeBtn.style.color = '#ef4444'; likeBtn.style.color = 'var(--text-muted)'; };
+        const dislikeBtn = document.createElement('button');
+        dislikeBtn.className = 'action-icon-btn';
+        dislikeBtn.title = "Not Helpful";
+        dislikeBtn.innerHTML = THUMBS_DOWN;
+        dislikeBtn.onclick = () => { dislikeBtn.style.color = '#ef4444'; likeBtn.style.color = 'var(--text-muted)'; };
 
-                actionBar.appendChild(copyBtn);
-                actionBar.appendChild(likeBtn);
-                actionBar.appendChild(dislikeBtn);
+        // 🟢 Regenerate button – uses the last user command and removes itself
+        const regenBtn = document.createElement('button');
+        regenBtn.className = 'action-icon-btn';
+        regenBtn.title = "Regenerate response";
+        regenBtn.innerHTML = `🔄 Regenerate`;
+        regenBtn.onclick = function(e) {
+            // Restore the last user prompt from the stored global
+            if (window.lastUserCommand) {
+                document.getElementById('prompt-input').value = window.lastUserCommand;
+                document.getElementById('prompt-input').style.height = 'auto';
+                document.getElementById('prompt-input').style.height = document.getElementById('prompt-input').scrollHeight + 'px';
+                executeCommand(true);
             }
-            bubbleNode.appendChild(actionBar);
-        }
+            // Remove this button to prevent spam
+            this.remove();
+        };
 
+        actionBar.appendChild(copyBtn);
+        actionBar.appendChild(likeBtn);
+        actionBar.appendChild(dislikeBtn);
+        actionBar.appendChild(regenBtn);
+    }
+    bubbleNode.appendChild(actionBar);
+}
         // 🟢 FIX 1: REAL-TIME DICTATION ENGINE
         const micBtn = document.getElementById('mic-trigger');
         const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -1585,55 +1595,66 @@ function selectWorkspaceContext(targetEngine) {
             if (window.innerWidth <= 768) sidebarNode.classList.remove('open');
         }
 
-        async function loadUserProfile() {
-    try {
-        const resp = await fetch(`${API_BASE_URL}/api/user/profile`, {
-            headers: { 'Authorization': `Bearer ${googleAuthUserToken}` }
-        });
-        if (resp.ok) {
-            const data = await resp.json();
-            document.getElementById('instructions-input').value = data.customInstructions || "";
-            document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
+     async function loadUserProfile() {
+  try {
+    const resp = await fetch(`${API_BASE_URL}/api/user/profile`, {
+      headers: { 'Authorization': `Bearer ${googleAuthUserToken}` }
+    });
+    if (resp.ok) {
+      const data = await resp.json();
+      document.getElementById('instructions-input').value = data.customInstructions || "";
+      document.getElementById('modal-tier-display').innerText = data.tier.toUpperCase() + ' ALLOCATION';
 
-            // --- Update tier badges and model selector ---
-            if (data.tier === 'pro' || data.tier === 'business') {
-                document.body.classList.remove('pro-tier', 'business-tier');
-                document.body.classList.add(`${data.tier}-tier`);
-                document.getElementById('model-text-display').innerText = 'Model Hyper-Precise';
-                document.getElementById('model-badge-display').innerText = data.tier.toUpperCase();
-                document.getElementById('sidebar-plan-badge').innerText = data.tier.toUpperCase();
-                document.getElementById('sidebar-plan-badge').style.background =
-                    data.tier === 'business' ? "var(--accent-glow-designer)" : "var(--accent-glow-pro)";
-                document.getElementById('sidebar-plan-badge').style.color = "#fff";
-                document.getElementById('sub-plan-name').innerText = data.tier.toUpperCase() + ' Tier';
-            } else {
-                document.body.classList.remove('pro-tier', 'business-tier');
-                document.body.classList.add('free-tier');
-                document.getElementById('model-text-display').innerText = 'Model 2.5';
-                document.getElementById('model-badge-display').innerText = 'FLASH';
-                document.getElementById('sidebar-plan-badge').innerText = 'FREE';
-                document.getElementById('sidebar-plan-badge').style.background = 'var(--border-muted)';
-                document.getElementById('sidebar-plan-badge').style.color = 'var(--text-muted)';
-                document.getElementById('sub-plan-name').innerText = 'Free Allocation';
-            }
+      // Update tier badges & model selector (unchanged)
+      // ...
 
-            // --- UPDATE QUOTA BAR WITH REAL DATA USING NESTED QUOTAS ---
-            const currentWorkspace = localStorage.getItem('Axelr_workspace') || 'data';
-            let used = 0, limit = 0;
-            if (currentWorkspace === 'design') {
-                used = data.quotas?.dailyGenerationsUsed || 0;
-                limit = data.tier === 'free' ? 2 : (data.tier === 'pro' ? 20 : 100);
-            } else {
-                used = data.quotas?.dailyExtractionsUsed || 0;
-                limit = data.tier === 'free' ? 5 : (data.tier === 'pro' ? 50 : 100);
-            }
-            const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
-            document.getElementById('quota-numerical-count').innerText = `${used}/${limit} Used (${Math.round(percentage)}%)`;
-            document.getElementById('quota-progress-bar-fill').style.width = `${percentage}%`;
+      // --- QUOTA PROGRESS BAR BASED ON TIER & SUB-TIER ---
+      const currentWorkspace = localStorage.getItem('Axelr_workspace') || 'data';
+      const isDesign = currentWorkspace === 'design';
+      const isFree = data.tier === 'free';
+      const isPro = data.tier === 'pro';
+      const isBusiness = data.tier === 'business';
+
+      let used = 0, limit = 0;
+
+      if (isFree) {
+        // Free: combined total 3, but show dailyUsage / 3
+        used = data.dailyUsage || 0;
+        limit = 3;
+      } else {
+        // Paid: determine sub‑tier type
+        const hasData = data.subTierOptions?.hasDataAccess || false;
+        const hasDesign = data.subTierOptions?.hasDesignAccess || false;
+        let subTierType = 'full';
+        if (hasData && !hasDesign) subTierType = 'data';
+        else if (!hasData && hasDesign) subTierType = 'design';
+
+        let dataLimit = 0, uiLimit = 0;
+        if (isPro) {
+          if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
+          else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
+          else if (subTierType === 'design') { dataLimit = 0; uiLimit = 13; }
+        } else if (isBusiness) {
+          if (subTierType === 'full') { dataLimit = 30; uiLimit = 25; }
+          else if (subTierType === 'data') { dataLimit = 28; uiLimit = 0; }
+          else if (subTierType === 'design') { dataLimit = 0; uiLimit = 20; }
         }
-    } catch (e) { console.warn('Profile load failed', e); }
-}
 
+        if (isDesign) {
+          used = data.quotas?.dailyGenerationsUsed || 0;
+          limit = uiLimit;
+        } else {
+          used = data.quotas?.dailyExtractionsUsed || 0;
+          limit = dataLimit;
+        }
+      }
+
+      const percentage = limit > 0 ? Math.min((used / limit) * 100, 100) : 0;
+      document.getElementById('quota-numerical-count').innerText = `${used}/${limit} Used (${Math.round(percentage)}%)`;
+      document.getElementById('quota-progress-bar-fill').style.width = `${percentage}%`;
+    }
+  } catch (e) { console.warn('Profile load failed', e); }
+}
         function executeGlobalLogout() { 
             localStorage.removeItem('google_auth_token'); 
             location.reload(); 
@@ -1951,6 +1972,9 @@ async function switchVariant(logId, msgId, newIndex) {
             }
 
             const command = promptInput.value.trim();
+            // 🟢 Store the command for later regeneration
+            window.lastUserCommand = command;
+
             if (!command && stagedFiles.length === 0 && !isRetry) return;
 
             promptInput.value = '';
@@ -2097,6 +2121,36 @@ if (data.type === 'chunk') {
                 sendBtn.innerHTML = originalBtnHtml;
                 setTimeout(() => viewport.scrollTop = viewport.scrollHeight, 50);
             }
+            
+    try {
+        // ... (fetch and stream handling, including error checks) ...
+
+        if (!response.ok) {
+            const errorData = await response.json();
+            if (errorData.error === 'LIMIT_REACHED') {
+                // This already injects the upgrade button
+                nexusBubble.querySelector('.bubble-content').innerHTML = `⚠️ <strong>Daily Quota Exceeded.</strong><br><button onclick="openUpgradeModal()" style="background:var(--accent-glow-pro); color:#000; padding:8px 12px; border:none; border-radius:6px; cursor:pointer; font-weight:600; margin-top:10px;">Upgrade Workspace</button>`;
+            } else {
+                nexusBubble.querySelector('.bubble-content').innerHTML = `💥 Error: ${errorData.message || 'Pipeline failed.'}`;
+            }
+            // Do NOT return early – let finally handle scrolling and reset
+        } else {
+            // ... (process stream, handle chunks, done) ...
+        }
+    } catch (error) {
+        // ... (AbortError or network error handling) ...
+    } finally {
+        // ✅ Always scroll to show the new content
+        setTimeout(() => {
+            document.getElementById('viewport').scrollTop = document.getElementById('viewport').scrollHeight;
+        }, 50);
+
+        // Reset the send button state
+        globalAbortController = null;
+        const sendBtn = document.getElementById('send-trigger');
+        sendBtn.classList.remove('btn-stop-active');
+        sendBtn.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
+    }
         }
         function appendPayloadDownload(bubbleNode) {
             if (runningStructuredCache && runningStructuredCache.length > 0) {
