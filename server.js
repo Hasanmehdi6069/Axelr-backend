@@ -986,39 +986,65 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   }
   if (!aiResponse.trim()) aiResponse = "I am Axelr AI. How can I help you?";
 
-  // Save session
-  if (currentSession) {
-    const isRetry = req.body.isRetry === 'true';
-    if (isRetry && currentSession.messages.length && currentSession.messages[currentSession.messages.length - 1].role === 'model') {
-      const last = currentSession.messages[currentSession.messages.length - 1];
-      if (!last.variants || !last.variants.length) last.variants = [last.text];
-      last.variants.push(aiResponse);
-      last.activeVariant = last.variants.length - 1;
-      last.text = aiResponse;
-      currentSession.markModified('messages');
+  // ---- SAVE SESSION ATOMICALLY BEFORE SENDING DONE ----
+  let sessionSaved = false;
+  try {
+    if (currentSession) {
+      const isRetry = req.body.isRetry === 'true';
+      if (isRetry && currentSession.messages.length && currentSession.messages[currentSession.messages.length - 1].role === 'model') {
+        const last = currentSession.messages[currentSession.messages.length - 1];
+        if (!last.variants || !last.variants.length) last.variants = [last.text];
+        last.variants.push(aiResponse);
+        last.activeVariant = last.variants.length - 1;
+        last.text = aiResponse;
+        currentSession.markModified('messages');
+      } else {
+        currentSession.messages.push(
+          { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
+          { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0 }
+        );
+      }
+      currentSession.structuredData = structured;
+      await currentSession.save();
+      sessionSaved = true;
     } else {
-      currentSession.messages.push(
-        { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
-        { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0 }
-      );
+      const filename = generateChatName(userCommand, files);
+      currentSession = await ChatSession.create({
+        userId: user._id,
+        filename,
+        workspace: workspaceMode,
+        structuredData: structured,
+        messages: [
+          { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
+          { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0 }
+        ]
+      });
+      sessionSaved = true;
     }
-    currentSession.structuredData = structured;
-    await currentSession.save();
-  } else {
-    const filename = generateChatName(userCommand, files);
-    currentSession = await ChatSession.create({
-      userId: user._id,
-      filename,
-      workspace: workspaceMode,
-      structuredData: structured,
-      messages: [
-        { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
-        { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0 }
-      ]
-    });
+  } catch (saveErr) {
+    console.error('[Extract] Failed to save session:', saveErr);
+    errorOccurred = true;
+    // Rollback quota again if already incremented (though we already incremented once)
+    // But we already incremented, and if save fails, we should rollback
+    const rollbackFields = {
+      $inc: {
+        [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
+        dailyUsage: -1,
+        storageBytesUsed: -totalSize,
+      }
+    };
+    if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
+    await User.updateOne({ _id: user._id }, rollbackFields);
+    // Send error chunk
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to persist session. Please try again.' })}\n\n`);
   }
 
-  res.write(`data: ${JSON.stringify({ type: 'done', sessionId: currentSession._id, structuredData: structured, filename: `${currentSession.filename}.csv` })}\n\n`);
+  // Send done only if save succeeded
+  if (sessionSaved) {
+    res.write(`data: ${JSON.stringify({ type: 'done', sessionId: currentSession._id, structuredData: structured, filename: `${currentSession.filename}.csv` })}\n\n`);
+  } else {
+    // Already sent error
+  }
   res.end();
 
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
