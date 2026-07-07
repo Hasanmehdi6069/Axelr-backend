@@ -374,6 +374,161 @@
             .input-frame { padding: 8px 10px !important; border-radius: 18px !important; }
             .action-btn { width: 30px !important; height: 30px !important; }
         }
+/* =========================================================
+           ULTRA-MOBILE MASTERPIECE FIX (Up to 480px)
+           ========================================================= */
+        @media (max-width: 480px) {
+            .axelr-pricing-container>div[style*="display: grid"] {
+                display: flex !important;
+                flex-direction: column !important;
+                width: 100% !important;
+                overflow-x: hidden !important;
+            }
+            .tier-card,
+            .pro-premium,
+            .business-premium {
+                width: 100% !important;
+                max-width: 100vw !important;
+                min-width: 0 !important;
+                padding: 20px 15px !important;
+                box-sizing: border-box !important;
+            }
+
+            .user-avatar,
+            img[referrerpolicy="no-referrer"] {
+                width: 32px !important;
+                height: 32px !important;
+                min-width: 32px !important;
+                min-height: 32px !important;
+                flex-shrink: 0 !important;
+                object-fit: cover !important;
+                border-radius: 50% !important;
+            }
+
+            div[onclick*="signIn"],
+            .auth-card button {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                gap: 12px !important;
+                flex-wrap: nowrap !important;
+                white-space: nowrap !important;
+                width: 100% !important;
+                box-sizing: border-box !important;
+            }
+            div[onclick*="signIn"] img,
+            div[onclick*="signIn"] svg {
+                flex-shrink: 0 !important;
+                width: 22px !important;
+                height: 22px !important;
+            }
+
+            .tier-card label>div>div:first-child {
+                flex-wrap: wrap !important;
+                gap: 5px !important;
+            }
+            .tier-card label {
+                padding: 10px !important;
+            }
+        }
+
+        /* =========================================================
+           ULTRA-MOBILE MASTERPIECE OPTIMIZATION (280px - 480px)
+           ========================================================= */
+        @media (max-width: 480px) {
+            .workspace-card {
+                width: 100% !important;
+                max-width: 320px !important;
+                padding: 24px 16px !important;
+                box-sizing: border-box !important;
+            }
+            .ws-icon {
+                font-size: 36px !important;
+                margin-bottom: 12px !important;
+            }
+            .ws-title {
+                font-size: 18px !important;
+            }
+
+            .axelr-pricing-container {
+                padding: 10px !important;
+            }
+            .tier-card {
+                padding: 20px 14px !important;
+            }
+            .tier-card h3 {
+                font-size: 16px !important;
+            }
+            div[id$="-base-price-output"] {
+                font-size: 28px !important;
+                margin-bottom: 16px !important;
+            }
+
+            .tier-card label>div>div:first-child {
+                flex-wrap: wrap !important;
+                gap: 4px !important;
+            }
+            .tier-card label span {
+                font-size: 12px !important;
+            }
+            .tier-card label .sub-box-desc,
+            .tier-card label div[style*="color: #888"],
+            .tier-card label div[style*="color: #666"] {
+                font-size: 10px !important;
+            }
+
+            .workspace-header {
+                padding: 0 10px 0 40px !important;
+            }
+            #model-selector {
+                font-size: 12px !important;
+                padding: 4px 8px !important;
+            }
+            #model-selector .badge {
+                font-size: 9px !important;
+            }
+            .user-avatar {
+                width: 28px !important;
+                height: 28px !important;
+            }
+
+            .auth-card {
+                padding: 25px 15px !important;
+            }
+            .auth-logo svg {
+                width: 28px !important;
+                height: 28px !important;
+            }
+            .auth-logo span {
+                font-size: 22px !important;
+            }
+
+            .command-wrapper {
+                padding-left: 38px !important;
+                padding-right: 10px !important;
+                padding-bottom: 15px !important;
+            }
+            .input-frame {
+                padding: 8px 10px !important;
+                border-radius: 18px !important;
+            }
+            .action-btn {
+                width: 30px !important;
+                height: 30px !important;
+            }
+
+            .action-btn svg,
+            .enhance-btn .material-symbols-rounded {
+                width: 16px !important;
+                height: 16px !important;
+                font-size: 16px !important;
+            }
+        }
+
+        .command-wrapper {
+            position: fixed !important;
+            bottom: env(safe-area-inset-bottom) !important;
+        }
 
         .material-symbols-rounded { font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24; vertical-align: middle; font-size: 24px; }
     </style>
