@@ -917,6 +917,27 @@
         let regenerateTimer = null;
         let lastMessageTimestamp = 0;
         let hasRegenerated = false;
+        let currentUserId = null; // will be set after auth
+
+        // ============================================================
+        // USER-SCOPED LOCAL STORAGE HELPERS
+        // ============================================================
+        function getLocalStorageKey(baseKey) {
+            if (!currentUserId) return baseKey; // fallback (should not happen)
+            return `${baseKey}_${currentUserId}`;
+        }
+
+        function setUserStorage(key, value) {
+            localStorage.setItem(getLocalStorageKey(key), value);
+        }
+
+        function getUserStorage(key) {
+            return localStorage.getItem(getLocalStorageKey(key));
+        }
+
+        function removeUserStorage(key) {
+            localStorage.removeItem(getLocalStorageKey(key));
+        }
 
         // ============================================================
         // UTILITY FUNCTIONS
@@ -937,7 +958,7 @@
             return null;
         }
 
-        function getWorkspace() { return localStorage.getItem('Axelr_workspace') || 'data'; }
+        function getWorkspace() { return getUserStorage('Axelr_workspace') || 'data'; }
 
         // ============================================================
         // FILE HANDLING
@@ -1082,9 +1103,11 @@
 
         async function initializeSecureWorkspace(payload, token) {
             googleAuthUserToken = token;
+            currentUserId = payload.sub; // set user ID for storage scoping
+
             const authWallEl = document.getElementById('auth-wall');
             if (authWallEl) authWallEl.style.display = 'none';
-            const savedWorkspace = localStorage.getItem('Axelr_workspace');
+            const savedWorkspace = getUserStorage('Axelr_workspace');
             if (savedWorkspace) {
                 activateWorkspace(savedWorkspace, true);
             } else {
@@ -1104,6 +1127,11 @@
 
         function executeGlobalLogout() {
             localStorage.removeItem('google_auth_token');
+            // Clear user-specific storage (optional)
+            if (currentUserId) {
+                const keysToRemove = ['Axelr_draft_prompt', 'Axelr_workspace', 'Axelr_active_session'];
+                keysToRemove.forEach(k => removeUserStorage(k));
+            }
             location.reload();
         }
 
@@ -1115,7 +1143,7 @@
         }
 
         function selectWorkspace(type) {
-            localStorage.setItem('Axelr_workspace', type);
+            setUserStorage('Axelr_workspace', type);
             document.getElementById('workspace-selector').style.display = 'none';
             activateWorkspace(type);
         }
@@ -1148,7 +1176,7 @@
             runningStructuredCache = null;
             stagedFiles = [];
             renderFileChips();
-            localStorage.removeItem('Axelr_active_session');
+            removeUserStorage('Axelr_active_session');
             document.querySelectorAll('.chat-bubble').forEach(bubble => bubble.remove());
             const hero = document.getElementById('hero-display');
             hero.style.display = 'none';
@@ -1157,9 +1185,9 @@
             if (!isBoot) {
                 promptInput.value = '';
                 promptInput.style.height = 'auto';
-                localStorage.removeItem('Axelr_draft_prompt');
+                removeUserStorage('Axelr_draft_prompt');
             } else {
-                const savedDraft = localStorage.getItem('Axelr_draft_prompt');
+                const savedDraft = getUserStorage('Axelr_draft_prompt');
                 if (savedDraft) {
                     promptInput.value = savedDraft;
                     setTimeout(() => {
@@ -1170,7 +1198,6 @@
             }
             validateSendCommand();
             if (window.innerWidth <= 768) sidebarNode.classList.remove('open');
-            // Clear regenerate state
             hasRegenerated = false;
             if (regenerateTimer) { clearTimeout(regenerateTimer);
                 regenerateTimer = null; }
@@ -1194,7 +1221,7 @@
             promptInput.style.height = 'auto';
             promptInput.style.height = promptInput.scrollHeight + 'px';
             validateSendCommand();
-            localStorage.setItem('Axelr_draft_prompt', promptInput.value);
+            setUserStorage('Axelr_draft_prompt', promptInput.value);
         });
 
         window.addEventListener('offline', () => {
@@ -1205,6 +1232,38 @@
             document.getElementById('offline-banner').style.display = 'none';
             validateSendCommand();
         });
+
+        // ============================================================
+        // VISUAL VIEWPORT KEYBOARD FIX
+        // ============================================================
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', () => {
+                const vv = window.visualViewport;
+                // Calculate height difference caused by keyboard
+                const offset = window.innerHeight - vv.height;
+                // Adjust the command-wrapper's bottom padding to stay above keyboard
+                const wrapper = document.querySelector('.command-wrapper');
+                if (wrapper) {
+                    // If keyboard is open (offset > some threshold), push wrapper up
+                    if (offset > 100) {
+                        wrapper.style.bottom = offset + 'px';
+                    } else {
+                        wrapper.style.bottom = '0';
+                    }
+                }
+                // Also adjust viewport padding-bottom to avoid content being hidden
+                const viewportEl = document.getElementById('viewport');
+                if (viewportEl) {
+                    const wrapperHeight = wrapper ? wrapper.offsetHeight : 120;
+                    const extraPadding = offset > 100 ? offset + 20 : 20;
+                    viewportEl.style.paddingBottom = (wrapperHeight + extraPadding) + 'px';
+                }
+                // Scroll to bottom to show latest message
+                setTimeout(() => {
+                    viewport.scrollTop = viewport.scrollHeight;
+                }, 100);
+            });
+        }
 
         // ============================================================
         // VOICE INPUT
@@ -1245,7 +1304,7 @@
                 promptInput.style.height = 'auto';
                 promptInput.style.height = promptInput.scrollHeight + 'px';
                 validateSendCommand();
-                localStorage.setItem('Axelr_draft_prompt', promptInput.value);
+                setUserStorage('Axelr_draft_prompt', promptInput.value);
             };
         } else {
             micBtn.style.display = 'none';
@@ -1368,11 +1427,11 @@
                     </div>`).join('');
                 if (isInitialAppLoad) {
                     isInitialAppLoad = false;
-                    const savedSession = localStorage.getItem('axelr_active_session');
+                    const savedSession = getUserStorage('Axelr_active_session');
                     if (savedSession && cachedLogHistory.some(l => l._id === savedSession)) {
                         viewPastLogById(savedSession);
                     }
-                    const savedDraft = localStorage.getItem('axelr_draft_prompt');
+                    const savedDraft = getUserStorage('Axelr_draft_prompt');
                     if (savedDraft) {
                         promptInput.value = savedDraft;
                         promptInput.style.height = 'auto';
@@ -1447,7 +1506,7 @@
             document.getElementById('hero-display').style.display = 'none';
             document.querySelectorAll('.chat-bubble').forEach(b => b.remove());
             activeSessionId = logId;
-            localStorage.setItem('axelr_active_session', activeSessionId);
+            setUserStorage('Axelr_active_session', activeSessionId);
             runningFileTitle = log.filename;
             runningStructuredCache = log.structuredData;
 
@@ -1460,12 +1519,17 @@
                 viewport.appendChild(trashMsg);
             }
 
-            // Reset regenerate state when viewing old chat
             hasRegenerated = false;
             if (regenerateTimer) { clearTimeout(regenerateTimer);
                 regenerateTimer = null; }
 
             log.messages.forEach((msg, idx) => {
+                // Safety: ensure required fields exist
+                msg.text = msg.text || '';
+                msg.attachedFiles = msg.attachedFiles || [];
+                msg.variants = msg.variants || [];
+                msg.activeVariant = msg.activeVariant || 0;
+
                 const bubble = document.createElement('div');
                 bubble.className = `chat-bubble ${msg.role === 'user' ? 'user-bubble' : 'nexus-bubble'}`;
 
@@ -1515,7 +1579,6 @@
                         injectDeployButton(contentDiv, rawCode);
                     }
 
-                    // Only show regenerate on the LAST message
                     const isLast = idx === log.messages.length - 1;
                     injectActionButtons(contentDiv, msg.text, false, isLast);
 
@@ -1610,12 +1673,12 @@
                 actionBar.appendChild(likeBtn);
                 actionBar.appendChild(dislikeBtn);
 
-                // Regenerate - ONLY on last message, and if not already regenerated
+                // Regenerate - only on last message, and only if not already regenerated
                 if (isLast && !hasRegenerated && rawText) {
                     const regenBtn = document.createElement('button');
                     regenBtn.className = 'action-icon-btn regen-active';
                     regenBtn.title = "Regenerate response (available for 30s)";
-                    regenBtn.innerHTML = `${ICONS.regenerate} Regenerate`;
+                    regenBtn.innerHTML = ICONS.regenerate; // icon only, no text
                     regenBtn.onclick = function(e) {
                         if (window.lastUserCommand) {
                             document.getElementById('prompt-input').value = window.lastUserCommand;
@@ -1623,7 +1686,7 @@
                             document.getElementById('prompt-input').style.height = document.getElementById(
                                 'prompt-input').scrollHeight + 'px';
                             hasRegenerated = true;
-                            this.remove();
+                            this.remove(); // remove immediately to prevent double-click
                             if (regenerateTimer) { clearTimeout(regenerateTimer);
                                 regenerateTimer = null; }
                             executeCommand(true);
@@ -1688,7 +1751,7 @@
                     promptInput.style.height = 'auto';
                     promptInput.style.height = promptInput.scrollHeight + 'px';
                     validateSendCommand();
-                    localStorage.setItem('axelr_draft_prompt', promptInput.value);
+                    setUserStorage('Axelr_draft_prompt', promptInput.value);
                 }
             } catch (e) {
                 alert("⚠️ Prompt Enhancer timeout. Payload too large or network dropped.");
@@ -1711,7 +1774,7 @@
             if (currentTab === 'trashed') {
                 switchSidebarTab('active');
                 activeSessionId = null;
-                localStorage.removeItem('axelr_active_session');
+                removeUserStorage('Axelr_active_session');
             }
 
             const command = promptInput.value.trim();
@@ -1760,7 +1823,6 @@
                         lastBubble.remove();
                     }
                 }
-                // Reset regenerate state for retry
                 hasRegenerated = true; // Prevent regenerate spam
                 if (regenerateTimer) { clearTimeout(regenerateTimer);
                     regenerateTimer = null; }
@@ -1868,7 +1930,6 @@
                                 if (data.type === 'chunk') {
                                     fullResponse += data.text;
                                     const cleanResponse = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '');
-                                    // Remove loader and show response
                                     contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(cleanResponse));
                                 } else if (data.type === 'done') {
                                     sessionId = data.sessionId;
@@ -1876,7 +1937,7 @@
                                     filename = data.filename || 'Export.csv';
                                     if (sessionId) {
                                         activeSessionId = sessionId;
-                                        localStorage.setItem('axelr_active_session', activeSessionId);
+                                        setUserStorage('Axelr_active_session', activeSessionId);
                                         runningStructuredCache = structuredData;
                                         runningFileTitle = filename;
                                         loadArchiveLogs();
@@ -1899,11 +1960,12 @@
                                     }
                                     appendPayloadDownload(contentDiv);
                                     // Inject action buttons - with regenerate on last message
-                                    // Reset regenerate state for new response
                                     hasRegenerated = false;
                                     if (regenerateTimer) { clearTimeout(regenerateTimer);
                                         regenerateTimer = null; }
                                     injectActionButtons(contentDiv, fullResponse, false, true);
+                                } else if (data.type === 'error') {
+                                    contentDiv.innerHTML += `<br><br><em style="color:#ef4444;">Error: ${data.message || 'Unknown error'}</em>`;
                                 }
                             } catch (e) { /* ignore malformed JSON */ }
                         }
@@ -1923,7 +1985,6 @@
                 sendBtn.innerHTML = originalBtnHtml;
                 sendBtn.disabled = false;
                 validateSendCommand();
-                // Force scroll
                 setTimeout(() => {
                     viewport.scrollTop = viewport.scrollHeight;
                 }, 50);
