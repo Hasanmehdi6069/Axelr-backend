@@ -14,7 +14,6 @@ const fs = require('fs').promises;
 const os = require('os');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OAuth2Client } = require('google-auth-library');
-const AdmZip = require('adm-zip');
 const Groq = require('groq-sdk');
 
 // ==========================================
@@ -843,7 +842,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   let dataLimit, uiLimit;
   if (isFree) {
     dataLimit = 5;
-    uiLimit = 0; // not used for free
+    uiLimit = 0;
   } else if (isPro) {
     if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
     else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
