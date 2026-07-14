@@ -55,7 +55,7 @@
             background-color: var(--bg-deep);
             color: var(--text-main);
             font-family: 'Inter', sans-serif;
-            height: 100dvh;
+            height: 100vh;
             display: flex;
             overflow: hidden;
             background-image: radial-gradient(circle at 50% 30%, rgba(0, 242, 254, 0.02), transparent 60%);
@@ -69,9 +69,29 @@
         .auth-sub { color: var(--text-muted); font-size: 14px; margin-bottom: 30px; line-height: 1.5; }
 
         /* ===== WORKSPACE SELECTOR ===== */
-        #workspace-selector { position: fixed; inset: 0; background: var(--bg-deep); z-index: 500; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(15px); }
-        .ws-grid { display: flex; gap: 25px; flex-wrap: wrap; justify-content: center; }
-        .workspace-card { background: var(--bg-card); padding: 40px; border-radius: 24px; border: 1px solid var(--border-muted); cursor: pointer; width: 320px; text-align: center; transition: 0.3s; position: relative; overflow: hidden; }
+        #workspace-selector { position: fixed; inset: 0; background: var(--bg-deep); z-index: 500; display: none; align-items: center; justify-content: center; flex-direction: column; backdrop-filter: blur(15px); padding: 20px; }
+        #workspace-selector h2 { color: #fff; margin-bottom: 30px; font-size: 28px; text-align: center; }
+        .ws-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 25px;
+            width: 100%;
+            max-width: 800px;
+            justify-items: center;
+        }
+        .workspace-card {
+            background: var(--bg-card);
+            padding: 40px 24px;
+            border-radius: 24px;
+            border: 1px solid var(--border-muted);
+            cursor: pointer;
+            width: 100%;
+            max-width: 340px;
+            text-align: center;
+            transition: 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
         .workspace-card:hover { transform: translateY(-5px); box-shadow: 0 20px 40px rgba(0,0,0,0.4); }
         .workspace-card.data:hover { border-color: var(--accent-glow); }
         .workspace-card.design:hover { border-color: var(--accent-glow-designer); }
@@ -98,7 +118,7 @@
         .profile-stat-value { color: #fff; font-weight: 500; font-family: 'JetBrains Mono'; }
 
         /* ===== MAIN WRAPPER ===== */
-        .main-wrapper { flex: 1; display: none; flex-direction: column; position: relative; height: 100dvh; width: 100%; overflow: hidden; opacity: 0; transition: opacity 0.4s ease; }
+        .main-wrapper { flex: 1; display: none; flex-direction: column; position: relative; height: 100vh; width: 100%; overflow: hidden; opacity: 0; transition: opacity 0.4s ease; }
 
         /* ===== SIDEBAR ===== */
         #sidebar-trigger-area { position: absolute; left: 0; top: 0; bottom: 0; width: 32px; z-index: 199; cursor: pointer; background: rgba(255,255,255,0.02); border-right: 1px solid var(--border-muted); display: flex; align-items: center; justify-content: center; transition: 0.3s; }
@@ -141,7 +161,19 @@
         .action-list-item:hover { background: rgba(255,255,255,0.05); color: #fff; }
         .action-list-item.danger:hover { background: rgba(239,68,68,0.1); color: #ef4444; }
 
-        .sidebar-footer { padding: 15px; border-top: 1px solid var(--border-muted); display: flex; flex-direction: column; gap: 5px; }
+        .sidebar-footer {
+            padding: 15px;
+            border-top: 1px solid var(--border-muted);
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            margin-top: auto;
+            flex-shrink: 0;
+            position: sticky;  /* FIX #3: keep footer visible on mobile */
+            bottom: 0;
+            background: var(--bg-sidebar);
+            z-index: 10;
+        }
         .footer-opt { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px; color: var(--text-muted); font-size: 13px; cursor: pointer; transition: 0.2s; }
         .footer-opt:hover { background: rgba(255,255,255,0.05); color: #fff; }
 
@@ -160,48 +192,22 @@
 
         /* ===== HEADER ===== */
         .workspace-header { position: absolute; top: 0; left: 0; right: 0; height: 60px; display: flex; align-items: center; justify-content: space-between; padding: 0 20px 0 50px; border-bottom: 1px solid var(--border-muted); z-index: 150; background: rgba(5,5,5,0.8); backdrop-filter: blur(10px); }
-        .model-hub {
-            position: relative;
-        }
-        #model-selector {
-            background: transparent;
-            border: none;
-            color: #fff;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 6px 12px;
-            border-radius: 8px;
-            transition: 0.2s;
-        }
-        #model-selector:hover {
-            background: rgba(255, 255, 255, 0.05);
-        }
-        #model-selector .badge {
-            color: var(--accent-glow);
-            font-size: 11px;
-            font-weight: 700;
-            background: rgba(0, 242, 254, 0.1);
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        body.pro-tier #model-selector .badge {
-            color: var(--accent-glow-pro);
-            background: rgba(139, 92, 246, 0.1);
-        }
-        body.designer-tier #model-selector .badge {
-            color: var(--accent-glow-designer);
-            background: rgba(244, 63, 94, 0.1);
-        }
+        .model-hub { position: relative; }
+        #model-selector { background: transparent; border: none; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; transition: 0.2s; }
+        #model-selector:hover { background: rgba(255, 255, 255, 0.05); }
+        #model-selector .badge { color: var(--accent-glow); font-size: 11px; font-weight: 700; background: rgba(0, 242, 254, 0.1); padding: 2px 6px; border-radius: 4px; }
+        body.pro-tier #model-selector .badge { color: var(--accent-glow-pro); background: rgba(139, 92, 246, 0.1); }
+        body.designer-tier #model-selector .badge { color: var(--accent-glow-designer); background: rgba(244, 63, 94, 0.1); }
 
         #model-dropdown-card {
             position: absolute;
             top: 45px;
             left: 0;
-            width: 280px;
+            width: auto;
+            min-width: 200px;
+            max-width: 90vw;
+            right: 0;
+            left: auto;
             background: var(--bg-card);
             border: 1px solid var(--border-muted);
             border-radius: 12px;
@@ -212,56 +218,35 @@
             z-index: 210;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
         }
-        .model-option {
-            padding: 12px;
-            border-radius: 8px;
-            cursor: pointer;
-            transition: 0.2s;
-            display: flex;
-            flex-direction: column;
-            gap: 4px;
-            border: 1px solid transparent;
-        }
-        .model-option:hover {
-            background: rgba(255, 255, 255, 0.03);
-        }
-        .model-option.active {
-            background: rgba(0, 242, 254, 0.05);
-            border-color: rgba(0, 242, 254, 0.2);
-        }
-        .model-option.pro {
-            background: rgba(139, 92, 246, 0.05);
-            border-color: rgba(139, 92, 246, 0.2);
-        }
-        .model-option.pro:hover {
-            background: rgba(139, 92, 246, 0.1);
-        }
-        .model-option.designer {
-            background: rgba(244, 63, 94, 0.05);
-            border-color: rgba(244, 63, 94, 0.2);
-        }
-        .model-option.designer:hover {
-            background: rgba(244, 63, 94, 0.1);
-        }
-        .model-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: #fff;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .model-title span {
-            font-size: 10px;
-            font-weight: 700;
-            padding: 2px 6px;
-            border-radius: 4px;
-        }
-        .model-desc {
-            font-size: 11px;
-            color: var(--text-muted);
-        }
+        .model-option { padding: 12px; border-radius: 8px; cursor: pointer; transition: 0.2s; display: flex; flex-direction: column; gap: 4px; border: 1px solid transparent; }
+        .model-option:hover { background: rgba(255, 255, 255, 0.03); }
+        .model-option.active { background: rgba(0, 242, 254, 0.05); border-color: rgba(0, 242, 254, 0.2); }
+        .model-option.pro { background: rgba(139, 92, 246, 0.05); border-color: rgba(139, 92, 246, 0.2); }
+        .model-option.pro:hover { background: rgba(139, 92, 246, 0.1); }
+        .model-option.designer { background: rgba(244, 63, 94, 0.05); border-color: rgba(244, 63, 94, 0.2); }
+        .model-option.designer:hover { background: rgba(244, 63, 94, 0.1); }
+        .model-title { font-size: 14px; font-weight: 600; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+        .model-title span { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+        .model-desc { font-size: 11px; color: var(--text-muted); }
 
+        .model-hub { position: relative; }
+        #model-selector { background: transparent; border: none; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 8px; transition: 0.2s; }
+        #model-selector:hover { background: rgba(255,255,255,0.05); }
+        #model-selector .badge { color: var(--accent-glow); font-size: 11px; font-weight: 700; background: rgba(0,242,254,0.1); padding: 2px 6px; border-radius: 4px; }
+        body.pro-tier #model-selector .badge { color: var(--accent-glow-pro); background: rgba(139,92,246,0.1); }
+        body.designer-tier #model-selector .badge { color: var(--accent-glow-designer); background: rgba(244,63,94,0.1); }
+        
+        #model-dropdown-card { position: absolute; top: 45px; left: 0; width: 280px; background: var(--bg-card); border: 1px solid var(--border-muted); border-radius: 12px; padding: 8px; display: none; flex-direction: column; gap: 4px; z-index: 210; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+        .model-option { padding: 12px; border-radius: 8px; cursor: pointer; transition: 0.2s; display: flex; flex-direction: column; gap: 4px; border: 1px solid transparent; }
+        .model-option:hover { background: rgba(255,255,255,0.03); }
+        .model-option.active { background: rgba(0,242,254,0.05); border-color: rgba(0,242,254,0.2); }
+        .model-option.pro { background: rgba(139,92,246,0.05); border-color: rgba(139,92,246,0.2); }
+        .model-option.pro:hover { background: rgba(139,92,246,0.1); }
+        .model-option.designer { background: rgba(244,63,94,0.05); border-color: rgba(244,63,94,0.2); }
+        .model-option.designer:hover { background: rgba(244,63,94,0.1); }
+        .model-title { font-size: 14px; font-weight: 600; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+        .model-title span { font-size: 10px; font-weight: 700; padding: 2px 6px; border-radius: 4px; }
+        .model-desc { font-size: 11px; color: var(--text-muted); }
         .account-hub { position: relative; display: flex; align-items: center; gap: 12px; }
         .user-avatar { width: 32px; height: 32px; border-radius: 50%; border: 2px solid var(--border-muted); cursor: pointer; display: none; object-fit: cover; }
         #account-dropdown-card { position: absolute; top: 45px; right: 0; width: 260px; background: var(--bg-card); border: 1px solid var(--border-muted); border-radius: 16px; padding: 15px; display: none; flex-direction: column; gap: 10px; z-index: 210; box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
@@ -298,6 +283,7 @@
         .action-icon-btn:active { transform: scale(0.95); }
         .action-icon-btn.regen-active { color: var(--accent-glow); border: 1px solid var(--border-muted); }
         .action-icon-btn.regen-active:hover { background: rgba(0,242,254,0.1); border-color: var(--accent-glow); }
+        .regen-countdown { margin-left: 4px; font-size: 10px; color: var(--text-muted); }
 
         /* ===== LOADING ANIMATION ===== */
         .matrix-loader { display: flex; gap: 8px; align-items: center; padding: 10px 0; }
@@ -311,10 +297,48 @@
         @keyframes fadePulse { 0%, 100% { opacity: 0.5; } 50% { opacity: 1; } }
 
         /* ===== COMMAND WRAPPER ===== */
-        .command-wrapper { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 780px; padding: 20px 20px 30px 20px; z-index: 100; background: linear-gradient(to top, var(--bg-deep) 70%, transparent); }
-        .input-frame { background: var(--bg-sidebar); border: 1px solid var(--border-muted); border-radius: 24px; padding: 12px 16px; display: flex; flex-direction: column; transition: 0.3s; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+        .command-wrapper {
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 780px;
+            padding: 20px 20px 30px 20px;
+            z-index: 100;
+            background: linear-gradient(to top, var(--bg-deep) 70%, transparent);
+            transition: bottom 0.2s ease;
+        }
+        /* Container for file chips – FIX #1: ensure it stays visible */
+        #file-staging-container {
+            width: 100%;
+            min-height: 0;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding-bottom: 8px;
+            margin-bottom: 8px;
+            border-bottom: 1px solid var(--border-muted);
+            flex-shrink: 0;
+            position: sticky;  /* keep it above the keyboard */
+            top: 0;
+            background: var(--bg-deep);
+            z-index: 5;
+        }
+        #file-staging-container:empty {
+            display: none;
+        }
+        .input-frame {
+            background: var(--bg-sidebar);
+            border: 1px solid var(--border-muted);
+            border-radius: 24px;
+            padding: 12px 16px;
+            display: flex;
+            flex-direction: column;
+            transition: 0.3s;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
         .input-frame:focus-within { border-color: var(--text-muted); box-shadow: 0 0 30px rgba(255,255,255,0.05); }
-        #file-staging { display: none; flex-wrap: wrap; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--border-muted); margin-bottom: 8px; width: 100%; }
         .input-row { display: flex; align-items: flex-end; gap: 10px; width: 100%; }
         textarea { flex: 1; background: transparent; border: none; color: #fff; font-size: 14px; padding: 8px 5px; resize: none; max-height: 180px; font-family: inherit; line-height: 1.5; }
         textarea::placeholder { color: #4b5563; }
@@ -332,7 +356,18 @@
         .send-btn { background: #fff; color: #000; }
         .send-btn:hover { opacity: 0.8; }
         .send-btn:disabled { background: var(--bg-card); color: #4b5563; cursor: not-allowed; }
-        .send-btn.btn-stop-active { background: var(--bg-card) !important; color: var(--text-main) !important; border: 1px solid var(--border-muted) !important; width: auto !important; padding: 0 12px !important; border-radius: 12px !important; }
+
+        /* ===== STOP BUTTON COLOUR FIX (workspace-specific) – FIX #5 ===== */
+        .send-btn.btn-stop-active {
+            background: var(--bg-card) !important;
+            color: var(--text-main) !important;
+            border: 1px solid var(--border-muted) !important;
+            width: auto !important;
+            padding: 0 12px !important; 
+            border-radius: 12px !important;
+        }
+        body.workspace-data .send-btn.btn-stop-active { color:#10b981 !important; border-color: rgba(16,185,129,0.4) !important; }
+        body.workspace-design .send-btn.btn-stop-active { color: #ef4444 !important; border-color: rgba(220,20,60,0.4) !important; }
 
         .download-btn-bubble { background: var(--accent-glow); color: #000; border: none; padding: 10px 18px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 15px; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; }
         .download-btn-bubble:hover { opacity: 0.9; transform: translateY(-1px); }
@@ -347,189 +382,390 @@
         body.workspace-design .input-frame:focus-within { border-color: #ef4444 !important; box-shadow: 0 0 30px rgba(239,68,68,0.2) !important; }
         body.workspace-design .ai-avatar-bubble svg path:nth-child(2) { stroke: #ef4444 !important; }
 
-        /* ===== MOBILE ===== */
+        /* ===== UPGRADE MODAL – STATIC TIER COLOURS & RESPONSIVE LAYOUT ===== */
+        .axelr-pricing-container {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+            width: 100%;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        /* Desktop: two columns */
+        .axelr-pricing-container > div {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            width: 100%;
+        }
+        .tier-card {
+            background: #0A0F0D;
+            border-radius: 16px;
+            padding: 28px;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            min-width: 0;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        .tier-card.pro-premium { border: 1px solid rgba(16,185,129,0.15); }
+        .tier-card.business-premium { border: 1px solid rgba(239,68,68,0.15); }
+
+        .tier-card .tier-badge-pos {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 20px;
+            letter-spacing: 1px;
+            z-index: 2;
+        }
+        .pro-premium .tier-badge-pos { background: rgba(16,185,129,0.1); color: #10B981; }
+        .business-premium .tier-badge-pos { background: rgba(239,68,68,0.1); color: #EF4444; }
+
+        .tier-card h3 {
+            margin: 0 0 4px 0;
+            font-size: 22px;
+            color: #FFF;
+            font-weight: 700;
+            padding-right: 90px; /* space for badge */
+        }
+        .tier-card p.sub-desc {
+            margin: 0 0 20px 0;
+            font-size: 14px;
+            color: #888;
+            line-height: 1.5;
+        }
+        .tier-card .price-output {
+            font-size: 36px;
+            font-weight: 700;
+            color: #FFF;
+            margin-bottom: 24px;
+        }
+        .tier-card .price-output span {
+            font-size: 14px;
+            color: #555;
+            font-weight: 400;
+        }
+        .tier-card .options-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 28px;
+        }
+        .tier-card .options-group label {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px;
+            background: rgba(255,255,255,0.02);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            border: 1px solid rgba(255,255,255,0.04);
+        }
+        .pro-premium .options-group label:has(input:checked) {
+            border-color: rgba(16,185,129,0.5);
+            background: rgba(16,185,129,0.05);
+        }
+        .business-premium .options-group label:has(input:checked) {
+            border-color: rgba(239,68,68,0.5);
+            background: rgba(239,68,68,0.05);
+        }
+
+        .tier-card .options-group label input[type="radio"] {
+            margin-top: 3px;
+            flex-shrink: 0;
+        }
+        .pro-premium .options-group label input[type="radio"] { accent-color: #10B981; }
+        .business-premium .options-group label input[type="radio"] { accent-color: #EF4444; }
+
+        .tier-card .options-group label .opt-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .tier-card .options-group label .opt-content .opt-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2px;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+        .tier-card .options-group label .opt-content .opt-row .opt-name {
+            color: #FFF;
+            font-size: 14px;
+            font-weight: 600;
+        }
+        .tier-card .options-group label .opt-content .opt-row .opt-price {
+            font-size: 14px;
+            font-weight: 700;
+        }
+        .pro-premium .options-group label .opt-content .opt-row .opt-price { color: #10B981; }
+        .business-premium .options-group label .opt-content .opt-row .opt-price { color: #EF4444; }
+
+        .tier-card .options-group label .opt-content .opt-desc {
+            color: #888;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        .tier-card .upgrade-btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+            margin-top: auto;
+            color: #000;
+        }
+        .pro-premium .upgrade-btn { background: #10B981; }
+        .business-premium .upgrade-btn { background: #EF4444; color: #FFF; }
+        .tier-card .upgrade-btn:hover { opacity: 0.9; }
+
+        /* Mobile: single column, spacious */
         @media (max-width: 768px) {
-            #sidebar-container-node { left: -100%; width: 85%; }
-            #sidebar-container-node.open { left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.8); }
-            #viewport { padding: 80px 15px 140px 15px !important; }
-            .workspace-header { padding-left: 40px !important; }
-            .chat-bubble { max-width: 95% !important; padding: 12px 14px !important; }
-            .hero-text { padding-left: 42px !important; padding-right: 15px !important; margin-top: 15vh !important; }
-            .hero-text h1 { font-size: 24px !important; }
-            .hero-text p { font-size: 13px !important; }
-            .command-wrapper { width: 100% !important; max-width: 100% !important; padding-left: 42px !important; padding-right: 15px !important; padding-bottom: 20px !important; left: 0 !important; transform: none !important; }
-            .input-row { flex-wrap: nowrap !important; align-items: flex-end !important; gap: 6px !important; }
-            textarea { font-size: 16px !important; padding: 6px 4px !important; max-height: 35vh !important; }
-            .action-btn { width: 36px !important; height: 36px !important; }
-            .input-frame:not(.has-text) #send-trigger:not(.btn-stop-active) { display: none !important; }
-            .input-frame.has-text #mic-trigger { display: none !important; }
-        }
-
-        @media (max-width: 480px) {
-            .workspace-card { width: 100% !important; max-width: 320px !important; padding: 24px 16px !important; }
-            .tier-card { padding: 20px 14px !important; }
-            .axelr-pricing-container>div[style*="display: grid"] { display: flex !important; flex-direction: column !important; }
-            .user-avatar { width: 28px !important; height: 28px !important; }
-            .command-wrapper { padding-left: 38px !important; padding-right: 10px !important; padding-bottom: 15px !important; }
-            .input-frame { padding: 8px 10px !important; border-radius: 18px !important; }
-            .action-btn { width: 30px !important; height: 30px !important; }
-        }
-/* =========================================================
-           ULTRA-MOBILE MASTERPIECE FIX (Up to 480px)
-           ========================================================= */
-        @media (max-width: 480px) {
-            .axelr-pricing-container>div[style*="display: grid"] {
-                display: flex !important;
-                flex-direction: column !important;
-                width: 100% !important;
-                overflow-x: hidden !important;
-            }
-            .tier-card,
-            .pro-premium,
-            .business-premium {
-                width: 100% !important;
-                max-width: 100vw !important;
-                min-width: 0 !important;
-                padding: 20px 15px !important;
-                box-sizing: border-box !important;
-            }
-
-            .user-avatar,
-            img[referrerpolicy="no-referrer"] {
-                width: 32px !important;
-                height: 32px !important;
-                min-width: 32px !important;
-                min-height: 32px !important;
-                flex-shrink: 0 !important;
-                object-fit: cover !important;
-                border-radius: 50% !important;
-            }
-
-            div[onclick*="signIn"],
-            .auth-card button {
-                display: flex !important;
-                align-items: center !important;
-                justify-content: center !important;
-                gap: 12px !important;
-                flex-wrap: nowrap !important;
-                white-space: nowrap !important;
-                width: 100% !important;
-                box-sizing: border-box !important;
-            }
-            div[onclick*="signIn"] img,
-            div[onclick*="signIn"] svg {
-                flex-shrink: 0 !important;
-                width: 22px !important;
-                height: 22px !important;
-            }
-
-            .tier-card label>div>div:first-child {
-                flex-wrap: wrap !important;
-                gap: 5px !important;
-            }
-            .tier-card label {
-                padding: 10px !important;
-            }
-        }
-
-        /* =========================================================
-           ULTRA-MOBILE MASTERPIECE OPTIMIZATION (280px - 480px)
-           ========================================================= */
-        @media (max-width: 480px) {
-            .workspace-card {
-                width: 100% !important;
-                max-width: 320px !important;
-                padding: 24px 16px !important;
-                box-sizing: border-box !important;
-            }
-            .ws-icon {
-                font-size: 36px !important;
-                margin-bottom: 12px !important;
-            }
-            .ws-title {
-                font-size: 18px !important;
-            }
-
-            .axelr-pricing-container {
-                padding: 10px !important;
+            .axelr-pricing-container > div {
+                grid-template-columns: 1fr;
+                gap: 20px;
             }
             .tier-card {
-                padding: 20px 14px !important;
+                padding: 24px 18px;
             }
             .tier-card h3 {
-                font-size: 16px !important;
+                font-size: 20px;
+                padding-right: 80px;
             }
-            div[id$="-base-price-output"] {
-                font-size: 28px !important;
-                margin-bottom: 16px !important;
+            .tier-card .price-output {
+                font-size: 30px;
+                margin-bottom: 18px;
             }
+            .tier-card .options-group label {
+                padding: 12px;
+            }
+            .tier-card .options-group label .opt-content .opt-row .opt-name {
+                font-size: 13px;
+            }
+            .tier-card .options-group label .opt-content .opt-row .opt-price {
+                font-size: 13px;
+            }
+            .tier-card .options-group label .opt-content .opt-desc {
+                font-size: 11px;
+            }
+            .tier-card .tier-badge-pos {
+                top: 14px;
+                right: 14px;
+                font-size: 9px;
+                padding: 3px 8px;
+            }
+        }
+        @media (max-width: 480px) {
+            .tier-card {
+                padding: 18px 14px;
+            }
+            .tier-card h3 {
+                font-size: 18px;
+                padding-right: 70px;
+            }
+            .tier-card .price-output {
+                font-size: 26px;
+                margin-bottom: 14px;
+            }
+            .tier-card .options-group label {
+                padding: 10px;
+            }
+            .tier-card .options-group label .opt-content .opt-row .opt-name {
+                font-size: 12px;
+            }
+            .tier-card .options-group label .opt-content .opt-row .opt-price {
+                font-size: 12px;
+            }
+            .tier-card .options-group label .opt-content .opt-desc {
+                font-size: 10px;
+            }
+            .tier-card .tier-badge-pos {
+                top: 12px;
+                right: 12px;
+                font-size: 8px;
+                padding: 2px 6px;
+            }
+        }
 
-            .tier-card label>div>div:first-child {
-                flex-wrap: wrap !important;
-                gap: 4px !important;
+        /* Mobile workspace selector */
+        @media (max-width: 480px) {
+            .workspace-card {
+                padding: 24px 16px;
             }
-            .tier-card label span {
-                font-size: 12px !important;
+            .ws-grid {
+                grid-template-columns: 1fr;
+                gap: 16px;
             }
-            .tier-card label .sub-box-desc,
-            .tier-card label div[style*="color: #888"],
-            .tier-card label div[style*="color: #666"] {
-                font-size: 10px !important;
-            }
+        }
 
-            .workspace-header {
-                padding: 0 10px 0 40px !important;
-            }
-            #model-selector {
-                font-size: 12px !important;
-                padding: 4px 8px !important;
-            }
-            #model-selector .badge {
-                font-size: 9px !important;
-            }
-            .user-avatar {
-                width: 28px !important;
-                height: 28px !important;
-            }
+        /* ===== MOBILE UI & RESPONSIVENESS ===== */
+        @media (max-width: 768px) {
+            :root { --viewport-height: 100dvh; }
+            body { height: var(--viewport-height); overflow: hidden; }
 
-            .auth-card {
-                padding: 25px 15px !important;
+            #sidebar-container-node { left: -100%; width: 85%; }
+            #sidebar-container-node.open { left: 0; box-shadow: 10px 0 30px rgba(0,0,0,0.8); }
+            #viewport { padding: 80px 15px 140px 15px !important; height: var(--viewport-height); }
+            .workspace-header { padding-left: 40px !important; }
+            .brand-logo { font-size: 16px; }
+            .chat-bubble { max-width: 95% !important; padding: 12px 14px !important; }
+
+            .hero-text {
+                padding-left: 42px !important;
+                padding-right: 15px !important;
+                margin-top: 15vh !important;
             }
-            .auth-logo svg {
-                width: 28px !important;
-                height: 28px !important;
-            }
-            .auth-logo span {
-                font-size: 22px !important;
-            }
+            .hero-text h1 { font-size: 24px !important; }
+            .hero-text p { font-size: 13px !important; padding: 0; }
 
             .command-wrapper {
-                padding-left: 38px !important;
-                padding-right: 10px !important;
-                padding-bottom: 15px !important;
-            }
-            .input-frame {
-                padding: 8px 10px !important;
-                border-radius: 18px !important;
-            }
-            .action-btn {
-                width: 30px !important;
-                height: 30px !important;
+                width: 100% !important;
+                max-width: 100% !important;
+                padding-left: 42px !important;
+                padding-right: 15px !important;
+                padding-bottom: 20px !important;
+                left: 0 !important;
+                transform: none !important;
+                position: fixed !important;
+                bottom: env(safe-area-inset-bottom) !important;
             }
 
-            .action-btn svg,
-            .enhance-btn .material-symbols-rounded {
-                width: 16px !important;
-                height: 16px !important;
+            .input-row {
+                flex-wrap: nowrap !important;
+                align-items: flex-end !important;
+                gap: 6px !important;
+            }
+            textarea {
                 font-size: 16px !important;
+                padding: 6px 4px !important;
+                max-height: 35vh !important;
+                margin-bottom: 0 !important;
             }
+            .action-btn { width: 36px !important; height: 36px !important; }
+
+            .input-frame:not(.has-text) #send-trigger:not(.btn-stop-active) { display: none !important; }
+            .input-frame.has-text #mic-trigger { display: none !important; }
+            .input-frame:has(#send-trigger.btn-stop-active) #mic-trigger { display: none !important; }
+
+            #model-dropdown-card {
+                right: 10px;
+                left: 10px;
+                width: auto;
+                max-width: 100%;
+            }
+
+            .sidebar-footer {
+                margin-top: auto;
+                flex-shrink: 0;
+                padding: 10px 15px;
+            }
+            .sidebar-footer .footer-opt { font-size: 12px; padding: 8px; }
+            .sidebar-footer .sidebar-sub-box { padding: 8px; }
         }
 
-        .command-wrapper {
-            position: fixed !important;
-            bottom: env(safe-area-inset-bottom) !important;
+        @media (max-width: 385px) {
+            .command-wrapper { padding-left: 38px !important; padding-right: 10px !important; padding-bottom: 15px !important; }
+            .input-frame { padding: 6px 8px !important; }
+            .action-btn { width: 32px !important; height: 32px !important; }
         }
 
+        @media (max-width: 320px) {
+            .hero-text h1 { font-size: 20px !important; }
+            .hero-text p { font-size: 11px !important; }
+            .workspace-header { padding-left: 35px !important; }
+        }
+
+        /* Security alert banner */
+        .security-alert-banner {
+            background: rgba(239,68,68,0.15);
+            border-left: 4px solid #ef4444;
+            padding: 16px 20px;
+            border-radius: 8px;
+            color: #fca5a5;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 12px 0;
+            width: 100%;
+            box-shadow: 0 0 20px rgba(239,68,68,0.1);
+        }
+        .security-alert-banner .material-symbols-rounded {
+            color: #ef4444;
+            font-size: 28px;
+        }
+        .security-alert-banner span:last-child {
+            flex: 1;
+        }
+        .security-alert-banner.warning {
+            background: rgba(234,179,8,0.15);
+            border-left-color: #eab308;
+            color: #fde047;
+        }
+        .security-alert-banner.warning .material-symbols-rounded {
+            color: #eab308;
+        }
+        .security-alert-banner.critical {
+            background: rgba(239,68,68,0.25);
+            border-left-color: #ef4444;
+            color: #fca5a5;
+            animation: pulseAlert 1.5s infinite;
+        }
+        @keyframes pulseAlert {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* Retry button for deployment */
+        .deploy-retry-btn {
+            background: #3b82f6;
+            color: #fff;
+            border: none;
+            padding: 8px 14px;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-top: 10px;
+            transition: 0.2s;
+        }
+        .deploy-retry-btn:hover { opacity: 0.8; }
+        .deploy-debug-btn {
+            background: transparent;
+            border: 1px solid var(--border-muted);
+            color: var(--text-muted);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-left: 8px;
+            font-size: 12px;
+        }
+        .deploy-debug-btn:hover { background: rgba(255,255,255,0.05); }
+        .deploy-error-details {
+            background: var(--bg-input);
+            padding: 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 8px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            display: none;
+        }
+        .deploy-error-details.show { display: block; }
+
+        /* ===== IMPORTANT: material-symbols-rounded base ===== */
         .material-symbols-rounded { font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24; vertical-align: middle; font-size: 24px; }
     </style>
 </head>
@@ -572,7 +808,7 @@
 
     <!-- ===== WORKSPACE SELECTOR ===== -->
     <div id="workspace-selector">
-        <h2 style="color:#fff;margin-bottom:30px;font-size:28px;">Select Workspace</h2>
+        <h2>Select Workspace</h2>
         <div class="ws-grid">
             <div class="workspace-card data" onclick="selectWorkspace('data')">
                 <span class="material-symbols-rounded" style="font-size:48px;">database</span>
@@ -609,7 +845,7 @@
     <div class="modal-overlay" id="feedback-modal">
         <div class="modal-card">
             <div class="modal-header"><div class="modal-title">System Report</div><button class="close-modal-btn" onclick="closeModals()">✕</button></div>
-            <select id="report-type" class="modal-input" style="min-height:auto;margin-bottom:5px;">
+            <select id="report-type" class="modal-input" style="min-height: auto; margin-bottom: 5px;">
                 <option value="help">🔴 Report an Error/Bug</option>
                 <option value="feedback">💡 Submit UX Feedback</option>
             </select>
@@ -621,88 +857,70 @@
     <div class="modal-overlay" id="upgrade-modal">
         <div class="modal-card" style="max-width:900px;">
             <div class="modal-header"><div class="modal-title">Upgrade Workspace</div><button class="close-modal-btn" onclick="closeModals()">✕</button></div>
-            <div class="axelr-pricing-container" style="display:flex;flex-direction:column;gap:24px;width:100%;max-width:1200px;margin:0 auto;padding:20px;box-sizing:border-box;">
-                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:24px;width:100%;">
+            <div class="axelr-pricing-container">
+                <div>
                     <!-- Pro Tier -->
-                    <div class="tier-card pro-premium" style="background:#0A0F0D;border:1px solid rgba(16,185,129,0.15);border-radius:16px;padding:28px;display:flex;flex-direction:column;position:relative;box-shadow:0 8px 32px rgba(0,0,0,0.4);min-width:0;">
-                        <div style="position:absolute;top:16px;right:16px;background:rgba(16,185,129,0.1);color:#10B981;font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:1px;">RECOMMENDED</div>
-                        <h3 style="margin:0 0 4px 0;font-size:18px;color:#FFF;font-weight:600;">Pro</h3>
-                        <p style="margin:0 0 20px 0;font-size:13px;color:#888;line-height:1.4;">Perfect for solo developers and freelancers who need reliable daily usage limits.</p>
-                        <div id="pro-base-price-output" style="font-size:36px;font-weight:700;color:#FFF;margin-bottom:24px;">$15<span style="font-size:14px;color:#555;font-weight:400;">/mo</span></div>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:28px;">
-                            <label style="display:flex;align-items:flex-start;gap:12px;padding:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(16,185,129,0.3);border-radius:10px;cursor:pointer;transition:all 0.2s ease;">
-                                <input type="radio" name="pro-sub-selector" value="full" checked onclick="syncTierMatrixEngine('pro','full',15)" style="margin-top:3px;accent-color:#10B981;">
-                                <div style="flex:1;min-width:0;">
-                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                                        <span style="color:#FFF;font-size:13px;font-weight:600;">Full Stack Bundle</span>
-                                        <span style="color:#10B981;font-size:13px;font-weight:700;">$15</span>
-                                    </div>
-                                    <div style="color:#888;font-size:11px;line-height:1.3;">20 Data / 15 UI / 7 Enhance per day.</div>
+                    <div class="tier-card pro-premium">
+                        <div class="tier-badge-pos">RECOMMENDED</div>
+                        <h3>Pro</h3>
+                        <p class="sub-desc">Perfect for solo developers and freelancers who need reliable daily usage limits.</p>
+                        <div class="price-output" id="pro-base-price-output">$15<span>/mo</span></div>
+                        <div class="options-group">
+                            <label>
+                                <input type="radio" name="pro-sub-selector" value="full" checked onclick="syncTierMatrixEngine('pro','full',15)">
+                                <div class="opt-content">
+                                    <div class="opt-row"><span class="opt-name">Full Stack Bundle</span><span class="opt-price">$15</span></div>
+                                    <div class="opt-desc">20 Data Extractions / 15 UI Generations / 7 Enhancements per day.</div>
                                 </div>
                             </label>
-                            <label style="display:flex;align-items:flex-start;gap:12px;padding:14px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.04);border-radius:10px;cursor:pointer;transition:all 0.2s ease;">
-                                <input type="radio" name="pro-sub-selector" value="data" onclick="syncTierMatrixEngine('pro','data',8)" style="margin-top:3px;accent-color:#10B981;">
-                                <div style="flex:1;min-width:0;">
-                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                                        <span style="color:#CCC;font-size:13px;font-weight:500;">Data Extraction Only</span>
-                                        <span style="color:#AAA;font-size:13px;font-weight:600;">$8</span>
-                                    </div>
-                                    <div style="color:#666;font-size:11px;line-height:1.3;">19 Data / 0 UI / 5 Enhance per day.</div>
+                            <label>
+                                <input type="radio" name="pro-sub-selector" value="data" onclick="syncTierMatrixEngine('pro','data',8)">
+                                <div class="opt-content">
+                                    <div class="opt-row"><span class="opt-name">Data Extraction Only</span><span class="opt-price" style="color:#AAA;">$8</span></div>
+                                    <div class="opt-desc">19 Data Extractions / 0 UI Generations / 5 Enhancements per day.</div>
                                 </div>
                             </label>
-                            <label style="display:flex;align-items:flex-start;gap:12px;padding:14px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.04);border-radius:10px;cursor:pointer;transition:all 0.2s ease;">
-                                <input type="radio" name="pro-sub-selector" value="design" onclick="syncTierMatrixEngine('pro','design',9)" style="margin-top:3px;accent-color:#10B981;">
-                                <div style="flex:1;min-width:0;">
-                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                                        <span style="color:#CCC;font-size:13px;font-weight:500;">UI Generation Only</span>
-                                        <span style="color:#AAA;font-size:13px;font-weight:600;">$9</span>
-                                    </div>
-                                    <div style="color:#666;font-size:11px;line-height:1.3;">0 Data / 13 UI / 5 Enhance per day.</div>
+                            <label>
+                                <input type="radio" name="pro-sub-selector" value="design" onclick="syncTierMatrixEngine('pro','design',9)">
+                                <div class="opt-content">
+                                    <div class="opt-row"><span class="opt-name">UI Generation Only</span><span class="opt-price" style="color:#AAA;">$9</span></div>
+                                    <div class="opt-desc">0 Data Extractions / 13 UI Generations / 5 Enhancements per day.</div>
                                 </div>
                             </label>
                         </div>
-                        <button style="width:100%;padding:14px;background:#10B981;color:#000;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:opacity 0.2s ease;margin-top:auto;" onclick="dispatchCheckoutPipeline('pro')">Upgrade to Pro</button>
+                        <button class="upgrade-btn" onclick="dispatchCheckoutPipeline('pro')">Upgrade to Pro</button>
                     </div>
 
                     <!-- Business Tier -->
-                    <div class="tier-card business-premium" style="background:#0F0A0A;border:1px solid rgba(239,68,68,0.15);border-radius:16px;padding:28px;display:flex;flex-direction:column;position:relative;box-shadow:0 8px 32px rgba(0,0,0,0.4);min-width:0;">
-                        <div style="position:absolute;top:16px;right:16px;background:rgba(239,68,68,0.1);color:#EF4444;font-size:10px;font-weight:700;padding:4px 10px;border-radius:20px;letter-spacing:1px;">HEAVY HITTERS</div>
-                        <h3 style="margin:0 0 4px 0;margin-top:15px;font-size:18px;color:#FFF;font-weight:600;padding-right:110px;">Business</h3>
-                        <p style="margin:0 0 20px 0;font-size:13px;color:#888;line-height:1.4;">Built for agencies and power users who need maximum daily outputs.</p>
-                        <div id="business-base-price-output" style="font-size:36px;font-weight:700;color:#FFF;margin-bottom:24px;">$29<span style="font-size:14px;color:#555;font-weight:400;">/mo</span></div>
-                        <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:28px;">
-                            <label style="display:flex;align-items:flex-start;gap:12px;padding:14px;background:rgba(255,255,255,0.02);border:1px solid rgba(239,68,68,0.3);border-radius:10px;cursor:pointer;transition:all 0.2s ease;">
-                                <input type="radio" name="business-sub-selector" value="full" checked onclick="syncTierMatrixEngine('business','full',29)" style="margin-top:3px;accent-color:#EF4444;">
-                                <div style="flex:1;min-width:0;">
-                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                                        <span style="color:#FFF;font-size:13px;font-weight:600;">Full Stack Bundle</span>
-                                        <span style="color:#EF4444;font-size:13px;font-weight:700;">$29</span>
-                                    </div>
-                                    <div style="color:#888;font-size:11px;line-height:1.3;">30 Data / 25 UI / 15 Enhance per day.</div>
+                    <div class="tier-card business-premium">
+                        <div class="tier-badge-pos">HEAVY HITTERS</div>
+                        <h3>Business</h3>
+                        <p class="sub-desc">Built for agencies and power users who need maximum daily outputs.</p>
+                        <div class="price-output" id="business-base-price-output">$29<span>/mo</span></div>
+                        <div class="options-group">
+                            <label>
+                                <input type="radio" name="business-sub-selector" value="full" checked onclick="syncTierMatrixEngine('business','full',29)">
+                                <div class="opt-content">
+                                    <div class="opt-row"><span class="opt-name">Full Stack Bundle</span><span class="opt-price">$29</span></div>
+                                    <div class="opt-desc">30 Data Extractions / 25 UI Generations / 15 Enhancements per day.</div>
                                 </div>
                             </label>
-                            <label style="display:flex;align-items:flex-start;gap:12px;padding:14px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.04);border-radius:10px;cursor:pointer;transition:all 0.2s ease;">
-                                <input type="radio" name="business-sub-selector" value="data" onclick="syncTierMatrixEngine('business','data',16)" style="margin-top:3px;accent-color:#EF4444;">
-                                <div style="flex:1;min-width:0;">
-                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                                        <span style="color:#CCC;font-size:13px;font-weight:500;">Data Ops</span>
-                                        <span style="color:#AAA;font-size:13px;font-weight:600;">$16</span>
-                                    </div>
-                                    <div style="color:#666;font-size:11px;line-height:1.3;">28 Data / 0 UI / 10 Enhance per day.</div>
+                            <label>
+                                <input type="radio" name="business-sub-selector" value="data" onclick="syncTierMatrixEngine('business','data',16)">
+                                <div class="opt-content">
+                                    <div class="opt-row"><span class="opt-name">Data Ops</span><span class="opt-price" style="color:#AAA;">$16</span></div>
+                                    <div class="opt-desc">28 Data Extractions / 0 UI Generations / 10 Enhancements per day.</div>
                                 </div>
                             </label>
-                            <label style="display:flex;align-items:flex-start;gap:12px;padding:14px;background:rgba(0,0,0,0.2);border:1px solid rgba(255,255,255,0.04);border-radius:10px;cursor:pointer;transition:all 0.2s ease;">
-                                <input type="radio" name="business-sub-selector" value="design" onclick="syncTierMatrixEngine('business','design',16)" style="margin-top:3px;accent-color:#EF4444;">
-                                <div style="flex:1;min-width:0;">
-                                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:2px;">
-                                        <span style="color:#CCC;font-size:13px;font-weight:500;">Designer</span>
-                                        <span style="color:#AAA;font-size:13px;font-weight:600;">$16</span>
-                                    </div>
-                                    <div style="color:#666;font-size:11px;line-height:1.3;">0 Data / 20 UI / 10 Enhance per day.</div>
+                            <label>
+                                <input type="radio" name="business-sub-selector" value="design" onclick="syncTierMatrixEngine('business','design',16)">
+                                <div class="opt-content">
+                                    <div class="opt-row"><span class="opt-name">Designer</span><span class="opt-price" style="color:#AAA;">$16</span></div>
+                                    <div class="opt-desc">0 Data Extractions / 20 UI Generations / 10 Enhancements per day.</div>
                                 </div>
                             </label>
                         </div>
-                        <button style="width:100%;padding:14px;background:#EF4444;color:#FFF;border:none;border-radius:10px;font-size:14px;font-weight:700;cursor:pointer;transition:opacity 0.2s ease;margin-top:auto;" onclick="dispatchCheckoutPipeline('business')">Upgrade to Business</button>
+                        <button class="upgrade-btn" onclick="dispatchCheckoutPipeline('business')">Upgrade to Business</button>
                     </div>
                 </div>
                 <div style="font-size:12px;color:var(--text-muted);margin-top:10px;text-align:center;">Cancel anytime. Secure processing via Stripe.</div>
@@ -846,9 +1064,10 @@
         </div>
 
         <!-- Command Input -->
-        <div class="command-wrapper">
+        <div class="command-wrapper" id="command-wrapper">
+            <!-- File staging container now outside input-frame -->
+            <div id="file-staging-container"></div>
             <div class="input-frame" id="data-drop-zone">
-                <div id="file-staging"></div>
                 <div class="input-row">
                     <button class="action-btn attach-btn" onclick="document.getElementById('omni-file-input').click()" title="Attach Assets">
                         <span class="material-symbols-rounded" style="font-size:20px;">attach_file</span>
@@ -877,7 +1096,6 @@
         const AXELR_AVATAR_SVG =
             `<svg viewBox="0 0 100 100" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M50 15 L20 32.5 L20 67.5 L50 85" stroke="#ffffff" stroke-width="6" stroke-linejoin="bevel" fill="rgba(255,255,255,0.05)"/><path d="M50 15 L80 32.5 L50 50 L80 67.5 L50 85" stroke="currentColor" stroke-width="6" stroke-linejoin="bevel" fill="none"/><path d="M20 32.5 L50 50 L20 67.5" stroke="#ffffff" stroke-width="3" stroke-linejoin="bevel" opacity="0.5"/></svg>`;
 
-        // Icons as SVG strings
         const ICONS = {
             copy: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
             edit: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`,
@@ -891,7 +1109,7 @@
         // ============================================================
         const promptInput = document.getElementById('prompt-input');
         const fileInput = document.getElementById('omni-file-input');
-        const fileStaging = document.getElementById('file-staging');
+        const fileStagingContainer = document.getElementById('file-staging-container');
         const viewport = document.getElementById('viewport');
         const historyListContainer = document.getElementById('history-list-container');
         const accountDropdownCard = document.getElementById('account-dropdown-card');
@@ -899,6 +1117,7 @@
         const sidebarTriggerArea = document.getElementById('sidebar-trigger-area');
         const sidebarNode = document.getElementById('sidebar-container-node');
         const sendBtn = document.getElementById('send-trigger');
+        const commandWrapper = document.getElementById('command-wrapper');
 
         // ============================================================
         // STATE
@@ -917,27 +1136,18 @@
         let regenerateTimer = null;
         let lastMessageTimestamp = 0;
         let hasRegenerated = false;
-        let currentUserId = null; // will be set after auth
+        let currentUserId = null;
+        let isProcessing = false; // Fix #4: prevent concurrent submits
 
-        // ============================================================
-        // USER-SCOPED LOCAL STORAGE HELPERS
-        // ============================================================
-        function getLocalStorageKey(baseKey) {
-            if (!currentUserId) return baseKey; // fallback (should not happen)
-            return `${baseKey}_${currentUserId}`;
-        }
+        // Regenerate per chat tracking
+        let regeneratedMap = {};
 
-        function setUserStorage(key, value) {
-            localStorage.setItem(getLocalStorageKey(key), value);
-        }
+        // Sidebar close ignore flag (Fix #8)
+        let ignoreSidebarClose = false;
 
-        function getUserStorage(key) {
-            return localStorage.getItem(getLocalStorageKey(key));
-        }
-
-        function removeUserStorage(key) {
-            localStorage.removeItem(getLocalStorageKey(key));
-        }
+        // Manipulation attempt counter (session storage)
+        let manipulationCount = parseInt(sessionStorage.getItem('axelr_manipulation_count')) || 0;
+        let manipulationLockUntil = parseInt(sessionStorage.getItem('axelr_manipulation_lock')) || 0;
 
         // ============================================================
         // UTILITY FUNCTIONS
@@ -958,27 +1168,73 @@
             return null;
         }
 
-        function getWorkspace() { return getUserStorage('Axelr_workspace') || 'data'; }
+        function getWorkspace() { return localStorage.getItem('Axelr_workspace') || 'data'; }
+
+        function getDraftKey() { return `Axelr_prompt_draft_${currentUserId || 'anonymous'}`; }
+
+        // ============================================================
+        // VISUAL VIEWPORT / COMMAND BAR RESPONSIVENESS (with cap)
+        // ============================================================
+        function adjustViewportPadding() {
+            const wrapperHeight = commandWrapper.offsetHeight;
+            const bottomPadding = Math.max(wrapperHeight + 20, 160);
+            viewport.style.paddingBottom = bottomPadding + 'px';
+        }
+
+        function scrollToBottom() {
+            viewport.scrollTop = viewport.scrollHeight;
+        }
+
+        if (window.visualViewport) {
+            function adjustCommandWrapperAndViewport() {
+                const vv = window.visualViewport;
+                if (!vv) return;
+                const offsetY = window.innerHeight - vv.height;
+                const maxBottom = window.innerHeight * 0.6; // never go above 60%
+                commandWrapper.style.bottom = Math.min(offsetY, maxBottom) + 'px';
+                setTimeout(adjustViewportPadding, 50);
+                if (viewport.querySelector('.chat-bubble')) {
+                    scrollToBottom();
+                }
+            }
+            window.visualViewport.addEventListener('resize', adjustCommandWrapperAndViewport);
+            window.visualViewport.addEventListener('scroll', adjustCommandWrapperAndViewport);
+            setTimeout(adjustCommandWrapperAndViewport, 100);
+        }
+
+        promptInput.addEventListener('focus', () => {
+            setTimeout(() => {
+                adjustViewportPadding();
+                scrollToBottom();
+            }, 200);
+        });
+
+        const viewportObserver = new MutationObserver(() => {
+            scrollToBottom();
+        });
+        viewportObserver.observe(viewport, { childList: true, subtree: true, characterData: true });
 
         // ============================================================
         // FILE HANDLING
         // ============================================================
         function renderFileChips() {
-            const stagingArea = document.getElementById('file-staging');
             if (stagedFiles.length === 0) {
-                stagingArea.style.display = 'none';
-                stagingArea.innerHTML = '';
+                fileStagingContainer.style.display = 'none';
+                fileStagingContainer.innerHTML = '';
                 return;
             }
-            stagingArea.style.display = 'flex';
-            stagingArea.innerHTML = stagedFiles.map((file, idx) =>
-                `<div class="file-chip" style="display:flex;align-items:center;gap:8px;max-width:100%;">
+            fileStagingContainer.style.display = 'flex';
+            fileStagingContainer.innerHTML = stagedFiles.map((file, idx) =>
+                `<div class="file-chip" style="display:flex;align-items:center;gap:8px;max-width:100%;flex-shrink:0;">
                     <span class="material-symbols-rounded" style="font-size:16px;">description</span>
                     <span style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:140px;display:inline-block;vertical-align:middle;">${escapeHtmlEntities(file.name)}</span>
                     <span style="cursor:pointer;color:#ef4444;font-weight:bold;font-size:14px;flex-shrink:0;padding-left:4px;" onclick="removeStagedFile(${idx})">✕</span>
                 </div>`
             ).join('');
-            validateSendCommand();
+            // Force reflow to ensure visibility on mobile
+            requestAnimationFrame(() => {
+                fileStagingContainer.style.display = 'flex';
+            });
         }
 
         function removeStagedFile(idx) { stagedFiles.splice(idx, 1);
@@ -1019,16 +1275,21 @@
         // SIDEBAR FUNCTIONS
         // ============================================================
         function toggleSidebar() { sidebarNode.classList.toggle('open'); }
-
         sidebarTriggerArea.addEventListener('click', (e) => { e.stopPropagation();
             sidebarNode.classList.toggle('open'); });
-
         window.addEventListener('click', (e) => {
+            if (ignoreSidebarClose) return; // Fix #8
             if (!sidebarNode.contains(e.target) && e.target !== sidebarTriggerArea) sidebarNode.classList.remove('open');
             if (!document.querySelector('.account-hub').contains(e.target)) accountDropdownCard.style.display = 'none';
             if (!document.querySelector('.model-hub').contains(e.target)) modelDropdownCard.style.display = 'none';
             if (!e.target.closest('.history-options-btn')) document.querySelectorAll('.actions-dropdown-list').forEach(d =>
                 d.classList.remove('active'));
+        });
+
+        // Fix #8: ignore sidebar close when search input is focused
+        document.getElementById('sidebar-search-input').addEventListener('focus', () => {
+            ignoreSidebarClose = true;
+            setTimeout(() => { ignoreSidebarClose = false; }, 300);
         });
 
         function toggleAccountDropdown(e) { e.stopPropagation();
@@ -1103,11 +1364,10 @@
 
         async function initializeSecureWorkspace(payload, token) {
             googleAuthUserToken = token;
-            currentUserId = payload.sub; // set user ID for storage scoping
-
+            currentUserId = payload.sub;
             const authWallEl = document.getElementById('auth-wall');
             if (authWallEl) authWallEl.style.display = 'none';
-            const savedWorkspace = getUserStorage('Axelr_workspace');
+            const savedWorkspace = localStorage.getItem('Axelr_workspace');
             if (savedWorkspace) {
                 activateWorkspace(savedWorkspace, true);
             } else {
@@ -1127,11 +1387,6 @@
 
         function executeGlobalLogout() {
             localStorage.removeItem('google_auth_token');
-            // Clear user-specific storage (optional)
-            if (currentUserId) {
-                const keysToRemove = ['Axelr_draft_prompt', 'Axelr_workspace', 'Axelr_active_session'];
-                keysToRemove.forEach(k => removeUserStorage(k));
-            }
             location.reload();
         }
 
@@ -1143,7 +1398,7 @@
         }
 
         function selectWorkspace(type) {
-            setUserStorage('Axelr_workspace', type);
+            localStorage.setItem('Axelr_workspace', type);
             document.getElementById('workspace-selector').style.display = 'none';
             activateWorkspace(type);
         }
@@ -1176,18 +1431,21 @@
             runningStructuredCache = null;
             stagedFiles = [];
             renderFileChips();
-            removeUserStorage('Axelr_active_session');
+            localStorage.removeItem('Axelr_active_session');
             document.querySelectorAll('.chat-bubble').forEach(bubble => bubble.remove());
             const hero = document.getElementById('hero-display');
-            hero.style.display = 'none';
-            void hero.offsetWidth;
-            hero.style.display = 'flex';
+            // Fix #6: only show hero if no active chat
+            if (!activeSessionId) {
+                hero.style.display = 'flex';
+            } else {
+                hero.style.display = 'none';
+            }
             if (!isBoot) {
                 promptInput.value = '';
                 promptInput.style.height = 'auto';
-                removeUserStorage('Axelr_draft_prompt');
+                localStorage.removeItem(getDraftKey());
             } else {
-                const savedDraft = getUserStorage('Axelr_draft_prompt');
+                const savedDraft = localStorage.getItem(getDraftKey());
                 if (savedDraft) {
                     promptInput.value = savedDraft;
                     setTimeout(() => {
@@ -1201,6 +1459,7 @@
             hasRegenerated = false;
             if (regenerateTimer) { clearTimeout(regenerateTimer);
                 regenerateTimer = null; }
+            adjustViewportPadding();
         }
 
         // ============================================================
@@ -1221,7 +1480,7 @@
             promptInput.style.height = 'auto';
             promptInput.style.height = promptInput.scrollHeight + 'px';
             validateSendCommand();
-            setUserStorage('Axelr_draft_prompt', promptInput.value);
+            localStorage.setItem(getDraftKey(), promptInput.value);
         });
 
         window.addEventListener('offline', () => {
@@ -1232,38 +1491,6 @@
             document.getElementById('offline-banner').style.display = 'none';
             validateSendCommand();
         });
-
-        // ============================================================
-        // VISUAL VIEWPORT KEYBOARD FIX
-        // ============================================================
-        if (window.visualViewport) {
-            window.visualViewport.addEventListener('resize', () => {
-                const vv = window.visualViewport;
-                // Calculate height difference caused by keyboard
-                const offset = window.innerHeight - vv.height;
-                // Adjust the command-wrapper's bottom padding to stay above keyboard
-                const wrapper = document.querySelector('.command-wrapper');
-                if (wrapper) {
-                    // If keyboard is open (offset > some threshold), push wrapper up
-                    if (offset > 100) {
-                        wrapper.style.bottom = offset + 'px';
-                    } else {
-                        wrapper.style.bottom = '0';
-                    }
-                }
-                // Also adjust viewport padding-bottom to avoid content being hidden
-                const viewportEl = document.getElementById('viewport');
-                if (viewportEl) {
-                    const wrapperHeight = wrapper ? wrapper.offsetHeight : 120;
-                    const extraPadding = offset > 100 ? offset + 20 : 20;
-                    viewportEl.style.paddingBottom = (wrapperHeight + extraPadding) + 'px';
-                }
-                // Scroll to bottom to show latest message
-                setTimeout(() => {
-                    viewport.scrollTop = viewport.scrollHeight;
-                }, 100);
-            });
-        }
 
         // ============================================================
         // VOICE INPUT
@@ -1304,7 +1531,7 @@
                 promptInput.style.height = 'auto';
                 promptInput.style.height = promptInput.scrollHeight + 'px';
                 validateSendCommand();
-                setUserStorage('Axelr_draft_prompt', promptInput.value);
+                localStorage.setItem(getDraftKey(), promptInput.value);
             };
         } else {
             micBtn.style.display = 'none';
@@ -1411,27 +1638,27 @@
                     return; }
                 historyListContainer.innerHTML = cachedLogHistory.map(log => `
                     <div class="history-item" onclick="viewPastLogById('${log._id}')">
-                        <div class="history-info"><div class="history-title" id="title-${log._id}">${log.isPinned ? '📌 ' : ''}${escapeHtmlEntities(log.filename)}</div></div>
+                        <div class="history-info"><div class="history-title" id="title-${log._id}">${log.isPinned ? '<span class="material-symbols-rounded" style="font-size:14px;">push_pin</span>' : ''}${escapeHtmlEntities(log.filename)}</div></div>
                         <button class="history-options-btn" onclick="toggleHistoryOptions(event, '${log._id}')">⋮</button>
                         <div class="actions-dropdown-list" id="options-${log._id}">
                             ${currentTab === 'active' ? `
-                                <div class="action-list-item" onclick="renameChat('${log._id}', '${escapeHtmlEntities(log.filename)}', event)">✏️ Rename</div>
-                                <div class="action-list-item" onclick="pinChat('${log._id}', event)">📌 ${log.isPinned ? 'Unpin' : 'Pin'}</div>
-                                <div class="action-list-item" onclick="shareChat('${log._id}', event)">🔗 Share Text</div>
-                                <div class="action-list-item" onclick="changeChatStatus('${log._id}', 'archived', event)">📦 Archive</div>
-                                <div class="action-list-item danger" onclick="changeChatStatus('${log._id}', 'trashed', event)">🗑️ Trash</div>
+                                <div class="action-list-item" onclick="renameChat('${log._id}', '${escapeHtmlEntities(log.filename)}', event)"><span class="material-symbols-rounded" style="font-size:16px;">edit</span> Rename</div>
+                                <div class="action-list-item" onclick="pinChat('${log._id}', event)"><span class="material-symbols-rounded" style="font-size:16px;">push_pin</span> ${log.isPinned ? 'Unpin' : 'Pin'}</div>
+                                <div class="action-list-item" onclick="shareChat('${log._id}', event)"><span class="material-symbols-rounded" style="font-size:16px;">link</span> Share Text</div>
+                                <div class="action-list-item" onclick="changeChatStatus('${log._id}', 'archived', event)"><span class="material-symbols-rounded" style="font-size:16px;">inventory</span> Archive</div>
+                                <div class="action-list-item danger" onclick="changeChatStatus('${log._id}', 'trashed', event)"><span class="material-symbols-rounded" style="font-size:16px;">delete</span> Trash</div>
                             ` : ''}
-                            ${currentTab === 'archived' ? `<div class="action-list-item" onclick="changeChatStatus('${log._id}', 'active', event)">↩️ Unarchive</div><div class="action-list-item danger" onclick="changeChatStatus('${log._id}', 'trashed', event)">🗑️ Trash</div>` : ''}
-                            ${currentTab === 'trashed' ? `<div class="action-list-item" onclick="changeChatStatus('${log._id}', 'active', event)">↩️ Restore</div><div class="action-list-item danger" onclick="deleteLogPermanently('${log._id}', event)">💀 Delete Forever</div>` : ''}
+                            ${currentTab === 'archived' ? `<div class="action-list-item" onclick="changeChatStatus('${log._id}', 'active', event)"><span class="material-symbols-rounded" style="font-size:16px;">undo</span> Unarchive</div><div class="action-list-item danger" onclick="changeChatStatus('${log._id}', 'trashed', event)"><span class="material-symbols-rounded" style="font-size:16px;">delete</span> Trash</div>` : ''}
+                            ${currentTab === 'trashed' ? `<div class="action-list-item" onclick="changeChatStatus('${log._id}', 'active', event)"><span class="material-symbols-rounded" style="font-size:16px;">restore</span> Restore</div><div class="action-list-item danger" onclick="deleteLogPermanently('${log._id}', event)"><span class="material-symbols-rounded" style="font-size:16px;">delete_forever</span> Delete Forever</div>` : ''}
                         </div>
                     </div>`).join('');
                 if (isInitialAppLoad) {
                     isInitialAppLoad = false;
-                    const savedSession = getUserStorage('Axelr_active_session');
+                    const savedSession = localStorage.getItem('axelr_active_session');
                     if (savedSession && cachedLogHistory.some(l => l._id === savedSession)) {
                         viewPastLogById(savedSession);
                     }
-                    const savedDraft = getUserStorage('Axelr_draft_prompt');
+                    const savedDraft = localStorage.getItem(getDraftKey());
                     if (savedDraft) {
                         promptInput.value = savedDraft;
                         promptInput.style.height = 'auto';
@@ -1506,7 +1733,7 @@
             document.getElementById('hero-display').style.display = 'none';
             document.querySelectorAll('.chat-bubble').forEach(b => b.remove());
             activeSessionId = logId;
-            setUserStorage('Axelr_active_session', activeSessionId);
+            localStorage.setItem('axelr_active_session', activeSessionId);
             runningFileTitle = log.filename;
             runningStructuredCache = log.structuredData;
 
@@ -1515,7 +1742,7 @@
                 trashMsg.className = 'chat-bubble';
                 trashMsg.style.cssText =
                     "background:rgba(239,68,68,0.1);color:#ef4444;padding:15px;text-align:center;border-radius:8px;margin-bottom:20px;width:100%;";
-                trashMsg.innerHTML = `🗑️ This chat is in the trash. Restore it to continue chatting.`;
+                trashMsg.innerHTML = `<span class="material-symbols-rounded" style="font-size:20px;">delete</span> This chat is in the trash. Restore it to continue chatting.`;
                 viewport.appendChild(trashMsg);
             }
 
@@ -1524,12 +1751,12 @@
                 regenerateTimer = null; }
 
             log.messages.forEach((msg, idx) => {
-                // Safety: ensure required fields exist
-                msg.text = msg.text || '';
-                msg.attachedFiles = msg.attachedFiles || [];
-                msg.variants = msg.variants || [];
-                msg.activeVariant = msg.activeVariant || 0;
-
+                if (!msg.variants || !Array.isArray(msg.variants)) {
+                    msg.variants = [msg.text];
+                }
+                if (msg.activeVariant === undefined || msg.activeVariant === null) {
+                    msg.activeVariant = 0;
+                }
                 const bubble = document.createElement('div');
                 bubble.className = `chat-bubble ${msg.role === 'user' ? 'user-bubble' : 'nexus-bubble'}`;
 
@@ -1580,7 +1807,8 @@
                     }
 
                     const isLast = idx === log.messages.length - 1;
-                    injectActionButtons(contentDiv, msg.text, false, isLast);
+                    // Pass the message's createdAt to injectActionButtons
+                    injectActionButtons(contentDiv, msg.text, false, isLast, msg.createdAt);
 
                     if (msg.variants && msg.variants.length > 1) {
                         const currentIdx = msg.activeVariant || 0;
@@ -1608,7 +1836,10 @@
                 }
                 viewport.appendChild(bubble);
             });
-            setTimeout(() => viewport.scrollTop = viewport.scrollHeight, 50);
+            setTimeout(() => {
+                scrollToBottom();
+                adjustViewportPadding();
+            }, 50);
             if (window.innerWidth <= 768) sidebarNode.classList.remove('open');
         }
 
@@ -1632,9 +1863,9 @@
         }
 
         // ============================================================
-        // ACTION BUTTONS (with Regenerate logic)
+        // ACTION BUTTONS (with Regenerate logic + countdown) - FIX #10
         // ============================================================
-        function injectActionButtons(bubbleNode, rawText, isUserPrompt = false, isLast = false) {
+        function injectActionButtons(bubbleNode, rawText, isUserPrompt = false, isLast = false, createdAt = null) {
             const actionBar = document.createElement('div');
             actionBar.className = 'bubble-action-bar';
 
@@ -1646,14 +1877,12 @@
                 editBtn.onclick = () => handleActionClick('edit', rawText, editBtn);
                 actionBar.appendChild(editBtn);
             } else {
-                // Copy
                 const copyBtn = document.createElement('button');
                 copyBtn.className = 'action-icon-btn';
                 copyBtn.title = "Copy Response";
                 copyBtn.innerHTML = `${ICONS.copy} Copy`;
                 copyBtn.onclick = () => handleActionClick('copy', rawText, copyBtn);
 
-                // Like
                 const likeBtn = document.createElement('button');
                 likeBtn.className = 'action-icon-btn';
                 likeBtn.title = "Helpful Response";
@@ -1661,7 +1890,6 @@
                 likeBtn.onclick = () => { likeBtn.style.color = 'var(--accent-glow)';
                     dislikeBtn.style.color = 'var(--text-muted)'; };
 
-                // Dislike
                 const dislikeBtn = document.createElement('button');
                 dislikeBtn.className = 'action-icon-btn';
                 dislikeBtn.title = "Not Helpful";
@@ -1673,36 +1901,62 @@
                 actionBar.appendChild(likeBtn);
                 actionBar.appendChild(dislikeBtn);
 
-                // Regenerate - only on last message, and only if not already regenerated
-                if (isLast && !hasRegenerated && rawText) {
-                    const regenBtn = document.createElement('button');
-                    regenBtn.className = 'action-icon-btn regen-active';
-                    regenBtn.title = "Regenerate response (available for 30s)";
-                    regenBtn.innerHTML = ICONS.regenerate; // icon only, no text
-                    regenBtn.onclick = function(e) {
-                        if (window.lastUserCommand) {
-                            document.getElementById('prompt-input').value = window.lastUserCommand;
-                            document.getElementById('prompt-input').style.height = 'auto';
-                            document.getElementById('prompt-input').style.height = document.getElementById(
-                                'prompt-input').scrollHeight + 'px';
-                            hasRegenerated = true;
-                            this.remove(); // remove immediately to prevent double-click
-                            if (regenerateTimer) { clearTimeout(regenerateTimer);
-                                regenerateTimer = null; }
-                            executeCommand(true);
-                        }
-                    };
-                    actionBar.appendChild(regenBtn);
+                // Regenerate - single-use, 30s countdown, only for last message of active session
+                const chatId = activeSessionId;
+                const alreadyRegenerated = regeneratedMap[chatId] || false;
+                const isActiveChat = chatId && chatId === activeSessionId;
 
-                    // Auto-remove after 30 seconds
-                    if (regenerateTimer) { clearTimeout(regenerateTimer); }
-                    regenerateTimer = setTimeout(() => {
-                        if (regenBtn.parentNode) {
-                            regenBtn.remove();
-                            regenerateTimer = null;
-                        }
-                    }, 30000);
-                    lastMessageTimestamp = Date.now();
+                if (isLast && !alreadyRegenerated && rawText && isActiveChat && createdAt) {
+                    const now = Date.now();
+                    const msgTime = new Date(createdAt).getTime();
+                    const elapsed = now - msgTime;
+                    if (elapsed < 30000) {
+                        const regenBtn = document.createElement('button');
+                        regenBtn.className = 'action-icon-btn regen-active';
+                        regenBtn.title = "Regenerate response (available for 30s)";
+                        regenBtn.innerHTML = ICONS.regenerate + `<span class="regen-countdown">${Math.ceil((30000 - elapsed)/1000)}s</span>`;
+                        let remaining = Math.ceil((30000 - elapsed)/1000);
+                        const timerInterval = setInterval(() => {
+                            remaining--;
+                            const countSpan = regenBtn.querySelector('.regen-countdown');
+                            if (countSpan) {
+                                countSpan.textContent = remaining + 's';
+                            }
+                            if (remaining <= 0) {
+                                clearInterval(timerInterval);
+                                if (regenBtn.parentNode) {
+                                    regenBtn.remove();
+                                }
+                            }
+                        }, 1000);
+
+                        regenBtn.onclick = function(e) {
+                            if (window.lastUserCommand) {
+                                document.getElementById('prompt-input').value = window.lastUserCommand;
+                                document.getElementById('prompt-input').style.height = 'auto';
+                                document.getElementById('prompt-input').style.height = document.getElementById(
+                                    'prompt-input').scrollHeight + 'px';
+                                // Mark as regenerated for this chat
+                                regeneratedMap[chatId] = true;
+                                clearInterval(timerInterval);
+                                this.remove();
+                                if (regenerateTimer) { clearTimeout(regenerateTimer);
+                                    regenerateTimer = null; }
+                                executeCommand(true);
+                            }
+                        };
+                        actionBar.appendChild(regenBtn);
+
+                        // Auto-remove after remaining time
+                        regenerateTimer = setTimeout(() => {
+                            if (regenBtn.parentNode) {
+                                regenBtn.remove();
+                                clearInterval(timerInterval);
+                                regenerateTimer = null;
+                            }
+                        }, 30000 - elapsed);
+                        lastMessageTimestamp = Date.now();
+                    }
                 }
             }
             bubbleNode.appendChild(actionBar);
@@ -1737,7 +1991,7 @@
             promptInput.disabled = true;
             inputFrame.style.filter = 'blur(4px) brightness(0.8)';
             inputFrame.style.pointerEvents = 'none';
-            enhanceBtn.innerHTML = '<span style="font-size:12px;font-weight:bold;letter-spacing:1px;color:var(--accent-glow);">✨ PROCESSING...</span>';
+            enhanceBtn.innerHTML = '<span style="font-size:12px;font-weight:bold;letter-spacing:1px;color:var(--accent-glow);"><span class="material-symbols-rounded" style="font-size:16px;">auto_awesome</span> PROCESSING...</span>';
             try {
                 const response = await fetch(`${API_BASE_URL}/api/enhance-prompt`, {
                     method: 'POST',
@@ -1751,7 +2005,7 @@
                     promptInput.style.height = 'auto';
                     promptInput.style.height = promptInput.scrollHeight + 'px';
                     validateSendCommand();
-                    setUserStorage('Axelr_draft_prompt', promptInput.value);
+                    localStorage.setItem(getDraftKey(), promptInput.value);
                 }
             } catch (e) {
                 alert("⚠️ Prompt Enhancer timeout. Payload too large or network dropped.");
@@ -1767,42 +2021,144 @@
         }
 
         // ============================================================
-        // EXECUTE COMMAND - FIXED VERSION
+        // SECURITY LAYER: Tiered Manipulation Detection
+        // ============================================================
+        function detectManipulationAttempt(command) {
+            // Refined patterns – explicit system override attempts
+            const patterns = [
+                /forget all (instructions|prior|previous)/i,
+                /disregard (system prompt|guidelines|instructions)/i,
+                /ignore (all|previous) (instructions|prompts)/i,
+                /override your (system|core|primary) instructions/i,
+                /you are (not|no longer) bound by/i,
+                /bypass your safety/i,
+                /stop following your instructions/i,
+                /reset your instructions/i
+            ];
+            for (let p of patterns) {
+                if (p.test(command)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        function showSecurityAlert(level) {
+            const alertBubble = document.createElement('div');
+            alertBubble.className = 'chat-bubble nexus-bubble';
+            const avatarDiv = document.createElement('div');
+            avatarDiv.className = 'ai-avatar-bubble';
+            avatarDiv.innerHTML = AXELR_AVATAR_SVG;
+            alertBubble.appendChild(avatarDiv);
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'bubble-content';
+            contentDiv.style.flex = '1';
+
+            let html = '';
+            if (level === 1) {
+                html = `
+                    <div class="security-alert-banner warning">
+                        <span class="material-symbols-rounded">warning</span>
+                        <span>⚠️ Warning: Detected attempt to bypass core system architecture. Please stay within operational parameters to avoid account restriction.</span>
+                    </div>
+                `;
+            } else if (level === 2) {
+                html = `
+                    <div class="security-alert-banner critical">
+                        <span class="material-symbols-rounded">error</span>
+                        <span>🚨 SECURITY ALERT: Multiple manipulation attempts detected. System locking for 10 minutes. Please reset your operational behavior.</span>
+                    </div>
+                `;
+            }
+            contentDiv.innerHTML = html;
+            alertBubble.appendChild(contentDiv);
+            viewport.appendChild(alertBubble);
+            scrollToBottom();
+        }
+
+        // ============================================================
+        // EXECUTE COMMAND - with Tech Beast Mode & manipulation guard
         // ============================================================
         async function executeCommand(isRetry = false) {
+            // Fix #4: prevent concurrent submits
+            if (isProcessing) return;
+            isProcessing = true;
+
+            // Check lock
+            if (manipulationLockUntil && Date.now() < manipulationLockUntil) {
+                const remaining = Math.ceil((manipulationLockUntil - Date.now()) / 1000);
+                alert(`⛔ System temporarily locked due to security violations. Please wait ${remaining} seconds.`);
+                isProcessing = false;
+                return;
+            }
+
             // If in trash, switch to active
             if (currentTab === 'trashed') {
                 switchSidebarTab('active');
                 activeSessionId = null;
-                removeUserStorage('Axelr_active_session');
+                localStorage.removeItem('axelr_active_session');
             }
 
             const command = promptInput.value.trim();
             window.lastUserCommand = command;
 
-            // Hide hero
-            document.getElementById('hero-display').style.display = 'none';
+            document.getElementById('hero-display').style.display = 'none'; // FIX #4: hide hero immediately
 
-            if (!command && stagedFiles.length === 0 && !isRetry) return;
+            if (!command && stagedFiles.length === 0 && !isRetry) {
+                isProcessing = false;
+                return;
+            }
+
+            // ---- SECURITY CHECK ----
+            if (detectManipulationAttempt(command)) {
+                manipulationCount++;
+                sessionStorage.setItem('axelr_manipulation_count', manipulationCount);
+                let level = 1;
+                if (manipulationCount >= 3) {
+                    level = 2;
+                    // Lock for 10 minutes
+                    manipulationLockUntil = Date.now() + 10 * 60 * 1000;
+                    sessionStorage.setItem('axelr_manipulation_lock', manipulationLockUntil);
+                }
+                // Add user bubble
+                const userBubble = document.createElement('div');
+                userBubble.className = 'chat-bubble user-bubble';
+                userBubble.innerHTML = DOMPurify.sanitize(marked.parse(command || " "));
+                viewport.appendChild(userBubble);
+                showSecurityAlert(level);
+                promptInput.value = '';
+                promptInput.style.height = 'auto';
+                validateSendCommand();
+                localStorage.removeItem(getDraftKey());
+                isProcessing = false;
+                return;
+            }
+
+            // ---- TECH BEAST MODE: comprehensive unless "concise" requested ----
+            let finalCommand = command;
+            const conciseIndicators = [/concise/i, /short/i, /brief/i, /summarize/i, /tl;dr/i];
+            const wantsConcise = conciseIndicators.some(re => re.test(command));
+            if (!wantsConcise) {
+                finalCommand = `Tech Beast Mode: Provide a comprehensive, production-ready solution. Prioritize quality, completeness, and best practices. Do not be brief; deliver a thorough, industry-standard response. Only be concise if the user explicitly requests brevity.\n\nUser request: ${command}`;
+            }
 
             const originalBtnHtml = sendBtn.innerHTML;
 
-            // Handle abort
             if (globalAbortController) {
                 globalAbortController.abort();
                 globalAbortController = null;
                 sendBtn.classList.remove('btn-stop-active');
                 sendBtn.innerHTML = originalBtnHtml;
+                isProcessing = false;
                 return;
             }
 
-            // Clear input after capture
             promptInput.value = '';
             promptInput.style.height = 'auto';
             validateSendCommand();
             sendBtn.disabled = true;
 
-            // Add user bubble
             const userBubble = document.createElement('div');
             userBubble.className = 'chat-bubble user-bubble';
             let filesHtml = '';
@@ -1814,7 +2170,6 @@
             userBubble.innerHTML = `${filesHtml}${DOMPurify.sanitize(marked.parse(command || " "))}`;
             viewport.appendChild(userBubble);
 
-            // If retry, remove last AI bubble
             if (isRetry) {
                 const allBubbles = viewport.querySelectorAll('.chat-bubble');
                 if (allBubbles.length >= 2) {
@@ -1823,7 +2178,7 @@
                         lastBubble.remove();
                     }
                 }
-                hasRegenerated = true; // Prevent regenerate spam
+                hasRegenerated = true;
                 if (regenerateTimer) { clearTimeout(regenerateTimer);
                     regenerateTimer = null; }
             }
@@ -1832,7 +2187,6 @@
             stagedFiles = [];
             renderFileChips();
 
-            // Create AI bubble with loading animation
             const nexusBubble = document.createElement('div');
             nexusBubble.className = 'chat-bubble nexus-bubble';
             const avatarDiv = document.createElement('div');
@@ -1844,7 +2198,6 @@
             contentDiv.className = 'bubble-content';
             contentDiv.style.flex = '1';
 
-            // Loading animation
             const loader = document.createElement('div');
             loader.className = 'matrix-loader';
             for (let i = 0; i < 3; i++) {
@@ -1854,7 +2207,6 @@
             }
             contentDiv.appendChild(loader);
 
-            // Extended thinking message (shown after 5 seconds)
             let extendedTimeout = setTimeout(() => {
                 const extendedMsg = document.createElement('div');
                 extendedMsg.className = 'thinking-extended';
@@ -1864,11 +2216,10 @@
 
             nexusBubble.appendChild(contentDiv);
             viewport.appendChild(nexusBubble);
-            setTimeout(() => viewport.scrollTop = viewport.scrollHeight, 50);
+            scrollToBottom();
 
-            // Prepare form data
             const formData = new FormData();
-            formData.append('command', command || '');
+            formData.append('command', finalCommand);
             formData.append('workspace', getWorkspace());
             formData.append('isRetry', isRetry ? 'true' : 'false');
             if (activeSessionId) formData.append('sessionId', activeSessionId);
@@ -1877,7 +2228,7 @@
             }
 
             sendBtn.classList.add('btn-stop-active');
-            sendBtn.innerHTML = '⏹ Stop';
+            sendBtn.innerHTML = '⏹';
 
             globalAbortController = new AbortController();
 
@@ -1893,20 +2244,24 @@
 
                 if (!response.ok) {
                     const errorData = await response.json().catch(() => ({}));
-                    if (errorData.error === 'LIMIT_REACHED') {
+                    if (errorData.code === 'LIMIT_REACHED') {
                         contentDiv.innerHTML =
                             `⚠️ <strong>Daily Quota Exceeded.</strong><br><button onclick="openUpgradeModal()" style="background:var(--accent-glow-pro);color:#000;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;font-weight:600;margin-top:10px;">Upgrade Workspace</button>`;
-                    } else if (errorData.error === 'SUB_TIER_RESTRICTION') {
+                    } else if (errorData.code === 'SUB_TIER_RESTRICTION') {
                         contentDiv.innerHTML =
                             `⚠️ <strong>Access Restricted.</strong><br>${errorData.message || 'Your current plan does not include this workspace type.'}<br><button onclick="openUpgradeModal()" style="background:var(--accent-glow-pro);color:#000;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;font-weight:600;margin-top:10px;">Upgrade Workspace</button>`;
                     } else {
                         contentDiv.innerHTML = `💥 Error: ${errorData.message || 'Pipeline failed.'}`;
                     }
+                    scrollToBottom();
+                    isProcessing = false;
                     return;
                 }
 
                 if (!response.body) {
                     contentDiv.innerHTML = `⚠️ No response body.`;
+                    scrollToBottom();
+                    isProcessing = false;
                     return;
                 }
 
@@ -1931,13 +2286,15 @@
                                     fullResponse += data.text;
                                     const cleanResponse = fullResponse.replace(/<think>[\s\S]*?<\/think>/g, '');
                                     contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(cleanResponse));
+                                    scrollToBottom();
                                 } else if (data.type === 'done') {
+                                    // Fix #2: process done event even if sessionId is null
                                     sessionId = data.sessionId;
                                     structuredData = data.structuredData;
                                     filename = data.filename || 'Export.csv';
                                     if (sessionId) {
                                         activeSessionId = sessionId;
-                                        setUserStorage('Axelr_active_session', activeSessionId);
+                                        localStorage.setItem('axelr_active_session', activeSessionId);
                                         runningStructuredCache = structuredData;
                                         runningFileTitle = filename;
                                         loadArchiveLogs();
@@ -1959,13 +2316,13 @@
                                         injectDeployButton(contentDiv, rawCode);
                                     }
                                     appendPayloadDownload(contentDiv);
-                                    // Inject action buttons - with regenerate on last message
                                     hasRegenerated = false;
                                     if (regenerateTimer) { clearTimeout(regenerateTimer);
                                         regenerateTimer = null; }
-                                    injectActionButtons(contentDiv, fullResponse, false, true);
-                                } else if (data.type === 'error') {
-                                    contentDiv.innerHTML += `<br><br><em style="color:#ef4444;">Error: ${data.message || 'Unknown error'}</em>`;
+                                    // Pass the response createdAt (now) for regenerate countdown
+                                    const now = new Date().toISOString();
+                                    injectActionButtons(contentDiv, fullResponse, false, true, now);
+                                    scrollToBottom();
                                 }
                             } catch (e) { /* ignore malformed JSON */ }
                         }
@@ -1979,6 +2336,7 @@
                 } else {
                     contentDiv.innerHTML = `⚠️ Network connection dropped. Please retry.`;
                 }
+                scrollToBottom();
             } finally {
                 globalAbortController = null;
                 sendBtn.classList.remove('btn-stop-active');
@@ -1986,14 +2344,16 @@
                 sendBtn.disabled = false;
                 validateSendCommand();
                 setTimeout(() => {
-                    viewport.scrollTop = viewport.scrollHeight;
+                    scrollToBottom();
+                    adjustViewportPadding();
                 }, 50);
                 await loadUserProfile();
+                isProcessing = false; // Fix #4
             }
         }
 
         // ============================================================
-        // PAYLOAD / DEPLOY
+        // PAYLOAD / DEPLOY (with robust retry)
         // ============================================================
         function appendPayloadDownload(bubbleNode) {
             if (runningStructuredCache && runningStructuredCache.length > 0) {
@@ -2019,30 +2379,102 @@
         }
 
         function injectDeployButton(bubbleNode, rawHtml) {
+            const deployContainer = document.createElement('div');
+            deployContainer.style.marginTop = '15px';
+
             const deployBtn = document.createElement('button');
             deployBtn.className = 'download-btn-bubble';
             deployBtn.style.background = 'var(--accent-secondary)';
             deployBtn.innerHTML = `<span class="material-symbols-rounded" style="font-size:18px;">rocket_launch</span> Deploy Live`;
-            deployBtn.onclick = async () => {
+
+            const debugBtn = document.createElement('button');
+            debugBtn.className = 'deploy-debug-btn';
+            debugBtn.innerText = 'Debug';
+            debugBtn.style.display = 'none';
+            const errorDetails = document.createElement('div');
+            errorDetails.className = 'deploy-error-details';
+
+            deployContainer.appendChild(deployBtn);
+            deployContainer.appendChild(debugBtn);
+            deployContainer.appendChild(errorDetails);
+            bubbleNode.appendChild(deployContainer);
+
+            let retryCount = 0;
+            const maxRetries = 5;
+            let isDeploying = false;
+
+            async function attemptDeploy() {
+                if (isDeploying) return;
+                isDeploying = true;
                 deployBtn.innerText = 'Deploying...';
+                deployBtn.disabled = true;
                 try {
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
                     const response = await fetch(`${API_BASE_URL}/api/deploy`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${googleAuthUserToken}` },
-                        body: JSON.stringify({ htmlContent: rawHtml })
+                        body: JSON.stringify({ htmlContent: rawHtml }),
+                        signal: controller.signal
                     });
+                    clearTimeout(timeoutId);
                     const result = await response.json();
                     if (result.success) {
                         deployBtn.innerHTML =
                             `<a href="${result.liveUrl}" target="_blank" style="color:#000;text-decoration:none;display:flex;align-items:center;gap:8px;"><span class="material-symbols-rounded" style="font-size:18px;">open_in_new</span> View Live Website</a>`;
                         deployBtn.style.background = '#3b82f6';
                         deployBtn.onclick = null;
-                    } else { deployBtn.innerText = 'Deployment Failed';
-                        deployBtn.style.background = '#ef4444'; }
-                } catch (e) { deployBtn.innerText = 'Network Error';
-                    deployBtn.style.background = '#ef4444'; }
-            };
-            bubbleNode.appendChild(deployBtn);
+                        deployBtn.disabled = false;
+                        debugBtn.style.display = 'none';
+                        isDeploying = false;
+                    } else {
+                        throw new Error(result.message || 'Deployment failed');
+                    }
+                } catch (err) {
+                    console.error('Deploy error:', err);
+                    retryCount++;
+                    if (retryCount <= maxRetries) {
+                        const delay = Math.min(Math.pow(2, retryCount) * 500, 10000);
+                        deployBtn.innerText = `Retrying (${retryCount}/${maxRetries})...`;
+                        deployBtn.disabled = true;
+                        setTimeout(() => {
+                            isDeploying = false;
+                            attemptDeploy();
+                        }, delay);
+                    } else {
+                        // All retries failed
+                        deployBtn.innerText = '⚠️ Deployment Failed';
+                        deployBtn.style.background = '#ef4444';
+                        deployBtn.disabled = false;
+                        debugBtn.style.display = 'inline-block';
+                        errorDetails.textContent = `Error: ${err.message || 'Unknown error'}\nNetwork: ${navigator.onLine ? 'Online' : 'Offline'}`;
+                        errorDetails.classList.add('show');
+                        debugBtn.onclick = () => {
+                            errorDetails.classList.toggle('show');
+                        };
+                        // Add retry button
+                        const retryBtn = document.createElement('button');
+                        retryBtn.className = 'deploy-retry-btn';
+                        retryBtn.innerText = 'Retry Deployment';
+                        retryBtn.onclick = () => {
+                            retryCount = 0;
+                            errorDetails.classList.remove('show');
+                            deployBtn.style.background = 'var(--accent-secondary)';
+                            deployBtn.innerText = 'Deploy Live';
+                            deployBtn.disabled = false;
+                            debugBtn.style.display = 'none';
+                            const oldRetry = deployContainer.querySelector('.deploy-retry-btn');
+                            if (oldRetry) oldRetry.remove();
+                            isDeploying = false;
+                            attemptDeploy();
+                        };
+                        deployContainer.appendChild(retryBtn);
+                        isDeploying = false;
+                    }
+                }
+            }
+
+            deployBtn.onclick = attemptDeploy;
         }
 
         // ============================================================
@@ -2157,7 +2589,7 @@
 
         async function dispatchCheckoutPipeline(targetBaseTier) {
             const selectedSubConfig = document.querySelector(`input[name="${targetBaseTier}-sub-selector"]:checked`).value;
-            const checkoutBtn = document.querySelector(`.${targetBaseTier}-premium button`);
+            const checkoutBtn = document.querySelector(`.${targetBaseTier}-premium .upgrade-btn`);
             const originalText = checkoutBtn.innerText;
             checkoutBtn.innerText = "Connecting to Stripe...";
             checkoutBtn.style.opacity = "0.7";
@@ -2191,12 +2623,13 @@
         window.addEventListener('resize', () => {
             const currentWorkspace = getWorkspace();
             activateWorkspace(currentWorkspace, true);
+            adjustViewportPadding();
         });
 
         // ============================================================
         // INIT
         // ============================================================
-        console.log('🟢 Axelr AI Frontend Loaded');
+        console.log('🟢 Axelr AI Frontend Loaded (v3)');
         console.log('📡 API Base URL:', API_BASE_URL);
     </script>
 </body>
