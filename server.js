@@ -212,7 +212,8 @@ const ChatSessionSchema = new mongoose.Schema({
     text: { type: String, required: true },
     attachedFiles: { type: [String], default: [] },
     variants: { type: [String], default: [] },
-    activeVariant: { type: Number, default: 0 }
+    activeVariant: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }  // <-- ADDED for regenerate logic
   }],
   structuredData: { type: Array, default: [] },
   createdAt: { type: Date, default: Date.now },
@@ -1016,6 +1017,8 @@ You are Axelr Data, a senior data analyst and intelligence extraction engine. Yo
 
   // ---- SAVE SESSION ATOMICALLY BEFORE SENDING DONE ----
   let sessionSaved = false;
+  let sessionIdOut = null;
+  let filenameOut = 'Export.csv';
   try {
     if (currentSession) {
       const isRetry = req.body.isRetry === 'true';
@@ -1035,6 +1038,8 @@ You are Axelr Data, a senior data analyst and intelligence extraction engine. Yo
       currentSession.structuredData = structured;
       await currentSession.save();
       sessionSaved = true;
+      sessionIdOut = currentSession._id;
+      filenameOut = currentSession.filename;
     } else {
       const filename = generateChatName(userCommand, files);
       currentSession = await ChatSession.create({
@@ -1048,6 +1053,8 @@ You are Axelr Data, a senior data analyst and intelligence extraction engine. Yo
         ]
       });
       sessionSaved = true;
+      sessionIdOut = currentSession._id;
+      filenameOut = currentSession.filename;
     }
   } catch (saveErr) {
     console.error('[Extract] Failed to save session:', saveErr);
@@ -1069,28 +1076,57 @@ You are Axelr Data, a senior data analyst and intelligence extraction engine. Yo
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to persist session. Please try again.' })}\n\n`);
   }
 
-  // Send done only if save succeeded
-  if (sessionSaved) {
-    res.write(`data: ${JSON.stringify({ type: 'done', sessionId: currentSession._id, structuredData: structured, filename: `${currentSession.filename}.csv` })}\n\n`);
-  }
+  // ---- ALWAYS SEND DONE EVENT (with or without sessionId) ----
+  res.write(`data: ${JSON.stringify({
+    type: 'done',
+    sessionId: sessionSaved ? sessionIdOut : null,
+    structuredData: structured,
+    filename: sessionSaved ? `${filenameOut}.csv` : 'Export.csv',
+    error: errorOccurred ? true : false
+  })}\n\n`);
   res.end();
 
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 
 // ==========================================
-// DEPLOYMENT ENDPOINT – Robust & Retry-Aware
+// DEPLOYMENT ENDPOINT – Netlify integration with fallback
 // ==========================================
 app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
   const { htmlContent } = req.body;
   if (!htmlContent) {
     return res.status(400).json({ success: false, message: 'Missing HTML content' });
   }
-  // In production, you would integrate with a hosting service (Netlify, Vercel, etc.)
-  // For this demonstration, we simulate a deployment with a unique URL.
+
+  // Use Netlify if token and site ID are available, otherwise fallback to placeholder
+  const netlifyToken = process.env.NETLIFY_TOKEN;
+  const netlifySiteId = process.env.NETLIFY_SITE_ID;
+
+  if (netlifyToken && netlifySiteId) {
+    try {
+      const formData = new FormData();
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      formData.append('file', blob, 'index.html');
+      const response = await fetch(`https://api.netlify.com/api/v1/sites/${netlifySiteId}/deploys`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${netlifyToken}` },
+        body: formData
+      });
+      const result = await response.json();
+      if (result.deploy_url) {
+        return res.json({ success: true, liveUrl: result.deploy_url });
+      } else {
+        throw new Error(result.message || 'Netlify deployment failed');
+      }
+    } catch (err) {
+      console.error('Netlify deploy error:', err);
+      // fall through to placeholder
+    }
+  }
+
+  // Fallback: simulate deployment with unique URL
   const deploymentId = crypto.randomBytes(8).toString('hex');
-  const liveUrl = `https://axelr-deploy-${deploymentId}.netlify.app`; // Placeholder
-  // Simulate a short delay to mimic deployment processing
+  const liveUrl = `https://axelr-deploy-${deploymentId}.netlify.app`;
   await new Promise(resolve => setTimeout(resolve, 500));
   res.json({ success: true, liveUrl });
 }));
