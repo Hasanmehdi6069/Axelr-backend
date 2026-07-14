@@ -445,7 +445,8 @@ async function streamAIResponse(systemPrompt, userContent, history, res) {
   const primaryModel = AI_CONFIG.PRIMARY;
   const fallbackModel = AI_CONFIG.FALLBACK;
 
-  const recentHistory = history.slice(-6).map(msg => ({
+  // FIX #9: limit history to last 4 messages to keep system prompt safe
+  const recentHistory = history.slice(-4).map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
     parts: [{ text: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text }]
   }));
@@ -489,7 +490,7 @@ async function streamAIResponse(systemPrompt, userContent, history, res) {
       if (!groq) throw new Error('Groq client unavailable');
       const messages = [
         { role: 'system', content: systemPrompt },
-        ...history.slice(-6).map(msg => ({
+        ...history.slice(-4).map(msg => ({
           role: msg.role === 'user' ? 'user' : 'assistant',
           content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
         })),
@@ -532,7 +533,7 @@ async function generateAIResponse(systemPrompt, userContent, history = []) {
   const primaryModel = AI_CONFIG.PRIMARY;
   const fallbackModel = AI_CONFIG.FALLBACK;
 
-  const recentHistory = history.slice(-6).map(msg => ({
+  const recentHistory = history.slice(-4).map(msg => ({
     role: msg.role === 'user' ? 'user' : 'model',
     parts: [{ text: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text }]
   }));
@@ -568,7 +569,7 @@ async function generateAIResponse(systemPrompt, userContent, history = []) {
       if (!groq) throw new Error('Groq client unavailable');
       const messages = [
         { role: 'system', content: systemPrompt },
-        ...history.slice(-6).map(msg => ({
+        ...history.slice(-4).map(msg => ({
           role: msg.role === 'user' ? 'user' : 'assistant',
           content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
         })),
@@ -1082,7 +1083,8 @@ You are Axelr Data, a senior data analyst and intelligence extraction engine. Yo
     sessionId: sessionSaved ? sessionIdOut : null,
     structuredData: structured,
     filename: sessionSaved ? `${filenameOut}.csv` : 'Export.csv',
-    error: errorOccurred ? true : false
+    error: errorOccurred ? true : false,
+    finalResponse: aiResponse // FIX #2: include final response to guarantee UI update
   })}\n\n`);
   res.end();
 
@@ -1090,7 +1092,7 @@ You are Axelr Data, a senior data analyst and intelligence extraction engine. Yo
 }));
 
 // ==========================================
-// DEPLOYMENT ENDPOINT – Netlify integration with fallback
+// DEPLOYMENT ENDPOINT – Vercel/Netlify with fallback (FIX #9)
 // ==========================================
 app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
   const { htmlContent } = req.body;
@@ -1098,7 +1100,33 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Missing HTML content' });
   }
 
-  // Use Netlify if token and site ID are available, otherwise fallback to placeholder
+  // Try Vercel first (if configured)
+  const vercelToken = process.env.VERCEL_TOKEN;
+  const vercelProjectId = process.env.VERCEL_PROJECT_ID;
+
+  if (vercelToken && vercelProjectId) {
+    try {
+      const formData = new FormData();
+      const blob = new Blob([htmlContent], { type: 'text/html' });
+      formData.append('file', blob, 'index.html');
+      const response = await fetch(`https://api.vercel.com/v1/deployments?projectId=${vercelProjectId}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${vercelToken}` },
+        body: formData
+      });
+      const result = await response.json();
+      if (result.url) {
+        return res.json({ success: true, liveUrl: `https://${result.url}` });
+      } else {
+        throw new Error(result.message || 'Vercel deployment failed');
+      }
+    } catch (err) {
+      console.error('Vercel deploy error:', err);
+      // fall through to Netlify
+    }
+  }
+
+  // Try Netlify if token and site ID are available
   const netlifyToken = process.env.NETLIFY_TOKEN;
   const netlifySiteId = process.env.NETLIFY_SITE_ID;
 
@@ -1124,11 +1152,15 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
     }
   }
 
-  // Fallback: simulate deployment with unique URL
+  // Final fallback: return a realistic placeholder with a clear message
   const deploymentId = crypto.randomBytes(8).toString('hex');
   const liveUrl = `https://axelr-deploy-${deploymentId}.netlify.app`;
   await new Promise(resolve => setTimeout(resolve, 500));
-  res.json({ success: true, liveUrl });
+  res.json({
+    success: true,
+    liveUrl,
+    message: 'This is a simulated deployment. To get a real live URL, set VERCEL_TOKEN and VERCEL_PROJECT_ID (or NETLIFY_TOKEN and NETLIFY_SITE_ID) in your environment variables.'
+  });
 }));
 
 // ==========================================
