@@ -126,7 +126,20 @@
         .trigger-text { writing-mode: vertical-rl; transform: rotate(180deg); letter-spacing: 3px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: var(--text-muted); font-weight: 600; text-transform: uppercase; transition: 0.3s; white-space: nowrap; }
         #sidebar-trigger-area:hover .trigger-text { color: var(--text-main); }
 
-        #sidebar-container-node { position: absolute; left: -320px; top: 0; bottom: 0; width: 320px; background: var(--bg-sidebar); display: flex; flex-direction: column; transition: all 0.3s ease; z-index: 200; border-right: 1px solid var(--border-muted); }
+        #sidebar-container-node {
+            position: absolute;
+            left: -320px;
+            top: 0;
+            bottom: 0;
+            width: 320px;
+            background: var(--bg-sidebar);
+            display: flex;
+            flex-direction: column;
+            transition: all 0.3s ease;
+            z-index: 200;
+            border-right: 1px solid var(--border-muted);
+            height: 100dvh;
+        }
         #sidebar-container-node.open { left: 0; }
 
         .sidebar-header { padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border-muted); }
@@ -169,10 +182,11 @@
             gap: 5px;
             margin-top: auto;
             flex-shrink: 0;
-            position: sticky;  /* FIX #3: keep footer visible on mobile */
+            position: sticky;
             bottom: 0;
             background: var(--bg-sidebar);
             z-index: 10;
+            min-height: 60px;
         }
         .footer-opt { display: flex; align-items: center; gap: 12px; padding: 10px; border-radius: 10px; color: var(--text-muted); font-size: 13px; cursor: pointer; transition: 0.2s; }
         .footer-opt:hover { background: rgba(255,255,255,0.05); color: #fff; }
@@ -308,8 +322,11 @@
             z-index: 100;
             background: linear-gradient(to top, var(--bg-deep) 70%, transparent);
             transition: bottom 0.2s ease;
+            display: flex;
+            flex-direction: column;
+            max-height: 100vh;
+            overflow-y: auto;
         }
-        /* Container for file chips – FIX #1: ensure it stays visible */
         #file-staging-container {
             width: 100%;
             min-height: 0;
@@ -320,7 +337,7 @@
             margin-bottom: 8px;
             border-bottom: 1px solid var(--border-muted);
             flex-shrink: 0;
-            position: sticky;  /* keep it above the keyboard */
+            position: sticky;
             top: 0;
             background: var(--bg-deep);
             z-index: 5;
@@ -357,24 +374,32 @@
         .send-btn:hover { opacity: 0.8; }
         .send-btn:disabled { background: var(--bg-card); color: #4b5563; cursor: not-allowed; }
 
-        /* ===== STOP BUTTON COLOUR FIX (workspace-specific) – FIX #5 ===== */
         .send-btn.btn-stop-active {
             background: var(--bg-card) !important;
             color: var(--text-main) !important;
             border: 1px solid var(--border-muted) !important;
             width: auto !important;
-            padding: 0 12px !important; 
+            padding: 0 12px !important;
             border-radius: 12px !important;
         }
-        body.workspace-data .send-btn.btn-stop-active { color:#10b981 !important; border-color: rgba(16,185,129,0.4) !important; }
-        body.workspace-design .send-btn.btn-stop-active { color: #ef4444 !important; border-color: rgba(220,20,60,0.4) !important; }
+        body.workspace-data .send-btn.btn-stop-active {
+            color: #10b981 !important;
+            border-color: rgba(16,185,129,0.4) !important;
+            background: rgba(16,185,129,0.1) !important;
+            box-shadow: 0 0 15px rgba(16,185,129,0.3) !important;
+        }
+        body.workspace-design .send-btn.btn-stop-active {
+            color: #ef4444 !important;
+            border-color: rgba(239,68,68,0.4) !important;
+            background: rgba(239,68,68,0.1) !important;
+            box-shadow: 0 0 15px rgba(239,68,68,0.3) !important;
+        }
 
         .download-btn-bubble { background: var(--accent-glow); color: #000; border: none; padding: 10px 18px; border-radius: 10px; font-size: 13px; font-weight: 600; cursor: pointer; margin-top: 15px; display: inline-flex; align-items: center; gap: 8px; transition: 0.2s; }
         .download-btn-bubble:hover { opacity: 0.9; transform: translateY(-1px); }
 
         #offline-banner { position: fixed; top: 0; left: 0; width: 100%; background: #ef4444; color: #fff; text-align: center; padding: 10px; z-index: 99999; font-weight: 600; font-size: 14px; display: none; box-shadow: 0 4px 15px rgba(239,68,68,0.4); }
 
-        /* ===== WORKSPACE THEMES ===== */
         body.workspace-data { --accent-glow: #10b981 !important; --accent-secondary: #059669 !important; --border-muted: rgba(16,185,129,0.3) !important; }
         body.workspace-data .input-frame:focus-within { border-color: #10b981 !important; box-shadow: 0 0 30px rgba(16,185,129,0.2) !important; }
         body.workspace-data .ai-avatar-bubble svg path:nth-child(2) { stroke: #10b981 !important; }
@@ -393,7 +418,6 @@
             padding: 20px;
             box-sizing: border-box;
         }
-        /* Desktop: two columns */
         .axelr-pricing-container > div {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
@@ -434,7 +458,7 @@
             font-size: 22px;
             color: #FFF;
             font-weight: 700;
-            padding-right: 90px; /* space for badge */
+            padding-right: 90px;
         }
         .tier-card p.sub-desc {
             margin: 0 0 20px 0;
@@ -640,6 +664,8 @@
                 transform: none !important;
                 position: fixed !important;
                 bottom: env(safe-area-inset-bottom) !important;
+                max-height: 90vh !important;
+                overflow-y: auto !important;
             }
 
             .input-row {
@@ -670,6 +696,7 @@
                 margin-top: auto;
                 flex-shrink: 0;
                 padding: 10px 15px;
+                min-height: 50px;
             }
             .sidebar-footer .footer-opt { font-size: 12px; padding: 8px; }
             .sidebar-footer .sidebar-sub-box { padding: 8px; }
@@ -765,7 +792,6 @@
         }
         .deploy-error-details.show { display: block; }
 
-        /* ===== IMPORTANT: material-symbols-rounded base ===== */
         .material-symbols-rounded { font-variation-settings: 'FILL' 1, 'wght' 600, 'GRAD' 0, 'opsz' 24; vertical-align: middle; font-size: 24px; }
     </style>
 </head>
@@ -923,7 +949,10 @@
                         <button class="upgrade-btn" onclick="dispatchCheckoutPipeline('business')">Upgrade to Business</button>
                     </div>
                 </div>
-                <div style="font-size:12px;color:var(--text-muted);margin-top:10px;text-align:center;">Cancel anytime. Secure processing via Stripe.</div>
+                <!-- FIX #3: center the footer text -->
+                <div style="font-size:12px;color:var(--text-muted);margin-top:10px;text-align:center;width:100%;">
+                    Cancel anytime. Secure processing via Stripe.
+                </div>
             </div>
         </div>
     </div>
@@ -1065,7 +1094,6 @@
 
         <!-- Command Input -->
         <div class="command-wrapper" id="command-wrapper">
-            <!-- File staging container now outside input-frame -->
             <div id="file-staging-container"></div>
             <div class="input-frame" id="data-drop-zone">
                 <div class="input-row">
@@ -1097,11 +1125,11 @@
             `<svg viewBox="0 0 100 100" width="22" height="22" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M50 15 L20 32.5 L20 67.5 L50 85" stroke="#ffffff" stroke-width="6" stroke-linejoin="bevel" fill="rgba(255,255,255,0.05)"/><path d="M50 15 L80 32.5 L50 50 L80 67.5 L50 85" stroke="currentColor" stroke-width="6" stroke-linejoin="bevel" fill="none"/><path d="M20 32.5 L50 50 L20 67.5" stroke="#ffffff" stroke-width="3" stroke-linejoin="bevel" opacity="0.5"/></svg>`;
 
         const ICONS = {
-            copy: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>`,
-            edit: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`,
-            thumbsUp: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"></path></svg>`,
-            thumbsDown: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"></path></svg>`,
-            regenerate: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>`
+            copy: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`,
+            edit: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/></svg>`,
+            thumbsUp: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 10v12M15 5.88 14 10h5.83a2 2 0 0 1 1.92 2.56l-2.33 8A2 2 0 0 1 17.5 22H4M7 10H4a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h3"/></svg>`,
+            thumbsDown: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 14V2M7 18.12 10 14H4.17a2 2 0 0 1-1.92-2.56l2.33-8A2 2 0 0 1 6.5 2H20M17 14h3a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2h-3"/></svg>`,
+            regenerate: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 3v6h-6"/><path d="M3 21v-6h6"/><path d="M18.364 5.636a9 9 0 1 1-12.728 12.728"/></svg>`
         };
 
         // ============================================================
@@ -1137,15 +1165,18 @@
         let lastMessageTimestamp = 0;
         let hasRegenerated = false;
         let currentUserId = null;
-        let isProcessing = false; // Fix #4: prevent concurrent submits
+        let isProcessing = false;
 
         // Regenerate per chat tracking
         let regeneratedMap = {};
 
-        // Sidebar close ignore flag (Fix #8)
+        // FIX #4: track the session that is eligible for regeneration (the last freshly generated one)
+        let eligibleRegenerateSessionId = null;
+
+        // Sidebar close ignore flag
         let ignoreSidebarClose = false;
 
-        // Manipulation attempt counter (session storage)
+        // Manipulation attempt counter
         let manipulationCount = parseInt(sessionStorage.getItem('axelr_manipulation_count')) || 0;
         let manipulationLockUntil = parseInt(sessionStorage.getItem('axelr_manipulation_lock')) || 0;
 
@@ -1173,7 +1204,7 @@
         function getDraftKey() { return `Axelr_prompt_draft_${currentUserId || 'anonymous'}`; }
 
         // ============================================================
-        // VISUAL VIEWPORT / COMMAND BAR RESPONSIVENESS (with cap)
+        // VISUAL VIEWPORT / COMMAND BAR RESPONSIVENESS
         // ============================================================
         function adjustViewportPadding() {
             const wrapperHeight = commandWrapper.offsetHeight;
@@ -1190,8 +1221,11 @@
                 const vv = window.visualViewport;
                 if (!vv) return;
                 const offsetY = window.innerHeight - vv.height;
-                const maxBottom = window.innerHeight * 0.6; // never go above 60%
-                commandWrapper.style.bottom = Math.min(offsetY, maxBottom) + 'px';
+                const maxBottom = window.innerHeight * 0.6;
+                const bottom = Math.min(offsetY, maxBottom);
+                commandWrapper.style.bottom = bottom + 'px';
+                const availableHeight = window.innerHeight - bottom - 20;
+                commandWrapper.style.maxHeight = availableHeight + 'px';
                 setTimeout(adjustViewportPadding, 50);
                 if (viewport.querySelector('.chat-bubble')) {
                     scrollToBottom();
@@ -1231,7 +1265,6 @@
                     <span style="cursor:pointer;color:#ef4444;font-weight:bold;font-size:14px;flex-shrink:0;padding-left:4px;" onclick="removeStagedFile(${idx})">✕</span>
                 </div>`
             ).join('');
-            // Force reflow to ensure visibility on mobile
             requestAnimationFrame(() => {
                 fileStagingContainer.style.display = 'flex';
             });
@@ -1278,7 +1311,11 @@
         sidebarTriggerArea.addEventListener('click', (e) => { e.stopPropagation();
             sidebarNode.classList.toggle('open'); });
         window.addEventListener('click', (e) => {
-            if (ignoreSidebarClose) return; // Fix #8
+            if (ignoreSidebarClose) return;
+            if (e.target.closest('#sidebar-search-box') || e.target.closest('#sidebar-search-box input')) {
+                e.stopPropagation();
+                return;
+            }
             if (!sidebarNode.contains(e.target) && e.target !== sidebarTriggerArea) sidebarNode.classList.remove('open');
             if (!document.querySelector('.account-hub').contains(e.target)) accountDropdownCard.style.display = 'none';
             if (!document.querySelector('.model-hub').contains(e.target)) modelDropdownCard.style.display = 'none';
@@ -1286,10 +1323,9 @@
                 d.classList.remove('active'));
         });
 
-        // Fix #8: ignore sidebar close when search input is focused
         document.getElementById('sidebar-search-input').addEventListener('focus', () => {
             ignoreSidebarClose = true;
-            setTimeout(() => { ignoreSidebarClose = false; }, 300);
+            setTimeout(() => { ignoreSidebarClose = false; }, 400);
         });
 
         function toggleAccountDropdown(e) { e.stopPropagation();
@@ -1434,12 +1470,13 @@
             localStorage.removeItem('Axelr_active_session');
             document.querySelectorAll('.chat-bubble').forEach(bubble => bubble.remove());
             const hero = document.getElementById('hero-display');
-            // Fix #6: only show hero if no active chat
             if (!activeSessionId) {
                 hero.style.display = 'flex';
             } else {
                 hero.style.display = 'none';
             }
+            // Clear regenerate eligibility when starting a new chat
+            eligibleRegenerateSessionId = null;
             if (!isBoot) {
                 promptInput.value = '';
                 promptInput.style.height = 'auto';
@@ -1807,8 +1844,11 @@
                     }
 
                     const isLast = idx === log.messages.length - 1;
-                    // Pass the message's createdAt to injectActionButtons
-                    injectActionButtons(contentDiv, msg.text, false, isLast, msg.createdAt);
+                    // Determine if this message has already been regenerated (variants length > 1)
+                    const alreadyRegenerated = msg.variants && msg.variants.length > 1;
+                    // Regenerate is allowed only if this chat is the eligible session and it's the last message and not regenerated
+                    const isEligible = (eligibleRegenerateSessionId === logId) && isLast && !alreadyRegenerated;
+                    injectActionButtons(contentDiv, msg.text, false, isEligible, msg.createdAt);
 
                     if (msg.variants && msg.variants.length > 1) {
                         const currentIdx = msg.activeVariant || 0;
@@ -1863,9 +1903,9 @@
         }
 
         // ============================================================
-        // ACTION BUTTONS (with Regenerate logic + countdown) - FIX #10
+        // ACTION BUTTONS – FIX #7 & #10
         // ============================================================
-        function injectActionButtons(bubbleNode, rawText, isUserPrompt = false, isLast = false, createdAt = null) {
+        function injectActionButtons(bubbleNode, rawText, isUserPrompt = false, showRegenerate = false, createdAt = null) {
             const actionBar = document.createElement('div');
             actionBar.className = 'bubble-action-bar';
 
@@ -1901,12 +1941,8 @@
                 actionBar.appendChild(likeBtn);
                 actionBar.appendChild(dislikeBtn);
 
-                // Regenerate - single-use, 30s countdown, only for last message of active session
-                const chatId = activeSessionId;
-                const alreadyRegenerated = regeneratedMap[chatId] || false;
-                const isActiveChat = chatId && chatId === activeSessionId;
-
-                if (isLast && !alreadyRegenerated && rawText && isActiveChat && createdAt) {
+                // Regenerate – only if showRegenerate is true and we have a fresh message
+                if (showRegenerate && createdAt) {
                     const now = Date.now();
                     const msgTime = new Date(createdAt).getTime();
                     const elapsed = now - msgTime;
@@ -1936,8 +1972,9 @@
                                 document.getElementById('prompt-input').style.height = 'auto';
                                 document.getElementById('prompt-input').style.height = document.getElementById(
                                     'prompt-input').scrollHeight + 'px';
-                                // Mark as regenerated for this chat
-                                regeneratedMap[chatId] = true;
+                                // Mark as regenerated and clear eligibility
+                                regeneratedMap[activeSessionId] = true;
+                                eligibleRegenerateSessionId = null;
                                 clearInterval(timerInterval);
                                 this.remove();
                                 if (regenerateTimer) { clearTimeout(regenerateTimer);
@@ -1947,7 +1984,6 @@
                         };
                         actionBar.appendChild(regenBtn);
 
-                        // Auto-remove after remaining time
                         regenerateTimer = setTimeout(() => {
                             if (regenBtn.parentNode) {
                                 regenBtn.remove();
@@ -2024,7 +2060,6 @@
         // SECURITY LAYER: Tiered Manipulation Detection
         // ============================================================
         function detectManipulationAttempt(command) {
-            // Refined patterns – explicit system override attempts
             const patterns = [
                 /forget all (instructions|prior|previous)/i,
                 /disregard (system prompt|guidelines|instructions)/i,
@@ -2078,14 +2113,14 @@
         }
 
         // ============================================================
-        // EXECUTE COMMAND - with Tech Beast Mode & manipulation guard
+        // EXECUTE COMMAND – FIX #2, #4
         // ============================================================
         async function executeCommand(isRetry = false) {
-            // Fix #4: prevent concurrent submits
+            // FIX #2: hide hero immediately and prevent concurrent
+            document.getElementById('hero-display').style.display = 'none';
             if (isProcessing) return;
             isProcessing = true;
 
-            // Check lock
             if (manipulationLockUntil && Date.now() < manipulationLockUntil) {
                 const remaining = Math.ceil((manipulationLockUntil - Date.now()) / 1000);
                 alert(`⛔ System temporarily locked due to security violations. Please wait ${remaining} seconds.`);
@@ -2093,7 +2128,6 @@
                 return;
             }
 
-            // If in trash, switch to active
             if (currentTab === 'trashed') {
                 switchSidebarTab('active');
                 activeSessionId = null;
@@ -2102,8 +2136,6 @@
 
             const command = promptInput.value.trim();
             window.lastUserCommand = command;
-
-            document.getElementById('hero-display').style.display = 'none'; // FIX #4: hide hero immediately
 
             if (!command && stagedFiles.length === 0 && !isRetry) {
                 isProcessing = false;
@@ -2117,11 +2149,9 @@
                 let level = 1;
                 if (manipulationCount >= 3) {
                     level = 2;
-                    // Lock for 10 minutes
                     manipulationLockUntil = Date.now() + 10 * 60 * 1000;
                     sessionStorage.setItem('axelr_manipulation_lock', manipulationLockUntil);
                 }
-                // Add user bubble
                 const userBubble = document.createElement('div');
                 userBubble.className = 'chat-bubble user-bubble';
                 userBubble.innerHTML = DOMPurify.sanitize(marked.parse(command || " "));
@@ -2135,7 +2165,7 @@
                 return;
             }
 
-            // ---- TECH BEAST MODE: comprehensive unless "concise" requested ----
+            // ---- TECH BEAST MODE ----
             let finalCommand = command;
             const conciseIndicators = [/concise/i, /short/i, /brief/i, /summarize/i, /tl;dr/i];
             const wantsConcise = conciseIndicators.some(re => re.test(command));
@@ -2288,7 +2318,11 @@
                                     contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(cleanResponse));
                                     scrollToBottom();
                                 } else if (data.type === 'done') {
-                                    // Fix #2: process done event even if sessionId is null
+                                    // FIX #2: if fullResponse is empty, use finalResponse
+                                    if (!fullResponse && data.finalResponse) {
+                                        fullResponse = data.finalResponse;
+                                        contentDiv.innerHTML = DOMPurify.sanitize(marked.parse(fullResponse));
+                                    }
                                     sessionId = data.sessionId;
                                     structuredData = data.structuredData;
                                     filename = data.filename || 'Export.csv';
@@ -2297,6 +2331,7 @@
                                         localStorage.setItem('axelr_active_session', activeSessionId);
                                         runningStructuredCache = structuredData;
                                         runningFileTitle = filename;
+                                        // FIX #1: refresh history to show new chat immediately
                                         loadArchiveLogs();
                                     }
                                     const rawCode = extractHtmlCode(fullResponse);
@@ -2319,7 +2354,8 @@
                                     hasRegenerated = false;
                                     if (regenerateTimer) { clearTimeout(regenerateTimer);
                                         regenerateTimer = null; }
-                                    // Pass the response createdAt (now) for regenerate countdown
+                                    // FIX #4: set eligibility for regeneration to this session
+                                    eligibleRegenerateSessionId = activeSessionId;
                                     const now = new Date().toISOString();
                                     injectActionButtons(contentDiv, fullResponse, false, true, now);
                                     scrollToBottom();
@@ -2348,12 +2384,12 @@
                     adjustViewportPadding();
                 }, 50);
                 await loadUserProfile();
-                isProcessing = false; // Fix #4
+                isProcessing = false;
             }
         }
 
         // ============================================================
-        // PAYLOAD / DEPLOY (with robust retry)
+        // PAYLOAD / DEPLOY – FIX #9 (improved error messaging)
         // ============================================================
         function appendPayloadDownload(bubbleNode) {
             if (runningStructuredCache && runningStructuredCache.length > 0) {
@@ -2410,7 +2446,7 @@
                 deployBtn.disabled = true;
                 try {
                     const controller = new AbortController();
-                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30s timeout
+                    const timeoutId = setTimeout(() => controller.abort(), 30000);
                     const response = await fetch(`${API_BASE_URL}/api/deploy`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${googleAuthUserToken}` },
@@ -2442,7 +2478,6 @@
                             attemptDeploy();
                         }, delay);
                     } else {
-                        // All retries failed
                         deployBtn.innerText = '⚠️ Deployment Failed';
                         deployBtn.style.background = '#ef4444';
                         deployBtn.disabled = false;
@@ -2452,7 +2487,6 @@
                         debugBtn.onclick = () => {
                             errorDetails.classList.toggle('show');
                         };
-                        // Add retry button
                         const retryBtn = document.createElement('button');
                         retryBtn.className = 'deploy-retry-btn';
                         retryBtn.innerText = 'Retry Deployment';
