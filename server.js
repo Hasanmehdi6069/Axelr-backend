@@ -16,15 +16,41 @@ const compression = require('compression');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OAuth2Client } = require('google-auth-library');
 const Groq = require('groq-sdk');
-const nodemailer = require('nodemailer'); // NEW
+const nodemailer = require('nodemailer');
+const pino = require('pino');
+const envalid = require('envalid');
+const { str, num, bool } = envalid;
+
+// ==========================================
+// LOGGING & ENV VALIDATION
+// ==========================================
+const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+const env = envalid.cleanEnv(process.env, {
+  MONGO_URI: str(),
+  STRIPE_SECRET_KEY: str(),
+  GOOGLE_CLIENT_ID: str(),
+  GEMINI_API_KEY: str(),
+  OPENROUTER_API_KEY: str(),
+  EMAIL_USER: str(),
+  EMAIL_PASS: str(),
+  PORT: num({ default: 5000 }),
+  NODE_ENV: str({ choices: ['development', 'production', 'test'], default: 'development' }),
+  STRIPE_WEBHOOK_SECRET: str({ default: '' }),
+  VERCEL_TOKEN: str({ default: '' }),
+  VERCEL_PROJECT_ID: str({ default: '' }),
+  NETLIFY_TOKEN: str({ default: '' }),
+  NETLIFY_SITE_ID: str({ default: '' }),
+  FREE_TIER_TOKEN_LIMIT: num({ default: 1000000 }),
+  ADMIN_EMAIL: str({ default: '' }),  // optional, now we use isAdmin
+});
 
 // ==========================================
 // CONFIGURATION – IMMUTABLE MODEL SETTINGS
 // ==========================================
 const AI_CONFIG = {
   PRIMARY: {
-    provider: process.env.AI_PRIMARY_PROVIDER || 'deepseek', // deepseek, gemini, groq
-    model: process.env.AI_PRIMARY_MODEL || 'deepseek/deepseek-chat', // OpenRouter model
+    provider: process.env.AI_PRIMARY_PROVIDER || 'deepseek',
+    model: process.env.AI_PRIMARY_MODEL || 'deepseek/deepseek-chat',
     maxOutputTokens: parseInt(process.env.AI_MAX_TOKENS) || 2048,
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.2,
     timeoutMs: parseInt(process.env.AI_TIMEOUT_MS) || 30000,
@@ -39,18 +65,6 @@ const AI_CONFIG = {
     timeoutMs: parseInt(process.env.AI_TIMEOUT_MS) || 30000,
   },
 };
-
-// ==========================================
-// ENV CHECKS – PRODUCTION HARDENED
-// ==========================================
-const REQUIRED_ENV = ['MONGO_URI', 'STRIPE_SECRET_KEY', 'GOOGLE_CLIENT_ID', 'GEMINI_API_KEY', 'OPENROUTER_API_KEY', 'EMAIL_USER', 'EMAIL_PASS'];
-const missing = REQUIRED_ENV.filter(k => !process.env[k]);
-if (missing.length) {
-  console.warn(`⚠️ Missing env: ${missing.join(', ')}`);
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error(`FATAL: Missing required environment variables: ${missing.join(', ')}`);
-  }
-}
 
 // ==========================================
 // STRIPE
@@ -195,14 +209,15 @@ const UserSchema = new mongoose.Schema({
     monthlyEnhancementsLimit: { type: Number, default: 3 },
     lastQuotaResetTimestamp: { type: Date, default: Date.now }
   },
-  // NEW: Token usage tracking
   tokenUsage: {
     totalPromptTokens: { type: Number, default: 0 },
     totalCompletionTokens: { type: Number, default: 0 },
     dailyPromptTokens: { type: Number, default: 0 },
     dailyCompletionTokens: { type: Number, default: 0 },
     lastTokenReset: { type: Date, default: Date.now },
-  }
+  },
+  // NEW: Admin flag
+  isAdmin: { type: Boolean, default: false },
 }, { timestamps: true });
 
 UserSchema.index({ googleId: 1 });
@@ -247,6 +262,36 @@ const BugReport = mongoose.model('BugReport', BugReportSchema);
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
 
+// ------------------------------
+// UNIFIED QUOTA RESET HELPER
+// ------------------------------
+async function resetDailyQuotasIfNeeded(user) {
+  const today = new Date().setHours(0, 0, 0, 0);
+  // Check lastUsageDate
+  const lastUsageDay = user.lastUsageDate ? new Date(user.lastUsageDate).setHours(0, 0, 0, 0) : 0;
+  // Check lastQuotaResetTimestamp
+  const lastQuotaResetDay = user.quotas.lastQuotaResetTimestamp ? new Date(user.quotas.lastQuotaResetTimestamp).setHours(0, 0, 0, 0) : 0;
+  // Check lastTokenReset
+  const lastTokenResetDay = user.tokenUsage.lastTokenReset ? new Date(user.tokenUsage.lastTokenReset).setHours(0, 0, 0, 0) : 0;
+
+  const needsReset = (today > lastUsageDay) || (today > lastQuotaResetDay) || (today > lastTokenResetDay);
+  if (needsReset) {
+    user.dailyUsage = 0;
+    user.dailyUiUxUsage = 0;
+    user.storageBytesUsed = 0;
+    user.lastUsageDate = new Date();
+    user.quotas.dailyExtractionsUsed = 0;
+    user.quotas.dailyGenerationsUsed = 0;
+    user.quotas.dailyEnhancementsUsed = 0;
+    user.quotas.lastQuotaResetTimestamp = new Date();
+    user.tokenUsage.dailyPromptTokens = 0;
+    user.tokenUsage.dailyCompletionTokens = 0;
+    user.tokenUsage.lastTokenReset = new Date();
+    await user.save();
+  }
+  return user;
+}
+
 const authenticateUser = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
@@ -261,6 +306,8 @@ const authenticateUser = async (req, res, next) => {
     const payload = ticket.getPayload();
     let user = await User.findOne({ googleId: payload.sub });
     if (!user) {
+      // Set admin flag if email matches the configured admin email (optional)
+      const isAdmin = process.env.ADMIN_EMAIL && payload.email === process.env.ADMIN_EMAIL;
       user = await User.create({
         googleId: payload.sub,
         email: payload.email,
@@ -279,31 +326,17 @@ const authenticateUser = async (req, res, next) => {
           monthlyEnhancementsLimit: 3,
           lastQuotaResetTimestamp: new Date()
         },
-        tokenUsage: { totalPromptTokens: 0, totalCompletionTokens: 0, dailyPromptTokens: 0, dailyCompletionTokens: 0, lastTokenReset: new Date() }
+        tokenUsage: { totalPromptTokens: 0, totalCompletionTokens: 0, dailyPromptTokens: 0, dailyCompletionTokens: 0, lastTokenReset: new Date() },
+        isAdmin,
       });
     } else {
-      const today = new Date().setHours(0, 0, 0, 0);
-      const last = user.lastUsageDate ? new Date(user.lastUsageDate).setHours(0, 0, 0, 0) : 0;
-      if (today > last) {
-        user.dailyUsage = 0;
-        user.dailyUiUxUsage = 0;
-        user.storageBytesUsed = 0;
-        user.lastUsageDate = new Date();
-        user.quotas.dailyExtractionsUsed = 0;
-        user.quotas.dailyGenerationsUsed = 0;
-        user.quotas.dailyEnhancementsUsed = 0;
-        user.quotas.lastQuotaResetTimestamp = new Date();
-        // Reset daily token counters
-        user.tokenUsage.dailyPromptTokens = 0;
-        user.tokenUsage.dailyCompletionTokens = 0;
-        user.tokenUsage.lastTokenReset = new Date();
-        await user.save();
-      }
+      // Reset quotas if needed
+      await resetDailyQuotasIfNeeded(user);
     }
     req.currentUser = user;
     next();
   } catch (error) {
-    console.error('[AUTH_FAIL]', error);
+    logger.error('[AUTH_FAIL]', error);
     res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session.' });
   }
 };
@@ -340,9 +373,9 @@ async function connectDB() {
       socketTimeoutMS: 45000,
       family: 4
     });
-    console.log('🗄️ DB CONNECTED');
+    logger.info('🗄️ DB CONNECTED');
   } catch (err) {
-    console.error('💥 DB CONNECTION FAILED:', err);
+    logger.error('💥 DB CONNECTION FAILED:', err);
     setTimeout(connectDB, 5000);
   }
 }
@@ -381,7 +414,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
       await User.findOneAndUpdate({ stripeCustomerId: event.data.object.customer }, { tier: 'free' });
     }
   } catch (dbError) {
-    console.error("Webhook DB error:", dbError);
+    logger.error("Webhook DB error:", dbError);
   }
   res.json({ received: true });
 });
@@ -391,7 +424,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
 // ==========================================
 const asyncHandler = (fn) => (req, res, next) => {
   Promise.resolve(fn(req, res, next)).catch(err => {
-    console.error('❌ Route Error:', err.stack);
+    logger.error('❌ Route Error:', err.stack);
     if (!res.headersSent) {
       res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Service temporarily unavailable.' });
     }
@@ -502,7 +535,6 @@ async function callAI(systemPrompt, userContent, history = [], workspaceMode) {
   const primary = AI_CONFIG.PRIMARY;
   const fallback = AI_CONFIG.FALLBACK;
 
-  // Prepare messages for OpenRouter (DeepSeek) or Gemini
   const messages = [
     { role: 'system', content: systemPrompt },
     ...history.slice(-4).map(msg => ({
@@ -512,7 +544,6 @@ async function callAI(systemPrompt, userContent, history = [], workspaceMode) {
     { role: 'user', content: userContent }
   ];
 
-  // Try primary (DeepSeek via OpenRouter)
   try {
     if (primary.provider === 'deepseek' && primary.apiKey) {
       const response = await fetch(`${primary.baseURL}/chat/completions`, {
@@ -534,16 +565,15 @@ async function callAI(systemPrompt, userContent, history = [], workspaceMode) {
       if (data.choices && data.choices[0]?.message?.content) {
         const text = data.choices[0].message.content;
         const usage = data.usage || { prompt_tokens: 0, completion_tokens: 0 };
-        console.log(`[AI] DeepSeek succeeded in ${Date.now() - startTime}ms`);
+        logger.info(`[AI] DeepSeek succeeded in ${Date.now() - startTime}ms`);
         return { text: stripThinkTags(text), promptTokens: usage.prompt_tokens || 0, completionTokens: usage.completion_tokens || 0 };
       }
       throw new Error('Empty response from DeepSeek');
     }
   } catch (deepErr) {
-    console.error('[AI] Primary (DeepSeek) failed:', deepErr.message);
+    logger.error('[AI] Primary (DeepSeek) failed:', deepErr.message);
   }
 
-  // Fallback: Gemini
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
@@ -567,14 +597,13 @@ async function callAI(systemPrompt, userContent, history = [], workspaceMode) {
     const response = result.response;
     const text = response.text();
     if (text && text.trim().length > 0) {
-      console.log(`[AI] Gemini succeeded in ${Date.now() - startTime}ms`);
-      // Gemini doesn't expose token counts easily; we estimate
+      logger.info(`[AI] Gemini succeeded in ${Date.now() - startTime}ms`);
       const estimatedTokens = Math.ceil(text.length / 4);
       return { text: stripThinkTags(text), promptTokens: estimatedTokens, completionTokens: estimatedTokens };
     }
     throw new Error('Empty response from Gemini');
   } catch (geminiErr) {
-    console.error('[AI] Fallback (Gemini) failed:', geminiErr.message);
+    logger.error('[AI] Fallback (Gemini) failed:', geminiErr.message);
     return { text: "I am Axelr AI. I encountered a temporary technical issue. Please try again shortly.", promptTokens: 0, completionTokens: 0 };
   }
 }
@@ -591,7 +620,6 @@ async function streamAIResponse(systemPrompt, userContent, history, res, workspa
     res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
   };
 
-  // Try DeepSeek streaming via OpenRouter
   try {
     if (primary.provider === 'deepseek' && primary.apiKey) {
       const messages = [
@@ -642,17 +670,14 @@ async function streamAIResponse(systemPrompt, userContent, history, res, workspa
           }
         }
       }
-      // After stream, get token usage from the last chunk? OpenRouter provides usage in last chunk? Not easily.
-      // We'll estimate.
-      console.log(`[AI] DeepSeek streaming succeeded in ${Date.now() - startTime}ms`);
+      logger.info(`[AI] DeepSeek streaming succeeded in ${Date.now() - startTime}ms`);
       const estimatedTokens = Math.ceil(fullText.length / 4);
       return { text: fullText, promptTokens: estimatedTokens, completionTokens: estimatedTokens };
     }
   } catch (deepErr) {
-    console.error('[AI] DeepSeek streaming failed:', deepErr.message);
+    logger.error('[AI] DeepSeek streaming failed:', deepErr.message);
   }
 
-  // Fallback: Gemini (non-streaming, but we simulate stream)
   try {
     const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({
@@ -675,18 +700,17 @@ async function streamAIResponse(systemPrompt, userContent, history, res, workspa
     });
     const text = result.response.text();
     if (text && text.trim().length > 0) {
-      // Simulate streaming by splitting into sentences
       const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
       for (const sentence of sentences) {
         writeChunk(sentence);
-        await new Promise(r => setTimeout(r, 10)); // tiny delay
+        await new Promise(r => setTimeout(r, 10));
       }
       const estimatedTokens = Math.ceil(text.length / 4);
       return { text, promptTokens: estimatedTokens, completionTokens: estimatedTokens };
     }
     throw new Error('Empty Gemini response');
   } catch (geminiErr) {
-    console.error('[AI] Gemini streaming fallback failed:', geminiErr.message);
+    logger.error('[AI] Gemini streaming fallback failed:', geminiErr.message);
     const errorMsg = "I am Axelr AI. I encountered a temporary technical issue. Please try again shortly.";
     writeChunk(errorMsg);
     return { text: errorMsg, promptTokens: 0, completionTokens: 0 };
@@ -708,7 +732,10 @@ app.get('/api/health', (req, res) => {
 
 // ---------- ADMIN METRICS (with token usage) ----------
 app.get('/api/admin/metrics', authenticateUser, asyncHandler(async (req, res) => {
-  if (req.currentUser.email !== "shanh1346@gmail.com") return res.status(403).json({ success: false, code: 'UNAUTHORIZED', message: 'Admin access required.' });
+  // Use isAdmin flag instead of hard-coded email
+  if (!req.currentUser.isAdmin) {
+    return res.status(403).json({ success: false, code: 'UNAUTHORIZED', message: 'Admin access required.' });
+  }
   const [totalUsers, proUsers, designerUsers, totalChats, usageData, tokenData] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ tier: 'pro' }),
@@ -720,7 +747,7 @@ app.get('/api/admin/metrics', authenticateUser, asyncHandler(async (req, res) =>
   const metrics = usageData[0] || { totalQueries: 0, totalBytes: 0 };
   const tokens = tokenData[0] || { totalPromptTokens: 0, totalCompletionTokens: 0 };
   const totalTokens = tokens.totalPromptTokens + tokens.totalCompletionTokens;
-  const freeLimit = parseInt(process.env.FREE_TIER_TOKEN_LIMIT) || 1000000;
+  const freeLimit = process.env.FREE_TIER_TOKEN_LIMIT || 1000000;
   res.json({
     success: true,
     totalUsers,
@@ -822,6 +849,27 @@ app.delete('/api/history/:id', authenticateUser, asyncHandler(async (req, res) =
   res.json({ success: true });
 }));
 
+// ---------- NEW: VARIANT SWITCH ROUTE ----------
+app.put('/api/history/:id/variant', authenticateUser, asyncHandler(async (req, res) => {
+  const { msgId, variantIndex } = req.body;
+  if (!msgId || variantIndex === undefined) {
+    return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'Missing msgId or variantIndex' });
+  }
+  const session = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
+  if (!session) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
+
+  const msg = session.messages.id(msgId);
+  if (!msg) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
+  if (variantIndex < 0 || variantIndex >= (msg.variants?.length || 0)) {
+    return res.status(400).json({ success: false, code: 'INVALID_INDEX' });
+  }
+  msg.activeVariant = variantIndex;
+  msg.text = msg.variants[variantIndex];
+  session.markModified('messages');
+  await session.save();
+  res.json({ success: true });
+}));
+
 // ---------- BUG REPORT (with email) ----------
 app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
   const { type, description } = req.body;
@@ -830,7 +878,6 @@ app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
     type: type || 'feedback',
     description
   });
-  // Send email
   if (transporter) {
     try {
       await transporter.sendMail({
@@ -841,21 +888,45 @@ app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
         html: `<p><strong>User:</strong> ${req.currentUser.email}</p><p><strong>Type:</strong> ${type}</p><p><strong>Description:</strong> ${description}</p><p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>`,
       });
     } catch (mailErr) {
-      console.error('Email send failed:', mailErr);
+      logger.error('Email send failed:', mailErr);
     }
   }
   res.json({ success: true });
 }));
 
+// ---------- HISTORY with PAGINATION ----------
 app.get('/api/history', authenticateUser, asyncHandler(async (req, res) => {
   const allowed = ['data', 'design', 'general'];
   const workspace = allowed.includes(req.query.workspace) ? req.query.workspace : 'data';
+  const page = parseInt(req.query.page) || 1;
+  const limit = parseInt(req.query.limit) || 20;
+  const skip = (page - 1) * limit;
+
   const logs = await ChatSession.find({
     userId: req.currentUser._id,
     status: req.query.status || 'active',
     workspace
-  }).sort({ isPinned: -1, createdAt: -1 });
-  res.json({ success: true, logs });
+  })
+  .sort({ isPinned: -1, createdAt: -1 })
+  .skip(skip)
+  .limit(limit);
+
+  const total = await ChatSession.countDocuments({
+    userId: req.currentUser._id,
+    status: req.query.status || 'active',
+    workspace
+  });
+
+  res.json({
+    success: true,
+    logs,
+    pagination: {
+      page,
+      limit,
+      total,
+      pages: Math.ceil(total / limit)
+    }
+  });
 }));
 
 // ---------- ENHANCE PROMPT ----------
@@ -889,7 +960,6 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   const result = await callAI(systemPrompt, promptText, [], 'general');
   user.quotas.dailyEnhancementsUsed += 1;
   user.dailyUsage += 1;
-  // Track tokens
   user.tokenUsage.totalPromptTokens += result.promptTokens;
   user.tokenUsage.totalCompletionTokens += result.completionTokens;
   user.tokenUsage.dailyPromptTokens += result.promptTokens;
@@ -903,18 +973,12 @@ const enforceQuotas = async (req, res, next) => {
   try {
     const user = await User.findById(req.currentUser?._id);
     if (!user) return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'User not found.' });
-    const now = new Date();
-    if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
-      user.quotas.dailyExtractionsUsed = 0;
-      user.quotas.dailyGenerationsUsed = 0;
-      user.quotas.dailyEnhancementsUsed = 0;
-      user.quotas.lastQuotaResetTimestamp = now;
-      await user.save();
-    }
+    // Reset daily quotas if needed (using unified helper)
+    await resetDailyQuotasIfNeeded(user);
     req.resolvedUser = user;
     next();
   } catch (err) {
-    console.error('Quota error:', err);
+    logger.error('Quota error:', err);
     res.status(500).json({ success: false, code: 'QUOTA_CHECK_FAILED', message: 'Could not check quota.' });
   }
 };
@@ -924,7 +988,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   const files = req.files || [];
   const userCommand = (req.body.command || "Analyze").slice(0, 10000);
   const workspaceMode = req.body.workspace === 'design' ? 'design' : 'data';
-  const sessionId = (req.body.sessionId && req.body.sessionId !== 'null' && req.body.sessionId !== 'undefined') ? req.body.sessionId : null;
+  const sessionId = (req.body.sessionId && mongoose.Types.ObjectId.isValid(req.body.sessionId)) ? req.body.sessionId : null;
 
   if (files.length > 5) return res.status(400).json({ success: false, code: 'MAX_FILES_EXCEEDED', message: 'Too many files.' });
   const totalSize = files.reduce((s, f) => s + f.size, 0);
@@ -933,7 +997,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
 
   const user = req.resolvedUser || req.currentUser;
 
-  // ----- QUOTA CALCULATION (FIXED) -----
+  // ----- QUOTA CALCULATION -----
   const isFree = user.tier === 'free';
   const isPro = user.tier === 'pro';
   const isBusiness = user.tier === 'business';
@@ -1051,7 +1115,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     promptTokensUsed = result.promptTokens || 0;
     completionTokensUsed = result.completionTokens || 0;
   } catch (err) {
-    console.error('[Extract] Streaming failed:', err);
+    logger.error('[Extract] Streaming failed:', err);
     errorOccurred = true;
     aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
     const rollbackFields = {
@@ -1063,7 +1127,12 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     };
     if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
     await User.findOneAndUpdate({ _id: user._id }, rollbackFields);
-    res.write(`data: ${JSON.stringify({ type: 'chunk', text: aiResponse })}\n\n`);
+    // Send error and end response - do NOT send 'done' after this
+    res.write(`data: ${JSON.stringify({ type: 'error', message: aiResponse })}\n\n`);
+    res.end();
+    // Clean up files and exit
+    for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
+    return; // IMPORTANT: exit handler
   }
 
   // ---- UPDATE TOKEN USAGE ----
@@ -1130,7 +1199,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
       filenameOut = currentSession.filename;
     }
   } catch (saveErr) {
-    console.error('[Extract] Failed to save session:', saveErr);
+    logger.error('[Extract] Failed to save session:', saveErr);
     errorOccurred = true;
     const rollbackFields = {
       $inc: {
@@ -1142,8 +1211,13 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
     await User.findOneAndUpdate({ _id: user._id }, rollbackFields);
     res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to persist session. Please try again.' })}\n\n`);
+    // We still need to send a done or end, but we'll send an error and end
+    res.end();
+    for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
+    return;
   }
 
+  // ---- SUCCESS: send DONE event ----
   res.write(`data: ${JSON.stringify({
     type: 'done',
     sessionId: sessionSaved ? sessionIdOut : null,
@@ -1154,10 +1228,16 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   })}\n\n`);
   res.end();
 
+  // ---- CLEANUP FILES ----
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 
-// ---------- DEPLOY ----------
+// ---------- DEPLOY with DOMPurify ----------
+const createDOMPurify = require('dompurify');
+const { JSDOM } = require('jsdom');
+const window = new JSDOM('').window;
+const DOMPurify = createDOMPurify(window);
+
 app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
   const { htmlContent } = req.body;
   if (!htmlContent) {
@@ -1168,7 +1248,20 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Generated HTML is incomplete. Missing <html> or </html>.' });
   }
 
-  const sanitized = htmlContent.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+  // Sanitize with DOMPurify – allow only safe tags/attributes
+  const sanitized = DOMPurify.sanitize(htmlContent, {
+    ALLOWED_TAGS: [
+      'html','head','body','div','span','p','a','img','button','input','form','table',
+      'tr','td','th','ul','ol','li','h1','h2','h3','h4','h5','h6','strong','em','u',
+      'br','hr','section','article','header','footer','nav','main','aside','figure',
+      'figcaption','mark','small','sub','sup','code','pre','blockquote','cite','label',
+      'select','option','textarea','style','link','meta','title'
+    ],
+    ALLOWED_ATTR: [
+      'href','src','alt','title','class','id','style','rel','type','media','name',
+      'value','placeholder','for','width','height','colspan','rowspan','data-*'
+    ],
+  });
 
   const vercelToken = process.env.VERCEL_TOKEN;
   const vercelProjectId = process.env.VERCEL_PROJECT_ID;
@@ -1190,7 +1283,7 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
         throw new Error(result.message || 'Vercel deployment failed');
       }
     } catch (err) {
-      console.error('Vercel deploy error:', err);
+      logger.error('Vercel deploy error:', err);
     }
   }
 
@@ -1214,7 +1307,7 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
         throw new Error(result.message || 'Netlify deployment failed');
       }
     } catch (err) {
-      console.error('Netlify deploy error:', err);
+      logger.error('Netlify deploy error:', err);
     }
   }
 
@@ -1229,7 +1322,7 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
 // ---------- 404 & ERROR ----------
 app.use((req, res) => res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'Endpoint not found.' }));
 app.use((err, req, res, next) => {
-  console.error('💥 GLOBAL ERROR:', err);
+  logger.error('💥 GLOBAL ERROR:', err);
   if (!res.headersSent) res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: process.env.NODE_ENV === 'production' ? 'Service unavailable' : err.message });
 });
 
@@ -1238,13 +1331,13 @@ let shuttingDown = false;
 const gracefulShutdown = async () => {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log('🛑 Shutting down...');
+  logger.info('🛑 Shutting down...');
   server.close(async () => {
     try { await mongoose.connection.close(); } catch (_) {}
-    console.log('✅ Shutdown complete.');
+    logger.info('✅ Shutdown complete.');
     process.exit(0);
   });
-  setTimeout(() => { console.error('⚠️ Forced shutdown.'); process.exit(1); }, 10000);
+  setTimeout(() => { logger.error('⚠️ Forced shutdown.'); process.exit(1); }, 10000);
 };
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
@@ -1252,5 +1345,5 @@ process.on('SIGINT', gracefulShutdown);
 // ---------- START ----------
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, () => {
-  console.log(`🟢 AXELR FORTRESS ONLINE ON PORT ${PORT} (${process.env.NODE_ENV || 'development'})`);
+  logger.info(`🟢 AXELR FORTRESS ONLINE ON PORT ${PORT} (${process.env.NODE_ENV || 'development'})`);
 });
