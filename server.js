@@ -1103,7 +1103,7 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
   if (vercelToken && vercelProjectId) {
     try {
       const formData = new FormData();
-      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
+      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });  // charset fix
       formData.append('file', blob, 'index.html');
       const response = await fetch(`https://api.vercel.com/v1/deployments?projectId=${vercelProjectId}`, {
         method: 'POST',
@@ -1127,7 +1127,7 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
   if (netlifyToken && netlifySiteId) {
     try {
       const formData = new FormData();
-      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
+      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });  // charset fix
       formData.append('file', blob, 'index.html');
       const response = await fetch(`https://api.netlify.com/api/v1/sites/${netlifySiteId}/deploys`, {
         method: 'POST',
