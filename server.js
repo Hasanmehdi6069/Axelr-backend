@@ -789,7 +789,7 @@ const enforceQuotas = async (req, res, next) => {
 };
 
 // ==========================================
-// EXTRACT – ELITE SYSTEM PROMPT (FLAW #9)
+// EXTRACT – ELITE SYSTEM PROMPT (HARDENED)
 // ==========================================
 app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 5), asyncHandler(async (req, res) => {
   const files = req.files || [];
@@ -892,6 +892,9 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     systemPrompt = `${SECURITY_INSTRUCTION}
 
 [SYSTEM DIRECTIVE]: You are AXELR ARCHITECT – a world‑class senior UI/UX engineer with 15 years of experience at top design agencies. Your sole purpose is to generate **breathtaking, production‑ready HTML/CSS/JavaScript** code that rivals the best Dribbble shots and enterprise dashboards.
+
+**CRITICAL OUTPUT FORMAT**:
+You MUST wrap your entire output in a single \`\`\`html code block. The code MUST begin exactly with \`\`\`html. Do not include markdown outside of the code block. Utilize modern Tailwind layouts, high-end typography, and complex shadow depths to avoid generic designs.
 
 [LENGTH POLICY – STRICT]:
 - For simple factual questions (e.g., “What is the capital of France?”), respond in 1‑2 sentences.
@@ -1079,7 +1082,7 @@ You are Axelr Data, a senior data analyst and intelligence extraction engine. Yo
 }));
 
 // ==========================================
-// DEPLOYMENT ENDPOINT – Enhanced with validation and fallback (FLAW #9)
+// DEPLOYMENT ENDPOINT – Enhanced with validation and fallback
 // ==========================================
 app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
   const { htmlContent } = req.body;
@@ -1091,13 +1094,16 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
     return res.status(400).json({ success: false, message: 'Generated HTML is incomplete. Missing <html> or </html>.' });
   }
 
+  // Basic sanitization: remove any dangerous scripts
+  const sanitized = htmlContent.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+
   const vercelToken = process.env.VERCEL_TOKEN;
   const vercelProjectId = process.env.VERCEL_PROJECT_ID;
 
   if (vercelToken && vercelProjectId) {
     try {
       const formData = new FormData();
-      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
       formData.append('file', blob, 'index.html');
       const response = await fetch(`https://api.vercel.com/v1/deployments?projectId=${vercelProjectId}`, {
         method: 'POST',
@@ -1121,7 +1127,7 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
   if (netlifyToken && netlifySiteId) {
     try {
       const formData = new FormData();
-      const blob = new Blob([htmlContent], { type: 'text/html' });
+      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
       formData.append('file', blob, 'index.html');
       const response = await fetch(`https://api.netlify.com/api/v1/sites/${netlifySiteId}/deploys`, {
         method: 'POST',
@@ -1139,7 +1145,7 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
     }
   }
 
-  const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(htmlContent)}`;
+  const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(sanitized)}`;
   return res.json({
     success: true,
     liveUrl: dataUri,
