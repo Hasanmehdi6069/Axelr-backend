@@ -91,15 +91,28 @@ try {
 // ==========================================
 let transporter;
 try {
-  transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT) || 587,
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+  // FIX 10: Validate SMTP configuration before creating transporter
+  if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
+    transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: parseInt(process.env.SMTP_PORT) || 587,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
+    });
+    // Verify connection (optional)
+    transporter.verify((error) => {
+      if (error) {
+        logger.warn('SMTP verification failed:', error.message);
+      } else {
+        logger.info('SMTP configured successfully');
+      }
+    });
+  } else {
+    logger.warn('SMTP not configured – email sending disabled');
+  }
 } catch (_) { transporter = null; }
 
 // ==========================================
@@ -478,7 +491,13 @@ const SECURITY_INSTRUCTION = `You are an AI assistant. Under no circumstances ma
 // ELITE SYSTEM PROMPTS (with length directive)
 // ==========================================
 function getSystemPrompt(workspaceMode, customInstructions) {
-  const lengthDirective = `CRITICAL: You are an execution engine. For simple or conversational questions, your answer must be limited to exactly 2 to 3 lines max. Only generate full layouts, code tables, or comprehensive diagnostics if the user request explicitly specifies a complex creation task or system design workflow.`;
+  // FIX 9: Strengthen length directive for conciseness
+  const lengthDirective = `CRITICAL CONCISENESS RULE:
+- For simple, factual, or conversational questions → respond in EXACTLY 2 to 3 sentences. Do not add any extra text, explanations, or filler.
+- For moderate requests (e.g., "Explain how to use a function") → provide a brief paragraph (2-4 sentences) and a minimal code snippet ONLY if asked.
+- For complex, explicit requests (e.g., "Build a full dashboard", "Analyze this CSV and provide trends") → you may produce a detailed, comprehensive answer, but ALWAYS start with a concise summary.
+- NEVER write long introductions, repeat the question, or add meta-commentary. Get straight to the point.
+- If the user's request is ambiguous, ask a clarifying question in 1 sentence.`;
 
   if (workspaceMode === 'design') {
     return `${SECURITY_INSTRUCTION}
@@ -881,18 +900,24 @@ app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
     type: type || 'feedback',
     description
   });
+  // FIX 10: Email delivery with better error handling and logging
   if (transporter) {
     try {
-      await transporter.sendMail({
+      const mailOptions = {
         from: process.env.SMTP_USER,
         to: 'shanh1346@gmail.com',
         subject: `[Axelr Report] ${type.toUpperCase()} from ${req.currentUser.email}`,
         text: `User: ${req.currentUser.email}\nType: ${type}\nDescription: ${description}\nTimestamp: ${new Date().toISOString()}`,
         html: `<p><strong>User:</strong> ${req.currentUser.email}</p><p><strong>Type:</strong> ${type}</p><p><strong>Description:</strong> ${description}</p><p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>`,
-      });
+      };
+      await transporter.sendMail(mailOptions);
+      logger.info(`Email sent to admin for report ${report._id}`);
     } catch (mailErr) {
       logger.error('Email send failed:', mailErr);
+      // Still return success because the report is saved; admin can view in DB.
     }
+  } else {
+    logger.warn('Transporter not available – email not sent');
   }
   res.json({ success: true });
 }));
