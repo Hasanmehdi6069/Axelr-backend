@@ -1,27 +1,4 @@
 // ==========================================
-// CRITICAL: ALL REQUIRES AT THE ABSOLUTE TOP
-// ==========================================
-const crypto = require('crypto');
-require('dotenv').config();
-
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const multer = require('multer');
-const mongoose = require('mongoose');
-const fs = require('fs').promises;
-const os = require('os');
-const compression = require('compression');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { OAuth2Client } = require('google-auth-library');
-const Groq = require('groq-sdk');
-const nodemailer = require('nodemailer');
-const pino = require('pino');
-const envalid = require('envalid');
-const { str, num, bool } = envalid;
-
-// ==========================================
 // LOGGING & ENV VALIDATION
 // ==========================================
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
@@ -30,9 +7,9 @@ const env = envalid.cleanEnv(process.env, {
   STRIPE_SECRET_KEY: str(),
   GOOGLE_CLIENT_ID: str(),
   GEMINI_API_KEY: str(),
-  OPENROUTER_API_KEY: str(),
-  EMAIL_USER: str(),
-  EMAIL_PASS: str(),
+  // OPENROUTER_API_KEY is now optional – we provide a default empty string
+  OPENROUTER_API_KEY: str({ default: '' }),
+  // EMAIL_USER removed – we use SMTP_USER instead
   PORT: num({ default: 5000 }),
   NODE_ENV: str({ choices: ['development', 'production', 'test'], default: 'development' }),
   STRIPE_WEBHOOK_SECRET: str({ default: '' }),
@@ -55,12 +32,16 @@ const env = envalid.cleanEnv(process.env, {
 // ==========================================
 const AI_CONFIG = {
   PRIMARY: {
-    provider: process.env.AI_PRIMARY_PROVIDER || 'deepseek',
-    model: process.env.AI_PRIMARY_MODEL || 'deepseek/deepseek-chat',
+    // If OPENROUTER_API_KEY is set, use deepseek; otherwise fallback to gemini
+    provider: (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length > 0)
+      ? 'deepseek'
+      : 'gemini',
+    model: process.env.AI_PRIMARY_MODEL
+      || (process.env.OPENROUTER_API_KEY ? 'deepseek/deepseek-chat' : 'gemini-2.0-flash'),
     maxOutputTokens: parseInt(process.env.AI_MAX_TOKENS) || 2048,
     temperature: parseFloat(process.env.AI_TEMPERATURE) || 0.2,
     timeoutMs: parseInt(process.env.AI_TIMEOUT_MS) || 30000,
-    apiKey: process.env.OPENROUTER_API_KEY || process.env.DEEPSEEK_API_KEY,
+    apiKey: process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY,
     baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
   },
   FALLBACK: {
@@ -71,7 +52,6 @@ const AI_CONFIG = {
     timeoutMs: parseInt(process.env.AI_TIMEOUT_MS) || 30000,
   },
 };
-
 // ==========================================
 // STRIPE
 // ==========================================
