@@ -17,7 +17,7 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OAuth2Client } = require('google-auth-library');
 const Groq = require('groq-sdk');
 const nodemailer = require('nodemailer');
-const pino = require('pino');          // <-- MUST be before usage
+const pino = require('pino');
 const envalid = require('envalid');
 const { str, num, bool } = envalid;
 
@@ -26,8 +26,7 @@ const { str, num, bool } = envalid;
 // ==========================================
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
 
-// EMAIL_USER is no longer required – we use SMTP_USER instead
-// OPENROUTER_API_KEY is optional – default to empty string
+// OPENROUTER_API_KEY is optional – defaults to empty
 const env = envalid.cleanEnv(process.env, {
   MONGO_URI: str(),
   STRIPE_SECRET_KEY: str(),
@@ -43,7 +42,7 @@ const env = envalid.cleanEnv(process.env, {
   NETLIFY_SITE_ID: str({ default: '' }),
   FREE_TIER_TOKEN_LIMIT: num({ default: 1000000 }),
   ADMIN_EMAIL: str({ default: '' }),
-  // SMTP variables
+  // SMTP variables – must be set for email to work
   SMTP_HOST: str({ default: '' }),
   SMTP_PORT: num({ default: 587 }),
   SMTP_USER: str({ default: '' }),
@@ -97,7 +96,7 @@ try {
 } catch (_) { groq = null; }
 
 // ==========================================
-// NODEMAILER (SMTP) – FIX 10 (hardened)
+// NODEMAILER (SMTP) – HARDENED
 // ==========================================
 let transporter;
 try {
@@ -903,7 +902,7 @@ function estimateTokens(text) {
   return Math.ceil((text || '').length / 4);
 }
 
-// ---------- BUG REPORT (with email) – FIX 10 (hardened) ----------
+// ---------- BUG REPORT (with email) – HARDENED ----------
 app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
   const { type, description } = req.body;
   const report = await BugReport.create({
@@ -911,6 +910,7 @@ app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
     type: type || 'feedback',
     description
   });
+  // Always send email if transporter is available
   if (transporter) {
     try {
       const mailOptions = {
@@ -920,10 +920,11 @@ app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
         text: `User: ${req.currentUser.email}\nType: ${type}\nDescription: ${description}\nTimestamp: ${new Date().toISOString()}`,
         html: `<p><strong>User:</strong> ${req.currentUser.email}</p><p><strong>Type:</strong> ${type}</p><p><strong>Description:</strong> ${description}</p><p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>`,
       };
-      await transporter.sendMail(mailOptions);
-      logger.info(`Email sent to admin for report ${report._id}`);
+      const info = await transporter.sendMail(mailOptions);
+      logger.info(`Email sent to admin for report ${report._id} (Message-ID: ${info.messageId})`);
     } catch (mailErr) {
-      logger.error('Email send failed:', mailErr);
+      logger.error('Email send failed:', mailErr.message);
+      // Do not fail the API – the report is already saved.
     }
   } else {
     logger.warn('Transporter not available – email not sent');
@@ -1028,6 +1029,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
 
   if (files.length > 5) return res.status(400).json({ success: false, code: 'MAX_FILES_EXCEEDED', message: 'Too many files.' });
   const totalSize = files.reduce((s, f) => s + f.size, 0);
+  // Enforce total size limit per tier (handled later with byteLimit)
   if (totalSize > 50 * 1024 * 1024) return res.status(400).json({ success: false, code: 'TOTAL_SIZE_EXCEEDED', message: 'Total upload size too large.' });
   for (const f of files) if (f.size > 10 * 1024 * 1024) return res.status(400).json({ success: false, code: `FILE_TOO_LARGE`, message: `File ${f.originalname} exceeds 10MB.` });
 
@@ -1078,9 +1080,20 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: used, limit });
   }
 
-  const byteLimit = isFree ? 5 * 1024 * 1024 : (isPro ? 100 * 1024 * 1024 : 50 * 1024 * 1024);
+  // ----- FILE SIZE LIMIT PER TIER (FIX 5) -----
+  let byteLimit;
+  if (isFree) {
+    byteLimit = 5 * 1024 * 1024;      // 5 MB
+  } else if (isPro) {
+    byteLimit = 20 * 1024 * 1024;     // 20 MB
+  } else if (isBusiness) {
+    byteLimit = 50 * 1024 * 1024;     // 50 MB
+  } else {
+    byteLimit = 5 * 1024 * 1024;
+  }
+
   if ((user.storageBytesUsed + totalSize) > byteLimit) {
-    return res.status(403).json({ success: false, code: 'STORAGE_LIMIT_REACHED', message: 'Storage quota exceeded.' });
+    return res.status(403).json({ success: false, code: 'STORAGE_LIMIT_REACHED', message: `Storage quota exceeded. Maximum ${byteLimit / (1024*1024)}MB.` });
   }
 
   // ----- INCREMENT QUOTA (atomic) -----
