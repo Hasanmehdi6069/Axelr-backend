@@ -17,24 +17,6 @@ const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { OAuth2Client } = require('google-auth-library');
 const Groq = require('groq-sdk');
 const nodemailer = require('nodemailer');
-
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  }
-});
-
-// Inside your /api/reports endpoint:
-const mailOptions = {
-  from: process.env.SMTP_USER,
-  to: 'shanh1346@gmail.com',
-  subject: `🚨 Axelr AI Alert: New ${type.toUpperCase()}`,
-  text: `User ${req.currentUser.email} submitted a report:\n\n${description}`
-};
-
-await transporter.sendMail(mailOptions);
 const pino = require('pino');
 const envalid = require('envalid');
 const { str, num, bool } = envalid;
@@ -124,7 +106,6 @@ try {
         user: process.env.SMTP_USER,
         pass: process.env.SMTP_PASS,
       },
-      // Add timeout and connection options for reliability
       connectionTimeout: 5000,
       greetingTimeout: 5000,
       socketTimeout: 10000,
