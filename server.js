@@ -152,6 +152,11 @@ const allowedOrigins = [
 
 app.use(cors({
   origin: (origin, cb) => {
+    // Allow all in development, strict in production
+    if (process.env.NODE_ENV === 'development') {
+      cb(null, true);
+      return;
+    }
     if (!origin || allowedOrigins.includes(origin)) cb(null, true);
     else cb(new Error('CORS blocked'), false);
   },
@@ -287,13 +292,14 @@ const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
 
 // ------------------------------
-// UNIFIED QUOTA RESET HELPER
+// UNIFIED QUOTA RESET HELPER (FIX: use UTC)
 // ------------------------------
 async function resetDailyQuotasIfNeeded(user) {
-  const today = new Date().setHours(0, 0, 0, 0);
-  const lastUsageDay = user.lastUsageDate ? new Date(user.lastUsageDate).setHours(0, 0, 0, 0) : 0;
-  const lastQuotaResetDay = user.quotas.lastQuotaResetTimestamp ? new Date(user.quotas.lastQuotaResetTimestamp).setHours(0, 0, 0, 0) : 0;
-  const lastTokenResetDay = user.tokenUsage.lastTokenReset ? new Date(user.tokenUsage.lastTokenReset).setHours(0, 0, 0, 0) : 0;
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const lastUsageDay = user.lastUsageDate ? new Date(Date.UTC(user.lastUsageDate.getUTCFullYear(), user.lastUsageDate.getUTCMonth(), user.lastUsageDate.getUTCDate())) : new Date(0);
+  const lastQuotaResetDay = user.quotas.lastQuotaResetTimestamp ? new Date(Date.UTC(user.quotas.lastQuotaResetTimestamp.getUTCFullYear(), user.quotas.lastQuotaResetTimestamp.getUTCMonth(), user.quotas.lastQuotaResetTimestamp.getUTCDate())) : new Date(0);
+  const lastTokenResetDay = user.tokenUsage.lastTokenReset ? new Date(Date.UTC(user.tokenUsage.lastTokenReset.getUTCFullYear(), user.tokenUsage.lastTokenReset.getUTCMonth(), user.tokenUsage.lastTokenReset.getUTCDate())) : new Date(0);
 
   const needsReset = (today > lastUsageDay) || (today > lastQuotaResetDay) || (today > lastTokenResetDay);
   if (needsReset) {
@@ -462,12 +468,13 @@ function stripThinkTags(text) {
 }
 
 // ==========================================
-// TOKEN BLEED PREVENTION: Clean assistant messages
+// TOKEN BLEED PREVENTION: Clean assistant messages (only for history context)
 // ==========================================
 function cleanAssistantMessage(text) {
   if (!text) return '';
-  let cleaned = text.replace(/```[\s\S]*?```/g, '[code block omitted]');
-  cleaned = cleaned.replace(/\|.*\|.*\n/g, '');
+  // Removed code-block stripping to preserve tokens for estimation
+  // Only clean whitespace and non-essential formatting
+  let cleaned = text.replace(/\|.*\|.*\n/g, '');
   cleaned = cleaned.replace(/\s+/g, ' ').trim();
   return cleaned;
 }
@@ -636,16 +643,24 @@ async function callAI(systemPrompt, userContent, history = [], workspaceMode) {
 }
 
 // ==========================================
-// STREAMING AI ENGINE (for /extract)
+// STREAMING AI ENGINE (for /extract) – with global timeout
 // ==========================================
 async function streamAIResponse(systemPrompt, userContent, history, res, workspaceMode) {
   const startTime = Date.now();
   const primary = AI_CONFIG.PRIMARY;
   const fallback = AI_CONFIG.FALLBACK;
+  const STREAM_TIMEOUT_MS = 60000; // 60 seconds global
 
   const writeChunk = (text) => {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text })}\n\n`);
   };
+
+  // Set a global abort timer
+  const timeoutId = setTimeout(() => {
+    logger.warn('Streaming timeout – aborting');
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Stream timed out' })}\n\n`);
+    res.end();
+  }, STREAM_TIMEOUT_MS);
 
   try {
     if (primary.provider === 'deepseek' && primary.apiKey) {
@@ -699,6 +714,7 @@ async function streamAIResponse(systemPrompt, userContent, history, res, workspa
       }
       logger.info(`[AI] DeepSeek streaming succeeded in ${Date.now() - startTime}ms`);
       const estimatedTokens = Math.ceil(fullText.length / 4);
+      clearTimeout(timeoutId);
       return { text: fullText, promptTokens: estimatedTokens, completionTokens: estimatedTokens };
     }
   } catch (deepErr) {
@@ -733,6 +749,7 @@ async function streamAIResponse(systemPrompt, userContent, history, res, workspa
         await new Promise(r => setTimeout(r, 10));
       }
       const estimatedTokens = Math.ceil(text.length / 4);
+      clearTimeout(timeoutId);
       return { text, promptTokens: estimatedTokens, completionTokens: estimatedTokens };
     }
     throw new Error('Empty Gemini response');
@@ -740,6 +757,7 @@ async function streamAIResponse(systemPrompt, userContent, history, res, workspa
     logger.error('[AI] Gemini streaming fallback failed:', geminiErr.message);
     const errorMsg = "I am Axelr AI. I encountered a temporary technical issue. Please try again shortly.";
     writeChunk(errorMsg);
+    clearTimeout(timeoutId);
     return { text: errorMsg, promptTokens: 0, completionTokens: 0 };
   }
 }
@@ -841,12 +859,18 @@ app.get('/api/user/profile', authenticateUser, (req, res) => {
       dailyCompletion: user.tokenUsage.dailyCompletionTokens,
       totalPrompt: user.tokenUsage.totalPromptTokens,
       totalCompletion: user.tokenUsage.totalCompletionTokens,
-    }
+    },
+    isAdmin: user.isAdmin || false,
   });
 });
 
 app.put('/api/user/instructions', authenticateUser, asyncHandler(async (req, res) => {
-  req.currentUser.customInstructions = req.body.instructions || '';
+  const instructions = req.body.instructions || '';
+  // Validate length (max 5000 chars)
+  if (instructions.length > 5000) {
+    return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'Instructions cannot exceed 5000 characters.' });
+  }
+  req.currentUser.customInstructions = instructions;
   await req.currentUser.save();
   res.json({ success: true });
 }));
