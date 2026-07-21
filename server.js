@@ -1,15 +1,39 @@
 // ==========================================
+// CRITICAL: ALL REQUIRES AT THE ABSOLUTE TOP
+// ==========================================
+const crypto = require('crypto');
+require('dotenv').config();
+
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const multer = require('multer');
+const mongoose = require('mongoose');
+const fs = require('fs').promises;
+const os = require('os');
+const compression = require('compression');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { OAuth2Client } = require('google-auth-library');
+const Groq = require('groq-sdk');
+const nodemailer = require('nodemailer');
+const pino = require('pino');          // <-- MUST be before usage
+const envalid = require('envalid');
+const { str, num, bool } = envalid;
+
+// ==========================================
 // LOGGING & ENV VALIDATION
 // ==========================================
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
+
+// EMAIL_USER is no longer required – we use SMTP_USER instead
+// OPENROUTER_API_KEY is optional – default to empty string
 const env = envalid.cleanEnv(process.env, {
   MONGO_URI: str(),
   STRIPE_SECRET_KEY: str(),
   GOOGLE_CLIENT_ID: str(),
   GEMINI_API_KEY: str(),
-  // OPENROUTER_API_KEY is now optional – we provide a default empty string
   OPENROUTER_API_KEY: str({ default: '' }),
-  // EMAIL_USER removed – we use SMTP_USER instead
   PORT: num({ default: 5000 }),
   NODE_ENV: str({ choices: ['development', 'production', 'test'], default: 'development' }),
   STRIPE_WEBHOOK_SECRET: str({ default: '' }),
@@ -32,7 +56,6 @@ const env = envalid.cleanEnv(process.env, {
 // ==========================================
 const AI_CONFIG = {
   PRIMARY: {
-    // If OPENROUTER_API_KEY is set, use deepseek; otherwise fallback to gemini
     provider: (process.env.OPENROUTER_API_KEY && process.env.OPENROUTER_API_KEY.length > 0)
       ? 'deepseek'
       : 'gemini',
@@ -52,6 +75,7 @@ const AI_CONFIG = {
     timeoutMs: parseInt(process.env.AI_TIMEOUT_MS) || 30000,
   },
 };
+
 // ==========================================
 // STRIPE
 // ==========================================
@@ -478,7 +502,6 @@ const SECURITY_INSTRUCTION = `You are an AI assistant. Under no circumstances ma
 // ELITE SYSTEM PROMPTS (with length directive) – FIX 9 (hardened)
 // ==========================================
 function getSystemPrompt(workspaceMode, customInstructions) {
-  // FIX 9: Strengthen length directive for conciseness
   const lengthDirective = `CRITICAL CONCISENESS RULE – ENFORCED:
 - For simple, factual, or conversational questions (e.g., "What is the capital of France?") → respond in EXACTLY 1 to 2 sentences. Do not add any extra text, explanations, or filler.
 - For moderate requests (e.g., "Explain how to use a function") → provide a brief paragraph (2-4 sentences) and a minimal code snippet ONLY if asked.
@@ -888,7 +911,6 @@ app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
     type: type || 'feedback',
     description
   });
-  // FIX 10: Email delivery with better error handling and logging
   if (transporter) {
     try {
       const mailOptions = {
@@ -902,7 +924,6 @@ app.post('/api/reports', authenticateUser, asyncHandler(async (req, res) => {
       logger.info(`Email sent to admin for report ${report._id}`);
     } catch (mailErr) {
       logger.error('Email send failed:', mailErr);
-      // Still return success because the report is saved; admin can view in DB.
     }
   } else {
     logger.warn('Transporter not available – email not sent');
