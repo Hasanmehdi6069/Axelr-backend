@@ -50,7 +50,7 @@ const env = envalid.cleanEnv(process.env, {
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:5001/api/route';
 
 // ==========================================
-// STRIPE, NODEMAILER SETUP
+// STRIPE & NODEMAILER
 // ==========================================
 let stripe;
 try {
@@ -153,44 +153,216 @@ const globalLimiter = rateLimit({
 app.use('/api/', globalLimiter);
 
 // ==========================================
-// DATABASE SCHEMAS (unchanged – keep your existing ones)
+// DATABASE SCHEMAS
 // ==========================================
 mongoose.set('strictQuery', true);
 
-const UserSchema = new mongoose.Schema({ /* ... */ });
-const ChatSessionSchema = new mongoose.Schema({ /* ... */ });
-const BugReportSchema = new mongoose.Schema({ /* ... */ });
+const UserSchema = new mongoose.Schema({
+  googleId: { type: String, unique: true, required: true },
+  email: { type: String, required: true },
+  displayName: String,
+  tier: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
+  dailyUsage: { type: Number, default: 0 },
+  dailyUiUxUsage: { type: Number, default: 0 },
+  storageBytesUsed: { type: Number, default: 0 },
+  lastUsageDate: { type: Date, default: Date.now },
+  customInstructions: { type: String, default: '' },
+  stripeCustomerId: { type: String, sparse: true },
+  subTierOptions: {
+    hasDataAccess: { type: Boolean, default: false },
+    hasDesignAccess: { type: Boolean, default: false }
+  },
+  quotas: {
+    dailyExtractionsUsed: { type: Number, default: 0 },
+    dailyGenerationsUsed: { type: Number, default: 0 },
+    dailyEnhancementsUsed: { type: Number, default: 0 },
+    monthlyEnhancementsLimit: { type: Number, default: 3 },
+    lastQuotaResetTimestamp: { type: Date, default: Date.now }
+  },
+  tokenUsage: {
+    totalPromptTokens: { type: Number, default: 0 },
+    totalCompletionTokens: { type: Number, default: 0 },
+    dailyPromptTokens: { type: Number, default: 0 },
+    dailyCompletionTokens: { type: Number, default: 0 },
+    lastTokenReset: { type: Date, default: Date.now },
+  },
+  isAdmin: { type: Boolean, default: false },
+}, { timestamps: true });
 
+UserSchema.index({ googleId: 1 });
 const User = mongoose.model('User', UserSchema);
+
+const ChatSessionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  filename: { type: String, required: true },
+  workspace: { type: String, enum: ['data', 'design', 'general'], default: 'data' },
+  status: { type: String, enum: ['active', 'archived', 'trashed'], default: 'active' },
+  isPinned: { type: Boolean, default: false },
+  messages: [{
+    role: { type: String, required: true },
+    text: { type: String, required: true },
+    attachedFiles: { type: [String], default: [] },
+    variants: { type: [String], default: [] },
+    activeVariant: { type: Number, default: 0 },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  structuredData: { type: Array, default: [] },
+  createdAt: { type: Date, default: Date.now },
+  trashedAt: { type: Date }
+}, { timestamps: true });
+
+ChatSessionSchema.index({ userId: 1, status: 1, workspace: 1, createdAt: -1 });
+ChatSessionSchema.index({ userId: 1, isPinned: -1, createdAt: -1 });
 const ChatSession = mongoose.model('ChatSession', ChatSessionSchema);
+
+const BugReportSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  type: { type: String, enum: ['help', 'feedback'], required: true },
+  description: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
 const BugReport = mongoose.model('BugReport', BugReportSchema);
 
 // ==========================================
-// AUTH & QUOTA RESET (unchanged)
+// AUTH & QUOTA RESET
 // ==========================================
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
 
-async function resetDailyQuotasIfNeeded(user) { /* ... */ }
-const authenticateUser = async (req, res, next) => { /* ... */ };
+async function resetDailyQuotasIfNeeded(user) {
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const lastUsageDay = user.lastUsageDate ? new Date(Date.UTC(user.lastUsageDate.getUTCFullYear(), user.lastUsageDate.getUTCMonth(), user.lastUsageDate.getUTCDate())) : new Date(0);
+  const lastQuotaResetDay = user.quotas.lastQuotaResetTimestamp ? new Date(Date.UTC(user.quotas.lastQuotaResetTimestamp.getUTCFullYear(), user.quotas.lastQuotaResetTimestamp.getUTCMonth(), user.quotas.lastQuotaResetTimestamp.getUTCDate())) : new Date(0);
+  const lastTokenResetDay = user.tokenUsage.lastTokenReset ? new Date(Date.UTC(user.tokenUsage.lastTokenReset.getUTCFullYear(), user.tokenUsage.lastTokenReset.getUTCMonth(), user.tokenUsage.lastTokenReset.getUTCDate())) : new Date(0);
+
+  const needsReset = (today > lastUsageDay) || (today > lastQuotaResetDay) || (today > lastTokenResetDay);
+  if (needsReset) {
+    user.dailyUsage = 0;
+    user.dailyUiUxUsage = 0;
+    user.storageBytesUsed = 0;
+    user.lastUsageDate = new Date();
+    user.quotas.dailyExtractionsUsed = 0;
+    user.quotas.dailyGenerationsUsed = 0;
+    user.quotas.dailyEnhancementsUsed = 0;
+    user.quotas.lastQuotaResetTimestamp = new Date();
+    user.tokenUsage.dailyPromptTokens = 0;
+    user.tokenUsage.dailyCompletionTokens = 0;
+    user.tokenUsage.lastTokenReset = new Date();
+    await user.save();
+  }
+  return user;
+}
+
+const authenticateUser = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader?.startsWith('Bearer ')) {
+      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Authentication required.' });
+    }
+    const token = authHeader.split(' ')[1];
+    const ticket = await googleClient.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
+    const payload = ticket.getPayload();
+    let user = await User.findOne({ googleId: payload.sub });
+    if (!user) {
+      const isAdmin = process.env.ADMIN_EMAIL && payload.email === process.env.ADMIN_EMAIL;
+      user = await User.create({
+        googleId: payload.sub, email: payload.email, displayName: payload.name || payload.email,
+        tier: 'free', dailyUsage: 0, dailyUiUxUsage: 0, storageBytesUsed: 0,
+        lastUsageDate: new Date(), customInstructions: '',
+        subTierOptions: { hasDataAccess: false, hasDesignAccess: false },
+        quotas: { dailyExtractionsUsed: 0, dailyGenerationsUsed: 0, dailyEnhancementsUsed: 0, monthlyEnhancementsLimit: 3, lastQuotaResetTimestamp: new Date() },
+        tokenUsage: { totalPromptTokens: 0, totalCompletionTokens: 0, dailyPromptTokens: 0, dailyCompletionTokens: 0, lastTokenReset: new Date() },
+        isAdmin,
+      });
+    } else {
+      await resetDailyQuotasIfNeeded(user);
+    }
+    req.currentUser = user;
+    next();
+  } catch (error) {
+    logger.error('[AUTH_FAIL]', error);
+    res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session.' });
+  }
+};
 
 // ==========================================
-// FILE UPLOAD (unchanged)
+// FILE UPLOAD
 // ==========================================
-const storage = multer.diskStorage({ /* ... */ });
-const upload = multer({ /* ... */ });
+const storage = multer.diskStorage({
+  destination: os.tmpdir(),
+  filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${file.originalname}`)
+});
+
+const upload = multer({
+  storage,
+  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ALLOWED_MIME_TYPES;
+    if (allowed.includes(file.mimetype) || /\.(html|js|css|json|txt|csv|md)$/i.test(file.originalname)) {
+      cb(null, true);
+    } else {
+      cb(new Error('File type not allowed'), false);
+    }
+  }
+});
 
 // ==========================================
-// DB CONNECTION (unchanged)
+// DB CONNECTION
 // ==========================================
-async function connectDB() { /* ... */ }
+async function connectDB() {
+  try {
+    await mongoose.connect(process.env.MONGO_URI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      family: 4
+    });
+    logger.info('🗄️ DB CONNECTED');
+  } catch (err) {
+    logger.error('💥 DB CONNECTION FAILED:', err);
+    setTimeout(connectDB, 5000);
+  }
+}
 connectDB();
-mongoose.connection.on('disconnected', () => { /* ... */ });
+mongoose.connection.on('disconnected', () => {
+  setTimeout(connectDB, 1000);
+});
 
 // ==========================================
-// WEBHOOK (stripe) (unchanged)
+// WEBHOOK (stripe)
 // ==========================================
-app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: '10kb' }), async (req, res) => { /* ... */ });
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: '10kb' }), async (req, res) => {
+  const sig = req.headers['stripe-signature'];
+  let event;
+  try {
+    if (!stripe) throw new Error('Stripe not initialized');
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      await User.findOneAndUpdate(
+        { googleId: session.client_reference_id },
+        {
+          tier: session.metadata.tier || 'pro',
+          stripeCustomerId: session.customer,
+          subTierOptions: {
+            hasDataAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'data'),
+            hasDesignAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'design')
+          }
+        }
+      );
+    } else if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
+      await User.findOneAndUpdate({ stripeCustomerId: event.data.object.customer }, { tier: 'free' });
+    }
+  } catch (dbError) {
+    logger.error("Webhook DB error:", dbError);
+  }
+  res.json({ received: true });
+});
 
 // ==========================================
 // ASYNC HANDLER
@@ -206,7 +378,7 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 // ==========================================
-// HELPERS
+// HELPERS (minimal)
 // ==========================================
 function stripThinkTags(text) {
   if (!text) return '';
@@ -349,7 +521,7 @@ app.put('/api/user/instructions', authenticateUser, asyncHandler(async (req, res
   res.json({ success: true });
 }));
 
-// ---------- HISTORY ROUTES ----------
+// ---------- HISTORY ----------
 app.put('/api/history/:id', authenticateUser, asyncHandler(async (req, res) => {
   const { action, payload } = req.body;
   const log = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
@@ -442,7 +614,7 @@ app.get('/api/history', authenticateUser, asyncHandler(async (req, res) => {
   });
 }));
 
-// ---------- ENHANCE PROMPT – orchestrator call ----------
+// ---------- ENHANCE PROMPT (via Orchestrator) ----------
 app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) => {
   const { promptText } = req.body;
   if (!promptText) return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'No text provided.' });
@@ -450,7 +622,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   const user = await User.findById(req.currentUser._id);
   if (!user) return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'User not found.' });
 
-  // Quota check
+  // Quota checks
   const now = new Date();
   if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
     user.quotas.dailyEnhancementsUsed = 0;
@@ -470,7 +642,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
     return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: user.quotas.dailyEnhancementsUsed, limit });
   }
 
-  // Call orchestrator
+  // Call orchestrator for prompt enhancement
   const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -496,6 +668,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
 
   const enhanced = result.text;
 
+  // Update quota and token usage
   user.quotas.dailyEnhancementsUsed += 1;
   user.dailyUsage += 1;
   const estTokens = estimateTokens(enhanced);
@@ -522,13 +695,14 @@ const enforceQuotas = async (req, res, next) => {
   }
 };
 
-// ---------- EXTRACT (streaming) – sends file contents ----------
+// ---------- EXTRACT (streaming) with file content ----------
 app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 5), asyncHandler(async (req, res) => {
   const files = req.files || [];
   const userCommand = (req.body.command || "Analyze").slice(0, 10000);
   const workspaceMode = req.body.workspace === 'design' ? 'design' : 'data';
   const sessionId = (req.body.sessionId && mongoose.Types.ObjectId.isValid(req.body.sessionId)) ? req.body.sessionId : null;
 
+  // File limits
   if (files.length > 5) return res.status(400).json({ success: false, code: 'MAX_FILES_EXCEEDED', message: 'Too many files.' });
   const totalSize = files.reduce((s, f) => s + f.size, 0);
   if (totalSize > 50 * 1024 * 1024) return res.status(400).json({ success: false, code: 'TOTAL_SIZE_EXCEEDED', message: 'Total upload size too large.' });
@@ -536,18 +710,84 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
 
   const user = req.resolvedUser || req.currentUser;
 
-  // --- QUOTA CHECKS (keep your existing logic) ---
-  // ... (all quota logic unchanged – omitted for brevity) ...
+  // --- QUOTA CHECKS (unchanged) ---
+  const isFree = user.tier === 'free';
+  const isPro = user.tier === 'pro';
+  const isBusiness = user.tier === 'business';
+  const hasData = user.subTierOptions.hasDataAccess;
+  const hasDesign = user.subTierOptions.hasDesignAccess;
+  let subTierType = 'full';
+  if (hasData && !hasDesign) subTierType = 'data';
+  else if (!hasData && hasDesign) subTierType = 'design';
 
-  // --- Read files as base64 (FIX #5) ---
-  const fileContents = await Promise.all(files.map(async (file) => {
-    const data = await fs.readFile(file.path);
-    return {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      content_base64: data.toString('base64'),
-    };
-  }));
+  let dataLimit, uiLimit;
+  if (isFree) { dataLimit = 5; uiLimit = 0; }
+  else if (isPro) {
+    if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
+    else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
+    else if (subTierType === 'design') { dataLimit = 0; uiLimit = 13; }
+  } else if (isBusiness) {
+    if (subTierType === 'full') { dataLimit = 30; uiLimit = 25; }
+    else if (subTierType === 'data') { dataLimit = 28; uiLimit = 0; }
+    else if (subTierType === 'design') { dataLimit = 0; uiLimit = 20; }
+  }
+
+  const isDesign = workspaceMode === 'design';
+  let used, limit;
+  if (isFree) {
+    used = user.dailyUsage;
+    limit = dataLimit;
+  } else {
+    if (isDesign && !hasDesign) {
+      return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'UI generation not included in your plan.' });
+    }
+    if (!isDesign && !hasData) {
+      return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'Data extraction not included in your plan.' });
+    }
+    const quotaField = isDesign ? 'dailyGenerationsUsed' : 'dailyExtractionsUsed';
+    used = user.quotas[quotaField];
+    limit = isDesign ? uiLimit : dataLimit;
+  }
+  if (used >= limit) {
+    return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: used, limit });
+  }
+
+  let byteLimit;
+  if (isFree) byteLimit = 5 * 1024 * 1024;
+  else if (isPro) byteLimit = 20 * 1024 * 1024;
+  else if (isBusiness) byteLimit = 50 * 1024 * 1024;
+  else byteLimit = 5 * 1024 * 1024;
+
+  if ((user.storageBytesUsed + totalSize) > byteLimit) {
+    return res.status(403).json({ success: false, code: 'STORAGE_LIMIT_REACHED', message: `Storage quota exceeded. Maximum ${byteLimit / (1024*1024)}MB.` });
+  }
+
+  // Increment quota (rollback on error)
+  const incrementFields = {
+    dailyUsage: 1,
+    storageBytesUsed: totalSize,
+  };
+  if (isDesign) {
+    incrementFields['quotas.dailyGenerationsUsed'] = 1;
+    incrementFields.dailyUiUxUsage = 1;
+  } else {
+    incrementFields['quotas.dailyExtractionsUsed'] = 1;
+  }
+
+  const filter = { _id: user._id };
+  if (isFree) {
+    filter.dailyUsage = { $lt: dataLimit };
+  } else {
+    const quotaField = isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed';
+    filter[quotaField] = { $lt: isDesign ? uiLimit : dataLimit };
+    if (isDesign) filter['subTierOptions.hasDesignAccess'] = true;
+    else filter['subTierOptions.hasDataAccess'] = true;
+  }
+
+  const updatedUser = await User.findOneAndUpdate(filter, { $inc: incrementFields }, { new: true });
+  if (!updatedUser) {
+    return res.status(403).json({ success: false, code: 'LIMIT_REACHED', message: 'Quota limit reached.' });
+  }
 
   // Prepare session history
   let currentSession = null;
@@ -563,11 +803,28 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     }
   }
 
-  let userContent = userCommand;
-  if (files.length > 0) {
-    const fileNames = files.map(f => f.originalname).join(', ');
-    userContent = `Files attached: ${fileNames}. Command: ${userCommand}`;
-  }
+  // --- Read files as base64 (FIX #5) ---
+  const fileContents = await Promise.all(files.map(async (file) => {
+    const data = await fs.readFile(file.path);
+    return {
+      filename: file.originalname,
+      mimetype: file.mimetype,
+      content_base64: data.toString('base64'),
+    };
+  }));
+
+  // --- Build orchestrator payload with file contents ---
+  const orchestratorPayload = {
+    workspace: workspaceMode,
+    prompt: userCommand,
+    history: history.slice(-4).map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
+    })),
+    files: fileContents,   // base64 content
+    max_tokens: 2048,
+    temperature: 0.2
+  };
 
   // --- SSE response ---
   res.writeHead(200, {
@@ -581,25 +838,12 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   let errorOccurred = false;
   let promptTokensUsed = 0, completionTokensUsed = 0;
 
-  // --- Call Python Orchestrator with file contents ---
-  const orchestratorPayload = {
-    workspace: workspaceMode,
-    prompt: userCommand,
-    history: history.slice(-4).map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
-    })),
-    files: fileContents,  // Now includes content
-    max_tokens: 2048,
-    temperature: 0.2
-  };
-
   try {
     const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orchestratorPayload),
-      signal: AbortSignal.timeout(60000),
+      signal: AbortSignal.timeout(60000), // 60 seconds
     });
 
     if (!orchestratorResponse.ok) {
@@ -611,7 +855,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     if (result.success) {
       aiResponse = result.text;
       promptTokensUsed = result.tokens_used || 0;
-      completionTokensUsed = 0;
+      completionTokensUsed = 0; // not provided
       logger.info(`Orchestrator used ${result.provider} (${result.model_used}) in ${result.latency_ms}ms`);
     } else {
       throw new Error(result.text || 'Orchestrator returned failure');
@@ -620,24 +864,108 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     logger.error('Orchestrator call failed:', err.message);
     errorOccurred = true;
     aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
-    // Rollback quota (keep your rollback logic)
-    // ...
+    // Rollback quota
+    const rollbackFields = {
+      $inc: {
+        [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
+        dailyUsage: -1,
+        storageBytesUsed: -totalSize,
+      }
+    };
+    if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
+    await User.findOneAndUpdate({ _id: user._id }, rollbackFields);
     res.write(`data: ${JSON.stringify({ type: 'error', message: aiResponse })}\n\n`);
     res.end();
     for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
     return;
   }
 
-  // --- Token estimation and DB update (keep your logic) ---
-  // ...
+  // --- Token estimation and DB update ---
+  const promptTextTokens = estimateTokens(userCommand);
+  const fileTokens = files.reduce((sum, f) => sum + estimateTokens(f.originalname) + Math.ceil(f.size / 4), 0);
+  const completionTokens = estimateTokens(aiResponse);
 
-  // Extract structured data (keep your logic)
-  // ...
+  await User.updateOne(
+    { _id: user._id },
+    {
+      $inc: {
+        'tokenUsage.totalPromptTokens': promptTextTokens + fileTokens,
+        'tokenUsage.totalCompletionTokens': completionTokens,
+        'tokenUsage.dailyPromptTokens': promptTextTokens + fileTokens,
+        'tokenUsage.dailyCompletionTokens': completionTokens,
+      }
+    }
+  );
 
-  // --- Save session (keep your logic) ---
-  // ...
+  // Extract structured data if any
+  let structured = [];
+  const jsonMatch = aiResponse.match(/\[JSON-DATA\]([\s\S]*?)\[\/JSON-DATA\]/);
+  if (jsonMatch) {
+    try { structured = JSON.parse(jsonMatch[1].trim()); } catch (e) { structured = []; }
+    aiResponse = aiResponse.replace(/\[JSON-DATA\][\s\S]*?\[\/JSON-DATA\]/g, '').trim();
+  }
+  if (!aiResponse.trim()) aiResponse = "I am Axelr AI. How can I help you?";
 
-  // --- Stream response ---
+  // --- Save session ---
+  let sessionSaved = false;
+  let sessionIdOut = null;
+  let filenameOut = 'Export.csv';
+  try {
+    if (currentSession) {
+      const isRetry = req.body.isRetry === 'true';
+      if (isRetry && currentSession.messages.length && currentSession.messages[currentSession.messages.length - 1].role === 'model') {
+        const last = currentSession.messages[currentSession.messages.length - 1];
+        if (!last.variants || !last.variants.length) last.variants = [last.text];
+        last.variants.push(aiResponse);
+        last.activeVariant = last.variants.length - 1;
+        last.text = aiResponse;
+        currentSession.markModified('messages');
+      } else {
+        currentSession.messages.push(
+          { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
+          { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0, createdAt: new Date() }
+        );
+      }
+      currentSession.structuredData = structured;
+      await currentSession.save();
+      sessionSaved = true;
+      sessionIdOut = currentSession._id;
+      filenameOut = currentSession.filename;
+    } else {
+      const filename = generateChatName(userCommand, files);
+      currentSession = await ChatSession.create({
+        userId: user._id,
+        filename,
+        workspace: workspaceMode,
+        structuredData: structured,
+        messages: [
+          { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
+          { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0, createdAt: new Date() }
+        ]
+      });
+      sessionSaved = true;
+      sessionIdOut = currentSession._id;
+      filenameOut = currentSession.filename;
+    }
+  } catch (saveErr) {
+    logger.error('[Extract] Failed to save session:', saveErr);
+    errorOccurred = true;
+    const rollbackFields = {
+      $inc: {
+        [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
+        dailyUsage: -1,
+        storageBytesUsed: -totalSize,
+      }
+    };
+    if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
+    await User.findOneAndUpdate({ _id: user._id }, rollbackFields);
+    res.write(`data: ${JSON.stringify({ type: 'error', message: 'Failed to persist session. Please try again.' })}\n\n`);
+    res.end();
+    for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
+    return;
+  }
+
+  // --- Stream response as SSE ---
   const sentences = aiResponse.match(/[^.!?]+[.!?]+/g) || [aiResponse];
   for (const sentence of sentences) {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: sentence })}\n\n`);
@@ -655,7 +983,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   })}\n\n`);
   res.end();
 
-  // Cleanup
+  // Cleanup temp files
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 
@@ -678,7 +1006,75 @@ const window = new JSDOM('').window;
 const DOMPurify = createDOMPurify(window);
 
 app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
-  // ... (keep your existing deploy logic) ...
+  const { htmlContent } = req.body;
+  if (!htmlContent) {
+    return res.status(400).json({ success: false, message: 'Missing HTML content' });
+  }
+  if (!htmlContent.includes('<html') || !htmlContent.includes('</html>')) {
+    return res.status(400).json({ success: false, message: 'Generated HTML is incomplete. Missing <html> or </html>.' });
+  }
+  const sanitized = DOMPurify.sanitize(htmlContent, {
+    ALLOWED_TAGS: [
+      'html','head','body','div','span','p','a','img','button','input','form','table',
+      'tr','td','th','ul','ol','li','h1','h2','h3','h4','h5','h6','strong','em','u',
+      'br','hr','section','article','header','footer','nav','main','aside','figure',
+      'figcaption','mark','small','sub','sup','code','pre','blockquote','cite','label',
+      'select','option','textarea','style','link','meta','title'
+    ],
+    ALLOWED_ATTR: [
+      'href','src','alt','title','class','id','style','rel','type','media','name',
+      'value','placeholder','for','width','height','colspan','rowspan','data-*'
+    ],
+  });
+
+  const vercelToken = process.env.VERCEL_TOKEN;
+  const vercelProjectId = process.env.VERCEL_PROJECT_ID;
+  if (vercelToken && vercelProjectId) {
+    try {
+      const formData = new FormData();
+      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
+      formData.append('file', blob, 'index.html');
+      const response = await fetch(`https://api.vercel.com/v1/deployments?projectId=${vercelProjectId}`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${vercelToken}` },
+        body: formData
+      });
+      const result = await response.json();
+      if (result.url) {
+        return res.json({ success: true, liveUrl: `https://${result.url}` });
+      }
+    } catch (err) {
+      logger.error('Vercel deploy error:', err);
+    }
+  }
+
+  const netlifyToken = process.env.NETLIFY_TOKEN;
+  const netlifySiteId = process.env.NETLIFY_SITE_ID;
+  if (netlifyToken && netlifySiteId) {
+    try {
+      const formData = new FormData();
+      const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
+      formData.append('file', blob, 'index.html');
+      const response = await fetch(`https://api.netlify.com/api/v1/sites/${netlifySiteId}/deploys`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${netlifyToken}` },
+        body: formData
+      });
+      const result = await response.json();
+      if (result.deploy_url) {
+        return res.json({ success: true, liveUrl: result.deploy_url });
+      }
+    } catch (err) {
+      logger.error('Netlify deploy error:', err);
+    }
+  }
+
+  const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(sanitized)}`;
+  return res.json({
+    success: true,
+    liveUrl: dataUri,
+    message: 'Preview available via data URI. For a permanent URL, configure Vercel/Netlify.'
+  });
 }));
 
 // ---------- 404 & ERROR ----------
