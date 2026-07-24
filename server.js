@@ -50,7 +50,7 @@ const env = envalid.cleanEnv(process.env, {
 const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:5001/api/route';
 
 // ==========================================
-// STRIPE & NODEMAILER
+// STRIPE, NODEMAILER SETUP
 // ==========================================
 let stripe;
 try {
@@ -168,10 +168,7 @@ const UserSchema = new mongoose.Schema({
   lastUsageDate: { type: Date, default: Date.now },
   customInstructions: { type: String, default: '' },
   stripeCustomerId: { type: String, sparse: true },
-  subTierOptions: {
-    hasDataAccess: { type: Boolean, default: false },
-    hasDesignAccess: { type: Boolean, default: false }
-  },
+  subTierOptions: { hasDataAccess: { type: Boolean, default: false }, hasDesignAccess: { type: Boolean, default: false } },
   quotas: {
     dailyExtractionsUsed: { type: Number, default: 0 },
     dailyGenerationsUsed: { type: Number, default: 0 },
@@ -378,7 +375,7 @@ const asyncHandler = (fn) => (req, res, next) => {
 };
 
 // ==========================================
-// HELPERS (minimal)
+// HELPERS
 // ==========================================
 function stripThinkTags(text) {
   if (!text) return '';
@@ -387,7 +384,9 @@ function stripThinkTags(text) {
 
 function cleanAssistantMessage(text) {
   if (!text) return '';
-  return text.replace(/\|.*\|.*\n/g, '').replace(/\s+/g, ' ').trim();
+  let cleaned = text.replace(/\|.*\|.*\n/g, '');
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  return cleaned;
 }
 
 const STOP_WORDS = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','when','make','can','like','time','no','just','him','know','take','people','into','year','your','good','some','could','them','see','other','than','then','now','look','only','come','its','over','think','also','back','after','use','two','how','our','work','first','well','way','even','new','want','because','any','these','give','day','most','us']);
@@ -521,7 +520,7 @@ app.put('/api/user/instructions', authenticateUser, asyncHandler(async (req, res
   res.json({ success: true });
 }));
 
-// ---------- HISTORY ----------
+// ---------- HISTORY ROUTES ----------
 app.put('/api/history/:id', authenticateUser, asyncHandler(async (req, res) => {
   const { action, payload } = req.body;
   const log = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
@@ -614,7 +613,7 @@ app.get('/api/history', authenticateUser, asyncHandler(async (req, res) => {
   });
 }));
 
-// ---------- ENHANCE PROMPT (via Orchestrator) ----------
+// ---------- ENHANCE PROMPT – orchestrator call ----------
 app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) => {
   const { promptText } = req.body;
   if (!promptText) return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'No text provided.' });
@@ -622,7 +621,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   const user = await User.findById(req.currentUser._id);
   if (!user) return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'User not found.' });
 
-  // Quota checks
+  // Quota check
   const now = new Date();
   if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
     user.quotas.dailyEnhancementsUsed = 0;
@@ -642,7 +641,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
     return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: user.quotas.dailyEnhancementsUsed, limit });
   }
 
-  // Call orchestrator for prompt enhancement
+  // Call orchestrator
   const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -668,7 +667,6 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
 
   const enhanced = result.text;
 
-  // Update quota and token usage
   user.quotas.dailyEnhancementsUsed += 1;
   user.dailyUsage += 1;
   const estTokens = estimateTokens(enhanced);
@@ -695,14 +693,14 @@ const enforceQuotas = async (req, res, next) => {
   }
 };
 
-// ---------- EXTRACT (streaming) with file content ----------
+// ---------- EXTRACT (streaming) – sends file contents to orchestrator ----------
 app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 5), asyncHandler(async (req, res) => {
   const files = req.files || [];
   const userCommand = (req.body.command || "Analyze").slice(0, 10000);
   const workspaceMode = req.body.workspace === 'design' ? 'design' : 'data';
   const sessionId = (req.body.sessionId && mongoose.Types.ObjectId.isValid(req.body.sessionId)) ? req.body.sessionId : null;
 
-  // File limits
+  // --- File validation (existing) ---
   if (files.length > 5) return res.status(400).json({ success: false, code: 'MAX_FILES_EXCEEDED', message: 'Too many files.' });
   const totalSize = files.reduce((s, f) => s + f.size, 0);
   if (totalSize > 50 * 1024 * 1024) return res.status(400).json({ success: false, code: 'TOTAL_SIZE_EXCEEDED', message: 'Total upload size too large.' });
@@ -710,7 +708,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
 
   const user = req.resolvedUser || req.currentUser;
 
-  // --- QUOTA CHECKS (unchanged) ---
+  // --- QUOTA CHECKS (keep your existing logic) ---
   const isFree = user.tier === 'free';
   const isPro = user.tier === 'pro';
   const isBusiness = user.tier === 'business';
@@ -762,7 +760,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     return res.status(403).json({ success: false, code: 'STORAGE_LIMIT_REACHED', message: `Storage quota exceeded. Maximum ${byteLimit / (1024*1024)}MB.` });
   }
 
-  // Increment quota (rollback on error)
+  // Increment quota (will be rolled back on error)
   const incrementFields = {
     dailyUsage: 1,
     storageBytesUsed: totalSize,
@@ -789,6 +787,16 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     return res.status(403).json({ success: false, code: 'LIMIT_REACHED', message: 'Quota limit reached.' });
   }
 
+  // --- Read files as base64 (FIX #5) ---
+  const fileContents = await Promise.all(files.map(async (file) => {
+    const data = await fs.readFile(file.path);
+    return {
+      filename: file.originalname,
+      mimetype: file.mimetype,
+      content_base64: data.toString('base64'),
+    };
+  }));
+
   // Prepare session history
   let currentSession = null;
   let history = [];
@@ -803,28 +811,11 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     }
   }
 
-  // --- Read files as base64 (FIX #5) ---
-  const fileContents = await Promise.all(files.map(async (file) => {
-    const data = await fs.readFile(file.path);
-    return {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      content_base64: data.toString('base64'),
-    };
-  }));
-
-  // --- Build orchestrator payload with file contents ---
-  const orchestratorPayload = {
-    workspace: workspaceMode,
-    prompt: userCommand,
-    history: history.slice(-4).map(msg => ({
-      role: msg.role === 'user' ? 'user' : 'assistant',
-      content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
-    })),
-    files: fileContents,   // base64 content
-    max_tokens: 2048,
-    temperature: 0.2
-  };
+  let userContent = userCommand;
+  if (files.length > 0) {
+    const fileNames = files.map(f => f.originalname).join(', ');
+    userContent = `Files attached: ${fileNames}. Command: ${userCommand}`;
+  }
 
   // --- SSE response ---
   res.writeHead(200, {
@@ -838,12 +829,25 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   let errorOccurred = false;
   let promptTokensUsed = 0, completionTokensUsed = 0;
 
+  // --- Call Python Orchestrator with file contents ---
+  const orchestratorPayload = {
+    workspace: workspaceMode,
+    prompt: userCommand,
+    history: history.slice(-4).map(msg => ({
+      role: msg.role === 'user' ? 'user' : 'assistant',
+      content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
+    })),
+    files: fileContents,  // Now includes content
+    max_tokens: 2048,
+    temperature: 0.2
+  };
+
   try {
     const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orchestratorPayload),
-      signal: AbortSignal.timeout(60000), // 60 seconds
+      signal: AbortSignal.timeout(60000),
     });
 
     if (!orchestratorResponse.ok) {
@@ -855,7 +859,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     if (result.success) {
       aiResponse = result.text;
       promptTokensUsed = result.tokens_used || 0;
-      completionTokensUsed = 0; // not provided
+      completionTokensUsed = 0;
       logger.info(`Orchestrator used ${result.provider} (${result.model_used}) in ${result.latency_ms}ms`);
     } else {
       throw new Error(result.text || 'Orchestrator returned failure');
@@ -965,11 +969,11 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     return;
   }
 
-  // --- Stream response as SSE ---
+  // --- Stream the response as SSE ---
   const sentences = aiResponse.match(/[^.!?]+[.!?]+/g) || [aiResponse];
   for (const sentence of sentences) {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: sentence })}\n\n`);
-    await new Promise(r => setTimeout(r, 10));
+    await new Promise(r => setTimeout(r, 10)); // small delay for realism
   }
 
   // Final done event
@@ -987,19 +991,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 
-// ---------- TEST EMAIL ----------
-app.get('/api/test-email', authenticateUser, asyncHandler(async (req, res) => {
-  if (!transporter) return res.status(503).json({ success: false, message: 'SMTP not configured' });
-  await transporter.sendMail({
-    from: process.env.SMTP_USER,
-    to: req.currentUser.email,
-    subject: 'Axelr Test Email',
-    text: 'SMTP is working!'
-  });
-  res.json({ success: true });
-}));
-
-// ---------- DEPLOY ----------
+// ---------- DEPLOY (unchanged) ----------
 const createDOMPurify = require('dompurify');
 const { JSDOM } = require('jsdom');
 const window = new JSDOM('').window;
@@ -1075,6 +1067,18 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
     liveUrl: dataUri,
     message: 'Preview available via data URI. For a permanent URL, configure Vercel/Netlify.'
   });
+}));
+
+// ---------- TEST EMAIL ----------
+app.get('/api/test-email', authenticateUser, asyncHandler(async (req, res) => {
+  if (!transporter) return res.status(503).json({ success: false, message: 'SMTP not configured' });
+  await transporter.sendMail({
+    from: process.env.SMTP_USER,
+    to: req.currentUser.email,
+    subject: 'Axelr Test Email',
+    text: 'SMTP is working!'
+  });
+  res.json({ success: true });
 }));
 
 // ---------- 404 & ERROR ----------
