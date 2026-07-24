@@ -1,6 +1,7 @@
 // ==========================================
 // CRITICAL: ALL REQUIRES AT THE ABSOLUTE TOP
 // ==========================================
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:5001/api/route';
 const crypto = require('crypto');
 require('dotenv').config();
 
@@ -132,7 +133,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
       frameSrc: ["'self'", "https://accounts.google.com"],
-      connectSrc: ["'self'", "https://api.netlify.com", "https://api.groq.com", "https://generativelanguage.googleapis.com", "https://openrouter.ai"],
+      connectSrc: ["'self'", "https://api.netlify.com", "https://generativelanguage.googleapis.com", "https://openrouter.ai"],
       imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com"],
@@ -384,9 +385,7 @@ function stripThinkTags(text) {
 
 function cleanAssistantMessage(text) {
   if (!text) return '';
-  let cleaned = text.replace(/\|.*\|.*\n/g, '');
-  cleaned = cleaned.replace(/\s+/g, ' ').trim();
-  return cleaned;
+  return text.replace(/\|.*\|.*\n/g, '').replace(/\s+/g, ' ').trim();
 }
 
 const STOP_WORDS = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','when','make','can','like','time','no','just','him','know','take','people','into','year','your','good','some','could','them','see','other','than','then','now','look','only','come','its','over','think','also','back','after','use','two','how','our','work','first','well','way','even','new','want','because','any','these','give','day','most','us']);
@@ -693,14 +692,13 @@ const enforceQuotas = async (req, res, next) => {
   }
 };
 
-// ---------- EXTRACT (streaming) – sends file contents to orchestrator ----------
+// ---------- EXTRACT (streaming) – sends file contents ----------
 app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 5), asyncHandler(async (req, res) => {
   const files = req.files || [];
   const userCommand = (req.body.command || "Analyze").slice(0, 10000);
   const workspaceMode = req.body.workspace === 'design' ? 'design' : 'data';
   const sessionId = (req.body.sessionId && mongoose.Types.ObjectId.isValid(req.body.sessionId)) ? req.body.sessionId : null;
 
-  // --- File validation (existing) ---
   if (files.length > 5) return res.status(400).json({ success: false, code: 'MAX_FILES_EXCEEDED', message: 'Too many files.' });
   const totalSize = files.reduce((s, f) => s + f.size, 0);
   if (totalSize > 50 * 1024 * 1024) return res.status(400).json({ success: false, code: 'TOTAL_SIZE_EXCEEDED', message: 'Total upload size too large.' });
@@ -760,7 +758,6 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     return res.status(403).json({ success: false, code: 'STORAGE_LIMIT_REACHED', message: `Storage quota exceeded. Maximum ${byteLimit / (1024*1024)}MB.` });
   }
 
-  // Increment quota (will be rolled back on error)
   const incrementFields = {
     dailyUsage: 1,
     storageBytesUsed: totalSize,
@@ -787,16 +784,6 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
     return res.status(403).json({ success: false, code: 'LIMIT_REACHED', message: 'Quota limit reached.' });
   }
 
-  // --- Read files as base64 (FIX #5) ---
-  const fileContents = await Promise.all(files.map(async (file) => {
-    const data = await fs.readFile(file.path);
-    return {
-      filename: file.originalname,
-      mimetype: file.mimetype,
-      content_base64: data.toString('base64'),
-    };
-  }));
-
   // Prepare session history
   let currentSession = null;
   let history = [];
@@ -810,6 +797,16 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
       }
     }
   }
+
+  // --- Read files as base64 ---
+  const fileContents = await Promise.all(files.map(async (file) => {
+    const data = await fs.readFile(file.path);
+    return {
+      filename: file.originalname,
+      mimetype: file.mimetype,
+      content_base64: data.toString('base64'),
+    };
+  }));
 
   let userContent = userCommand;
   if (files.length > 0) {
@@ -973,7 +970,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   const sentences = aiResponse.match(/[^.!?]+[.!?]+/g) || [aiResponse];
   for (const sentence of sentences) {
     res.write(`data: ${JSON.stringify({ type: 'chunk', text: sentence })}\n\n`);
-    await new Promise(r => setTimeout(r, 10)); // small delay for realism
+    await new Promise(r => setTimeout(r, 10));
   }
 
   // Final done event
@@ -987,11 +984,11 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   })}\n\n`);
   res.end();
 
-  // Cleanup temp files
+  // Cleanup
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 
-// ---------- DEPLOY (unchanged) ----------
+// ---------- DEPLOY (unchanged from your previous) ----------
 const createDOMPurify = require('dompurify');
 const { JSDOM } = require('jsdom');
 const window = new JSDOM('').window;
@@ -1067,18 +1064,6 @@ app.post('/api/deploy', authenticateUser, asyncHandler(async (req, res) => {
     liveUrl: dataUri,
     message: 'Preview available via data URI. For a permanent URL, configure Vercel/Netlify.'
   });
-}));
-
-// ---------- TEST EMAIL ----------
-app.get('/api/test-email', authenticateUser, asyncHandler(async (req, res) => {
-  if (!transporter) return res.status(503).json({ success: false, message: 'SMTP not configured' });
-  await transporter.sendMail({
-    from: process.env.SMTP_USER,
-    to: req.currentUser.email,
-    subject: 'Axelr Test Email',
-    text: 'SMTP is working!'
-  });
-  res.json({ success: true });
 }));
 
 // ---------- 404 & ERROR ----------
