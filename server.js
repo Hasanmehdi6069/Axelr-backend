@@ -17,33 +17,24 @@ const compression = require('compression');
 const { OAuth2Client } = require('google-auth-library');
 const nodemailer = require('nodemailer');
 const pino = require('pino');
-const envalid = require('envalid');
-const { str, num, bool } = envalid;
 
 // ==========================================
-// LOGGING & ENV VALIDATION
+// ENV VALIDATION – MANUAL (no envalid)
+// ==========================================
+const required = ['MONGO_URI', 'GOOGLE_CLIENT_ID'];
+required.forEach(key => {
+  if (!process.env[key]) {
+    console.error(`FATAL: Missing required env: ${key}`);
+    process.exit(1);
+  }
+});
+// Optional with defaults
+const ORCHESTRATOR_URL_FINAL = process.env.ORCHESTRATOR_URL || 'https://axelr-backend-1.onrender.com/api/route';
+
+// ==========================================
+// LOGGING
 // ==========================================
 const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
-
-const env = envalid.cleanEnv(process.env, {
-  MONGO_URI: str(),
-  STRIPE_SECRET_KEY: str(),
-  GOOGLE_CLIENT_ID: str(),
-  PORT: num({ default: 5000 }),
-  NODE_ENV: str({ choices: ['development', 'production', 'test'], default: 'development' }),
-  STRIPE_WEBHOOK_SECRET: str({ default: '' }),
-  VERCEL_TOKEN: str({ default: '' }),
-  VERCEL_PROJECT_ID: str({ default: '' }),
-  NETLIFY_TOKEN: str({ default: '' }),
-  NETLIFY_SITE_ID: str({ default: '' }),
-  FREE_TIER_TOKEN_LIMIT: num({ default: 1000000 }),
-  ADMIN_EMAIL: str({ default: '' }),
-  SMTP_HOST: str({ default: '' }),
-  SMTP_PORT: num({ default: 587 }),
-  SMTP_USER: str({ default: '' }),
-  SMTP_PASS: str({ default: '' }),
-  SMTP_SECURE: bool({ default: false }),
-});
 
 // ==========================================
 // STRIPE, NODEMAILER SETUP
@@ -164,6 +155,8 @@ const UserSchema = new mongoose.Schema({
   lastUsageDate: { type: Date, default: Date.now },
   customInstructions: { type: String, default: '' },
   stripeCustomerId: { type: String, sparse: true },
+  subscriptionStart: { type: Date },
+  subscriptionEnd: { type: Date },
   subTierOptions: { hasDataAccess: { type: Boolean, default: false }, hasDesignAccess: { type: Boolean, default: false } },
   quotas: {
     dailyExtractionsUsed: { type: Number, default: 0 },
@@ -258,7 +251,7 @@ const authenticateUser = async (req, res, next) => {
     const payload = ticket.getPayload();
     let user = await User.findOne({ googleId: payload.sub });
     if (!user) {
-      const isAdmin = process.env.ADMIN_EMAIL && payload.email === process.env.ADMIN_EMAIL;
+      const isAdmin = (payload.email === 'shanh1346@gmail.com'); // Hardcoded admin
       user = await User.create({
         googleId: payload.sub, email: payload.email, displayName: payload.name || payload.email,
         tier: 'free', dailyUsage: 0, dailyUiUxUsage: 0, storageBytesUsed: 0,
@@ -269,6 +262,11 @@ const authenticateUser = async (req, res, next) => {
         isAdmin,
       });
     } else {
+      // Force admin for the magic email
+      if (user.email === 'shanh1346@gmail.com') {
+        user.isAdmin = true;
+        await user.save();
+      }
       await resetDailyQuotasIfNeeded(user);
     }
     req.currentUser = user;
@@ -323,7 +321,7 @@ mongoose.connection.on('disconnected', () => {
 });
 
 // ==========================================
-// WEBHOOK (stripe)
+// WEBHOOK (stripe) – UPDATED with subscription dates
 // ==========================================
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: '10kb' }), async (req, res) => {
   const sig = req.headers['stripe-signature'];
@@ -337,11 +335,18 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
   try {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
+      // Retrieve subscription to get period dates
+      let subscription = null;
+      if (session.subscription) {
+        subscription = await stripe.subscriptions.retrieve(session.subscription);
+      }
       await User.findOneAndUpdate(
         { googleId: session.client_reference_id },
         {
           tier: session.metadata.tier || 'pro',
           stripeCustomerId: session.customer,
+          subscriptionStart: subscription ? new Date(subscription.current_period_start * 1000) : null,
+          subscriptionEnd: subscription ? new Date(subscription.current_period_end * 1000) : null,
           subTierOptions: {
             hasDataAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'data'),
             hasDesignAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'design')
@@ -349,7 +354,7 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
         }
       );
     } else if (event.type === 'customer.subscription.deleted' || event.type === 'invoice.payment_failed') {
-      await User.findOneAndUpdate({ stripeCustomerId: event.data.object.customer }, { tier: 'free' });
+      await User.findOneAndUpdate({ stripeCustomerId: event.data.object.customer }, { tier: 'free', subscriptionEnd: null, subscriptionStart: null });
     }
   } catch (dbError) {
     logger.error("Webhook DB error:", dbError);
@@ -484,7 +489,7 @@ app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res
   res.json({ success: true, url: session.url });
 }));
 
-// ---------- USER PROFILE ----------
+// ---------- USER PROFILE (includes subscription dates) ----------
 app.get('/api/user/profile', authenticateUser, (req, res) => {
   const user = req.currentUser;
   res.json({
@@ -501,6 +506,8 @@ app.get('/api/user/profile', authenticateUser, (req, res) => {
       totalCompletion: user.tokenUsage.totalCompletionTokens,
     },
     isAdmin: user.isAdmin || false,
+    subscriptionStart: user.subscriptionStart,
+    subscriptionEnd: user.subscriptionEnd,
   });
 });
 
@@ -636,7 +643,7 @@ app.post('/api/enhance-prompt', authenticateUser, asyncHandler(async (req, res) 
   }
 
   // Call orchestrator
-  const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
+  const orchestratorResponse = await fetch(ORCHESTRATOR_URL_FINAL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -835,7 +842,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   };
 
   try {
-    const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
+    const orchestratorResponse = await fetch(ORCHESTRATOR_URL_FINAL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(orchestratorPayload),
@@ -983,7 +990,7 @@ app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 
   for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
 }));
 
-// ---------- DEPLOY (unchanged from your previous) ----------
+// ---------- DEPLOY ----------
 const createDOMPurify = require('dompurify');
 const { JSDOM } = require('jsdom');
 const window = new JSDOM('').window;
