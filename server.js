@@ -1,7 +1,7 @@
 // ==========================================
 // CRITICAL: ALL REQUIRES AT THE ABSOLUTE TOP
 // ==========================================
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://usr_3Gtw9kQGyLgtfOlXbHsUxOWXe7R.ngrok.io/api/route';
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'https://axelr-backend-1.onrender.com/api/route';
 const crypto = require('crypto');
 require('dotenv').config();
 
