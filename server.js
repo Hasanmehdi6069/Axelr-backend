@@ -1,7 +1,7 @@
 // ==========================================
 // CRITICAL: ALL REQUIRES AT THE ABSOLUTE TOP
 // ==========================================
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:5001/api/route';
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://usr_3Gtw9kQGyLgtfOlXbHsUxOWXe7R.ngrok.io/api/route';
 const crypto = require('crypto');
 require('dotenv').config();
 
@@ -44,11 +44,6 @@ const env = envalid.cleanEnv(process.env, {
   SMTP_PASS: str({ default: '' }),
   SMTP_SECURE: bool({ default: false }),
 });
-
-// ==========================================
-// ORCHESTRATOR BRIDGE
-// ==========================================
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'http://localhost:5001/api/route';
 
 // ==========================================
 // STRIPE, NODEMAILER SETUP
