@@ -606,38 +606,41 @@ app.get('/api/health', (req, res) => {
     uptime: process.uptime()
   });
 });
-// ---------- ADMIN METRICS (enhanced) ----------
+// ---------- ADMIN METRICS ----------
 app.get('/api/admin/metrics', authenticateUser, asyncHandler(async (req, res) => {
-  if (req.currentUser.email !== "shanh1346@gmail.com") {
+  if (!req.currentUser.isAdmin) {
     return res.status(403).json({ success: false, code: 'UNAUTHORIZED', message: 'Admin access required.' });
   }
-  const [totalUsers, proUsers, designerUsers, totalChats, usageData] = await Promise.all([
+  const [totalUsers, proUsers, designerUsers, totalChats, usageData, tokenData] = await Promise.all([
     User.countDocuments(),
     User.countDocuments({ tier: 'pro' }),
     User.countDocuments({ tier: 'business' }),
     ChatSession.countDocuments(),
-    User.aggregate([{ $group: { _id: null, totalQueries: { $sum: "$dailyUsage" }, totalBytes: { $sum: "$storageBytesUsed" } } }])
+    User.aggregate([{ $group: { _id: null, totalQueries: { $sum: "$dailyUsage" }, totalBytes: { $sum: "$storageBytesUsed" } } }]),
+    User.aggregate([{ $group: { _id: null, totalPromptTokens: { $sum: "$tokenUsage.totalPromptTokens" }, totalCompletionTokens: { $sum: "$tokenUsage.totalCompletionTokens" } } }])
   ]);
   const metrics = usageData[0] || { totalQueries: 0, totalBytes: 0 };
-  // Token usage (simulate from env or calculate)
-  const limit = parseInt(process.env.TOKEN_LIMIT) || 1000000;
-  const total = metrics.totalQueries * 100; // rough estimate
-  const remaining = Math.max(limit - total, 0);
+  const tokens = tokenData[0] || { totalPromptTokens: 0, totalCompletionTokens: 0 };
+  const totalTokens = tokens.totalPromptTokens + tokens.totalCompletionTokens;
+  const freeLimit = process.env.FREE_TIER_TOKEN_LIMIT || 1000000;
   res.json({
     success: true,
     totalUsers,
     proUsers,
     designerUsers,
     totalChats,
-    metrics: {
-      geminiStatus: 'Operational',
-      dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected'
-    },
-    tokenUsage: { total, remaining, limit }
+    metrics,
+    tokenUsage: {
+      prompt: tokens.totalPromptTokens,
+      completion: tokens.totalCompletionTokens,
+      total: totalTokens,
+      remaining: Math.max(0, freeLimit - totalTokens),
+      limit: freeLimit,
+    }
   });
 }));
 
-// ---------- STRIPE CHECKOUT (robust) ----------
+// ---------- STRIPE CHECKOUT ----------
 app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res) => {
   if (!stripe) {
     return res.status(503).json({ success: false, code: 'PAYMENT_UNAVAILABLE', message: 'Payment service unavailable.' });
@@ -652,27 +655,22 @@ app.post('/api/billing/checkout', authenticateUser, asyncHandler(async (req, res
     else if (subTier === 'data') { price = 1600; name = 'Business Data'; }
     else if (subTier === 'design') { price = 1600; name = 'Business Design'; }
   }
-
-  // Fallback origin if header missing
-  const origin = req.headers.origin || process.env.CLIENT_APP_URL || 'https://axelr.in';
-  const successUrl = new URL('/?billing=success', origin).href; // index.html removed to avoid double slash
-  const cancelUrl = new URL('/?billing=cancelled', origin).href;
-
-  try {
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'subscription',
-      client_reference_id: req.currentUser.googleId,
-      metadata: { tier, subTier },
-      line_items: [{ price_data: { currency: 'usd', product_data: { name }, unit_amount: price, recurring: { interval: 'month' } }, quantity: 1 }],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-    });
-    res.json({ success: true, url: session.url });
-  } catch (stripeErr) {
-    console.error('Stripe session error:', stripeErr);
-    res.status(500).json({ success: false, code: 'STRIPE_ERROR', message: stripeErr.message || 'Checkout failed.' });
+  const origin = req.headers.origin;
+  if (!origin) {
+    return res.status(400).json({ success: false, code: 'INVALID_ORIGIN', message: 'Missing origin header.' });
   }
+  const successUrl = new URL('/index.html?billing=success', origin).href;
+  const cancelUrl = new URL('/index.html?billing=cancelled', origin).href;
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ['card'],
+    mode: 'subscription',
+    client_reference_id: req.currentUser.googleId,
+    metadata: { tier, subTier },
+    line_items: [{ price_data: { currency: 'usd', product_data: { name }, unit_amount: price, recurring: { interval: 'month' } }, quantity: 1 }],
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  });
+  res.json({ success: true, url: session.url });
 }));
 // ==========================================
 // USER PROFILE
