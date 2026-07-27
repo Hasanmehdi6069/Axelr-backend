@@ -1,5 +1,5 @@
 // ==========================================
-// AXELR AI - PRODUCTION SERVER v4.0
+// AXELR AI - PRODUCTION SERVER v4.1.0
 // ==========================================
 const express = require('express');
 const cors = require('cors');
@@ -28,7 +28,8 @@ if (missing.length) {
     process.exit(1);
 }
 
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL;
+// Normalize orchestrator URL - remove trailing slash if present
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL.replace(/\/+$/, '');
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 
 // ==========================================
@@ -55,6 +56,8 @@ const allowedOrigins = [
     'https://axelr.in',
     'https://www.axelr.in',
     'https://axelr-frontend.pages.dev',
+    'http://localhost:3000',
+    'http://localhost:5000',
     process.env.CLIENT_APP_URL
 ].filter(Boolean);
 
@@ -63,6 +66,7 @@ app.use(cors({
         if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
             cb(null, true);
         } else {
+            logger.warn(`CORS blocked: ${origin}`);
             cb(new Error('CORS blocked'), false);
         }
     },
@@ -89,10 +93,10 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "https://www.googletagmanager.com"],
             frameSrc: ["'self'", "https://accounts.google.com"],
             connectSrc: ["'self'", "https://api.netlify.com", "https://api.vercel.com", "https://generativelanguage.googleapis.com", "https://openrouter.ai"],
-            imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
+            imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://*.googleapis.com"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
             objectSrc: ["'none'"],
@@ -258,6 +262,7 @@ const authenticateUser = async (req, res, next) => {
                 },
                 isAdmin,
             });
+            logger.info(`🆕 New user created: ${payload.email}`);
         } else {
             if (user.isAdmin !== isAdmin) {
                 user.isAdmin = isAdmin;
@@ -291,7 +296,7 @@ const authenticateUser = async (req, res, next) => {
 };
 
 // ==========================================
-// STRIPE WEBHOOK (Fixed)
+// STRIPE WEBHOOK
 // ==========================================
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: '10kb' }), async (req, res) => {
     try {
@@ -303,13 +308,11 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
             return res.json({ received: true, note: 'Stripe disabled' });
         }
 
-        // Try to verify signature if webhook secret exists
         if (process.env.STRIPE_WEBHOOK_SECRET && process.env.STRIPE_WEBHOOK_SECRET !== '') {
             try {
                 event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
             } catch (err) {
                 logger.warn('Webhook signature verification failed:', err.message);
-                // Still try to parse for development
                 event = JSON.parse(req.body.toString());
             }
         } else {
@@ -377,7 +380,7 @@ async function testOrchestratorHealth() {
 }
 
 // ==========================================
-// ADMIN METRICS (Fixed)
+// ADMIN METRICS
 // ==========================================
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
     try {
@@ -685,7 +688,7 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
 
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
-                const response = await fetch(ORCHESTRATOR_URL, {
+                const response = await fetch(`${ORCHESTRATOR_URL}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -785,7 +788,7 @@ function cleanAssistantMessage(text) {
 }
 
 // ==========================================
-// EXTRACT (Streaming)
+// EXTRACT - FIXED: Proper JSON response
 // ==========================================
 app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req, res) => {
     const files = req.files || [];
@@ -902,10 +905,10 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             }
         }
 
-        // --- Call orchestrator with retry ---
+        // --- Call orchestrator ---
         let aiResponse = '';
-        let errorOccurred = false;
         let orchestratorSuccess = false;
+        let providerInfo = '';
 
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
@@ -921,7 +924,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
                     temperature: 0.2
                 };
 
-                const response = await fetch(ORCHESTRATOR_URL, {
+                const response = await fetch(`${ORCHESTRATOR_URL}`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(orchestratorPayload),
@@ -936,6 +939,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
                 if (result.success && result.text) {
                     aiResponse = result.text;
                     orchestratorSuccess = true;
+                    providerInfo = result.provider || 'unknown';
                     logger.info(`Orchestrator used ${result.provider} (${result.model_used}) in ${result.latency_ms}ms`);
                     break;
                 }
@@ -947,7 +951,6 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
         }
 
         if (!orchestratorSuccess) {
-            errorOccurred = true;
             aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
             // Rollback quota
             const rollbackFields = {
@@ -1040,7 +1043,6 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             }
         } catch (saveErr) {
             logger.error('Session save error:', saveErr.message);
-            errorOccurred = true;
         }
 
         await cleanupFiles();
@@ -1051,7 +1053,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             sessionId: sessionSaved ? sessionIdOut : null,
             structuredData: structured,
             filename: sessionSaved ? `${filenameOut}.csv` : 'Export.csv',
-            error: errorOccurred,
+            provider: providerInfo,
         });
 
     } catch (err) {
@@ -1062,7 +1064,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
 });
 
 // ==========================================
-// DEPLOY (Fixed with proper error handling)
+// DEPLOY
 // ==========================================
 const { JSDOM } = require('jsdom');
 const createDOMPurify = require('dompurify');
