@@ -1,10 +1,6 @@
 // ==========================================
-// REPLACE entire server.js with this production-grade version
+// AXELR AI - PRODUCTION SERVER v4.0
 // ==========================================
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL || 'https://axelr-backend-1.onrender.com/api/route';
-const crypto = require('crypto');
-require('dotenv').config();
-
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
@@ -15,62 +11,64 @@ const fs = require('fs').promises;
 const os = require('os');
 const compression = require('compression');
 const { OAuth2Client } = require('google-auth-library');
-const pino = require('pino');
-const envalid = require('envalid');
-const { str, num, bool } = envalid;
+const crypto = require('crypto');
+require('dotenv').config();
 
-const logger = pino({ level: process.env.LOG_LEVEL || 'info' });
-
-// ==========================================
-// ENV VALIDATION
-// ==========================================
-const env = envalid.cleanEnv(process.env, {
-  MONGO_URI: str(),
-  STRIPE_SECRET_KEY: str({ default: '' }),
-  GOOGLE_CLIENT_ID: str(),
-  PORT: num({ default: 5000 }),
-  NODE_ENV: str({ choices: ['development', 'production', 'test'], default: 'development' }),
-  STRIPE_WEBHOOK_SECRET: str({ default: '' }),
-  FREE_TIER_TOKEN_LIMIT: num({ default: 1000000 }),
-  ADMIN_EMAIL: str({ default: '' }),
-});
+const app = express();
+const PORT = process.env.PORT || 5000;
+const logger = console;
 
 // ==========================================
-// STRIPE SETUP (graceful fallback)
+// ENVIRONMENT VALIDATION
+// ==========================================
+const REQUIRED_ENV = ['MONGO_URI', 'GOOGLE_CLIENT_ID', 'ORCHESTRATOR_URL'];
+const missing = REQUIRED_ENV.filter(key => !process.env[key]);
+if (missing.length) {
+    logger.error(`❌ Missing required env vars: ${missing.join(', ')}`);
+    process.exit(1);
+}
+
+const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL;
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+
+// ==========================================
+// STRIPE - Graceful Fallback
 // ==========================================
 let stripe = null;
 try {
-  if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== '') {
-    stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-    logger.info('✅ Stripe initialized');
-  } else {
-    logger.warn('⚠️ STRIPE_SECRET_KEY not set – payment features disabled');
-  }
-} catch (_) {
-  logger.warn('⚠️ Stripe module not available – payment features disabled');
+    if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== '') {
+        stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+        logger.info('✅ Stripe initialized');
+    } else {
+        logger.warn('⚠️ STRIPE_SECRET_KEY not set - payment features disabled');
+    }
+} catch (e) {
+    logger.warn('⚠️ Stripe unavailable - payment features disabled');
 }
 
 // ==========================================
-// EXPRESS APP
+// MIDDLEWARE
 // ==========================================
-const app = express();
 app.set('trust proxy', 1);
 
 const allowedOrigins = [
-  'https://axelr.in', 'https://www.axelr.in',
-  'https://axelr-frontend.pages.dev',
-  process.env.CLIENT_APP_URL
+    'https://axelr.in',
+    'https://www.axelr.in',
+    'https://axelr-frontend.pages.dev',
+    process.env.CLIENT_APP_URL
 ].filter(Boolean);
 
 app.use(cors({
-  origin: (origin, cb) => {
-    if (process.env.NODE_ENV === 'development') { cb(null, true); return; }
-    if (!origin || allowedOrigins.includes(origin)) cb(null, true);
-    else cb(new Error('CORS blocked'), false);
-  },
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  credentials: true,
-  maxAge: 86400
+    origin: (origin, cb) => {
+        if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+            cb(null, true);
+        } else {
+            cb(new Error('CORS blocked'), false);
+        }
+    },
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    credentials: true,
+    maxAge: 86400
 }));
 
 app.use(compression());
@@ -78,41 +76,49 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ==========================================
-// HELMET (CSP with nonce)
+// HELMET - Secure CSP
 // ==========================================
 app.use((req, res, next) => {
-  res.locals.nonce = crypto.randomBytes(16).toString('base64');
-  next();
+    res.locals.nonce = crypto.randomBytes(16).toString('base64');
+    next();
 });
+
 app.use(helmet({
-  crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
-  crossOriginResourcePolicy: { policy: "cross-origin" },
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
-      frameSrc: ["'self'", "https://accounts.google.com"],
-      connectSrc: ["'self'", "https://api.netlify.com", "https://generativelanguage.googleapis.com", "https://openrouter.ai"],
-      imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      objectSrc: ["'none'"],
-      baseUri: ["'self'"],
-      formAction: ["'self'"],
+    crossOriginOpenerPolicy: { policy: "same-origin-allow-popups" },
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            frameSrc: ["'self'", "https://accounts.google.com"],
+            connectSrc: ["'self'", "https://api.netlify.com", "https://api.vercel.com", "https://generativelanguage.googleapis.com", "https://openrouter.ai"],
+            imgSrc: ["'self'", "data:", "https://*.googleusercontent.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            objectSrc: ["'none'"],
+            baseUri: ["'self'"],
+            formAction: ["'self'"],
+        },
     },
-  },
-  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true }
+    hsts: { maxAge: 31536000, includeSubDomains: true, preload: true }
 }));
 
 // ==========================================
 // RATE LIMITING
 // ==========================================
 const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  message: { success: false, code: 'RATE_LIMIT', message: "Too many requests." },
+    windowMs: 15 * 60 * 1000,
+    max: 200,
+    message: { success: false, code: 'RATE_LIMIT', message: "Too many requests. Please slow down." },
 });
 app.use('/api/', globalLimiter);
+
+const deployLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000,
+    max: 20,
+    message: { success: false, code: 'DEPLOY_LIMIT', message: "Deployment limit reached. Try again in an hour." },
+});
+app.use('/api/deploy', deployLimiter);
 
 // ==========================================
 // DATABASE SCHEMAS
@@ -120,62 +126,62 @@ app.use('/api/', globalLimiter);
 mongoose.set('strictQuery', true);
 
 const UserSchema = new mongoose.Schema({
-  googleId: { type: String, unique: true, required: true },
-  email: { type: String, required: true },
-  displayName: String,
-  tier: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
-  dailyUsage: { type: Number, default: 0 },
-  dailyUiUxUsage: { type: Number, default: 0 },
-  storageBytesUsed: { type: Number, default: 0 },
-  lastUsageDate: { type: Date, default: Date.now },
-  customInstructions: { type: String, default: '' },
-  stripeCustomerId: { type: String, sparse: true },
-  stripeSubscriptionId: { type: String, sparse: true },
-  subTierOptions: { 
-    hasDataAccess: { type: Boolean, default: false }, 
-    hasDesignAccess: { type: Boolean, default: false } 
-  },
-  quotas: {
-    dailyExtractionsUsed: { type: Number, default: 0 },
-    dailyGenerationsUsed: { type: Number, default: 0 },
-    dailyEnhancementsUsed: { type: Number, default: 0 },
-    monthlyEnhancementsLimit: { type: Number, default: 3 },
-    lastQuotaResetTimestamp: { type: Date, default: Date.now }
-  },
-  tokenUsage: {
-    totalPromptTokens: { type: Number, default: 0 },
-    totalCompletionTokens: { type: Number, default: 0 },
-    dailyPromptTokens: { type: Number, default: 0 },
-    dailyCompletionTokens: { type: Number, default: 0 },
-    lastTokenReset: { type: Date, default: Date.now },
-  },
-  isAdmin: { type: Boolean, default: false },
+    googleId: { type: String, unique: true, required: true },
+    email: { type: String, required: true },
+    displayName: String,
+    tier: { type: String, enum: ['free', 'pro', 'business'], default: 'free' },
+    dailyUsage: { type: Number, default: 0 },
+    dailyUiUxUsage: { type: Number, default: 0 },
+    storageBytesUsed: { type: Number, default: 0 },
+    lastUsageDate: { type: Date, default: Date.now },
+    customInstructions: { type: String, default: '' },
+    stripeCustomerId: { type: String, sparse: true },
+    stripeSubscriptionId: { type: String, sparse: true },
+    subTierOptions: {
+        hasDataAccess: { type: Boolean, default: false },
+        hasDesignAccess: { type: Boolean, default: false }
+    },
+    quotas: {
+        dailyExtractionsUsed: { type: Number, default: 0 },
+        dailyGenerationsUsed: { type: Number, default: 0 },
+        dailyEnhancementsUsed: { type: Number, default: 0 },
+        monthlyEnhancementsLimit: { type: Number, default: 3 },
+        lastQuotaReset: { type: Date, default: Date.now }
+    },
+    tokenUsage: {
+        totalPromptTokens: { type: Number, default: 0 },
+        totalCompletionTokens: { type: Number, default: 0 },
+        dailyPromptTokens: { type: Number, default: 0 },
+        dailyCompletionTokens: { type: Number, default: 0 },
+        lastTokenReset: { type: Date, default: Date.now },
+    },
+    isAdmin: { type: Boolean, default: false },
 }, { timestamps: true });
 
 const ChatSessionSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  filename: { type: String, required: true },
-  workspace: { type: String, enum: ['data', 'design', 'general'], default: 'data' },
-  status: { type: String, enum: ['active', 'archived', 'trashed'], default: 'active' },
-  isPinned: { type: Boolean, default: false },
-  messages: [{
-    role: { type: String, required: true },
-    text: { type: String, required: true },
-    attachedFiles: { type: [String], default: [] },
-    variants: { type: [String], default: [] },
-    activeVariant: { type: Number, default: 0 },
-    createdAt: { type: Date, default: Date.now }
-  }],
-  structuredData: { type: Array, default: [] },
-  createdAt: { type: Date, default: Date.now },
-  trashedAt: { type: Date }
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    filename: { type: String, required: true },
+    workspace: { type: String, enum: ['data', 'design', 'general'], default: 'data' },
+    status: { type: String, enum: ['active', 'archived', 'trashed'], default: 'active' },
+    isPinned: { type: Boolean, default: false },
+    messages: [{
+        role: { type: String, required: true },
+        text: { type: String, required: true },
+        attachedFiles: { type: [String], default: [] },
+        variants: { type: [String], default: [] },
+        activeVariant: { type: Number, default: 0 },
+        createdAt: { type: Date, default: Date.now }
+    }],
+    structuredData: { type: Array, default: [] },
+    createdAt: { type: Date, default: Date.now },
+    trashedAt: { type: Date }
 }, { timestamps: true });
 
 const BugReportSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  type: { type: String, enum: ['help', 'feedback'], required: true },
-  description: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    type: { type: String, enum: ['help', 'feedback'], required: true },
+    description: { type: String, required: true },
+    createdAt: { type: Date, default: Date.now }
 });
 
 const User = mongoose.model('User', UserSchema);
@@ -183,844 +189,880 @@ const ChatSession = mongoose.model('ChatSession', ChatSessionSchema);
 const BugReport = mongoose.model('BugReport', BugReportSchema);
 
 // ==========================================
-// DB CONNECTION
+// DATABASE CONNECTION with retry
 // ==========================================
-async function connectDB() {
-  try {
-    await mongoose.connect(process.env.MONGO_URI, {
-      maxPoolSize: 10,
-      serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      family: 4
-    });
-    logger.info('🗄️ DB CONNECTED');
-  } catch (err) {
-    logger.error('💥 DB CONNECTION FAILED:', err);
-    setTimeout(connectDB, 5000);
-  }
+async function connectDB(retries = 5) {
+    for (let i = 0; i < retries; i++) {
+        try {
+            await mongoose.connect(process.env.MONGO_URI, {
+                maxPoolSize: 10,
+                serverSelectionTimeoutMS: 5000,
+                socketTimeoutMS: 45000,
+                family: 4
+            });
+            logger.info('🗄️ DB CONNECTED');
+            return;
+        } catch (err) {
+            logger.error(`DB connection attempt ${i + 1}/${retries} failed:`, err.message);
+            await new Promise(r => setTimeout(r, 2000));
+        }
+    }
+    logger.error('💥 CRITICAL: Failed to connect to database after all retries');
+    process.exit(1);
 }
 connectDB();
 
 // ==========================================
-// AUTH
+// AUTHENTICATION
 // ==========================================
-const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID || 'dummy');
-
-async function resetDailyQuotasIfNeeded(user) {
-  const now = new Date();
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-  const lastQuotaResetDay = user.quotas.lastQuotaResetTimestamp 
-    ? new Date(Date.UTC(
-        user.quotas.lastQuotaResetTimestamp.getUTCFullYear(),
-        user.quotas.lastQuotaResetTimestamp.getUTCMonth(),
-        user.quotas.lastQuotaResetTimestamp.getUTCDate()
-      )) 
-    : new Date(0);
-  const lastTokenResetDay = user.tokenUsage.lastTokenReset 
-    ? new Date(Date.UTC(
-        user.tokenUsage.lastTokenReset.getUTCFullYear(),
-        user.tokenUsage.lastTokenReset.getUTCMonth(),
-        user.tokenUsage.lastTokenReset.getUTCDate()
-      )) 
-    : new Date(0);
-
-  if (today > lastQuotaResetDay) {
-    user.dailyUsage = 0;
-    user.dailyUiUxUsage = 0;
-    user.storageBytesUsed = 0;
-    user.lastUsageDate = new Date();
-    user.quotas.dailyExtractionsUsed = 0;
-    user.quotas.dailyGenerationsUsed = 0;
-    user.quotas.dailyEnhancementsUsed = 0;
-    user.quotas.lastQuotaResetTimestamp = new Date();
-  }
-  if (today > lastTokenResetDay) {
-    user.tokenUsage.dailyPromptTokens = 0;
-    user.tokenUsage.dailyCompletionTokens = 0;
-    user.tokenUsage.lastTokenReset = new Date();
-  }
-  await user.save();
-  return user;
-}
+const googleClient = new OAuth2Client(GOOGLE_CLIENT_ID);
 
 const authenticateUser = async (req, res, next) => {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) {
-      return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Authentication required.' });
-    }
-    const token = authHeader.split(' ')[1];
-    const ticket = await googleClient.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
-    const payload = ticket.getPayload();
-    let user = await User.findOne({ googleId: payload.sub });
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader?.startsWith('Bearer ')) {
+            return res.status(401).json({ success: false, code: 'AUTH_REQUIRED', message: 'Authentication required.' });
+        }
+        const token = authHeader.split(' ')[1];
+        const ticket = await googleClient.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
+        const payload = ticket.getPayload();
+        
+        let user = await User.findOne({ googleId: payload.sub });
+        const isAdmin = payload.email === 'shanh1346@gmail.com' || payload.email === process.env.ADMIN_EMAIL;
 
-    const isAdmin = payload.email === process.env.ADMIN_EMAIL || payload.email === 'shanh1346@gmail.com';
-
-    if (!user) {
-      user = await User.create({
-        googleId: payload.sub,
-        email: payload.email,
-        displayName: payload.name || payload.email,
-        tier: 'free',
-        dailyUsage: 0,
-        dailyUiUxUsage: 0,
-        storageBytesUsed: 0,
-        lastUsageDate: new Date(),
-        customInstructions: '',
-        subTierOptions: { hasDataAccess: false, hasDesignAccess: false },
-        quotas: {
-          dailyExtractionsUsed: 0,
-          dailyGenerationsUsed: 0,
-          dailyEnhancementsUsed: 0,
-          monthlyEnhancementsLimit: 3,
-          lastQuotaResetTimestamp: new Date()
-        },
-        tokenUsage: {
-          totalPromptTokens: 0,
-          totalCompletionTokens: 0,
-          dailyPromptTokens: 0,
-          dailyCompletionTokens: 0,
-          lastTokenReset: new Date()
-        },
-        isAdmin,
-      });
-    } else {
-      if (user.isAdmin !== isAdmin) {
-        user.isAdmin = isAdmin;
-        await user.save();
-      }
-      await resetDailyQuotasIfNeeded(user);
+        if (!user) {
+            user = await User.create({
+                googleId: payload.sub,
+                email: payload.email,
+                displayName: payload.name || payload.email,
+                tier: 'free',
+                dailyUsage: 0,
+                dailyUiUxUsage: 0,
+                storageBytesUsed: 0,
+                lastUsageDate: new Date(),
+                customInstructions: '',
+                subTierOptions: { hasDataAccess: false, hasDesignAccess: false },
+                quotas: {
+                    dailyExtractionsUsed: 0,
+                    dailyGenerationsUsed: 0,
+                    dailyEnhancementsUsed: 0,
+                    monthlyEnhancementsLimit: 3,
+                    lastQuotaReset: new Date()
+                },
+                tokenUsage: {
+                    totalPromptTokens: 0,
+                    totalCompletionTokens: 0,
+                    dailyPromptTokens: 0,
+                    dailyCompletionTokens: 0,
+                    lastTokenReset: new Date()
+                },
+                isAdmin,
+            });
+        } else {
+            if (user.isAdmin !== isAdmin) {
+                user.isAdmin = isAdmin;
+                await user.save();
+            }
+            // Reset daily quotas
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            const lastReset = user.quotas.lastQuotaReset ? new Date(user.quotas.lastQuotaReset) : new Date(0);
+            const lastResetDay = new Date(lastReset.getFullYear(), lastReset.getMonth(), lastReset.getDate());
+            
+            if (today > lastResetDay) {
+                user.dailyUsage = 0;
+                user.dailyUiUxUsage = 0;
+                user.quotas.dailyExtractionsUsed = 0;
+                user.quotas.dailyGenerationsUsed = 0;
+                user.quotas.dailyEnhancementsUsed = 0;
+                user.quotas.lastQuotaReset = new Date();
+                user.tokenUsage.dailyPromptTokens = 0;
+                user.tokenUsage.dailyCompletionTokens = 0;
+                user.tokenUsage.lastTokenReset = new Date();
+                await user.save();
+            }
+        }
+        req.currentUser = user;
+        next();
+    } catch (error) {
+        logger.error('[AUTH_FAIL]', error.message);
+        res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session.' });
     }
-    req.currentUser = user;
-    next();
-  } catch (error) {
-    logger.error('[AUTH_FAIL]', error);
-    res.status(401).json({ success: false, code: 'SESSION_EXPIRED', message: 'Invalid or expired session.' });
-  }
 };
 
 // ==========================================
-// STRIPE WEBHOOK (fixed signature verification)
+// STRIPE WEBHOOK (Fixed)
 // ==========================================
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: '10kb' }), async (req, res) => {
-  const sig = req.headers['stripe-signature'];
-  let event;
-  try {
-    if (!stripe) throw new Error('Stripe not initialized');
-    // Only verify signature if webhook secret is configured
-    if (process.env.STRIPE_WEBHOOK_SECRET && process.env.STRIPE_WEBHOOK_SECRET !== '') {
-      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    } else {
-      // Fallback: parse without verification (development only)
-      event = JSON.parse(req.body.toString());
-    }
-  } catch (err) {
-    logger.warn('Webhook signature verification failed:', err.message);
-    // Still try to parse the event for development
     try {
-      event = JSON.parse(req.body.toString());
-    } catch (_) {
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-  }
+        const sig = req.headers['stripe-signature'];
+        let event;
+        
+        if (!stripe) {
+            logger.warn('Stripe not initialized, webhook ignored');
+            return res.json({ received: true, note: 'Stripe disabled' });
+        }
 
-  try {
-    if (event.type === 'checkout.session.completed') {
-      const session = event.data.object;
-      const user = await User.findOne({ googleId: session.client_reference_id });
-      if (user) {
-        user.tier = session.metadata.tier || 'pro';
-        user.stripeCustomerId = session.customer;
-        if (session.subscription) user.stripeSubscriptionId = session.subscription;
-        user.subTierOptions = {
-          hasDataAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'data'),
-          hasDesignAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'design')
-        };
-        await user.save();
-        logger.info(`✅ User ${user.email} upgraded to ${user.tier}`);
-      }
-    } else if (event.type === 'customer.subscription.deleted') {
-      const subscription = event.data.object;
-      await User.findOneAndUpdate(
-        { stripeSubscriptionId: subscription.id },
-        { tier: 'free', subTierOptions: { hasDataAccess: false, hasDesignAccess: false } }
-      );
-      logger.info(`🗑️ Subscription cancelled for ${subscription.customer}`);
-    } else if (event.type === 'invoice.payment_failed') {
-      // Log but don't downgrade immediately – give user grace period
-      logger.warn(`💳 Payment failed for ${event.data.object.customer}`);
+        // Try to verify signature if webhook secret exists
+        if (process.env.STRIPE_WEBHOOK_SECRET && process.env.STRIPE_WEBHOOK_SECRET !== '') {
+            try {
+                event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+            } catch (err) {
+                logger.warn('Webhook signature verification failed:', err.message);
+                // Still try to parse for development
+                event = JSON.parse(req.body.toString());
+            }
+        } else {
+            event = JSON.parse(req.body.toString());
+        }
+
+        logger.info('Webhook received:', event.type);
+
+        if (event.type === 'checkout.session.completed') {
+            const session = event.data.object;
+            const user = await User.findOne({ googleId: session.client_reference_id });
+            if (user) {
+                const tier = session.metadata.tier || 'pro';
+                user.tier = tier;
+                user.stripeCustomerId = session.customer;
+                if (session.subscription) user.stripeSubscriptionId = session.subscription;
+                user.subTierOptions = {
+                    hasDataAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'data'),
+                    hasDesignAccess: (session.metadata.subTier === 'full' || session.metadata.subTier === 'design')
+                };
+                await user.save();
+                logger.info(`✅ User ${user.email} upgraded to ${tier}`);
+            }
+        } else if (event.type === 'customer.subscription.deleted') {
+            const subscription = event.data.object;
+            await User.findOneAndUpdate(
+                { stripeSubscriptionId: subscription.id },
+                { tier: 'free', subTierOptions: { hasDataAccess: false, hasDesignAccess: false } }
+            );
+            logger.info(`🗑️ Subscription cancelled for ${subscription.customer}`);
+        }
+
+        res.json({ received: true });
+    } catch (error) {
+        logger.error('Webhook error:', error.message);
+        res.status(400).json({ received: false, error: error.message });
     }
-  } catch (dbError) {
-    logger.error("Webhook DB error:", dbError);
-  }
-  res.json({ received: true });
 });
 
 // ==========================================
 // ROUTES
 // ==========================================
 app.get('/', (req, res) => res.send('Axelr API Online'));
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'operational',
-    timestamp: new Date().toISOString(),
-    db: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
-    uptime: process.uptime(),
-    stripe: stripe !== null
-  });
+
+app.get('/api/health', async (req, res) => {
+    const dbStatus = mongoose.connection.readyState === 1 ? 'connected' : 'disconnected';
+    const orchestratorStatus = await testOrchestratorHealth();
+    res.json({
+        status: dbStatus === 'connected' ? 'operational' : 'degraded',
+        timestamp: new Date().toISOString(),
+        db: dbStatus,
+        orchestrator: orchestratorStatus,
+        stripe: stripe !== null,
+        uptime: process.uptime()
+    });
 });
 
+async function testOrchestratorHealth() {
+    try {
+        const response = await fetch(`${ORCHESTRATOR_URL}/health`, { signal: AbortSignal.timeout(3000) });
+        return response.ok ? 'connected' : 'unhealthy';
+    } catch {
+        return 'unreachable';
+    }
+}
+
 // ==========================================
-// ADMIN METRICS (fixed)
+// ADMIN METRICS (Fixed)
 // ==========================================
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
-  try {
-    if (!req.currentUser.isAdmin) {
-      return res.status(403).json({ success: false, code: 'UNAUTHORIZED', message: 'Admin access required.' });
+    try {
+        if (!req.currentUser.isAdmin) {
+            return res.status(403).json({ success: false, code: 'UNAUTHORIZED', message: 'Admin access required.' });
+        }
+
+        const [totalUsers, proUsers, designerUsers, totalChats, usageData, tokenData] = await Promise.all([
+            User.countDocuments(),
+            User.countDocuments({ tier: 'pro' }),
+            User.countDocuments({ tier: 'business' }),
+            ChatSession.countDocuments(),
+            User.aggregate([
+                { $group: { _id: null, totalQueries: { $sum: "$dailyUsage" }, totalBytes: { $sum: "$storageBytesUsed" } } }
+            ]),
+            User.aggregate([
+                { $group: { _id: null, totalPrompt: { $sum: "$tokenUsage.totalPromptTokens" }, totalCompletion: { $sum: "$tokenUsage.totalCompletionTokens" } } }
+            ])
+        ]);
+
+        const metrics = usageData[0] || { totalQueries: 0, totalBytes: 0 };
+        const tokens = tokenData[0] || { totalPrompt: 0, totalCompletion: 0 };
+        const totalTokens = tokens.totalPrompt + tokens.totalCompletion;
+        const freeLimit = process.env.FREE_TIER_TOKEN_LIMIT || 1000000;
+
+        res.json({
+            success: true,
+            totalUsers,
+            proUsers,
+            designerUsers,
+            totalChats,
+            metrics,
+            tokenUsage: {
+                prompt: tokens.totalPrompt,
+                completion: tokens.totalCompletion,
+                total: totalTokens,
+                remaining: Math.max(0, freeLimit - totalTokens),
+                limit: freeLimit,
+            }
+        });
+    } catch (err) {
+        logger.error('Admin metrics error:', err.message);
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to fetch metrics.' });
     }
-    const [totalUsers, proUsers, designerUsers, totalChats, usageData, tokenData] = await Promise.all([
-      User.countDocuments(),
-      User.countDocuments({ tier: 'pro' }),
-      User.countDocuments({ tier: 'business' }),
-      ChatSession.countDocuments(),
-      User.aggregate([{ $group: { _id: null, totalQueries: { $sum: "$dailyUsage" }, totalBytes: { $sum: "$storageBytesUsed" } } }]),
-      User.aggregate([{ $group: { _id: null, totalPromptTokens: { $sum: "$tokenUsage.totalPromptTokens" }, totalCompletionTokens: { $sum: "$tokenUsage.totalCompletionTokens" } } }])
-    ]);
-    const metrics = usageData[0] || { totalQueries: 0, totalBytes: 0 };
-    const tokens = tokenData[0] || { totalPromptTokens: 0, totalCompletionTokens: 0 };
-    const totalTokens = tokens.totalPromptTokens + tokens.totalCompletionTokens;
-    const freeLimit = process.env.FREE_TIER_TOKEN_LIMIT || 1000000;
-    res.json({
-      success: true,
-      totalUsers,
-      proUsers,
-      designerUsers,
-      totalChats,
-      metrics,
-      tokenUsage: {
-        prompt: tokens.totalPromptTokens,
-        completion: tokens.totalCompletionTokens,
-        total: totalTokens,
-        remaining: Math.max(0, freeLimit - totalTokens),
-        limit: freeLimit,
-      }
-    });
-  } catch (err) {
-    logger.error('Admin metrics error:', err);
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to fetch metrics.' });
-  }
 });
 
 // ==========================================
-// STRIPE CHECKOUT (with graceful fallback)
+// STRIPE CHECKOUT
 // ==========================================
 app.post('/api/billing/checkout', authenticateUser, async (req, res) => {
-  try {
-    if (!stripe) {
-      return res.status(503).json({ 
-        success: false, 
-        code: 'PAYMENT_UNAVAILABLE', 
-        message: 'Payment service is currently unavailable. Please try again later.' 
-      });
+    try {
+        if (!stripe) {
+            return res.status(503).json({
+                success: false,
+                code: 'PAYMENT_UNAVAILABLE',
+                message: 'Payment service is currently unavailable. Please try again later.'
+            });
+        }
+
+        const { tier = 'pro', subTier = 'full' } = req.body;
+        let price = 1500, name = 'Pro Full Stack';
+        
+        if (tier === 'pro') {
+            if (subTier === 'data') { price = 800; name = 'Pro Data'; }
+            else if (subTier === 'design') { price = 900; name = 'Pro Design'; }
+        } else if (tier === 'business') {
+            if (subTier === 'full') { price = 2900; name = 'Business Full'; }
+            else if (subTier === 'data') { price = 1600; name = 'Business Data'; }
+            else if (subTier === 'design') { price = 1600; name = 'Business Design'; }
+        }
+
+        const origin = req.headers.origin || 'https://axelr.in';
+        const session = await stripe.checkout.sessions.create({
+            payment_method_types: ['card'],
+            mode: 'subscription',
+            client_reference_id: req.currentUser.googleId,
+            metadata: { tier, subTier },
+            line_items: [{
+                price_data: {
+                    currency: 'usd',
+                    product_data: { name },
+                    unit_amount: price,
+                    recurring: { interval: 'month' }
+                },
+                quantity: 1
+            }],
+            success_url: `${origin}/?billing=success`,
+            cancel_url: `${origin}/?billing=cancelled`,
+        });
+
+        res.json({ success: true, url: session.url });
+    } catch (err) {
+        logger.error('Checkout error:', err.message);
+        res.status(500).json({
+            success: false,
+            code: 'CHECKOUT_FAILED',
+            message: err.message || 'Failed to create checkout session.'
+        });
     }
-    const { tier = 'pro', subTier = 'full' } = req.body;
-    let price = 1500, name = 'Pro Full Stack';
-    if (tier === 'pro') {
-      if (subTier === 'data') { price = 800; name = 'Pro Data'; }
-      else if (subTier === 'design') { price = 900; name = 'Pro Design'; }
-    } else if (tier === 'business') {
-      if (subTier === 'full') { price = 2900; name = 'Business Full'; }
-      else if (subTier === 'data') { price = 1600; name = 'Business Data'; }
-      else if (subTier === 'design') { price = 1600; name = 'Business Design'; }
-    }
-    const origin = req.headers.origin || 'https://axelr.in';
-    const successUrl = new URL('/index.html?billing=success', origin).href;
-    const cancelUrl = new URL('/index.html?billing=cancelled', origin).href;
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ['card'],
-      mode: 'subscription',
-      client_reference_id: req.currentUser.googleId,
-      metadata: { tier, subTier },
-      line_items: [{ 
-        price_data: { 
-          currency: 'usd', 
-          product_data: { name }, 
-          unit_amount: price, 
-          recurring: { interval: 'month' } 
-        }, 
-        quantity: 1 
-      }],
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-    });
-    res.json({ success: true, url: session.url });
-  } catch (err) {
-    logger.error('Checkout error:', err);
-    res.status(500).json({ 
-      success: false, 
-      code: 'CHECKOUT_FAILED', 
-      message: err.message || 'Failed to create checkout session.' 
-    });
-  }
 });
 
 // ==========================================
 // USER PROFILE
 // ==========================================
 app.get('/api/user/profile', authenticateUser, (req, res) => {
-  const user = req.currentUser;
-  res.json({
-    tier: user.tier,
-    dailyUsage: user.dailyUsage,
-    dailyUiUxUsage: user.dailyUiUxUsage,
-    customInstructions: user.customInstructions,
-    quotas: user.quotas,
-    subTierOptions: user.subTierOptions,
-    tokenUsage: {
-      dailyPrompt: user.tokenUsage.dailyPromptTokens,
-      dailyCompletion: user.tokenUsage.dailyCompletionTokens,
-      totalPrompt: user.tokenUsage.totalPromptTokens,
-      totalCompletion: user.tokenUsage.totalCompletionTokens,
-    },
-    isAdmin: user.isAdmin || false,
-    email: user.email,
-    stripeCustomerId: user.stripeCustomerId,
-  });
+    const user = req.currentUser;
+    res.json({
+        tier: user.tier,
+        dailyUsage: user.dailyUsage,
+        dailyUiUxUsage: user.dailyUiUxUsage,
+        customInstructions: user.customInstructions,
+        quotas: user.quotas,
+        subTierOptions: user.subTierOptions,
+        tokenUsage: {
+            dailyPrompt: user.tokenUsage.dailyPromptTokens,
+            dailyCompletion: user.tokenUsage.dailyCompletionTokens,
+            totalPrompt: user.tokenUsage.totalPromptTokens,
+            totalCompletion: user.tokenUsage.totalCompletionTokens,
+        },
+        isAdmin: user.isAdmin || false,
+        email: user.email,
+        stripeCustomerId: user.stripeCustomerId,
+    });
 });
 
 app.put('/api/user/instructions', authenticateUser, async (req, res) => {
-  try {
-    const instructions = req.body.instructions || '';
-    if (instructions.length > 5000) {
-      return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'Instructions cannot exceed 5000 characters.' });
+    try {
+        const instructions = (req.body.instructions || '').slice(0, 5000);
+        req.currentUser.customInstructions = instructions;
+        await req.currentUser.save();
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to save instructions.' });
     }
-    req.currentUser.customInstructions = instructions;
-    await req.currentUser.save();
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to save instructions.' });
-  }
 });
 
-// ==========================================
-// ACCOUNT DELETION
-// ==========================================
 app.delete('/api/user/delete', authenticateUser, async (req, res) => {
-  try {
-    await ChatSession.deleteMany({ userId: req.currentUser._id });
-    await BugReport.deleteMany({ userId: req.currentUser._id });
-    await User.deleteOne({ _id: req.currentUser._id });
-    res.json({ success: true });
-  } catch (err) {
-    logger.error('Account deletion error:', err);
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to delete account.' });
-  }
+    try {
+        await ChatSession.deleteMany({ userId: req.currentUser._id });
+        await BugReport.deleteMany({ userId: req.currentUser._id });
+        await User.deleteOne({ _id: req.currentUser._id });
+        res.json({ success: true });
+    } catch (err) {
+        logger.error('Account deletion error:', err.message);
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to delete account.' });
+    }
 });
 
-// ==========================================
-// DELETE ALL CHATS
-// ==========================================
 app.delete('/api/history/delete-all', authenticateUser, async (req, res) => {
-  try {
-    await ChatSession.deleteMany({ userId: req.currentUser._id });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to delete chats.' });
-  }
+    try {
+        await ChatSession.deleteMany({ userId: req.currentUser._id });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to delete chats.' });
+    }
 });
 
 // ==========================================
 // HISTORY ROUTES
 // ==========================================
 app.put('/api/history/:id', authenticateUser, async (req, res) => {
-  try {
-    const { action, payload } = req.body;
-    const log = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
-    if (!log) return res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'Chat not found.' });
-    if (action === 'rename') log.filename = payload;
-    if (action === 'pin') log.isPinned = !log.isPinned;
-    await log.save();
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to update chat.' });
-  }
+    try {
+        const { action, payload } = req.body;
+        const log = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
+        if (!log) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
+        
+        if (action === 'rename' && payload) log.filename = payload.slice(0, 100);
+        if (action === 'pin') log.isPinned = !log.isPinned;
+        await log.save();
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to update chat.' });
+    }
 });
 
 app.put('/api/history/:id/status', authenticateUser, async (req, res) => {
-  try {
-    const { status } = req.body;
-    const update = { status };
-    if (status === 'trashed') update.trashedAt = new Date();
-    await ChatSession.findOneAndUpdate({ _id: req.params.id, userId: req.currentUser._id }, update);
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to update status.' });
-  }
+    try {
+        const { status } = req.body;
+        const update = { status };
+        if (status === 'trashed') update.trashedAt = new Date();
+        await ChatSession.findOneAndUpdate({ _id: req.params.id, userId: req.currentUser._id }, update);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to update status.' });
+    }
 });
 
 app.delete('/api/history/:id', authenticateUser, async (req, res) => {
-  try {
-    await ChatSession.deleteOne({ _id: req.params.id, userId: req.currentUser._id, status: 'trashed' });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to delete chat.' });
-  }
+    try {
+        await ChatSession.deleteOne({ _id: req.params.id, userId: req.currentUser._id, status: 'trashed' });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to delete chat.' });
+    }
 });
 
 app.put('/api/history/:id/variant', authenticateUser, async (req, res) => {
-  try {
-    const { msgId, variantIndex } = req.body;
-    if (!msgId || variantIndex === undefined) {
-      return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'Missing msgId or variantIndex' });
+    try {
+        const { msgId, variantIndex } = req.body;
+        if (!msgId || variantIndex === undefined) {
+            return res.status(400).json({ success: false, code: 'INVALID_INPUT' });
+        }
+        const session = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
+        if (!session) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
+        
+        const msg = session.messages.id(msgId);
+        if (!msg) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
+        if (variantIndex < 0 || variantIndex >= (msg.variants?.length || 0)) {
+            return res.status(400).json({ success: false, code: 'INVALID_INDEX' });
+        }
+        
+        msg.activeVariant = variantIndex;
+        msg.text = msg.variants[variantIndex];
+        session.markModified('messages');
+        await session.save();
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to switch variant.' });
     }
-    const session = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
-    if (!session) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
-    const msg = session.messages.id(msgId);
-    if (!msg) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
-    if (variantIndex < 0 || variantIndex >= (msg.variants?.length || 0)) {
-      return res.status(400).json({ success: false, code: 'INVALID_INDEX' });
-    }
-    msg.activeVariant = variantIndex;
-    msg.text = msg.variants[variantIndex];
-    session.markModified('messages');
-    await session.save();
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to switch variant.' });
-  }
 });
 
 app.get('/api/history', authenticateUser, async (req, res) => {
-  try {
-    const allowed = ['data', 'design', 'general'];
-    const workspace = allowed.includes(req.query.workspace) ? req.query.workspace : 'data';
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
-    const skip = (page - 1) * limit;
-    const logs = await ChatSession.find({
-      userId: req.currentUser._id,
-      status: req.query.status || 'active',
-      workspace
-    }).sort({ isPinned: -1, createdAt: -1 }).skip(skip).limit(limit);
-    const total = await ChatSession.countDocuments({
-      userId: req.currentUser._id,
-      status: req.query.status || 'active',
-      workspace
-    });
-    res.json({
-      success: true,
-      logs,
-      pagination: { page, limit, total, pages: Math.ceil(total / limit) }
-    });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to fetch history.' });
-  }
+    try {
+        const workspace = ['data', 'design', 'general'].includes(req.query.workspace) ? req.query.workspace : 'data';
+        const status = req.query.status || 'active';
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 20;
+        const skip = (page - 1) * limit;
+
+        const [logs, total] = await Promise.all([
+            ChatSession.find({ userId: req.currentUser._id, status, workspace })
+                .sort({ isPinned: -1, createdAt: -1 })
+                .skip(skip)
+                .limit(limit),
+            ChatSession.countDocuments({ userId: req.currentUser._id, status, workspace })
+        ]);
+
+        res.json({
+            success: true,
+            logs,
+            pagination: { page, limit, total, pages: Math.ceil(total / limit) }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to fetch history.' });
+    }
 });
 
 // ==========================================
 // BUG REPORTS
 // ==========================================
 app.post('/api/reports', authenticateUser, async (req, res) => {
-  try {
-    const { type, description } = req.body;
-    await BugReport.create({
-      userId: req.currentUser._id,
-      type: type || 'feedback',
-      description
-    });
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to submit report.' });
-  }
+    try {
+        await BugReport.create({
+            userId: req.currentUser._id,
+            type: req.body.type || 'feedback',
+            description: (req.body.description || '').slice(0, 5000)
+        });
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to submit report.' });
+    }
 });
 
 // ==========================================
-// ENHANCE PROMPT
+// PROMPT ENHANCER
 // ==========================================
 app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
-  try {
-    const { promptText } = req.body;
-    if (!promptText) return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'No text provided.' });
+    try {
+        const { promptText } = req.body;
+        if (!promptText) {
+            return res.status(400).json({ success: false, code: 'INVALID_INPUT', message: 'No text provided.' });
+        }
 
-    const user = await User.findById(req.currentUser._id);
-    if (!user) return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'User not found.' });
+        const user = req.currentUser;
+        const now = new Date();
+        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const lastReset = user.quotas.lastQuotaReset ? new Date(user.quotas.lastQuotaReset) : new Date(0);
+        const lastResetDay = new Date(lastReset.getFullYear(), lastReset.getMonth(), lastReset.getDate());
 
-    // Quota check
-    const now = new Date();
-    if (now - user.quotas.lastQuotaResetTimestamp >= 24 * 60 * 60 * 1000) {
-      user.quotas.dailyEnhancementsUsed = 0;
-      user.quotas.lastQuotaResetTimestamp = now;
-      await user.save();
+        if (today > lastResetDay) {
+            user.quotas.dailyEnhancementsUsed = 0;
+            user.quotas.lastQuotaReset = new Date();
+            await user.save();
+        }
+
+        let limit = 3;
+        if (user.tier === 'pro') {
+            limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 7 : 5;
+        } else if (user.tier === 'business') {
+            limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 15 : 10;
+        }
+
+        if (user.quotas.dailyEnhancementsUsed >= limit) {
+            return res.status(403).json({
+                success: false,
+                code: 'LIMIT_REACHED',
+                usage: user.quotas.dailyEnhancementsUsed,
+                limit
+            });
+        }
+
+        // Call orchestrator with timeout and retry
+        let enhanced = null;
+        let lastError = null;
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const response = await fetch(ORCHESTRATOR_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        workspace: 'prompt',
+                        prompt: promptText,
+                        history: [],
+                        files: [],
+                        max_tokens: 2048,
+                        temperature: 0.2,
+                    }),
+                    signal: AbortSignal.timeout(15000),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Orchestrator returned ${response.status}`);
+                }
+
+                const result = await response.json();
+                if (result.success && result.text) {
+                    enhanced = result.text;
+                    break;
+                }
+                throw new Error(result.text || 'Orchestrator returned failure');
+            } catch (err) {
+                lastError = err;
+                logger.warn(`Enhance attempt ${attempt + 1} failed:`, err.message);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+
+        if (!enhanced) {
+            // Fallback: local enhancement
+            enhanced = `You are AXELR AI - an elite executive assistant. Please provide a detailed response to: ${promptText}`;
+        }
+
+        user.quotas.dailyEnhancementsUsed += 1;
+        user.dailyUsage += 1;
+        await user.save();
+
+        res.json({ success: true, enhanced });
+    } catch (err) {
+        logger.error('Enhance prompt error:', err.message);
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to enhance prompt.' });
     }
-
-    let limit;
-    if (user.tier === 'free') limit = 3;
-    else if (user.tier === 'pro') {
-      limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 7 : 5;
-    } else if (user.tier === 'business') {
-      limit = (user.subTierOptions.hasDataAccess && user.subTierOptions.hasDesignAccess) ? 15 : 10;
-    } else limit = 3;
-
-    if (user.quotas.dailyEnhancementsUsed >= limit) {
-      return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: user.quotas.dailyEnhancementsUsed, limit });
-    }
-
-    // Call orchestrator
-    const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        workspace: 'prompt',
-        prompt: promptText,
-        history: [],
-        files: [],
-        max_tokens: 2048,
-        temperature: 0.2,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-
-    if (!orchestratorResponse.ok) {
-      throw new Error('Orchestrator enhancement failed');
-    }
-
-    const result = await orchestratorResponse.json();
-    if (!result.success) {
-      throw new Error(result.text || 'Orchestrator returned failure');
-    }
-
-    const enhanced = result.text;
-
-    user.quotas.dailyEnhancementsUsed += 1;
-    user.dailyUsage += 1;
-    await user.save();
-
-    res.json({ success: true, enhanced });
-  } catch (err) {
-    logger.error('Enhance prompt error:', err);
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to enhance prompt.' });
-  }
 });
 
 // ==========================================
 // MULTER SETUP
 // ==========================================
 const ALLOWED_MIME_TYPES = [
-  'text/plain', 'text/html', 'text/css', 'text/csv', 'application/json',
-  'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    'text/plain', 'text/html', 'text/css', 'text/csv', 'application/json',
+    'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 ];
 
 const storage = multer.diskStorage({
-  destination: os.tmpdir(),
-  filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${file.originalname}`)
+    destination: os.tmpdir(),
+    filename: (req, file, cb) => cb(null, `${Date.now()}-${crypto.randomBytes(4).toString('hex')}-${file.originalname}`)
 });
 
 const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024, files: 5 },
-  fileFilter: (req, file, cb) => {
-    if (ALLOWED_MIME_TYPES.includes(file.mimetype) || /\.(html|js|css|json|txt|csv|md)$/i.test(file.originalname)) {
-      cb(null, true);
-    } else {
-      cb(new Error('File type not allowed'), false);
+    storage,
+    limits: { fileSize: 10 * 1024 * 1024, files: 5 },
+    fileFilter: (req, file, cb) => {
+        if (ALLOWED_MIME_TYPES.includes(file.mimetype) || /\.(html|js|css|json|txt|csv|md)$/i.test(file.originalname)) {
+            cb(null, true);
+        } else {
+            cb(new Error('File type not allowed'), false);
+        }
     }
-  }
 });
 
 function estimateTokens(text) {
-  return Math.ceil((text || '').length / 4);
+    return Math.ceil((text || '').length / 4);
 }
 
 function generateChatName(command, files) {
-  const STOP_WORDS = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','when','make','can','like','time','no','just','him','know','take','people','into','year','your','good','some','could','them','see','other','than','then','now','look','only','come','its','over','think','also','back','after','use','two','how','our','work','first','well','way','even','new','want','because','any','these','give','day','most','us']);
-  if (files && files.length > 0) {
-    const base = files[0].originalname.split('.')[0];
-    return base.replace(/[_-]/g, ' ').slice(0, 50) || 'File Chat';
-  }
-  if (command && command.trim().length > 0) {
-    const words = command.trim().split(/\s+/);
-    const meaningful = words.filter(w => !STOP_WORDS.has(w.toLowerCase()) && w.length > 2);
-    const picked = meaningful.slice(0, 3);
-    if (picked.length > 0) return picked.join(' ').slice(0, 60);
-    return words.slice(0, 3).join(' ').slice(0, 60);
-  }
-  return `Chat_${Date.now().toString().slice(-4)}`;
+    const STOP_WORDS = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','when','make','can','like','time','no','just','him','know','take','people','into','year','your','good','some','could','them','see','other','than','then','now','look','only','come','its','over','think','also','back','after','use','two','how','our','work','first','well','way','even','new','want','because','any','these','give','day','most','us']);
+    
+    if (files && files.length > 0) {
+        const base = files[0].originalname.split('.')[0];
+        return base.replace(/[_-]/g, ' ').slice(0, 50) || 'File Chat';
+    }
+    if (command && command.trim().length > 0) {
+        const words = command.trim().split(/\s+/);
+        const meaningful = words.filter(w => !STOP_WORDS.has(w.toLowerCase()) && w.length > 2);
+        const picked = meaningful.slice(0, 3);
+        if (picked.length > 0) return picked.join(' ').slice(0, 60);
+        return words.slice(0, 3).join(' ').slice(0, 60);
+    }
+    return `Chat_${Date.now().toString().slice(-4)}`;
 }
 
 function cleanAssistantMessage(text) {
-  if (!text) return '';
-  return text.replace(/\|.*\|.*\n/g, '').replace(/\s+/g, ' ').trim();
+    if (!text) return '';
+    return text.replace(/\|.*\|.*\n/g, '').replace(/\s+/g, ' ').trim();
 }
 
 // ==========================================
-// QUOTA MIDDLEWARE
+// EXTRACT (Streaming)
 // ==========================================
-const enforceQuotas = async (req, res, next) => {
-  try {
-    const user = await User.findById(req.currentUser?._id);
-    if (!user) return res.status(401).json({ success: false, code: 'UNAUTHORIZED', message: 'User not found.' });
-    await resetDailyQuotasIfNeeded(user);
-    req.resolvedUser = user;
-    next();
-  } catch (err) {
-    logger.error('Quota error:', err);
-    res.status(500).json({ success: false, code: 'QUOTA_CHECK_FAILED', message: 'Could not check quota.' });
-  }
-};
+app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req, res) => {
+    const files = req.files || [];
+    const userCommand = (req.body.command || "Analyze").slice(0, 10000);
+    const workspaceMode = req.body.workspace === 'design' ? 'design' : 'data';
+    const sessionId = (req.body.sessionId && mongoose.Types.ObjectId.isValid(req.body.sessionId)) ? req.body.sessionId : null;
 
-// ==========================================
-// EXTRACT (streaming)
-// ==========================================
-app.post('/api/extract', authenticateUser, enforceQuotas, upload.array('files', 5), async (req, res) => {
-  const files = req.files || [];
-  const userCommand = (req.body.command || "Analyze").slice(0, 10000);
-  const workspaceMode = req.body.workspace === 'design' ? 'design' : 'data';
-  const sessionId = (req.body.sessionId && mongoose.Types.ObjectId.isValid(req.body.sessionId)) ? req.body.sessionId : null;
-
-  try {
-    if (files.length > 5) return res.status(400).json({ success: false, code: 'MAX_FILES_EXCEEDED', message: 'Too many files.' });
-    const totalSize = files.reduce((s, f) => s + f.size, 0);
-    if (totalSize > 50 * 1024 * 1024) return res.status(400).json({ success: false, code: 'TOTAL_SIZE_EXCEEDED', message: 'Total upload size too large.' });
-    for (const f of files) if (f.size > 10 * 1024 * 1024) return res.status(400).json({ success: false, code: `FILE_TOO_LARGE`, message: `File ${f.originalname} exceeds 10MB.` });
-
-    const user = req.resolvedUser || req.currentUser;
-
-    // --- QUOTA CHECKS ---
-    const isFree = user.tier === 'free';
-    const isPro = user.tier === 'pro';
-    const isBusiness = user.tier === 'business';
-    const hasData = user.subTierOptions.hasDataAccess;
-    const hasDesign = user.subTierOptions.hasDesignAccess;
-    let subTierType = 'full';
-    if (hasData && !hasDesign) subTierType = 'data';
-    else if (!hasData && hasDesign) subTierType = 'design';
-
-    let dataLimit, uiLimit;
-    if (isFree) { dataLimit = 5; uiLimit = 0; }
-    else if (isPro) {
-      if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
-      else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
-      else if (subTierType === 'design') { dataLimit = 0; uiLimit = 13; }
-    } else if (isBusiness) {
-      if (subTierType === 'full') { dataLimit = 30; uiLimit = 25; }
-      else if (subTierType === 'data') { dataLimit = 28; uiLimit = 0; }
-      else if (subTierType === 'design') { dataLimit = 0; uiLimit = 20; }
-    }
-
-    const isDesign = workspaceMode === 'design';
-    let used, limit;
-    if (isFree) {
-      used = user.dailyUsage;
-      limit = dataLimit;
-    } else {
-      if (isDesign && !hasDesign) {
-        return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'UI generation not included in your plan.' });
-      }
-      if (!isDesign && !hasData) {
-        return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'Data extraction not included in your plan.' });
-      }
-      const quotaField = isDesign ? 'dailyGenerationsUsed' : 'dailyExtractionsUsed';
-      used = user.quotas[quotaField];
-      limit = isDesign ? uiLimit : dataLimit;
-    }
-    if (used >= limit) {
-      return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: used, limit });
-    }
-
-    let byteLimit;
-    if (isFree) byteLimit = 5 * 1024 * 1024;
-    else if (isPro) byteLimit = 20 * 1024 * 1024;
-    else if (isBusiness) byteLimit = 50 * 1024 * 1024;
-    else byteLimit = 5 * 1024 * 1024;
-
-    if ((user.storageBytesUsed + totalSize) > byteLimit) {
-      return res.status(403).json({ success: false, code: 'STORAGE_LIMIT_REACHED', message: `Storage quota exceeded. Maximum ${byteLimit / (1024*1024)}MB.` });
-    }
-
-    // --- Read files as base64 ---
-    const fileContents = await Promise.all(files.map(async (file) => {
-      const data = await fs.readFile(file.path);
-      return {
-        filename: file.originalname,
-        mimetype: file.mimetype,
-        content_base64: data.toString('base64'),
-      };
-    }));
-
-    // Prepare session history
-    let currentSession = null;
-    let history = [];
-    if (sessionId && mongoose.Types.ObjectId.isValid(sessionId)) {
-      currentSession = await ChatSession.findOne({ _id: sessionId, userId: user._id });
-      if (currentSession) {
-        const isRetry = req.body.isRetry === 'true';
-        history = currentSession.messages;
-        if (isRetry && history.length > 0 && history[history.length - 1].role === 'model') {
-          history = history.slice(0, -2);
+    let cleanupFiles = async () => {
+        for (const f of files) {
+            try { await fs.unlink(f.path); } catch (_) {}
         }
-      }
-    }
-
-    let userContent = userCommand;
-    if (files.length > 0) {
-      const fileNames = files.map(f => f.originalname).join(', ');
-      userContent = `Files attached: ${fileNames}. Command: ${userCommand}`;
-    }
-
-    // --- Call orchestrator ---
-    const orchestratorPayload = {
-      workspace: workspaceMode,
-      prompt: userCommand,
-      history: history.slice(-4).map(msg => ({
-        role: msg.role === 'user' ? 'user' : 'assistant',
-        content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
-      })),
-      files: fileContents,
-      max_tokens: 2048,
-      temperature: 0.2
     };
 
-    let aiResponse = '';
-    let errorOccurred = false;
-
     try {
-      const orchestratorResponse = await fetch(ORCHESTRATOR_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(orchestratorPayload),
-        signal: AbortSignal.timeout(60000),
-      });
-
-      if (!orchestratorResponse.ok) {
-        const errorData = await orchestratorResponse.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Orchestrator error: ${orchestratorResponse.status}`);
-      }
-
-      const result = await orchestratorResponse.json();
-      if (result.success) {
-        aiResponse = result.text;
-        logger.info(`Orchestrator used ${result.provider} (${result.model_used}) in ${result.latency_ms}ms`);
-      } else {
-        throw new Error(result.text || 'Orchestrator returned failure');
-      }
-    } catch (err) {
-      logger.error('Orchestrator call failed:', err.message);
-      errorOccurred = true;
-      aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
-      // Rollback quota
-      const rollbackFields = {
-        $inc: {
-          [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
-          dailyUsage: -1,
-          storageBytesUsed: -totalSize,
+        if (files.length > 5) {
+            await cleanupFiles();
+            return res.status(400).json({ success: false, code: 'MAX_FILES_EXCEEDED', message: 'Too many files.' });
         }
-      };
-      if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
-      await User.findOneAndUpdate({ _id: user._id }, rollbackFields);
-      // Cleanup and return error
-      for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
-      return res.status(503).json({ success: false, code: 'ORCHESTRATOR_FAILED', message: 'AI service temporarily unavailable.' });
-    }
 
-    // --- Token estimation and DB update ---
-    const promptTextTokens = estimateTokens(userCommand);
-    const fileTokens = files.reduce((sum, f) => sum + estimateTokens(f.originalname) + Math.ceil(f.size / 4), 0);
-    const completionTokens = estimateTokens(aiResponse);
-
-    await User.updateOne(
-      { _id: user._id },
-      {
-        $inc: {
-          'tokenUsage.totalPromptTokens': promptTextTokens + fileTokens,
-          'tokenUsage.totalCompletionTokens': completionTokens,
-          'tokenUsage.dailyPromptTokens': promptTextTokens + fileTokens,
-          'tokenUsage.dailyCompletionTokens': completionTokens,
-          [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: 1,
-          dailyUsage: 1,
-          storageBytesUsed: totalSize,
+        const totalSize = files.reduce((s, f) => s + f.size, 0);
+        if (totalSize > 50 * 1024 * 1024) {
+            await cleanupFiles();
+            return res.status(400).json({ success: false, code: 'TOTAL_SIZE_EXCEEDED', message: 'Total upload size too large.' });
         }
-      }
-    );
 
-    // Extract structured data if any
-    let structured = [];
-    const jsonMatch = aiResponse.match(/\[JSON-DATA\]([\s\S]*?)\[\/JSON-DATA\]/);
-    if (jsonMatch) {
-      try { structured = JSON.parse(jsonMatch[1].trim()); } catch (e) { structured = []; }
-      aiResponse = aiResponse.replace(/\[JSON-DATA\][\s\S]*?\[\/JSON-DATA\]/g, '').trim();
-    }
-    if (!aiResponse.trim()) aiResponse = "I am Axelr AI. How can I help you?";
+        for (const f of files) {
+            if (f.size > 10 * 1024 * 1024) {
+                await cleanupFiles();
+                return res.status(400).json({ success: false, code: 'FILE_TOO_LARGE', message: `File ${f.originalname} exceeds 10MB.` });
+            }
+        }
 
-    // --- Save session ---
-    let sessionSaved = false;
-    let sessionIdOut = null;
-    let filenameOut = 'Export.csv';
-    try {
-      if (currentSession) {
-        const isRetry = req.body.isRetry === 'true';
-        if (isRetry && currentSession.messages.length && currentSession.messages[currentSession.messages.length - 1].role === 'model') {
-          const last = currentSession.messages[currentSession.messages.length - 1];
-          if (!last.variants || !last.variants.length) last.variants = [last.text];
-          last.variants.push(aiResponse);
-          last.activeVariant = last.variants.length - 1;
-          last.text = aiResponse;
-          currentSession.markModified('messages');
+        const user = req.currentUser;
+
+        // --- QUOTA CHECKS ---
+        const isFree = user.tier === 'free';
+        const isPro = user.tier === 'pro';
+        const isBusiness = user.tier === 'business';
+        const hasData = user.subTierOptions.hasDataAccess;
+        const hasDesign = user.subTierOptions.hasDesignAccess;
+        let subTierType = 'full';
+        if (hasData && !hasDesign) subTierType = 'data';
+        else if (!hasData && hasDesign) subTierType = 'design';
+
+        let dataLimit = 5, uiLimit = 0;
+        if (isPro) {
+            if (subTierType === 'full') { dataLimit = 20; uiLimit = 15; }
+            else if (subTierType === 'data') { dataLimit = 19; uiLimit = 0; }
+            else if (subTierType === 'design') { dataLimit = 0; uiLimit = 13; }
+        } else if (isBusiness) {
+            if (subTierType === 'full') { dataLimit = 30; uiLimit = 25; }
+            else if (subTierType === 'data') { dataLimit = 28; uiLimit = 0; }
+            else if (subTierType === 'design') { dataLimit = 0; uiLimit = 20; }
+        }
+
+        const isDesign = workspaceMode === 'design';
+        let used, limit;
+        if (isFree) {
+            used = user.dailyUsage;
+            limit = dataLimit;
         } else {
-          currentSession.messages.push(
-            { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
-            { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0, createdAt: new Date() }
-          );
+            if (isDesign && !hasDesign) {
+                await cleanupFiles();
+                return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'UI generation not included in your plan.' });
+            }
+            if (!isDesign && !hasData) {
+                await cleanupFiles();
+                return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'Data extraction not included in your plan.' });
+            }
+            const quotaField = isDesign ? 'dailyGenerationsUsed' : 'dailyExtractionsUsed';
+            used = user.quotas[quotaField];
+            limit = isDesign ? uiLimit : dataLimit;
         }
-        currentSession.structuredData = structured;
-        await currentSession.save();
-        sessionSaved = true;
-        sessionIdOut = currentSession._id;
-        filenameOut = currentSession.filename;
-      } else {
-        const filename = generateChatName(userCommand, files);
-        currentSession = await ChatSession.create({
-          userId: user._id,
-          filename,
-          workspace: workspaceMode,
-          structuredData: structured,
-          messages: [
-            { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
-            { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0, createdAt: new Date() }
-          ]
+
+        if (used >= limit) {
+            await cleanupFiles();
+            return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: used, limit });
+        }
+
+        let byteLimit = 5 * 1024 * 1024;
+        if (isPro) byteLimit = 20 * 1024 * 1024;
+        else if (isBusiness) byteLimit = 50 * 1024 * 1024;
+
+        if ((user.storageBytesUsed + totalSize) > byteLimit) {
+            await cleanupFiles();
+            return res.status(403).json({
+                success: false,
+                code: 'STORAGE_LIMIT_REACHED',
+                message: `Storage quota exceeded. Maximum ${byteLimit / (1024*1024)}MB.`
+            });
+        }
+
+        // --- Read files as base64 ---
+        const fileContents = await Promise.all(files.map(async (file) => {
+            const data = await fs.readFile(file.path);
+            return {
+                filename: file.originalname,
+                mimetype: file.mimetype,
+                content_base64: data.toString('base64'),
+            };
+        }));
+
+        // Prepare session history
+        let currentSession = null;
+        let history = [];
+        if (sessionId) {
+            currentSession = await ChatSession.findOne({ _id: sessionId, userId: user._id });
+            if (currentSession) {
+                const isRetry = req.body.isRetry === 'true';
+                history = currentSession.messages;
+                if (isRetry && history.length > 0 && history[history.length - 1].role === 'model') {
+                    history = history.slice(0, -2);
+                }
+            }
+        }
+
+        // --- Call orchestrator with retry ---
+        let aiResponse = '';
+        let errorOccurred = false;
+        let orchestratorSuccess = false;
+
+        for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+                const orchestratorPayload = {
+                    workspace: workspaceMode,
+                    prompt: userCommand,
+                    history: history.slice(-4).map(msg => ({
+                        role: msg.role === 'user' ? 'user' : 'assistant',
+                        content: msg.role === 'model' ? cleanAssistantMessage(msg.text) : msg.text
+                    })),
+                    files: fileContents,
+                    max_tokens: 2048,
+                    temperature: 0.2
+                };
+
+                const response = await fetch(ORCHESTRATOR_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(orchestratorPayload),
+                    signal: AbortSignal.timeout(60000),
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Orchestrator returned ${response.status}`);
+                }
+
+                const result = await response.json();
+                if (result.success && result.text) {
+                    aiResponse = result.text;
+                    orchestratorSuccess = true;
+                    logger.info(`Orchestrator used ${result.provider} (${result.model_used}) in ${result.latency_ms}ms`);
+                    break;
+                }
+                throw new Error(result.text || 'Orchestrator returned failure');
+            } catch (err) {
+                logger.warn(`Extract attempt ${attempt + 1} failed:`, err.message);
+                await new Promise(r => setTimeout(r, 1000));
+            }
+        }
+
+        if (!orchestratorSuccess) {
+            errorOccurred = true;
+            aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
+            // Rollback quota
+            const rollbackFields = {
+                $inc: {
+                    [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
+                    dailyUsage: -1,
+                    storageBytesUsed: -totalSize,
+                }
+            };
+            if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
+            await User.findOneAndUpdate({ _id: user._id }, rollbackFields);
+            await cleanupFiles();
+            return res.status(503).json({
+                success: false,
+                code: 'ORCHESTRATOR_FAILED',
+                message: 'AI service temporarily unavailable. Please try again.'
+            });
+        }
+
+        // --- Token estimation and DB update ---
+        const promptTextTokens = estimateTokens(userCommand);
+        const fileTokens = files.reduce((sum, f) => sum + estimateTokens(f.originalname) + Math.ceil(f.size / 4), 0);
+        const completionTokens = estimateTokens(aiResponse);
+
+        await User.updateOne(
+            { _id: user._id },
+            {
+                $inc: {
+                    'tokenUsage.totalPromptTokens': promptTextTokens + fileTokens,
+                    'tokenUsage.totalCompletionTokens': completionTokens,
+                    'tokenUsage.dailyPromptTokens': promptTextTokens + fileTokens,
+                    'tokenUsage.dailyCompletionTokens': completionTokens,
+                    [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: 1,
+                    dailyUsage: 1,
+                    storageBytesUsed: totalSize,
+                }
+            }
+        );
+
+        // Extract structured data if any
+        let structured = [];
+        const jsonMatch = aiResponse.match(/\[JSON-DATA\]([\s\S]*?)\[\/JSON-DATA\]/);
+        if (jsonMatch) {
+            try { structured = JSON.parse(jsonMatch[1].trim()); } catch (e) { structured = []; }
+            aiResponse = aiResponse.replace(/\[JSON-DATA\][\s\S]*?\[\/JSON-DATA\]/g, '').trim();
+        }
+        if (!aiResponse.trim()) aiResponse = "I am Axelr AI. How can I help you?";
+
+        // --- Save session ---
+        let sessionIdOut = null;
+        let filenameOut = 'Export.csv';
+        let sessionSaved = false;
+
+        try {
+            if (currentSession) {
+                const isRetry = req.body.isRetry === 'true';
+                if (isRetry && currentSession.messages.length && currentSession.messages[currentSession.messages.length - 1].role === 'model') {
+                    const last = currentSession.messages[currentSession.messages.length - 1];
+                    if (!last.variants || !last.variants.length) last.variants = [last.text];
+                    last.variants.push(aiResponse);
+                    last.activeVariant = last.variants.length - 1;
+                    last.text = aiResponse;
+                    currentSession.markModified('messages');
+                } else {
+                    currentSession.messages.push(
+                        { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
+                        { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0, createdAt: new Date() }
+                    );
+                }
+                currentSession.structuredData = structured;
+                await currentSession.save();
+                sessionSaved = true;
+                sessionIdOut = currentSession._id;
+                filenameOut = currentSession.filename;
+            } else {
+                const filename = generateChatName(userCommand, files);
+                currentSession = await ChatSession.create({
+                    userId: user._id,
+                    filename,
+                    workspace: workspaceMode,
+                    structuredData: structured,
+                    messages: [
+                        { role: 'user', text: userCommand, attachedFiles: files.map(f => f.originalname) },
+                        { role: 'model', text: aiResponse, variants: [aiResponse], activeVariant: 0, createdAt: new Date() }
+                    ]
+                });
+                sessionSaved = true;
+                sessionIdOut = currentSession._id;
+                filenameOut = currentSession.filename;
+            }
+        } catch (saveErr) {
+            logger.error('Session save error:', saveErr.message);
+            errorOccurred = true;
+        }
+
+        await cleanupFiles();
+
+        res.json({
+            success: true,
+            text: aiResponse,
+            sessionId: sessionSaved ? sessionIdOut : null,
+            structuredData: structured,
+            filename: sessionSaved ? `${filenameOut}.csv` : 'Export.csv',
+            error: errorOccurred,
         });
-        sessionSaved = true;
-        sessionIdOut = currentSession._id;
-        filenameOut = currentSession.filename;
-      }
-    } catch (saveErr) {
-      logger.error('[Extract] Failed to save session:', saveErr);
-      errorOccurred = true;
+
+    } catch (err) {
+        logger.error('Extract error:', err.message);
+        await cleanupFiles();
+        res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to process request.' });
     }
-
-    // --- Cleanup files ---
-    for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
-
-    // --- Return response ---
-    res.json({
-      success: true,
-      text: aiResponse,
-      sessionId: sessionSaved ? sessionIdOut : null,
-      structuredData: structured,
-      filename: sessionSaved ? `${filenameOut}.csv` : 'Export.csv',
-      error: errorOccurred,
-    });
-
-  } catch (err) {
-    logger.error('Extract error:', err);
-    for (const f of files) try { await fs.unlink(f.path); } catch (_) {}
-    res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to process request.' });
-  }
 });
 
 // ==========================================
-// DEPLOY
+// DEPLOY (Fixed with proper error handling)
 // ==========================================
 const { JSDOM } = require('jsdom');
 const createDOMPurify = require('dompurify');
@@ -1028,110 +1070,143 @@ const window = new JSDOM('').window;
 const DOMPurify = createDOMPurify(window);
 
 app.post('/api/deploy', authenticateUser, async (req, res) => {
-  try {
-    const { htmlContent } = req.body;
-    if (!htmlContent) {
-      return res.status(400).json({ success: false, message: 'Missing HTML content' });
-    }
-    if (!htmlContent.includes('<html') || !htmlContent.includes('</html>')) {
-      return res.status(400).json({ success: false, message: 'Generated HTML is incomplete.' });
-    }
-    const sanitized = DOMPurify.sanitize(htmlContent, {
-      ALLOWED_TAGS: [
-        'html','head','body','div','span','p','a','img','button','input','form','table',
-        'tr','td','th','ul','ol','li','h1','h2','h3','h4','h5','h6','strong','em','u',
-        'br','hr','section','article','header','footer','nav','main','aside','figure',
-        'figcaption','mark','small','sub','sup','code','pre','blockquote','cite','label',
-        'select','option','textarea','style','link','meta','title'
-      ],
-      ALLOWED_ATTR: [
-        'href','src','alt','title','class','id','style','rel','type','media','name',
-        'value','placeholder','for','width','height','colspan','rowspan'
-      ],
-    });
-
-    const vercelToken = process.env.VERCEL_TOKEN;
-    const vercelProjectId = process.env.VERCEL_PROJECT_ID;
-    if (vercelToken && vercelProjectId) {
-      try {
-        const formData = new FormData();
-        const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
-        formData.append('file', blob, 'index.html');
-        const response = await fetch(`https://api.vercel.com/v1/deployments?projectId=${vercelProjectId}`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${vercelToken}` },
-          body: formData
-        });
-        const result = await response.json();
-        if (result.url) {
-          return res.json({ success: true, liveUrl: `https://${result.url}` });
+    try {
+        const { htmlContent } = req.body;
+        if (!htmlContent) {
+            return res.status(400).json({ success: false, message: 'Missing HTML content' });
         }
-      } catch (err) {
-        logger.error('Vercel deploy error:', err);
-      }
-    }
 
-    const netlifyToken = process.env.NETLIFY_TOKEN;
-    const netlifySiteId = process.env.NETLIFY_SITE_ID;
-    if (netlifyToken && netlifySiteId) {
-      try {
-        const formData = new FormData();
-        const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
-        formData.append('file', blob, 'index.html');
-        const response = await fetch(`https://api.netlify.com/api/v1/sites/${netlifySiteId}/deploys`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${netlifyToken}` },
-          body: formData
-        });
-        const result = await response.json();
-        if (result.deploy_url) {
-          return res.json({ success: true, liveUrl: result.deploy_url });
+        if (!htmlContent.includes('<html') || !htmlContent.includes('</html>')) {
+            return res.status(400).json({ success: false, message: 'Generated HTML is incomplete.' });
         }
-      } catch (err) {
-        logger.error('Netlify deploy error:', err);
-      }
-    }
 
-    const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(sanitized)}`;
-    return res.json({
-      success: true,
-      liveUrl: dataUri,
-      message: 'Preview available via data URI.'
-    });
-  } catch (err) {
-    logger.error('Deploy error:', err);
-    res.status(500).json({ success: false, message: 'Deployment failed.' });
-  }
+        // Sanitize with DOMPurify
+        const sanitized = DOMPurify.sanitize(htmlContent, {
+            ALLOWED_TAGS: [
+                'html', 'head', 'body', 'div', 'span', 'p', 'a', 'img', 'button', 'input', 'form', 'table',
+                'tr', 'td', 'th', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'u',
+                'br', 'hr', 'section', 'article', 'header', 'footer', 'nav', 'main', 'aside', 'figure',
+                'figcaption', 'mark', 'small', 'sub', 'sup', 'code', 'pre', 'blockquote', 'cite', 'label',
+                'select', 'option', 'textarea', 'style', 'link', 'meta', 'title'
+            ],
+            ALLOWED_ATTR: [
+                'href', 'src', 'alt', 'title', 'class', 'id', 'style', 'rel', 'type', 'media', 'name',
+                'value', 'placeholder', 'for', 'width', 'height', 'colspan', 'rowspan'
+            ],
+        });
+
+        // Try Vercel deployment
+        const vercelToken = process.env.VERCEL_TOKEN;
+        const vercelProjectId = process.env.VERCEL_PROJECT_ID;
+        if (vercelToken && vercelProjectId) {
+            try {
+                const formData = new FormData();
+                const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
+                formData.append('file', blob, 'index.html');
+                
+                const response = await fetch(`https://api.vercel.com/v1/deployments?projectId=${vercelProjectId}`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${vercelToken}` },
+                    body: formData,
+                    signal: AbortSignal.timeout(30000),
+                });
+                
+                const result = await response.json();
+                if (result.url) {
+                    return res.json({ success: true, liveUrl: `https://${result.url}` });
+                }
+            } catch (err) {
+                logger.warn('Vercel deploy failed:', err.message);
+            }
+        }
+
+        // Try Netlify deployment
+        const netlifyToken = process.env.NETLIFY_TOKEN;
+        const netlifySiteId = process.env.NETLIFY_SITE_ID;
+        if (netlifyToken && netlifySiteId) {
+            try {
+                const formData = new FormData();
+                const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
+                formData.append('file', blob, 'index.html');
+                
+                const response = await fetch(`https://api.netlify.com/api/v1/sites/${netlifySiteId}/deploys`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${netlifyToken}` },
+                    body: formData,
+                    signal: AbortSignal.timeout(30000),
+                });
+                
+                const result = await response.json();
+                if (result.deploy_url) {
+                    return res.json({ success: true, liveUrl: result.deploy_url });
+                }
+            } catch (err) {
+                logger.warn('Netlify deploy failed:', err.message);
+            }
+        }
+
+        // Fallback: data URI
+        const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(sanitized)}`;
+        return res.json({
+            success: true,
+            liveUrl: dataUri,
+            message: 'Preview available via data URI.'
+        });
+
+    } catch (err) {
+        logger.error('Deploy error:', err.message);
+        res.status(500).json({ success: false, message: 'Deployment failed: ' + err.message });
+    }
 });
 
 // ==========================================
 // 404 & ERROR HANDLING
 // ==========================================
-app.use((req, res) => res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'Endpoint not found.' }));
+app.use((req, res) => {
+    res.status(404).json({ success: false, code: 'NOT_FOUND', message: 'Endpoint not found.' });
+});
+
 app.use((err, req, res, next) => {
-  logger.error('💥 GLOBAL ERROR:', err);
-  if (!res.headersSent) res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: process.env.NODE_ENV === 'production' ? 'Service unavailable' : err.message });
+    logger.error('Global error:', err.message);
+    if (!res.headersSent) {
+        res.status(500).json({
+            success: false,
+            code: 'INTERNAL_ERROR',
+            message: process.env.NODE_ENV === 'production' ? 'Service unavailable' : err.message
+        });
+    }
 });
 
 // ==========================================
 // GRACEFUL SHUTDOWN
 // ==========================================
 let shuttingDown = false;
+
 const gracefulShutdown = async () => {
-  if (shuttingDown) return;
-  shuttingDown = true;
-  logger.info('🛑 Shutting down...');
-  server.close(async () => {
-    try { await mongoose.connection.close(); } catch (_) {}
-    logger.info('✅ Shutdown complete.');
-    process.exit(0);
-  });
-  setTimeout(() => { logger.error('⚠️ Forced shutdown.'); process.exit(1); }, 10000);
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info('🛑 Shutting down...');
+    server.close(async () => {
+        try {
+            await mongoose.connection.close();
+            logger.info('✅ Database connection closed.');
+        } catch (_) {}
+        logger.info('✅ Shutdown complete.');
+        process.exit(0);
+    });
+    setTimeout(() => {
+        logger.error('⚠️ Forced shutdown.');
+        process.exit(1);
+    }, 10000);
 };
+
 process.on('SIGTERM', gracefulShutdown);
 process.on('SIGINT', gracefulShutdown);
 
-const PORT = process.env.PORT || 5000;
+// ==========================================
+// START SERVER
+// ==========================================
 const server = app.listen(PORT, () => {
-  logger.info(`🟢 AXELR FORTRESS ONLINE ON PORT ${PORT} (${process.env.NODE_ENV || 'development'})`);
+    logger.info(`🟢 AXELR FORTRESS ONLINE ON PORT ${PORT} (${process.env.NODE_ENV || 'development'})`);
+    logger.info(`🔗 Orchestrator: ${ORCHESTRATOR_URL}`);
 });
