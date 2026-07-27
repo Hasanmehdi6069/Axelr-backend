@@ -1,5 +1,5 @@
 // ==========================================
-// AXELR AI - PRODUCTION SERVER v4.1.0
+// AXELR AI - PRODUCTION SERVER v4.3.0
 // ==========================================
 const express = require('express');
 const cors = require('cors');
@@ -12,6 +12,7 @@ const os = require('os');
 const compression = require('compression');
 const { OAuth2Client } = require('google-auth-library');
 const crypto = require('crypto');
+const nodemailer = require('nodemailer');
 require('dotenv').config();
 
 const app = express();
@@ -28,20 +29,50 @@ if (missing.length) {
     process.exit(1);
 }
 
-// Normalize orchestrator URL - remove trailing slash if present
-const ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL.replace(/\/+$/, '');
+// FIX: Ensure orchestrator URL has /api/route
+let ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL.replace(/\/+$/, '');
+if (!ORCHESTRATOR_URL.endsWith('/api/route')) {
+    ORCHESTRATOR_URL = ORCHESTRATOR_URL + '/api/route';
+}
+logger.info(`🔗 Orchestrator URL: ${ORCHESTRATOR_URL}`);
+
 const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'shanh1346@gmail.com';
 
 // ==========================================
-// STRIPE - Graceful Fallback
+// EMAIL SYSTEM
+// ==========================================
+let transporter = null;
+try {
+    if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        transporter = nodemailer.createTransport({
+            host: process.env.SMTP_HOST || 'smtp.gmail.com',
+            port: parseInt(process.env.SMTP_PORT) || 587,
+            secure: process.env.SMTP_SECURE === 'true',
+            auth: {
+                user: process.env.SMTP_USER,
+                pass: process.env.SMTP_PASS
+            }
+        });
+        logger.info('✅ Email transporter initialized');
+    } else {
+        logger.warn('⚠️ SMTP not configured - email features disabled');
+    }
+} catch (e) {
+    logger.warn('⚠️ Email unavailable - email features disabled');
+}
+
+// ==========================================
+// STRIPE
 // ==========================================
 let stripe = null;
 try {
-    if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== '') {
+    if (process.env.STRIPE_SECRET_KEY && process.env.STRIPE_SECRET_KEY !== '' &&
+        !process.env.STRIPE_SECRET_KEY.includes('test_secret')) {
         stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
         logger.info('✅ Stripe initialized');
     } else {
-        logger.warn('⚠️ STRIPE_SECRET_KEY not set - payment features disabled');
+        logger.warn('⚠️ STRIPE_SECRET_KEY not set or invalid - payment features disabled');
     }
 } catch (e) {
     logger.warn('⚠️ Stripe unavailable - payment features disabled');
@@ -58,6 +89,7 @@ const allowedOrigins = [
     'https://axelr-frontend.pages.dev',
     'http://localhost:3000',
     'http://localhost:5000',
+    'http://localhost:5001',
     process.env.CLIENT_APP_URL
 ].filter(Boolean);
 
@@ -93,8 +125,8 @@ app.use(helmet({
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "https://www.googletagmanager.com"],
-            frameSrc: ["'self'", "https://accounts.google.com"],
+            scriptSrc: ["'self'", (req, res) => `'nonce-${res.locals.nonce}'`, "https://accounts.google.com", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com", "https://www.googletagmanager.com", "https://js.stripe.com"],
+            frameSrc: ["'self'", "https://accounts.google.com", "https://js.stripe.com"],
             connectSrc: ["'self'", "https://api.netlify.com", "https://api.vercel.com", "https://generativelanguage.googleapis.com", "https://openrouter.ai"],
             imgSrc: ["'self'", "data:", "https://*.googleusercontent.com", "https://*.googleapis.com"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
@@ -160,6 +192,10 @@ const UserSchema = new mongoose.Schema({
         lastTokenReset: { type: Date, default: Date.now },
     },
     isAdmin: { type: Boolean, default: false },
+    // AI quota tracking
+    dailyGroqQuota: { type: Number, default: 0 },
+    dailyOpenRouterQuota: { type: Number, default: 0 },
+    lastAiQuotaReset: { type: Date, default: Date.now },
 }, { timestamps: true });
 
 const ChatSessionSchema = new mongoose.Schema({
@@ -230,9 +266,9 @@ const authenticateUser = async (req, res, next) => {
         const token = authHeader.split(' ')[1];
         const ticket = await googleClient.verifyIdToken({ idToken: token, audience: GOOGLE_CLIENT_ID });
         const payload = ticket.getPayload();
-        
+
         let user = await User.findOne({ googleId: payload.sub });
-        const isAdmin = payload.email === 'shanh1346@gmail.com' || payload.email === process.env.ADMIN_EMAIL;
+        const isAdmin = payload.email === ADMIN_EMAIL;
 
         if (!user) {
             user = await User.create({
@@ -261,19 +297,23 @@ const authenticateUser = async (req, res, next) => {
                     lastTokenReset: new Date()
                 },
                 isAdmin,
+                dailyGroqQuota: 0,
+                dailyOpenRouterQuota: 0,
+                lastAiQuotaReset: new Date(),
             });
             logger.info(`🆕 New user created: ${payload.email}`);
         } else {
             if (user.isAdmin !== isAdmin) {
                 user.isAdmin = isAdmin;
                 await user.save();
+                logger.info(`🔑 Admin status updated for ${payload.email}: ${isAdmin}`);
             }
             // Reset daily quotas
             const now = new Date();
             const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
             const lastReset = user.quotas.lastQuotaReset ? new Date(user.quotas.lastQuotaReset) : new Date(0);
             const lastResetDay = new Date(lastReset.getFullYear(), lastReset.getMonth(), lastReset.getDate());
-            
+
             if (today > lastResetDay) {
                 user.dailyUsage = 0;
                 user.dailyUiUxUsage = 0;
@@ -284,6 +324,10 @@ const authenticateUser = async (req, res, next) => {
                 user.tokenUsage.dailyPromptTokens = 0;
                 user.tokenUsage.dailyCompletionTokens = 0;
                 user.tokenUsage.lastTokenReset = new Date();
+                // Reset AI quotas
+                user.dailyGroqQuota = 0;
+                user.dailyOpenRouterQuota = 0;
+                user.lastAiQuotaReset = new Date();
                 await user.save();
             }
         }
@@ -300,13 +344,13 @@ const authenticateUser = async (req, res, next) => {
 // ==========================================
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: '10kb' }), async (req, res) => {
     try {
-        const sig = req.headers['stripe-signature'];
-        let event;
-        
         if (!stripe) {
             logger.warn('Stripe not initialized, webhook ignored');
             return res.json({ received: true, note: 'Stripe disabled' });
         }
+
+        const sig = req.headers['stripe-signature'];
+        let event;
 
         if (process.env.STRIPE_WEBHOOK_SECRET && process.env.STRIPE_WEBHOOK_SECRET !== '') {
             try {
@@ -335,14 +379,55 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json', limit: 
                 };
                 await user.save();
                 logger.info(`✅ User ${user.email} upgraded to ${tier}`);
+
+                if (transporter) {
+                    try {
+                        await transporter.sendMail({
+                            from: process.env.SMTP_USER,
+                            to: user.email,
+                            subject: '🎉 Axelr AI - Subscription Upgrade Confirmed',
+                            html: `
+                                <h2>Welcome to ${tier.toUpperCase()} Tier!</h2>
+                                <p>Your Axelr AI workspace has been successfully upgraded.</p>
+                                <p><strong>Plan:</strong> ${tier}</p>
+                                <p><strong>Features:</strong></p>
+                                <ul>
+                                    <li>Data Access: ${user.subTierOptions.hasDataAccess ? '✅' : '❌'}</li>
+                                    <li>Design Access: ${user.subTierOptions.hasDesignAccess ? '✅' : '❌'}</li>
+                                </ul>
+                                <p>Thank you for choosing Axelr AI!</p>
+                            `
+                        });
+                    } catch (emailErr) {
+                        logger.warn('Upgrade email failed:', emailErr.message);
+                    }
+                }
             }
         } else if (event.type === 'customer.subscription.deleted') {
             const subscription = event.data.object;
-            await User.findOneAndUpdate(
+            const user = await User.findOneAndUpdate(
                 { stripeSubscriptionId: subscription.id },
                 { tier: 'free', subTierOptions: { hasDataAccess: false, hasDesignAccess: false } }
             );
-            logger.info(`🗑️ Subscription cancelled for ${subscription.customer}`);
+            if (user) {
+                logger.info(`🗑️ Subscription cancelled for ${user.email}`);
+                if (transporter) {
+                    try {
+                        await transporter.sendMail({
+                            from: process.env.SMTP_USER,
+                            to: user.email,
+                            subject: 'Axelr AI - Subscription Cancelled',
+                            html: `
+                                <h2>Subscription Cancelled</h2>
+                                <p>Your Axelr AI subscription has been cancelled.</p>
+                                <p>You are now on the Free tier.</p>
+                            `
+                        });
+                    } catch (emailErr) {
+                        logger.warn('Cancellation email failed:', emailErr.message);
+                    }
+                }
+            }
         }
 
         res.json({ received: true });
@@ -366,13 +451,14 @@ app.get('/api/health', async (req, res) => {
         db: dbStatus,
         orchestrator: orchestratorStatus,
         stripe: stripe !== null,
+        email: transporter !== null,
         uptime: process.uptime()
     });
 });
 
 async function testOrchestratorHealth() {
     try {
-        const response = await fetch(`${ORCHESTRATOR_URL}/health`, { signal: AbortSignal.timeout(3000) });
+        const response = await fetch(`${ORCHESTRATOR_URL}`, { signal: AbortSignal.timeout(3000) });
         return response.ok ? 'connected' : 'unhealthy';
     } catch {
         return 'unreachable';
@@ -380,15 +466,19 @@ async function testOrchestratorHealth() {
 }
 
 // ==========================================
-// ADMIN METRICS
+// ADMIN METRICS - with AI quota tracking
 // ==========================================
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
     try {
         if (!req.currentUser.isAdmin) {
-            return res.status(403).json({ success: false, code: 'UNAUTHORIZED', message: 'Admin access required.' });
+            return res.status(403).json({
+                success: false,
+                code: 'UNAUTHORIZED',
+                message: 'Admin access required.'
+            });
         }
 
-        const [totalUsers, proUsers, designerUsers, totalChats, usageData, tokenData] = await Promise.all([
+        const [totalUsers, proUsers, businessUsers, totalChats, usageData, tokenData, aiQuotaAgg] = await Promise.all([
             User.countDocuments(),
             User.countDocuments({ tier: 'pro' }),
             User.countDocuments({ tier: 'business' }),
@@ -398,6 +488,9 @@ app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
             ]),
             User.aggregate([
                 { $group: { _id: null, totalPrompt: { $sum: "$tokenUsage.totalPromptTokens" }, totalCompletion: { $sum: "$tokenUsage.totalCompletionTokens" } } }
+            ]),
+            User.aggregate([
+                { $group: { _id: null, totalGroq: { $sum: "$dailyGroqQuota" }, totalOpenRouter: { $sum: "$dailyOpenRouterQuota" } } }
             ])
         ]);
 
@@ -405,12 +498,18 @@ app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
         const tokens = tokenData[0] || { totalPrompt: 0, totalCompletion: 0 };
         const totalTokens = tokens.totalPrompt + tokens.totalCompletion;
         const freeLimit = process.env.FREE_TIER_TOKEN_LIMIT || 1000000;
+        const aiQuotas = aiQuotaAgg[0] || { totalGroq: 0, totalOpenRouter: 0 };
+
+        const recentUsers = await User.find()
+            .sort({ createdAt: -1 })
+            .limit(10)
+            .select('email displayName tier createdAt');
 
         res.json({
             success: true,
             totalUsers,
             proUsers,
-            designerUsers,
+            businessUsers,
             totalChats,
             metrics,
             tokenUsage: {
@@ -419,7 +518,12 @@ app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
                 total: totalTokens,
                 remaining: Math.max(0, freeLimit - totalTokens),
                 limit: freeLimit,
-            }
+            },
+            aiQuota: {
+                groq: aiQuotas.totalGroq,
+                openRouter: aiQuotas.totalOpenRouter,
+            },
+            recentUsers
         });
     } catch (err) {
         logger.error('Admin metrics error:', err.message);
@@ -441,35 +545,61 @@ app.post('/api/billing/checkout', authenticateUser, async (req, res) => {
         }
 
         const { tier = 'pro', subTier = 'full' } = req.body;
-        let price = 1500, name = 'Pro Full Stack';
-        
-        if (tier === 'pro') {
-            if (subTier === 'data') { price = 800; name = 'Pro Data'; }
-            else if (subTier === 'design') { price = 900; name = 'Pro Design'; }
-        } else if (tier === 'business') {
-            if (subTier === 'full') { price = 2900; name = 'Business Full'; }
-            else if (subTier === 'data') { price = 1600; name = 'Business Data'; }
-            else if (subTier === 'design') { price = 1600; name = 'Business Design'; }
+
+        const pricing = {
+            pro: {
+                full: { price: 1500, name: 'Pro Full Stack', features: '20 Data + 15 UI + 7 Enhancements' },
+                data: { price: 800, name: 'Pro Data', features: '19 Data + 0 UI + 5 Enhancements' },
+                design: { price: 900, name: 'Pro Design', features: '0 Data + 13 UI + 5 Enhancements' }
+            },
+            business: {
+                full: { price: 2900, name: 'Business Full', features: '30 Data + 25 UI + 15 Enhancements' },
+                data: { price: 1600, name: 'Business Data', features: '28 Data + 0 UI + 10 Enhancements' },
+                design: { price: 1600, name: 'Business Design', features: '0 Data + 20 UI + 10 Enhancements' }
+            }
+        };
+
+        const plan = pricing[tier]?.[subTier];
+        if (!plan) {
+            return res.status(400).json({
+                success: false,
+                code: 'INVALID_PLAN',
+                message: 'Invalid plan selection.'
+            });
         }
 
         const origin = req.headers.origin || 'https://axelr.in';
+
         const session = await stripe.checkout.sessions.create({
             payment_method_types: ['card'],
             mode: 'subscription',
             client_reference_id: req.currentUser.googleId,
-            metadata: { tier, subTier },
+            customer_email: req.currentUser.email,
+            metadata: {
+                tier,
+                subTier,
+                userId: req.currentUser._id.toString()
+            },
             line_items: [{
                 price_data: {
                     currency: 'usd',
-                    product_data: { name },
-                    unit_amount: price,
+                    product_data: {
+                        name: plan.name,
+                        description: plan.features
+                    },
+                    unit_amount: plan.price,
                     recurring: { interval: 'month' }
                 },
                 quantity: 1
             }],
-            success_url: `${origin}/?billing=success`,
+            success_url: `${origin}/?billing=success&session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${origin}/?billing=cancelled`,
+            allow_promotion_codes: true,
         });
+
+        if (!session.url) {
+            throw new Error('No checkout URL returned');
+        }
 
         res.json({ success: true, url: session.url });
     } catch (err) {
@@ -477,7 +607,7 @@ app.post('/api/billing/checkout', authenticateUser, async (req, res) => {
         res.status(500).json({
             success: false,
             code: 'CHECKOUT_FAILED',
-            message: err.message || 'Failed to create checkout session.'
+            message: err.message || 'Failed to create checkout session. Please try again.'
         });
     }
 });
@@ -503,6 +633,9 @@ app.get('/api/user/profile', authenticateUser, (req, res) => {
         isAdmin: user.isAdmin || false,
         email: user.email,
         stripeCustomerId: user.stripeCustomerId,
+        stripeSubscriptionId: user.stripeSubscriptionId,
+        dailyGroqQuota: user.dailyGroqQuota,
+        dailyOpenRouterQuota: user.dailyOpenRouterQuota,
     });
 });
 
@@ -546,7 +679,7 @@ app.put('/api/history/:id', authenticateUser, async (req, res) => {
         const { action, payload } = req.body;
         const log = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
         if (!log) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
-        
+
         if (action === 'rename' && payload) log.filename = payload.slice(0, 100);
         if (action === 'pin') log.isPinned = !log.isPinned;
         await log.save();
@@ -585,13 +718,13 @@ app.put('/api/history/:id/variant', authenticateUser, async (req, res) => {
         }
         const session = await ChatSession.findOne({ _id: req.params.id, userId: req.currentUser._id });
         if (!session) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
-        
+
         const msg = session.messages.id(msgId);
         if (!msg) return res.status(404).json({ success: false, code: 'NOT_FOUND' });
         if (variantIndex < 0 || variantIndex >= (msg.variants?.length || 0)) {
             return res.status(400).json({ success: false, code: 'INVALID_INDEX' });
         }
-        
+
         msg.activeVariant = variantIndex;
         msg.text = msg.variants[variantIndex];
         session.markModified('messages');
@@ -629,17 +762,48 @@ app.get('/api/history', authenticateUser, async (req, res) => {
 });
 
 // ==========================================
-// BUG REPORTS
+// BUG REPORTS - with email
 // ==========================================
 app.post('/api/reports', authenticateUser, async (req, res) => {
     try {
-        await BugReport.create({
+        const report = await BugReport.create({
             userId: req.currentUser._id,
             type: req.body.type || 'feedback',
             description: (req.body.description || '').slice(0, 5000)
         });
+
+        if (transporter) {
+            try {
+                const emailHtml = `
+                    <h2>🔔 New ${report.type.toUpperCase()} Report</h2>
+                    <p><strong>From:</strong> ${req.currentUser.displayName} (${req.currentUser.email})</p>
+                    <p><strong>Type:</strong> ${report.type}</p>
+                    <p><strong>Date:</strong> ${new Date().toLocaleString()}</p>
+                    <p><strong>Description:</strong></p>
+                    <p style="background:#f5f5f5;padding:15px;border-radius:8px;">${report.description}</p>
+                    <hr>
+                    <p><strong>User ID:</strong> ${req.currentUser._id}</p>
+                    <p><strong>Tier:</strong> ${req.currentUser.tier}</p>
+                `;
+
+                await transporter.sendMail({
+                    from: process.env.SMTP_USER,
+                    to: ADMIN_EMAIL,
+                    subject: `🔔 Axelr AI - New ${report.type.toUpperCase()} Report from ${req.currentUser.displayName}`,
+                    html: emailHtml,
+                    replyTo: req.currentUser.email
+                });
+                logger.info(`📧 Report email sent to admin for ${req.currentUser.email}`);
+            } catch (emailErr) {
+                logger.error('Report email failed:', emailErr.message);
+            }
+        } else {
+            logger.warn('⚠️ Email not configured - report stored in DB only');
+        }
+
         res.json({ success: true });
     } catch (err) {
+        logger.error('Report error:', err.message);
         res.status(500).json({ success: false, code: 'INTERNAL_ERROR', message: 'Failed to submit report.' });
     }
 });
@@ -682,13 +846,11 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
             });
         }
 
-        // Call orchestrator with timeout and retry
         let enhanced = null;
-        let lastError = null;
 
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
-                const response = await fetch(`${ORCHESTRATOR_URL}`, {
+                const response = await fetch(ORCHESTRATOR_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -713,17 +875,16 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
                 }
                 throw new Error(result.text || 'Orchestrator returned failure');
             } catch (err) {
-                lastError = err;
                 logger.warn(`Enhance attempt ${attempt + 1} failed:`, err.message);
                 await new Promise(r => setTimeout(r, 1000));
             }
         }
 
         if (!enhanced) {
-            // Fallback: local enhancement
             enhanced = `You are AXELR AI - an elite executive assistant. Please provide a detailed response to: ${promptText}`;
         }
 
+        // ✅ Only increment on success
         user.quotas.dailyEnhancementsUsed += 1;
         user.dailyUsage += 1;
         await user.save();
@@ -767,7 +928,7 @@ function estimateTokens(text) {
 
 function generateChatName(command, files) {
     const STOP_WORDS = new Set(['the','be','to','of','and','a','in','that','have','i','it','for','not','on','with','he','as','you','do','at','this','but','his','by','from','they','we','say','her','she','or','an','will','my','one','all','would','there','their','what','so','up','out','if','about','who','get','which','go','me','when','make','can','like','time','no','just','him','know','take','people','into','year','your','good','some','could','them','see','other','than','then','now','look','only','come','its','over','think','also','back','after','use','two','how','our','work','first','well','way','even','new','want','because','any','these','give','day','most','us']);
-    
+
     if (files && files.length > 0) {
         const base = files[0].originalname.split('.')[0];
         return base.replace(/[_-]/g, ' ').slice(0, 50) || 'File Chat';
@@ -788,7 +949,7 @@ function cleanAssistantMessage(text) {
 }
 
 // ==========================================
-// EXTRACT - FIXED: Proper JSON response
+// EXTRACT - FIXED: quota increment only on success
 // ==========================================
 app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req, res) => {
     const files = req.files || [];
@@ -863,6 +1024,9 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             limit = isDesign ? uiLimit : dataLimit;
         }
 
+        // ✅ Prevent negative quota
+        if (used < 0) used = 0;
+
         if (used >= limit) {
             await cleanupFiles();
             return res.status(403).json({ success: false, code: 'LIMIT_REACHED', usage: used, limit });
@@ -909,6 +1073,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
         let aiResponse = '';
         let orchestratorSuccess = false;
         let providerInfo = '';
+        let modelUsed = '';
 
         for (let attempt = 0; attempt < 2; attempt++) {
             try {
@@ -921,10 +1086,11 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
                     })),
                     files: fileContents,
                     max_tokens: 2048,
-                    temperature: 0.2
+                    temperature: 0.2,
+                    tier: user.tier,
                 };
 
-                const response = await fetch(`${ORCHESTRATOR_URL}`, {
+                const response = await fetch(ORCHESTRATOR_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(orchestratorPayload),
@@ -940,6 +1106,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
                     aiResponse = result.text;
                     orchestratorSuccess = true;
                     providerInfo = result.provider || 'unknown';
+                    modelUsed = result.model_used || 'unknown';
                     logger.info(`Orchestrator used ${result.provider} (${result.model_used}) in ${result.latency_ms}ms`);
                     break;
                 }
@@ -952,16 +1119,6 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
 
         if (!orchestratorSuccess) {
             aiResponse = "I am Axelr AI. I encountered a technical issue. Please try again later.";
-            // Rollback quota
-            const rollbackFields = {
-                $inc: {
-                    [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: -1,
-                    dailyUsage: -1,
-                    storageBytesUsed: -totalSize,
-                }
-            };
-            if (isDesign) rollbackFields.$inc.dailyUiUxUsage = -1;
-            await User.findOneAndUpdate({ _id: user._id }, rollbackFields);
             await cleanupFiles();
             return res.status(503).json({
                 success: false,
@@ -970,25 +1127,33 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             });
         }
 
-        // --- Token estimation and DB update ---
+        // --- ✅ SUCCESS: Now increment quotas ---
         const promptTextTokens = estimateTokens(userCommand);
         const fileTokens = files.reduce((sum, f) => sum + estimateTokens(f.originalname) + Math.ceil(f.size / 4), 0);
         const completionTokens = estimateTokens(aiResponse);
 
-        await User.updateOne(
-            { _id: user._id },
-            {
-                $inc: {
-                    'tokenUsage.totalPromptTokens': promptTextTokens + fileTokens,
-                    'tokenUsage.totalCompletionTokens': completionTokens,
-                    'tokenUsage.dailyPromptTokens': promptTextTokens + fileTokens,
-                    'tokenUsage.dailyCompletionTokens': completionTokens,
-                    [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: 1,
-                    dailyUsage: 1,
-                    storageBytesUsed: totalSize,
-                }
+        const isGroq = providerInfo === 'groq' || providerInfo === 'groq-fallback';
+        const isOpenRouter = providerInfo === 'openrouter' || providerInfo === 'openrouter-fallback';
+
+        const updateFields = {
+            $inc: {
+                'tokenUsage.totalPromptTokens': promptTextTokens + fileTokens,
+                'tokenUsage.totalCompletionTokens': completionTokens,
+                'tokenUsage.dailyPromptTokens': promptTextTokens + fileTokens,
+                'tokenUsage.dailyCompletionTokens': completionTokens,
+                [isDesign ? 'quotas.dailyGenerationsUsed' : 'quotas.dailyExtractionsUsed']: 1,
+                dailyUsage: 1,
+                storageBytesUsed: totalSize,
             }
-        );
+        };
+
+        if (isGroq) {
+            updateFields.$inc.dailyGroqQuota = 1;
+        } else if (isOpenRouter) {
+            updateFields.$inc.dailyOpenRouterQuota = 1;
+        }
+
+        await User.updateOne({ _id: user._id }, updateFields);
 
         // Extract structured data if any
         let structured = [];
@@ -1054,6 +1219,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             structuredData: structured,
             filename: sessionSaved ? `${filenameOut}.csv` : 'Export.csv',
             provider: providerInfo,
+            model: modelUsed,
         });
 
     } catch (err) {
@@ -1082,7 +1248,6 @@ app.post('/api/deploy', authenticateUser, async (req, res) => {
             return res.status(400).json({ success: false, message: 'Generated HTML is incomplete.' });
         }
 
-        // Sanitize with DOMPurify
         const sanitized = DOMPurify.sanitize(htmlContent, {
             ALLOWED_TAGS: [
                 'html', 'head', 'body', 'div', 'span', 'p', 'a', 'img', 'button', 'input', 'form', 'table',
@@ -1105,14 +1270,14 @@ app.post('/api/deploy', authenticateUser, async (req, res) => {
                 const formData = new FormData();
                 const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
                 formData.append('file', blob, 'index.html');
-                
+
                 const response = await fetch(`https://api.vercel.com/v1/deployments?projectId=${vercelProjectId}`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${vercelToken}` },
                     body: formData,
                     signal: AbortSignal.timeout(30000),
                 });
-                
+
                 const result = await response.json();
                 if (result.url) {
                     return res.json({ success: true, liveUrl: `https://${result.url}` });
@@ -1130,14 +1295,14 @@ app.post('/api/deploy', authenticateUser, async (req, res) => {
                 const formData = new FormData();
                 const blob = new Blob([sanitized], { type: 'text/html; charset=utf-8' });
                 formData.append('file', blob, 'index.html');
-                
+
                 const response = await fetch(`https://api.netlify.com/api/v1/sites/${netlifySiteId}/deploys`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${netlifyToken}` },
                     body: formData,
                     signal: AbortSignal.timeout(30000),
                 });
-                
+
                 const result = await response.json();
                 if (result.deploy_url) {
                     return res.json({ success: true, liveUrl: result.deploy_url });
@@ -1147,7 +1312,6 @@ app.post('/api/deploy', authenticateUser, async (req, res) => {
             }
         }
 
-        // Fallback: data URI
         const dataUri = `data:text/html;charset=utf-8,${encodeURIComponent(sanitized)}`;
         return res.json({
             success: true,
@@ -1211,4 +1375,7 @@ process.on('SIGINT', gracefulShutdown);
 const server = app.listen(PORT, () => {
     logger.info(`🟢 AXELR FORTRESS ONLINE ON PORT ${PORT} (${process.env.NODE_ENV || 'development'})`);
     logger.info(`🔗 Orchestrator: ${ORCHESTRATOR_URL}`);
+    logger.info(`📧 Email: ${transporter ? '✅' : '❌'}`);
+    logger.info(`💳 Stripe: ${stripe ? '✅' : '❌'}`);
+    logger.info(`👑 Admin: ${ADMIN_EMAIL}`);
 });
