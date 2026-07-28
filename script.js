@@ -199,12 +199,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e)
 // ============================================================
 // SINGLE INITIALIZATION POINT
 // ============================================================
-let appInitialized = false;
-
 function initializeApp() {
-    if (appInitialized) return;
-    appInitialized = true;
-
     // Theme
     const saved = localStorage.getItem('axelr_theme') || 'system';
     currentThemePreference = saved;
@@ -214,7 +209,7 @@ function initializeApp() {
     } else {
         applyTheme(saved);
     }
-
+    
     // Auth check
     const savedToken = localStorage.getItem('google_auth_token');
     if (savedToken) {
@@ -228,7 +223,7 @@ function initializeApp() {
             localStorage.removeItem('google_auth_token');
         }
     }
-
+    
     // Show auth wall
     document.getElementById('auth-wall').style.display = 'flex';
 }
@@ -260,6 +255,7 @@ function adjustCommandWrapperAndViewport() {
     const availableHeight = window.innerHeight - maxBottom - 20 - fileChipsHeight;
     commandWrapper.style.maxHeight = Math.min(availableHeight, window.innerHeight * 0.8) + 'px';
     
+    // Only adjust padding, don't force scroll
     adjustViewportPadding();
 }
 
@@ -280,7 +276,7 @@ if (window.visualViewport) {
 }
 
 // ============================================================
-// VIEWPORT OBSERVER - FIXED (debounced)
+// VIEWPORT OBSERVER - FIXED
 // ============================================================
 function setupViewportObserver() {
     if (viewportObserver) {
@@ -288,20 +284,16 @@ function setupViewportObserver() {
         viewportObserver = null;
     }
     viewportObserver = new MutationObserver(() => {
-        // Use debounce to avoid excessive calls
-        clearTimeout(window._viewportObserverTimeout);
-        window._viewportObserverTimeout = setTimeout(() => {
-            if (!isUserScrolling && observerActive) {
-                const lastMessage = viewport.querySelector('.chat-bubble:last-child');
-                if (lastMessage) {
-                    const rect = lastMessage.getBoundingClientRect();
-                    const viewportRect = viewport.getBoundingClientRect();
-                    if (rect.bottom > viewportRect.bottom - 50) {
-                        scrollToBottom(true);
-                    }
+        if (!isUserScrolling && observerActive) {
+            const lastMessage = viewport.querySelector('.chat-bubble:last-child');
+            if (lastMessage) {
+                const rect = lastMessage.getBoundingClientRect();
+                const viewportRect = viewport.getBoundingClientRect();
+                if (rect.bottom > viewportRect.bottom - 50) {
+                    scrollToBottom(true);
                 }
             }
-        }, 100);
+        }
     });
     viewportObserver.observe(viewport, { 
         childList: true, 
@@ -571,6 +563,56 @@ function handleCredentialResponse(response) {
     dropdownFallback.innerText = payload.name.charAt(0).toUpperCase();
 }
 
+window.onload = function() {
+    try {
+        const savedToken = localStorage.getItem('google_auth_token');
+        if (savedToken) {
+            const payload = decodeJwt(savedToken);
+            if (Date.now() < payload.exp * 1000) {
+                return initializeSecureWorkspace(payload, savedToken);
+            } else {
+                localStorage.removeItem('google_auth_token');
+            }
+        }
+    } catch (err) {
+        localStorage.removeItem('google_auth_token');
+    }
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.get('billing') === 'success') {
+        alert('🎉 Payment successful! Your workspace has been upgraded.');
+        window.history.replaceState({}, document.title, window.location.pathname);
+        if (googleAuthUserToken) loadUserProfile();
+    }
+};
+
+async function initializeSecureWorkspace(payload, token) {
+    googleAuthUserToken = token;
+    currentUserId = payload.sub;
+    const authWallEl = document.getElementById('auth-wall');
+    if (authWallEl) authWallEl.style.display = 'none';
+
+    mainWrapper.classList.add('visible');
+
+    const savedWorkspace = localStorage.getItem('Axelr_workspace');
+    if (savedWorkspace) {
+        activateWorkspace(savedWorkspace, true);
+    } else {
+        document.getElementById('workspace-selector').style.display = 'flex';
+    }
+    document.getElementById('user-avatar').src = payload.picture;
+    document.getElementById('user-avatar').style.display = 'block';
+    document.getElementById('dropdown-avatar').src = payload.picture;
+    document.getElementById('dropdown-name').innerText = payload.name;
+    document.getElementById('dropdown-email').innerText = payload.email;
+    await loadUserProfile();
+    await loadArchiveLogs();
+}
+
+function executeGlobalLogout() {
+    localStorage.removeItem('google_auth_token');
+    location.reload();
+}
+
 // ============================================================
 // WORKSPACE FUNCTIONS
 // ============================================================
@@ -616,6 +658,7 @@ function resetToNewChat(isBoot = false) {
     activeSessionId = null;
     runningStructuredCache = null;
     
+    // Clear file references
     if (stagedFiles.length > 0) {
         stagedFiles = [];
         renderFileChips();
@@ -652,6 +695,7 @@ function resetToNewChat(isBoot = false) {
     if (mainBackBtn) mainBackBtn.style.display = 'none';
     adjustViewportPadding();
     
+    // Re-setup observer after reset
     setTimeout(setupViewportObserver, 100);
 }
 
@@ -828,13 +872,9 @@ async function loadUserProfile() {
 }
 
 // ============================================================
-// HISTORY - with debounce to avoid multiple calls
+// HISTORY
 // ============================================================
-let historyLoading = false;
-
 async function loadArchiveLogs() {
-    if (historyLoading) return;
-    historyLoading = true;
     try {
         const currentWorkspace = getWorkspace();
         const response = await fetch(
@@ -879,11 +919,7 @@ async function loadArchiveLogs() {
                 validateSendCommand();
             }
         }
-    } catch (e) {
-        console.warn('loadArchiveLogs error:', e);
-    } finally {
-        historyLoading = false;
-    }
+    } catch (e) {}
 }
 
 // ============================================================
@@ -1007,7 +1043,7 @@ async function deleteLogPermanently(logId, e) {
 }
 
 // ============================================================
-// VIEW PAST LOG - FIXED (no unnecessary re-renders)
+// VIEW PAST LOG - FIXED
 // ============================================================
 function viewPastLogById(logId) {
     if (regenerateTimer) {
@@ -1018,14 +1054,14 @@ function viewPastLogById(logId) {
     const log = cachedLogHistory.find(l => l._id === logId);
     if (!log) return;
     
-    // If already viewing this session, do nothing
-    if (activeSessionId === logId) return;
-    
+    // Preserve hero state
     const hero = document.getElementById('hero-display');
     if (hero) hero.style.display = 'none';
     
-    // Clear existing bubbles
-    document.querySelectorAll('.chat-bubble').forEach(b => b.remove());
+    // Only clear if loading different session
+    if (activeSessionId !== logId) {
+        document.querySelectorAll('.chat-bubble').forEach(b => b.remove());
+    }
     
     activeSessionId = logId;
     localStorage.setItem('axelr_active_session', activeSessionId);
@@ -1151,7 +1187,9 @@ function viewPastLogById(logId) {
         viewport.appendChild(bubble);
     });
     
+    // Use updateViewportAfterRender instead of multiple timeouts
     updateViewportAfterRender();
+    
     if (window.innerWidth <= 768) sidebarNode.classList.remove('open');
 }
 
@@ -1394,9 +1432,13 @@ function showSecurityAlert(level) {
 }
 
 // ============================================================
-// EXECUTE COMMAND - FIXED (error handling & UI)
+// EXECUTE COMMAND - FIXED
 // ============================================================
 async function executeCommand(isRetry = false) {
+    if (!activeSessionId) {
+        document.getElementById('hero-display').style.display = 'none';
+    }
+    
     if (isProcessing) return;
     isProcessing = true;
     
@@ -1461,10 +1503,6 @@ async function executeCommand(isRetry = false) {
         validateSendCommand();
     }
     sendBtn.disabled = true;
-
-    // Hide hero on first command
-    const hero = document.getElementById('hero-display');
-    if (hero) hero.style.display = 'none';
 
     const userBubble = document.createElement('div');
     userBubble.className = 'chat-bubble user-bubble';
@@ -1545,8 +1583,6 @@ async function executeCommand(isRetry = false) {
     const timeoutFallback = setTimeout(() => {
         if (!responseReceived) {
             contentDiv.innerHTML = `⚠️ The AI took too long to respond. Please try again.`;
-            // Show hero again if no response
-            if (hero) hero.style.display = 'flex';
             scrollToBottom();
             if (globalAbortController) globalAbortController.abort();
             sendBtn.classList.remove('btn-stop-active');
@@ -1575,10 +1611,6 @@ async function executeCommand(isRetry = false) {
                     `⚠️ <strong>Access Restricted.</strong><br>${errorData.message || 'Your current plan does not include this workspace type.'}<br><button onclick="openUpgradeModal()" style="background:var(--accent-glow-pro);color:#000;padding:8px 12px;border:none;border-radius:6px;cursor:pointer;font-weight:600;margin-top:10px;">Upgrade Workspace</button>`;
             } else {
                 contentDiv.innerHTML = `💥 Error: ${errorData.message || 'Pipeline failed.'}`;
-            }
-            // Show hero if error occurred and no messages yet
-            if (!viewport.querySelector('.chat-bubble.user-bubble') && !viewport.querySelector('.chat-bubble.nexus-bubble')) {
-                if (hero) hero.style.display = 'flex';
             }
             scrollToBottom();
             isProcessing = false;
@@ -1638,10 +1670,6 @@ async function executeCommand(isRetry = false) {
 
         } else {
             contentDiv.innerHTML = `⚠️ ${result.message || 'Something went wrong.'}`;
-            // Show hero if no messages
-            if (!viewport.querySelector('.chat-bubble.nexus-bubble')) {
-                if (hero) hero.style.display = 'flex';
-            }
         }
 
     } catch (error) {
@@ -1652,10 +1680,6 @@ async function executeCommand(isRetry = false) {
         } else {
             console.error('Execute error:', error);
             contentDiv.innerHTML = `⚠️ Network connection dropped. Please retry.`;
-        }
-        // Show hero if error occurred
-        if (!viewport.querySelector('.chat-bubble.nexus-bubble')) {
-            if (hero) hero.style.display = 'flex';
         }
         scrollToBottom();
     } finally {
@@ -2239,6 +2263,7 @@ function adjustViewportPadding() {
         totalPadding += chipsHeight + 10;
     }
     
+    // Don't force padding if it's too small
     const minPadding = 120;
     totalPadding = Math.max(totalPadding, minPadding);
     
@@ -2284,7 +2309,7 @@ if (!lastVisit || new Date(lastVisit) < today) {
 }
 
 // ============================================================
-// VERSION & CACHE CONTROL - safe version check (no clear)
+// VERSION & CACHE CONTROL
 // ============================================================
 const APP_VERSION = '4.3.0';
 const BUILD_DATE = '2026-07-28';
@@ -2292,10 +2317,11 @@ const BUILD_DATE = '2026-07-28';
 console.log(`🟢 Axelr AI v${APP_VERSION} (Build: ${BUILD_DATE})`);
 console.log('📡 API Base URL:', API_BASE_URL);
 
-// Only log version, never clear localStorage
 const storedVersion = localStorage.getItem('axelr_app_version');
 if (storedVersion && storedVersion !== APP_VERSION) {
-    console.log('🔄 Version mismatch detected (stored:', storedVersion, 'current:', APP_VERSION, ') - no action taken.');
+    console.log('🔄 Version mismatch, clearing cache...');
+    localStorage.clear();
+    localStorage.setItem('axelr_app_version', APP_VERSION);
 } else if (!storedVersion) {
     localStorage.setItem('axelr_app_version', APP_VERSION);
 }
@@ -2323,6 +2349,7 @@ loadUserProfile().then(() => {
         if (storedSessionId) {
             viewPastLogById(storedSessionId);
         }
+        // Setup viewport observer after everything loads
         setTimeout(setupViewportObserver, 500);
     });
 });
