@@ -48,7 +48,7 @@ class RouteRequest(BaseModel):
     files: Optional[List[Dict[str, str]]] = None
     max_tokens: int = 2048
     temperature: float = 0.2
-    tier: Optional[str] = 'free'  # ✅ passed from server
+    tier: Optional[str] = 'free'
 
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
@@ -67,6 +67,19 @@ def detect_manipulation(text: str) -> bool:
             return True
     return False
 
+async def call_with_retries(provider_func, *args, retries=3, delay=1.0, **kwargs):
+    """Generic retry with exponential backoff."""
+    for attempt in range(retries):
+        try:
+            return await provider_func(*args, **kwargs)
+        except Exception as e:
+            logger.warning(f"Provider call attempt {attempt+1} failed: {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay * (2 ** attempt))
+            else:
+                raise
+    raise Exception("All retries exhausted")
+
 async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free') -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY not configured")
@@ -75,7 +88,6 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-    # Free tier uses free model
     model = "mixtral-8x7b-32768"
     payload = {
         "model": model,
@@ -83,7 +95,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free
         "max_tokens": max_tokens,
         "temperature": temp,
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
         resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
@@ -111,7 +123,7 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
         "max_tokens": max_tokens,
         "temperature": temp,
     }
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=90.0) as client:
         resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
@@ -156,67 +168,86 @@ async def route(req: RouteRequest):
                 "latency_ms": 0
             })
         tier = getattr(req, 'tier', 'free')
+        # Try primary provider with retries, then fallback
+        response_text = None
+        provider = None
+        model_used = None
+
         if req.workspace == "design":
             try:
-                response_text = await call_groq(full_prompt, req.max_tokens, req.temperature, tier)
+                response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                 provider = "groq"
                 model_used = "mixtral-8x7b-32768"
             except Exception as e:
-                logger.warning(f"Groq fallback: {e}")
+                logger.warning(f"Groq primary failed: {e}")
                 try:
-                    response_text = await call_openrouter(
+                    response_text = await call_with_retries(
+                        call_openrouter,
                         "qwen/qwen-2.5-coder-32b:free",
                         full_prompt,
                         req.max_tokens,
                         req.temperature,
-                        tier
+                        tier,
+                        retries=2
                     )
                     provider = "openrouter-fallback"
                     model_used = "qwen-2.5-coder-32b"
                 except Exception as e2:
-                    logger.warning(f"OpenRouter fallback failed: {e2}")
-                    response_text = f"I am Axelr AI. I'm currently experiencing high demand. Here's my analysis of your request:\n\n{req.prompt[:500]}"
+                    logger.error(f"All providers failed: {e2}")
+                    # Final local fallback – generic but helpful
+                    response_text = (
+                        "I'm Axelr AI. I'm currently experiencing high demand, but I can still provide guidance. "
+                        "Please try again in a moment. If the issue persists, contact support."
+                    )
                     provider = "local-fallback"
                     model_used = "rule-engine"
         elif req.workspace == "data":
             try:
                 model = "deepseek/deepseek-r1-distill-llama-70b:free"
-                response_text = await call_openrouter(
+                response_text = await call_with_retries(
+                    call_openrouter,
                     model,
                     full_prompt,
                     req.max_tokens,
                     req.temperature,
-                    tier
+                    tier,
+                    retries=2
                 )
                 provider = "openrouter"
                 model_used = model
             except Exception as e:
-                logger.warning(f"OpenRouter data fallback: {e}")
+                logger.warning(f"OpenRouter data failed: {e}")
                 try:
-                    response_text = await call_groq(full_prompt, req.max_tokens, req.temperature, tier)
+                    response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                     provider = "groq-fallback"
                     model_used = "mixtral-8x7b-32768"
                 except Exception as e2:
-                    logger.warning(f"Groq fallback failed: {e2}")
-                    response_text = f"I am Axelr AI. I'm currently experiencing high demand. Here's my analysis of your request:\n\n{req.prompt[:500]}"
+                    logger.error(f"All providers failed: {e2}")
+                    response_text = (
+                        "I'm Axelr AI. I'm currently experiencing high demand, but I can still provide guidance. "
+                        "Please try again in a moment. If the issue persists, contact support."
+                    )
                     provider = "local-fallback"
                     model_used = "rule-engine"
         else:  # prompt enhancement
             try:
-                response_text = await call_openrouter(
+                response_text = await call_with_retries(
+                    call_openrouter,
                     "qwen/qwen-2.5-coder-32b:free",
                     f"You are an expert prompt engineer. Rewrite this user prompt into a detailed, professional system prompt:\n\n{req.prompt}",
                     req.max_tokens,
                     req.temperature,
-                    tier
+                    tier,
+                    retries=2
                 )
                 provider = "openrouter"
                 model_used = "qwen-2.5-coder-32b"
             except Exception as e:
-                logger.warning(f"OpenRouter prompt fallback: {e}")
+                logger.warning(f"OpenRouter prompt failed: {e}")
                 response_text = f"Please provide a detailed response to: {req.prompt}"
                 provider = "local-fallback"
                 model_used = "rule-engine"
+
         latency = (time.time() - start) * 1000
         return JSONResponse({
             "success": True,
@@ -247,5 +278,6 @@ async def route_get():
 
 if __name__ == "__main__":
     import uvicorn
+    import asyncio
     port = int(os.getenv("PORT", 5001))
     uvicorn.run(app, host="0.0.0.0", port=port)
