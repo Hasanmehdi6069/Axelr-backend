@@ -43,6 +43,8 @@ if not GROQ_API_KEY:
     logger.warning("⚠️ GROQ_API_KEY not set - Groq calls will fail")
 if not OPENROUTER_API_KEY:
     logger.warning("⚠️ OPENROUTER_API_KEY not set - OpenRouter calls will fail")
+
+# FIX: Added tier field to RouteRequest
 class RouteRequest(BaseModel):
     workspace: str
     prompt: str
@@ -50,7 +52,8 @@ class RouteRequest(BaseModel):
     files: Optional[List[Dict[str, str]]] = None
     max_tokens: int = 2048
     temperature: float = 0.2
-    tier: Optional[str] = 'free'  # ✅ ADD THIS LINE - CRITICAL
+    tier: Optional[str] = 'free'  # ✅ ADDED - CRITICAL FIX
+
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
     r"disregard (system prompt|guidelines|instructions)",
@@ -68,7 +71,6 @@ def detect_manipulation(text: str) -> bool:
             return True
     return False
 
-# FIX: Free tier uses free models only
 async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free') -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY not configured")
@@ -94,7 +96,6 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free
         resp.raise_for_status()
         return resp.json()["choices"][0]["message"]["content"]
 
-# FIX: Free tier uses free models only
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float, tier: str = 'free') -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY not configured")
@@ -109,7 +110,6 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
     
     # Free tier always uses free models
     if tier == 'free':
-        # Use only free models for free tier
         free_models = {
             'data': 'deepseek/deepseek-r1-distill-llama-70b:free',
             'design': 'qwen/qwen-2.5-coder-32b:free',
@@ -203,7 +203,6 @@ async def route(req: RouteRequest):
         
         elif req.workspace == "data":
             try:
-                # Free tier uses free model
                 model = "deepseek/deepseek-r1-distill-llama-70b:free"
                 response_text = await call_openrouter(
                     model,

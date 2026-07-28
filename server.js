@@ -463,7 +463,7 @@ async function testOrchestratorHealth() {
 }
 
 // ==========================================
-// ADMIN METRICS - FIXED: Only for shanh1346@gmail.com
+// ADMIN METRICS - STRICT ADMIN ONLY
 // ==========================================
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
     try {
