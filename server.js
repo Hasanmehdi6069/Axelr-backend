@@ -29,11 +29,9 @@ if (missing.length) {
     process.exit(1);
 }
 
-// FIX: Ensure orchestrator URL has /api/route
 let ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL.replace(/\/+$/, '');
 if (!ORCHESTRATOR_URL.endsWith('/api/route')) {
     ORCHESTRATOR_URL = ORCHESTRATOR_URL + '/api/route';
-    
 }
 logger.info(`🔗 Orchestrator URL: ${ORCHESTRATOR_URL}`);
 
@@ -193,7 +191,6 @@ const UserSchema = new mongoose.Schema({
         lastTokenReset: { type: Date, default: Date.now },
     },
     isAdmin: { type: Boolean, default: false },
-    // AI quota tracking
     dailyGroqQuota: { type: Number, default: 0 },
     dailyOpenRouterQuota: { type: Number, default: 0 },
     lastAiQuotaReset: { type: Date, default: Date.now },
@@ -325,7 +322,6 @@ const authenticateUser = async (req, res, next) => {
                 user.tokenUsage.dailyPromptTokens = 0;
                 user.tokenUsage.dailyCompletionTokens = 0;
                 user.tokenUsage.lastTokenReset = new Date();
-                // Reset AI quotas
                 user.dailyGroqQuota = 0;
                 user.dailyOpenRouterQuota = 0;
                 user.lastAiQuotaReset = new Date();
@@ -467,15 +463,16 @@ async function testOrchestratorHealth() {
 }
 
 // ==========================================
-// ADMIN METRICS - with AI quota tracking
+// ADMIN METRICS - FIXED: Only for shanh1346@gmail.com
 // ==========================================
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
     try {
-        if (!req.currentUser.isAdmin) {
+        // STRICT ADMIN CHECK - Only shanh1346@gmail.com
+        if (!req.currentUser.isAdmin || req.currentUser.email !== ADMIN_EMAIL) {
             return res.status(403).json({
                 success: false,
                 code: 'UNAUTHORIZED',
-                message: 'Admin access required.'
+                message: 'Admin access restricted to authorized personnel only.'
             });
         }
 
@@ -861,6 +858,7 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
                         files: [],
                         max_tokens: 2048,
                         temperature: 0.2,
+                        tier: user.tier,  // Pass tier to orchestrator
                     }),
                     signal: AbortSignal.timeout(15000),
                 });
@@ -885,7 +883,6 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
             enhanced = `You are AXELR AI - an elite executive assistant. Please provide a detailed response to: ${promptText}`;
         }
 
-        // ✅ Only increment on success
         user.quotas.dailyEnhancementsUsed += 1;
         user.dailyUsage += 1;
         await user.save();
@@ -1020,15 +1017,11 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
                 await cleanupFiles();
                 return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'Data extraction not included in your plan.' });
             }
-          // Find this section around line 1050:
-const quotaField = isDesign ? 'dailyGenerationsUsed' : 'dailyExtractionsUsed';
-used = user.quotas[quotaField];
-limit = isDesign ? uiLimit : dataLimit;
-
-// ✅ ADD THIS SAFETY CHECK:
-if (used < 0) used = 0;  // Prevent negative values
+            const quotaField = isDesign ? 'dailyGenerationsUsed' : 'dailyExtractionsUsed';
+            used = user.quotas[quotaField];
+            limit = isDesign ? uiLimit : dataLimit;
         }
-        // ✅ Prevent negative quota
+        // FIX: Ensure used is never negative
         if (used < 0) used = 0;
 
         if (used >= limit) {
@@ -1091,7 +1084,7 @@ if (used < 0) used = 0;  // Prevent negative values
                     files: fileContents,
                     max_tokens: 2048,
                     temperature: 0.2,
-                    tier: user.tier,
+                    tier: user.tier,  // Pass tier to orchestrator
                 };
 
                 const response = await fetch(ORCHESTRATOR_URL, {
