@@ -1,4 +1,4 @@
-# main.py - Production-ready Python orchestrator
+# main.py - Production-ready Python orchestrator (v4.2.1)
 import os
 import time
 import json
@@ -11,13 +11,11 @@ from typing import Optional, List, Dict, Any
 import re
 import logging
 
-# Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Axelr AI Cloud Orchestrator")
 
-# Enhanced CORS for production
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -35,7 +33,6 @@ app.add_middleware(
     max_age=86400,
 )
 
-# API Keys from environment
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 
@@ -44,7 +41,6 @@ if not GROQ_API_KEY:
 if not OPENROUTER_API_KEY:
     logger.warning("⚠️ OPENROUTER_API_KEY not set - OpenRouter calls will fail")
 
-# FIX: Added tier field to RouteRequest
 class RouteRequest(BaseModel):
     workspace: str
     prompt: str
@@ -52,7 +48,7 @@ class RouteRequest(BaseModel):
     files: Optional[List[Dict[str, str]]] = None
     max_tokens: int = 2048
     temperature: float = 0.2
-    tier: Optional[str] = 'free'  # ✅ ADDED - CRITICAL FIX
+    tier: Optional[str] = 'free'  # ✅ passed from server
 
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
@@ -74,23 +70,19 @@ def detect_manipulation(text: str) -> bool:
 async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free') -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY not configured")
-    
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
-    
-    # Free tier uses smaller, free model
-    model = "mixtral-8x7b-32768"  # Free model
-    
+    # Free tier uses free model
+    model = "mixtral-8x7b-32768"
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
     }
-    
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
@@ -99,7 +91,6 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float, tier: str = 'free') -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY not configured")
-    
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -107,8 +98,6 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
         "HTTP-Referer": "https://axelr.in",
         "X-Title": "Axelr AI"
     }
-    
-    # Free tier always uses free models
     if tier == 'free':
         free_models = {
             'data': 'deepseek/deepseek-r1-distill-llama-70b:free',
@@ -116,14 +105,12 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
             'prompt': 'qwen/qwen-2.5-coder-32b:free'
         }
         model = free_models.get('data', 'deepseek/deepseek-r1-distill-llama-70b:free')
-    
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
     }
-    
     async with httpx.AsyncClient(timeout=60.0) as client:
         resp = await client.post(url, headers=headers, json=payload)
         resp.raise_for_status()
@@ -131,7 +118,6 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
 
 def get_system_prompt(workspace: str) -> str:
     base = "You are AXELR - an elite, executive AI assistant. Keep responses concise, directly on point, with no fluff."
-    
     if workspace == "design":
         return base + (
             " You are AXELR ARCHITECT - a world-class UI/UX engineer. "
@@ -151,20 +137,15 @@ def get_system_prompt(workspace: str) -> str:
 @app.post("/api/route")
 async def route(req: RouteRequest):
     start = time.time()
-    
     try:
-        # Build history context
         history_text = ""
         if req.history:
             history_text = "\n".join([f"{m['role']}: {m['content']}" for m in req.history[-4:]])
-        
         system_prompt = get_system_prompt(req.workspace)
         full_prompt = f"{system_prompt}\n\n"
         if history_text:
             full_prompt += f"Previous conversation:\n{history_text}\n\n"
         full_prompt += f"User request: {req.prompt}"
-        
-        # Security check
         if detect_manipulation(req.prompt):
             return JSONResponse({
                 "success": False,
@@ -174,10 +155,7 @@ async def route(req: RouteRequest):
                 "tokens_used": 0,
                 "latency_ms": 0
             })
-        
         tier = getattr(req, 'tier', 'free')
-        
-        # Route based on workspace
         if req.workspace == "design":
             try:
                 response_text = await call_groq(full_prompt, req.max_tokens, req.temperature, tier)
@@ -200,7 +178,6 @@ async def route(req: RouteRequest):
                     response_text = f"I am Axelr AI. I'm currently experiencing high demand. Here's my analysis of your request:\n\n{req.prompt[:500]}"
                     provider = "local-fallback"
                     model_used = "rule-engine"
-        
         elif req.workspace == "data":
             try:
                 model = "deepseek/deepseek-r1-distill-llama-70b:free"
@@ -224,7 +201,6 @@ async def route(req: RouteRequest):
                     response_text = f"I am Axelr AI. I'm currently experiencing high demand. Here's my analysis of your request:\n\n{req.prompt[:500]}"
                     provider = "local-fallback"
                     model_used = "rule-engine"
-        
         else:  # prompt enhancement
             try:
                 response_text = await call_openrouter(
@@ -241,9 +217,7 @@ async def route(req: RouteRequest):
                 response_text = f"Please provide a detailed response to: {req.prompt}"
                 provider = "local-fallback"
                 model_used = "rule-engine"
-        
         latency = (time.time() - start) * 1000
-        
         return JSONResponse({
             "success": True,
             "text": response_text,
@@ -252,7 +226,6 @@ async def route(req: RouteRequest):
             "tokens_used": len(response_text.split()),
             "latency_ms": round(latency, 2)
         })
-    
     except Exception as e:
         logger.error(f"Route error: {e}")
         return JSONResponse({
@@ -266,7 +239,7 @@ async def route(req: RouteRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "operational", "engine": "axelr-cloud-orchestrator", "version": "4.2.0"}
+    return {"status": "operational", "engine": "axelr-cloud-orchestrator", "version": "4.2.1"}
 
 @app.get("/api/route")
 async def route_get():
