@@ -33,6 +33,7 @@ if (missing.length) {
 let ORCHESTRATOR_URL = process.env.ORCHESTRATOR_URL.replace(/\/+$/, '');
 if (!ORCHESTRATOR_URL.endsWith('/api/route')) {
     ORCHESTRATOR_URL = ORCHESTRATOR_URL + '/api/route';
+    
 }
 logger.info(`🔗 Orchestrator URL: ${ORCHESTRATOR_URL}`);
 
@@ -1019,11 +1020,14 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
                 await cleanupFiles();
                 return res.status(403).json({ success: false, code: 'SUB_TIER_RESTRICTION', message: 'Data extraction not included in your plan.' });
             }
-            const quotaField = isDesign ? 'dailyGenerationsUsed' : 'dailyExtractionsUsed';
-            used = user.quotas[quotaField];
-            limit = isDesign ? uiLimit : dataLimit;
-        }
+          // Find this section around line 1050:
+const quotaField = isDesign ? 'dailyGenerationsUsed' : 'dailyExtractionsUsed';
+used = user.quotas[quotaField];
+limit = isDesign ? uiLimit : dataLimit;
 
+// ✅ ADD THIS SAFETY CHECK:
+if (used < 0) used = 0;  // Prevent negative values
+        }
         // ✅ Prevent negative quota
         if (used < 0) used = 0;
 
