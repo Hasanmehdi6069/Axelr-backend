@@ -1,10 +1,10 @@
-# main.py - Production-ready Python orchestrator (v4.3.0)
+# main.py - Production-ready Python orchestrator (v4.3.2)
 import os
 import time
 import json
 import httpx
 import asyncio
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -89,19 +89,26 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "Accept": "application/json"
     }
-    # Use a fast, reliable model
-    model = "mixtral-8x7b-32768"
+    # Use a stable, fast model
+    model = "llama-3.1-8b-instant"  # updated from mixtral
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
+        "max_tokens": min(max_tokens, 4096),  # safety cap
+        "temperature": max(0.0, min(1.0, temp)),
+        "stream": False
     }
     async with httpx.AsyncClient(timeout=90.0) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
+        try:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text if e.response else "No response body"
+            logger.error(f"Groq API error {e.response.status_code}: {error_body}")
+            raise Exception(f"Groq API error: {e.response.status_code} - {error_body}")
         return resp.json()["choices"][0]["message"]["content"]
 
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float, tier: str = 'free') -> str:
@@ -117,12 +124,17 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
+        "max_tokens": min(max_tokens, 4096),
+        "temperature": max(0.0, min(1.0, temp)),
     }
     async with httpx.AsyncClient(timeout=90.0) as client:
-        resp = await client.post(url, headers=headers, json=payload)
-        resp.raise_for_status()
+        try:
+            resp = await client.post(url, headers=headers, json=payload)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            error_body = e.response.text if e.response else "No response body"
+            logger.error(f"OpenRouter API error {e.response.status_code}: {error_body}")
+            raise Exception(f"OpenRouter API error: {e.response.status_code} - {error_body}")
         return resp.json()["choices"][0]["message"]["content"]
 
 def get_system_prompt(workspace: str) -> str:
@@ -169,16 +181,15 @@ async def route(req: RouteRequest):
         provider = None
         model_used = None
 
-        # Determine model and provider based on workspace and tier
         if req.workspace == "design":
-            # Primary: Groq for design (fast)
+            # Primary: Groq (now with llama-3.1-8b)
             try:
                 response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                 provider = "groq"
-                model_used = "mixtral-8x7b-32768"
+                model_used = "llama-3.1-8b-instant"
             except Exception as e:
                 logger.warning(f"Groq primary failed for design: {e}")
-                # Fallback: OpenRouter with a free coder model
+                # Fallback: OpenRouter coder
                 try:
                     response_text = await call_with_retries(
                         call_openrouter,
@@ -195,9 +206,9 @@ async def route(req: RouteRequest):
                     logger.error(f"All design providers failed: {e2}")
                     raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
         elif req.workspace == "data":
-            # Primary: OpenRouter with a strong free model for data
+            # Primary: OpenRouter with DeepSeek (stable)
             try:
-                model = "meta-llama/llama-3.2-3b-instruct:free"  # stable, good for data
+                model = "deepseek/deepseek-r1-distill-llama-70b:free"
                 response_text = await call_with_retries(
                     call_openrouter,
                     model,
@@ -215,7 +226,7 @@ async def route(req: RouteRequest):
                 try:
                     response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                     provider = "groq-fallback"
-                    model_used = "mixtral-8x7b-32768"
+                    model_used = "llama-3.1-8b-instant"
                 except Exception as e2:
                     logger.error(f"All data providers failed: {e2}")
                     raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
@@ -235,7 +246,6 @@ async def route(req: RouteRequest):
                 model_used = model
             except Exception as e:
                 logger.warning(f"OpenRouter prompt failed: {e}")
-                # Simple fallback
                 response_text = f"Please provide a detailed response to: {req.prompt}"
                 provider = "local-fallback"
                 model_used = "rule-engine"
@@ -250,7 +260,6 @@ async def route(req: RouteRequest):
             "latency_ms": round(latency, 2)
         })
     except HTTPException as he:
-        # Propagate HTTP exceptions (503)
         raise he
     except Exception as e:
         logger.error(f"Route error: {e}")
@@ -265,7 +274,7 @@ async def route(req: RouteRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "operational", "engine": "axelr-cloud-orchestrator", "version": "4.3.0"}
+    return {"status": "operational", "engine": "axelr-cloud-orchestrator", "version": "4.3.2"}
 
 @app.get("/api/route")
 async def route_get():

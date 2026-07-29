@@ -1,5 +1,5 @@
 // ==========================================
-// AXELR AI - PRODUCTION SERVER v4.3.3
+// AXELR AI - PRODUCTION SERVER v4.3.4
 // ==========================================
 // Required environment variables:
 // MONGO_URI, GOOGLE_CLIENT_ID, ORCHESTRATOR_URL
@@ -469,11 +469,11 @@ async function testOrchestratorHealth() {
 }
 
 // ==========================================
-// ADMIN METRICS - STRICT ADMIN ONLY
+// ADMIN METRICS - EXTENDED with daily breakdowns
 // ==========================================
 app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
     try {
-        // STRICT ADMIN CHECK - Only shanh1346@gmail.com
+        // STRICT ADMIN CHECK
         if (!req.currentUser.isAdmin || req.currentUser.email !== ADMIN_EMAIL) {
             return res.status(403).json({
                 success: false,
@@ -482,27 +482,67 @@ app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
             });
         }
 
-        const [totalUsers, proUsers, businessUsers, totalChats, usageData, tokenData, aiQuotaAgg] = await Promise.all([
+        // Build today's date range
+        const now = new Date();
+        const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+        // Aggregations
+        const [
+            totalUsers,
+            proUsers,
+            businessUsers,
+            totalChats,
+            totalUsageAgg,
+            totalTokenAgg,
+            dailyUsageAgg,
+            dailyGroqAgg,
+            dailyOpenRouterAgg,
+            dailyTokenAgg
+        ] = await Promise.all([
             User.countDocuments(),
             User.countDocuments({ tier: 'pro' }),
             User.countDocuments({ tier: 'business' }),
             ChatSession.countDocuments(),
+            // Overall metrics
             User.aggregate([
                 { $group: { _id: null, totalQueries: { $sum: "$dailyUsage" }, totalBytes: { $sum: "$storageBytesUsed" } } }
             ]),
             User.aggregate([
                 { $group: { _id: null, totalPrompt: { $sum: "$tokenUsage.totalPromptTokens" }, totalCompletion: { $sum: "$tokenUsage.totalCompletionTokens" } } }
             ]),
+            // Today's metrics
             User.aggregate([
-                { $group: { _id: null, totalGroq: { $sum: "$dailyGroqQuota" }, totalOpenRouter: { $sum: "$dailyOpenRouterQuota" } } }
+                { $match: { lastUsageDate: { $gte: startOfDay } } },
+                { $group: { _id: null, dailyQueries: { $sum: "$dailyUsage" } } }
+            ]),
+            User.aggregate([
+                { $match: { lastAiQuotaReset: { $gte: startOfDay } } },
+                { $group: { _id: null, dailyGroq: { $sum: "$dailyGroqQuota" }, dailyOpenRouter: { $sum: "$dailyOpenRouterQuota" } } }
+            ]),
+            User.aggregate([
+                { $match: { lastAiQuotaReset: { $gte: startOfDay } } },
+                { $group: { _id: null, dailyPrompt: { $sum: "$tokenUsage.dailyPromptTokens" }, dailyCompletion: { $sum: "$tokenUsage.dailyCompletionTokens" } } }
             ])
         ]);
 
-        const metrics = usageData[0] || { totalQueries: 0, totalBytes: 0 };
-        const tokens = tokenData[0] || { totalPrompt: 0, totalCompletion: 0 };
+        const overall = totalUsageAgg[0] || { totalQueries: 0, totalBytes: 0 };
+        const tokens = totalTokenAgg[0] || { totalPrompt: 0, totalCompletion: 0 };
+        const daily = dailyUsageAgg[0] || { dailyQueries: 0 };
+        const dailyAI = dailyGroqAgg[0] || { dailyGroq: 0, dailyOpenRouter: 0 };
+        const dailyTokens = dailyTokenAgg[0] || { dailyPrompt: 0, dailyCompletion: 0 };
+
         const totalTokens = tokens.totalPrompt + tokens.totalCompletion;
         const freeLimit = process.env.FREE_TIER_TOKEN_LIMIT || 1000000;
-        const aiQuotas = aiQuotaAgg[0] || { totalGroq: 0, totalOpenRouter: 0 };
+
+        // Also get daily Groq/OpenRouter from lastAiQuotaReset field (we already have dailyAI)
+        // But we also need total Groq/OpenRouter across all time, which we already have in aiQuotaAgg
+        // We'll add that separately.
+
+        // Actually we need overall Groq/OpenRouter totals, not just daily.
+        const overallAI = await User.aggregate([
+            { $group: { _id: null, totalGroq: { $sum: "$dailyGroqQuota" }, totalOpenRouter: { $sum: "$dailyOpenRouterQuota" } } }
+        ]);
+        const overallAIStats = overallAI[0] || { totalGroq: 0, totalOpenRouter: 0 };
 
         const recentUsers = await User.find()
             .sort({ createdAt: -1 })
@@ -515,17 +555,25 @@ app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
             proUsers,
             businessUsers,
             totalChats,
-            metrics,
+            metrics: {
+                totalQueries: overall.totalQueries,
+                totalBytes: overall.totalBytes,
+                dailyQueries: daily.dailyQueries,
+            },
             tokenUsage: {
                 prompt: tokens.totalPrompt,
                 completion: tokens.totalCompletion,
                 total: totalTokens,
                 remaining: Math.max(0, freeLimit - totalTokens),
                 limit: freeLimit,
+                dailyPrompt: dailyTokens.dailyPrompt,
+                dailyCompletion: dailyTokens.dailyCompletion,
             },
             aiQuota: {
-                groq: aiQuotas.totalGroq,
-                openRouter: aiQuotas.totalOpenRouter,
+                groq: overallAIStats.totalGroq,
+                openRouter: overallAIStats.totalOpenRouter,
+                dailyGroq: dailyAI.dailyGroq,
+                dailyOpenRouter: dailyAI.dailyOpenRouter,
             },
             recentUsers,
             timestamp: new Date().toISOString()
@@ -904,7 +952,6 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
 // ==========================================
 // MULTER SETUP - WORKSPACE AWARE
 // ==========================================
-// Define allowed file types per workspace
 function getAllowedMimeTypes(workspace) {
     const dataTypes = [
         'text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -923,7 +970,6 @@ function getAllowedMimeTypes(workspace) {
 function isAllowedFile(file, workspace) {
     const allowed = getAllowedMimeTypes(workspace);
     if (allowed.includes(file.mimetype)) return true;
-    // Also check file extension as fallback
     const ext = file.originalname.split('.').pop().toLowerCase();
     const allowedExts = workspace === 'design'
         ? ['html', 'css', 'js', 'jsx', 'ts', 'tsx', 'svg', 'json', 'txt']
