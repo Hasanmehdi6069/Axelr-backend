@@ -92,13 +92,13 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
-    # Use a stable, fast model
-    model = "llama-3.1-8b-instant"  # updated from mixtral
+    # Use a reliable free model
+    model = "mixtral-8x7b-32768"
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": min(max_tokens, 4096),  # safety cap
-        "temperature": max(0.0, min(1.0, temp)),
+        "max_tokens": max_tokens,
+        "temperature": temp,
         "stream": False
     }
     async with httpx.AsyncClient(timeout=90.0) as client:
@@ -124,8 +124,8 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": min(max_tokens, 4096),
-        "temperature": max(0.0, min(1.0, temp)),
+        "max_tokens": max_tokens,
+        "temperature": temp,
     }
     async with httpx.AsyncClient(timeout=90.0) as client:
         try:
@@ -182,14 +182,14 @@ async def route(req: RouteRequest):
         model_used = None
 
         if req.workspace == "design":
-            # Primary: Groq (now with llama-3.1-8b)
+            # Primary: Groq for design (fast)
             try:
                 response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                 provider = "groq"
-                model_used = "llama-3.1-8b-instant"
+                model_used = "mixtral-8x7b-32768"
             except Exception as e:
                 logger.warning(f"Groq primary failed for design: {e}")
-                # Fallback: OpenRouter coder
+                # Fallback: OpenRouter with a free coder model
                 try:
                     response_text = await call_with_retries(
                         call_openrouter,
@@ -206,7 +206,7 @@ async def route(req: RouteRequest):
                     logger.error(f"All design providers failed: {e2}")
                     raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
         elif req.workspace == "data":
-            # Primary: OpenRouter with DeepSeek (stable)
+            # Primary: OpenRouter with a strong free model for data
             try:
                 model = "deepseek/deepseek-r1-distill-llama-70b:free"
                 response_text = await call_with_retries(
@@ -226,10 +226,14 @@ async def route(req: RouteRequest):
                 try:
                     response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                     provider = "groq-fallback"
-                    model_used = "llama-3.1-8b-instant"
+                    model_used = "mixtral-8x7b-32768"
                 except Exception as e2:
                     logger.error(f"All data providers failed: {e2}")
-                    raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
+                    # If the error is a client error (4xx), raise a more specific message
+                    if "400" in str(e2) or "401" in str(e2) or "403" in str(e2):
+                        raise HTTPException(status_code=400, detail="AI service configuration error. Please check API keys and quotas.")
+                    else:
+                        raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
         else:  # prompt enhancement
             try:
                 model = "qwen/qwen-2.5-coder-32b:free"
@@ -246,6 +250,7 @@ async def route(req: RouteRequest):
                 model_used = model
             except Exception as e:
                 logger.warning(f"OpenRouter prompt failed: {e}")
+                # Simple fallback
                 response_text = f"Please provide a detailed response to: {req.prompt}"
                 provider = "local-fallback"
                 model_used = "rule-engine"
@@ -260,6 +265,7 @@ async def route(req: RouteRequest):
             "latency_ms": round(latency, 2)
         })
     except HTTPException as he:
+        # Propagate HTTP exceptions
         raise he
     except Exception as e:
         logger.error(f"Route error: {e}")
