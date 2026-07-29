@@ -1,5 +1,5 @@
 // ==========================================
-// AXELR AI - PRODUCTION SERVER v4.3.0
+// AXELR AI - PRODUCTION SERVER v4.3.3
 // ==========================================
 // Required environment variables:
 // MONGO_URI, GOOGLE_CLIENT_ID, ORCHESTRATOR_URL
@@ -527,7 +527,8 @@ app.get('/api/admin/metrics', authenticateUser, async (req, res) => {
                 groq: aiQuotas.totalGroq,
                 openRouter: aiQuotas.totalOpenRouter,
             },
-            recentUsers
+            recentUsers,
+            timestamp: new Date().toISOString()
         });
     } catch (err) {
         logger.error('Admin metrics error:', err.message);
@@ -864,7 +865,7 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
                         files: [],
                         max_tokens: 2048,
                         temperature: 0.2,
-                        tier: user.tier,  // Pass tier to orchestrator
+                        tier: user.tier,
                     }),
                     signal: AbortSignal.timeout(15000),
                 });
@@ -901,13 +902,34 @@ app.post('/api/enhance-prompt', authenticateUser, async (req, res) => {
 });
 
 // ==========================================
-// MULTER SETUP
+// MULTER SETUP - WORKSPACE AWARE
 // ==========================================
-const ALLOWED_MIME_TYPES = [
-    'text/plain', 'text/html', 'text/css', 'text/csv', 'application/json',
-    'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-];
+// Define allowed file types per workspace
+function getAllowedMimeTypes(workspace) {
+    const dataTypes = [
+        'text/csv', 'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/pdf', 'text/plain', 'application/json',
+        'image/png', 'image/jpeg', 'image/webp'
+    ];
+    const designTypes = [
+        'text/html', 'text/css', 'text/javascript', 'application/javascript', 'text/jsx',
+        'text/tsx', 'text/typescript', 'application/typescript',
+        'image/png', 'image/jpeg', 'image/webp', 'image/svg+xml',
+        'text/plain', 'application/json'
+    ];
+    return workspace === 'design' ? designTypes : dataTypes;
+}
+
+function isAllowedFile(file, workspace) {
+    const allowed = getAllowedMimeTypes(workspace);
+    if (allowed.includes(file.mimetype)) return true;
+    // Also check file extension as fallback
+    const ext = file.originalname.split('.').pop().toLowerCase();
+    const allowedExts = workspace === 'design'
+        ? ['html', 'css', 'js', 'jsx', 'ts', 'tsx', 'svg', 'json', 'txt']
+        : ['csv', 'pdf', 'xlsx', 'xls', 'json', 'txt', 'png', 'jpg', 'jpeg', 'webp'];
+    return allowedExts.includes(ext);
+}
 
 const storage = multer.diskStorage({
     destination: os.tmpdir(),
@@ -918,10 +940,11 @@ const upload = multer({
     storage,
     limits: { fileSize: 10 * 1024 * 1024, files: 5 },
     fileFilter: (req, file, cb) => {
-        if (ALLOWED_MIME_TYPES.includes(file.mimetype) || /\.(html|js|css|json|txt|csv|md)$/i.test(file.originalname)) {
+        const workspace = req.body.workspace || 'data';
+        if (isAllowedFile(file, workspace)) {
             cb(null, true);
         } else {
-            cb(new Error('File type not allowed'), false);
+            cb(new Error(`File type not allowed in ${workspace} workspace`), false);
         }
     }
 });
@@ -953,7 +976,7 @@ function cleanAssistantMessage(text) {
 }
 
 // ==========================================
-// EXTRACT - FIXED: quota increment only on success
+// EXTRACT - with workspace-aware file checks
 // ==========================================
 app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req, res) => {
     const files = req.files || [];
@@ -1027,7 +1050,6 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
             used = user.quotas[quotaField];
             limit = isDesign ? uiLimit : dataLimit;
         }
-        // FIX: Ensure used is never negative
         if (used < 0) used = 0;
 
         if (used >= limit) {
@@ -1090,7 +1112,7 @@ app.post('/api/extract', authenticateUser, upload.array('files', 5), async (req,
                     files: fileContents,
                     max_tokens: 2048,
                     temperature: 0.2,
-                    tier: user.tier,  // Pass tier to orchestrator
+                    tier: user.tier,
                 };
 
                 const response = await fetch(ORCHESTRATOR_URL, {

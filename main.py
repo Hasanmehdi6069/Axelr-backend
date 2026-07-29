@@ -1,8 +1,9 @@
-# main.py - Production-ready Python orchestrator (v4.2.1)
+# main.py - Production-ready Python orchestrator (v4.3.0)
 import os
 import time
 import json
 import httpx
+import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -69,16 +70,18 @@ def detect_manipulation(text: str) -> bool:
 
 async def call_with_retries(provider_func, *args, retries=3, delay=1.0, **kwargs):
     """Generic retry with exponential backoff."""
+    last_exception = None
     for attempt in range(retries):
         try:
             return await provider_func(*args, **kwargs)
         except Exception as e:
+            last_exception = e
             logger.warning(f"Provider call attempt {attempt+1} failed: {e}")
             if attempt < retries - 1:
                 await asyncio.sleep(delay * (2 ** attempt))
             else:
-                raise
-    raise Exception("All retries exhausted")
+                raise last_exception
+    raise last_exception or Exception("All retries exhausted")
 
 async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free') -> str:
     if not GROQ_API_KEY:
@@ -88,6 +91,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, tier: str = 'free
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
+    # Use a fast, reliable model
     model = "mixtral-8x7b-32768"
     payload = {
         "model": model,
@@ -110,13 +114,6 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float,
         "HTTP-Referer": "https://axelr.in",
         "X-Title": "Axelr AI"
     }
-    if tier == 'free':
-        free_models = {
-            'data': 'deepseek/deepseek-r1-distill-llama-70b:free',
-            'design': 'qwen/qwen-2.5-coder-32b:free',
-            'prompt': 'qwen/qwen-2.5-coder-32b:free'
-        }
-        model = free_models.get('data', 'deepseek/deepseek-r1-distill-llama-70b:free')
     payload = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
@@ -168,18 +165,20 @@ async def route(req: RouteRequest):
                 "latency_ms": 0
             })
         tier = getattr(req, 'tier', 'free')
-        # Try primary provider with retries, then fallback
         response_text = None
         provider = None
         model_used = None
 
+        # Determine model and provider based on workspace and tier
         if req.workspace == "design":
+            # Primary: Groq for design (fast)
             try:
                 response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                 provider = "groq"
                 model_used = "mixtral-8x7b-32768"
             except Exception as e:
-                logger.warning(f"Groq primary failed: {e}")
+                logger.warning(f"Groq primary failed for design: {e}")
+                # Fallback: OpenRouter with a free coder model
                 try:
                     response_text = await call_with_retries(
                         call_openrouter,
@@ -191,19 +190,14 @@ async def route(req: RouteRequest):
                         retries=2
                     )
                     provider = "openrouter-fallback"
-                    model_used = "qwen-2.5-coder-32b"
+                    model_used = "qwen-2.5-coder-32b:free"
                 except Exception as e2:
-                    logger.error(f"All providers failed: {e2}")
-                    # Final local fallback – generic but helpful
-                    response_text = (
-                        "I'm Axelr AI. I'm currently experiencing high demand, but I can still provide guidance. "
-                        "Please try again in a moment. If the issue persists, contact support."
-                    )
-                    provider = "local-fallback"
-                    model_used = "rule-engine"
+                    logger.error(f"All design providers failed: {e2}")
+                    raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
         elif req.workspace == "data":
+            # Primary: OpenRouter with a strong free model for data
             try:
-                model = "deepseek/deepseek-r1-distill-llama-70b:free"
+                model = "meta-llama/llama-3.2-3b-instruct:free"  # stable, good for data
                 response_text = await call_with_retries(
                     call_openrouter,
                     model,
@@ -217,23 +211,20 @@ async def route(req: RouteRequest):
                 model_used = model
             except Exception as e:
                 logger.warning(f"OpenRouter data failed: {e}")
+                # Fallback: Groq
                 try:
                     response_text = await call_with_retries(call_groq, full_prompt, req.max_tokens, req.temperature, tier, retries=2)
                     provider = "groq-fallback"
                     model_used = "mixtral-8x7b-32768"
                 except Exception as e2:
-                    logger.error(f"All providers failed: {e2}")
-                    response_text = (
-                        "I'm Axelr AI. I'm currently experiencing high demand, but I can still provide guidance. "
-                        "Please try again in a moment. If the issue persists, contact support."
-                    )
-                    provider = "local-fallback"
-                    model_used = "rule-engine"
+                    logger.error(f"All data providers failed: {e2}")
+                    raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
         else:  # prompt enhancement
             try:
+                model = "qwen/qwen-2.5-coder-32b:free"
                 response_text = await call_with_retries(
                     call_openrouter,
-                    "qwen/qwen-2.5-coder-32b:free",
+                    model,
                     f"You are an expert prompt engineer. Rewrite this user prompt into a detailed, professional system prompt:\n\n{req.prompt}",
                     req.max_tokens,
                     req.temperature,
@@ -241,9 +232,10 @@ async def route(req: RouteRequest):
                     retries=2
                 )
                 provider = "openrouter"
-                model_used = "qwen-2.5-coder-32b"
+                model_used = model
             except Exception as e:
                 logger.warning(f"OpenRouter prompt failed: {e}")
+                # Simple fallback
                 response_text = f"Please provide a detailed response to: {req.prompt}"
                 provider = "local-fallback"
                 model_used = "rule-engine"
@@ -257,6 +249,9 @@ async def route(req: RouteRequest):
             "tokens_used": len(response_text.split()),
             "latency_ms": round(latency, 2)
         })
+    except HTTPException as he:
+        # Propagate HTTP exceptions (503)
+        raise he
     except Exception as e:
         logger.error(f"Route error: {e}")
         return JSONResponse({
@@ -270,7 +265,7 @@ async def route(req: RouteRequest):
 
 @app.get("/health")
 async def health():
-    return {"status": "operational", "engine": "axelr-cloud-orchestrator", "version": "4.2.1"}
+    return {"status": "operational", "engine": "axelr-cloud-orchestrator", "version": "4.3.0"}
 
 @app.get("/api/route")
 async def route_get():
@@ -278,6 +273,5 @@ async def route_get():
 
 if __name__ == "__main__":
     import uvicorn
-    import asyncio
     port = int(os.getenv("PORT", 5001))
     uvicorn.run(app, host="0.0.0.0", port=port)
