@@ -1,6 +1,12 @@
 // ==========================================
 // AXELR AI - PRODUCTION SERVER v4.3.0
 // ==========================================
+// Required environment variables:
+// MONGO_URI, GOOGLE_CLIENT_ID, ORCHESTRATOR_URL
+// Optional: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+//           SMTP_USER, SMTP_PASS, ADMIN_EMAIL
+// ==========================================
+
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
