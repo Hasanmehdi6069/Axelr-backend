@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v10.0
-Single-file production backend merging Node.js server + Python orchestrator.
-Deploys on port 8080. All environment variables used as provided.
+AXELR AI - UNIFIED FORTRESS v10.1
+Single-file production backend. Now with dotenv loading and Stripe fixes.
 """
 
 import os
@@ -14,11 +13,14 @@ import hashlib
 import smtplib
 import logging
 import base64
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+
+from dotenv import load_dotenv
+load_dotenv()  # Load .env file
 
 import httpx
 import stripe
@@ -55,20 +57,17 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
-# We don't need SITE_ID if using token + site name; we'll use the token to create a new site deploy.
-# But we can also use token and site name. We'll keep it flexible.
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
 # -------------------- STRIPE INIT --------------------
-stripe_client = None
 if STRIPE_SECRET_KEY:
-    stripe_client = stripe.Stripe(STRIPE_SECRET_KEY)
+    stripe.api_key = STRIPE_SECRET_KEY
     logger.info("Stripe initialized")
 else:
-    logger.warning("Stripe not configured")
+    logger.warning("Stripe not configured - payment features disabled")
 
 # -------------------- EMAIL --------------------
 def get_email_transport():
@@ -429,7 +428,7 @@ async def lifespan(app: FastAPI):
     client.close()
     logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="10.0", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="10.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -476,8 +475,8 @@ async def health():
         "status": "operational" if db_status == "connected" else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
         "db": db_status,
-        "stripe": stripe_client is not None,
-        "email": SMTP_USER is not None,
+        "stripe": bool(STRIPE_SECRET_KEY),
+        "email": bool(SMTP_USER and SMTP_PASS),
         "uptime": time.time() - app.start_time if hasattr(app, "start_time") else 0
     }
 
@@ -1042,28 +1041,12 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     }
     sanitized = bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
 
-    # Try Netlify deploy (since you have NETLIFY_ACCESS_TOKEN)
+    # Try Netlify deploy if token exists
     if NETLIFY_ACCESS_TOKEN:
         try:
             async with httpx.AsyncClient(timeout=30.0) as http_client:
-                # Create a new deploy using the Netlify API
                 files_payload = {"file": ("index.html", sanitized.encode('utf-8'), "text/html")}
-                # We'll use the token to create a new site deploy; you can also specify site_id if you have one.
-                # Using the "deploy" endpoint without site_id creates a new site or uses the default.
-                # Since you have a token, we can use the "sites" endpoint to create a new site or deploy to existing.
-                # For simplicity, we'll use the "deploy" endpoint which requires a site_id.
-                # Since you didn't provide site_id, we'll create a new site per deployment? That's not ideal.
-                # Better: we'll assume you have a site ID stored in env NETLIFY_SITE_ID, but you didn't.
-                # In your .env you have NETLIFY_ACCESS_TOKEN only. We'll create a new site each time? No.
-                # We'll use the token to create a new site with a random name and deploy.
-                # But that may be overkill. Let's just create a new site with a random subdomain.
-                # Actually, we can use the "sites" endpoint to create a new site and then deploy.
-                # Let's do that: create a site and then deploy.
-                # However, this will create many sites. We'll just store the site ID in the session? Not possible.
-                # We'll just use the token to create a new site and return the URL.
-                # This is acceptable for preview deployments.
-
-                # Step 1: Create a new site
+                # Create a new site with a unique name
                 site_name = f"axelr-deploy-{int(time.time())}"
                 create_resp = await http_client.post(
                     "https://api.netlify.com/api/v1/sites",
@@ -1073,7 +1056,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
                 if create_resp.status_code == 201:
                     site = create_resp.json()
                     site_id = site["id"]
-                    # Step 2: Deploy to that site
                     deploy_resp = await http_client.post(
                         f"https://api.netlify.com/api/v1/sites/{site_id}/deploys",
                         headers={"Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"},
@@ -1083,7 +1065,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
                         deploy_result = deploy_resp.json()
                         if deploy_result.get("deploy_url"):
                             return {"success": True, "liveUrl": deploy_result["deploy_url"]}
-                # If anything fails, fallback to data URI
         except Exception as e:
             logger.warning(f"Netlify deploy failed: {e}")
 
@@ -1179,7 +1160,7 @@ class CheckoutRequest(BaseModel):
 
 @app.post("/api/billing/checkout")
 async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_current_user)):
-    if not stripe_client:
+    if not STRIPE_SECRET_KEY:
         raise HTTPException(status_code=503, detail="Payment service unavailable")
     tier = data.tier
     subTier = data.subTier
@@ -1200,7 +1181,7 @@ async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_curren
         raise HTTPException(status_code=400, detail="Invalid plan selection")
     origin = "https://axelr.in"
     try:
-        session = stripe_client.checkout.Session.create(
+        session = stripe.checkout.Session.create(
             payment_method_types=["card"],
             mode="subscription",
             client_reference_id=user["googleId"],
@@ -1236,14 +1217,14 @@ async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_curren
 # -------------------- STRIPE WEBHOOK --------------------
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
-    if not stripe_client:
+    if not STRIPE_SECRET_KEY:
         return JSONResponse(content={"received": True, "note": "Stripe disabled"})
     payload = await request.body()
     sig = request.headers.get("stripe-signature")
     event = None
     try:
         if STRIPE_WEBHOOK_SECRET:
-            event = stripe_client.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+            event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
         else:
             event = json.loads(payload)
     except Exception as e:
