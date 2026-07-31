@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - Unified Fortress (v9.0)
-Single-file production backend merging:
-- Node.js server logic (auth, DB, routes, billing, webhooks, email)
-- Python orchestrator logic (AI routing, multi-model failover, caching)
-Deploys as a single FastAPI container on port 8080.
+AXELR AI - UNIFIED FORTRESS v10.0
+Single-file production backend merging Node.js server + Python orchestrator.
+Deploys on port 8080. All environment variables used as provided.
 """
 
 import os
@@ -15,9 +13,9 @@ import asyncio
 import hashlib
 import smtplib
 import logging
-import secrets
+import base64
 from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Tuple
+from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -26,11 +24,11 @@ import httpx
 import stripe
 import bleach
 from cachetools import TTLCache
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, status
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from google.oauth2 import id_token
@@ -44,11 +42,10 @@ logger = logging.getLogger("axelr-unified")
 # -------------------- ENV VARS --------------------
 MONGO_URI = os.getenv("MONGO_URI")
 if not MONGO_URI:
-    raise RuntimeError("MONGO_URI environment variable is required")
+    raise RuntimeError("MONGO_URI is required")
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 if not GOOGLE_CLIENT_ID:
-    raise RuntimeError("GOOGLE_CLIENT_ID environment variable is required")
-ORCHESTRATOR_URL = os.getenv("ORCHESTRATOR_URL", "")  # not used anymore (internal)
+    raise RuntimeError("GOOGLE_CLIENT_ID is required")
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
@@ -57,10 +54,9 @@ SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
-VERCEL_TOKEN = os.getenv("VERCEL_TOKEN")
-VERCEL_PROJECT_ID = os.getenv("VERCEL_PROJECT_ID")
-NETLIFY_TOKEN = os.getenv("NETLIFY_TOKEN")
-NETLIFY_SITE_ID = os.getenv("NETLIFY_SITE_ID")
+NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
+# We don't need SITE_ID if using token + site name; we'll use the token to create a new site deploy.
+# But we can also use token and site name. We'll keep it flexible.
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
@@ -72,7 +68,7 @@ if STRIPE_SECRET_KEY:
     stripe_client = stripe.Stripe(STRIPE_SECRET_KEY)
     logger.info("Stripe initialized")
 else:
-    logger.warning("Stripe not configured - payment features disabled")
+    logger.warning("Stripe not configured")
 
 # -------------------- EMAIL --------------------
 def get_email_transport():
@@ -93,7 +89,6 @@ users_col = db.get_collection("users")
 sessions_col = db.get_collection("chatsessions")
 reports_col = db.get_collection("bugreports")
 
-# Indexes
 async def init_indexes():
     await users_col.create_index("googleId", unique=True)
     await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
@@ -101,7 +96,6 @@ async def init_indexes():
     await reports_col.create_index("userId")
 
 # -------------------- CACHE --------------------
-# SHA256 caching engine – cache AI responses per prompt+workspace
 ai_cache = TTLCache(maxsize=1000, ttl=3600)  # 1 hour
 
 # -------------------- SECURITY UTILITIES --------------------
@@ -123,7 +117,6 @@ def detect_manipulation(text: str) -> bool:
     return False
 
 def strip_fluff(text: str) -> str:
-    """Server-side fluff stripper: remove common filler phrases."""
     patterns = [
         r"^I (am|'m) (so |very )?happy to help",
         r"^Sure!",
@@ -147,7 +140,6 @@ async def call_groq(prompt: str, max_tokens: int, temp: float) -> str:
         "Content-Type": "application/json",
         "Accept": "application/json"
     }
-    # Use a reliable model
     model = "llama-3.1-70b-versatile"
     effective_max = min(max_tokens, 1024)
     payload = {
@@ -234,9 +226,7 @@ def get_system_prompt(workspace: str) -> str:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
 async def route_ai_request(workspace: str, prompt: str, history: Optional[List[Dict]], files: Optional[List[Dict]], max_tokens: int, temp: float, tier: str) -> Dict[str, Any]:
-    """Core AI routing – replaces the Python orchestrator's /api/route."""
     start = time.time()
-    # Build full prompt
     history_text = ""
     if history:
         history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]])
@@ -246,7 +236,6 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
-    # Check manipulation
     if detect_manipulation(prompt):
         return {
             "success": False,
@@ -257,7 +246,6 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
             "latency_ms": 0
         }
 
-    # Caching (optional)
     cache_key = hashlib.sha256(f"{workspace}:{full_prompt}".encode()).hexdigest()
     if cache_key in ai_cache:
         cached = ai_cache[cache_key]
@@ -275,16 +263,13 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
     provider = None
     model_used = None
 
-    # Choose provider based on workspace
     if workspace == "design":
-        # Primary: Groq
         try:
             response_text = await call_with_retries(call_groq, full_prompt, max_tokens, temp, retries=2)
             provider = "groq"
             model_used = "llama-3.1-70b-versatile"
         except Exception as e:
             logger.warning(f"Groq design failed: {e}")
-            # Fallback: OpenRouter coder
             try:
                 response_text = await call_with_retries(
                     call_openrouter,
@@ -300,7 +285,6 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
                 logger.error(f"All design providers failed: {e2}")
                 raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
     elif workspace == "data":
-        # Primary: OpenRouter deepseek
         try:
             model = "deepseek/deepseek-r1-distill-llama-70b:free"
             response_text = await call_with_retries(
@@ -315,7 +299,6 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
             model_used = model
         except Exception as e:
             logger.warning(f"OpenRouter data failed: {e}")
-            # Fallback: Groq
             try:
                 response_text = await call_with_retries(call_groq, full_prompt, max_tokens, temp, retries=2)
                 provider = "groq-fallback"
@@ -342,7 +325,6 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
             provider = "local-fallback"
             model_used = "rule-engine"
 
-    # Strip fluff from response
     if response_text:
         response_text = strip_fluff(response_text)
 
@@ -355,7 +337,6 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
         "tokens_used": len(response_text.split()),
         "latency_ms": round(latency, 2)
     }
-    # Cache successful responses
     if response_text:
         ai_cache[cache_key] = result
     return result
@@ -366,15 +347,12 @@ security = HTTPBearer()
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
     token = credentials.credentials
     try:
-        # Verify Google ID token
         idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
         if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
             raise HTTPException(status_code=401, detail="Invalid issuer")
-        # Get or create user
         user_doc = await users_col.find_one({"googleId": idinfo['sub']})
         is_admin = idinfo['email'] == ADMIN_EMAIL
         if not user_doc:
-            # Create new user
             new_user = {
                 "googleId": idinfo['sub'],
                 "email": idinfo['email'],
@@ -409,7 +387,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             user_doc = await users_col.find_one({"_id": result.inserted_id})
             logger.info(f"New user created: {idinfo['email']}")
         else:
-            # Update admin flag if needed
             if user_doc.get("isAdmin") != is_admin:
                 await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"isAdmin": is_admin}})
                 user_doc["isAdmin"] = is_admin
@@ -437,7 +414,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
                     )
-                    # refresh doc
                     user_doc = await users_col.find_one({"_id": user_doc["_id"]})
         return user_doc
     except Exception as e:
@@ -447,17 +423,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # -------------------- FASTAPI APP --------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     await init_indexes()
     logger.info("Unified Fortress online")
     yield
-    # Shutdown
     client.close()
     logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="9.0", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="10.0", lifespan=lifespan)
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -475,10 +448,9 @@ app.add_middleware(
     max_age=86400,
 )
 
-# -------------------- RATE LIMITING (simple) --------------------
-# In-memory rate limiter per IP (for global endpoint)
+# -------------------- RATE LIMITING --------------------
 rate_limiter = {}
-RATE_LIMIT_WINDOW = 15 * 60  # 15 minutes
+RATE_LIMIT_WINDOW = 15 * 60
 RATE_LIMIT_MAX = 200
 
 def check_rate_limit(client_ip: str):
@@ -486,7 +458,6 @@ def check_rate_limit(client_ip: str):
     key = client_ip
     if key not in rate_limiter:
         rate_limiter[key] = []
-    # Clean old entries
     rate_limiter[key] = [t for t in rate_limiter[key] if now - t < RATE_LIMIT_WINDOW]
     if len(rate_limiter[key]) >= RATE_LIMIT_MAX:
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
@@ -538,13 +509,6 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
     }
 
-@app.put("/api/user/instructions")
-async def update_instructions(instructions: str = Form(...), user: dict = Depends(get_current_user)):
-    # Actually we expect JSON body, but we can use Form if needed; better to use Pydantic
-    # We'll define a model later, but for simplicity, use request body.
-    pass  # We'll implement below with Pydantic
-
-# Actually, we need a proper Pydantic model for requests. Let's define them here.
 class InstructionsUpdate(BaseModel):
     instructions: str
 
@@ -630,7 +594,6 @@ async def switch_variant(history_id: str, data: VariantUpdate, user: dict = Depe
     session = await sessions_col.find_one({"_id": ObjectId(history_id), "userId": user["_id"]})
     if not session:
         raise HTTPException(status_code=404, detail="Not found")
-    # Locate message by id
     messages = session.get("messages", [])
     msg_index = -1
     for i, msg in enumerate(messages):
@@ -643,10 +606,8 @@ async def switch_variant(history_id: str, data: VariantUpdate, user: dict = Depe
     variants = msg.get("variants", [])
     if data.variantIndex < 0 or data.variantIndex >= len(variants):
         raise HTTPException(status_code=400, detail="Invalid variant index")
-    # Update the message
     msg["activeVariant"] = data.variantIndex
     msg["text"] = variants[data.variantIndex]
-    # Update the whole messages array
     await sessions_col.update_one(
         {"_id": ObjectId(history_id)},
         {"$set": {"messages": messages}}
@@ -670,7 +631,6 @@ async def list_history(
     total = await sessions_col.count_documents(query)
     cursor = sessions_col.find(query).sort([("isPinned", -1), ("createdAt", -1)]).skip(skip).limit(limit)
     logs = await cursor.to_list(length=limit)
-    # Convert ObjectId to string
     for log in logs:
         log["_id"] = str(log["_id"])
         log["userId"] = str(log["userId"])
@@ -688,7 +648,7 @@ async def list_history(
         }
     }
 
-# -------------------- REPORTS (BUG/HELP) --------------------
+# -------------------- REPORTS --------------------
 class ReportCreate(BaseModel):
     type: str = "feedback"
     description: str
@@ -701,8 +661,7 @@ async def create_report(data: ReportCreate, user: dict = Depends(get_current_use
         "description": data.description[:5000],
         "createdAt": datetime.utcnow()
     }
-    result = await reports_col.insert_one(report)
-    # Send email to admin if configured
+    await reports_col.insert_one(report)
     if SMTP_USER and SMTP_PASS:
         try:
             server = get_email_transport()
@@ -737,7 +696,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     prompt_text = data.promptText
     if not prompt_text:
         raise HTTPException(status_code=400, detail="No text provided")
-    # Check quota
     now = datetime.utcnow()
     today = datetime(now.year, now.month, now.day)
     last_reset = user.get("quotas", {}).get("lastQuotaReset")
@@ -752,8 +710,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
                 }}
             )
             user = await users_col.find_one({"_id": user["_id"]})
-
-    # Determine limit based on tier
     tier = user.get("tier", "free")
     if tier == "free":
         limit = 3
@@ -767,7 +723,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
         limit = 15 if (has_data and has_design) else 10
     else:
         limit = 3
-
     used = user.get("quotas", {}).get("dailyEnhancementsUsed", 0)
     if used >= limit:
         raise HTTPException(status_code=403, detail={
@@ -775,8 +730,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
             "usage": used,
             "limit": limit
         })
-
-    # Call AI router with workspace='prompt'
     ai_result = await route_ai_request(
         workspace="prompt",
         prompt=prompt_text,
@@ -789,8 +742,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     if not ai_result.get("success"):
         raise HTTPException(status_code=503, detail="AI service unavailable")
     enhanced = ai_result["text"]
-
-    # Increment usage
     await users_col.update_one(
         {"_id": user["_id"]},
         {"$inc": {
@@ -818,11 +769,6 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
         return " ".join(words[:3])[:60]
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
-def clean_assistant_message(text: str) -> str:
-    if not text:
-        return ""
-    return re.sub(r'\|.*\|.*\n', '', text).strip()
-
 @app.post("/api/extract")
 async def extract(
     request: Request,
@@ -833,18 +779,12 @@ async def extract(
     sessionId: Optional[str] = Form(None),
     files: List[UploadFile] = File([])
 ):
-    # Rate limit per IP
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
-
-    # Validate workspace
     if workspace not in ["data", "design", "general"]:
         workspace = "data"
-    # Validate sessionId if provided
     if sessionId and not ObjectId.is_valid(sessionId):
         sessionId = None
-
-    # Validate files
     if len(files) > 5:
         raise HTTPException(status_code=400, detail="Too many files")
     total_size = 0
@@ -856,7 +796,6 @@ async def extract(
     if total_size > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Total upload size too large")
 
-    # ----- QUOTA CHECKS -----
     tier = user.get("tier", "free")
     has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
     has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
@@ -906,9 +845,6 @@ async def extract(
         limit = data_limit
         quota_field = "quotas.dailyExtractionsUsed"
 
-    # Get current usage
-    current_usage = user.get("quotas", {}).get(quota_field.split('.')[-1], 0) if quota_field.startswith("quotas.") else 0
-    # Actually quota_field is string like "quotas.dailyGenerationsUsed", we need to get the value
     quota_parts = quota_field.split('.')
     if len(quota_parts) == 2:
         current_usage = user.get(quota_parts[0], {}).get(quota_parts[1], 0)
@@ -917,7 +853,6 @@ async def extract(
     if current_usage >= limit:
         raise HTTPException(status_code=403, detail={"code": "LIMIT_REACHED", "usage": current_usage, "limit": limit})
 
-    # Storage quota
     storage_limit = 5 * 1024 * 1024  # free
     if tier == "pro":
         storage_limit = 20 * 1024 * 1024
@@ -927,12 +862,10 @@ async def extract(
     if current_storage + total_size > storage_limit:
         raise HTTPException(status_code=403, detail={"code": "STORAGE_LIMIT_REACHED", "message": f"Storage quota exceeded. Maximum {storage_limit / (1024*1024)}MB."})
 
-    # ----- READ FILES -----
+    # Read files as base64
     file_contents = []
     for f in files:
         content_bytes = await f.read()
-        b64 = content_bytes.hex()  # Actually we need base64
-        import base64
         b64 = base64.b64encode(content_bytes).decode('utf-8')
         file_contents.append({
             "filename": f.filename,
@@ -940,7 +873,6 @@ async def extract(
             "content_base64": b64
         })
 
-    # ----- PREPARE SESSION -----
     current_session = None
     history = []
     if sessionId:
@@ -948,9 +880,8 @@ async def extract(
         if current_session:
             history = current_session.get("messages", [])
             if isRetry == "true" and history and history[-1].get("role") == "model":
-                history = history[:-2]  # remove last user+model
+                history = history[:-2]
 
-    # ----- AI CALL -----
     ai_result = await route_ai_request(
         workspace=workspace,
         prompt=command,
@@ -967,7 +898,6 @@ async def extract(
     provider = ai_result.get("provider")
     model_used = ai_result.get("model_used")
 
-    # ----- PROCESS JSON-DATA -----
     structured = []
     json_match = re.search(r'\[JSON-DATA\](.*?)\[/JSON-DATA\]', ai_text, re.DOTALL)
     if json_match:
@@ -979,7 +909,6 @@ async def extract(
     if not ai_text:
         ai_text = "I am Axelr AI. How can I help you?"
 
-    # ----- INCREMENT QUOTAS AND STORAGE -----
     prompt_tokens = estimate_tokens(command) + sum(estimate_tokens(f["filename"]) + len(f["content_base64"]) // 4 for f in file_contents)
     completion_tokens = estimate_tokens(ai_text)
     update_query = {
@@ -999,13 +928,11 @@ async def extract(
         update_query["$inc"]["dailyOpenRouterQuota"] = 1
     await users_col.update_one({"_id": user["_id"]}, update_query)
 
-    # ----- SAVE SESSION -----
     session_id_out = None
     filename_out = "Export.csv"
     session_saved = False
 
     if current_session:
-        # Update existing
         if isRetry == "true" and len(current_session.get("messages", [])) > 0:
             last_msg = current_session["messages"][-1]
             if last_msg.get("role") == "model":
@@ -1016,7 +943,6 @@ async def extract(
                 last_msg["variants"] = variants
                 last_msg["activeVariant"] = len(variants) - 1
                 last_msg["text"] = ai_text
-                # Update the messages array
                 await sessions_col.update_one(
                     {"_id": ObjectId(sessionId)},
                     {"$set": {"messages": current_session["messages"], "structuredData": structured}}
@@ -1025,7 +951,6 @@ async def extract(
                 session_id_out = sessionId
                 filename_out = current_session.get("filename", "Export")
         else:
-            # Append new messages
             current_session["messages"].append({
                 "role": "user",
                 "text": command,
@@ -1047,7 +972,6 @@ async def extract(
             session_id_out = sessionId
             filename_out = current_session.get("filename", "Export")
     else:
-        # Create new session
         filename = generate_chat_name(command, files)
         new_session = {
             "userId": user["_id"],
@@ -1078,7 +1002,6 @@ async def extract(
         session_id_out = str(result.inserted_id)
         filename_out = filename
 
-    # Return response
     return {
         "success": True,
         "text": ai_text,
@@ -1119,38 +1042,48 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     }
     sanitized = bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
 
-    # Attempt Vercel deployment
-    if VERCEL_TOKEN and VERCEL_PROJECT_ID:
+    # Try Netlify deploy (since you have NETLIFY_ACCESS_TOKEN)
+    if NETLIFY_ACCESS_TOKEN:
         try:
             async with httpx.AsyncClient(timeout=30.0) as http_client:
-                # Prepare multipart form data
+                # Create a new deploy using the Netlify API
                 files_payload = {"file": ("index.html", sanitized.encode('utf-8'), "text/html")}
-                response = await http_client.post(
-                    f"https://api.vercel.com/v1/deployments?projectId={VERCEL_PROJECT_ID}",
-                    headers={"Authorization": f"Bearer {VERCEL_TOKEN}"},
-                    files=files_payload
-                )
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("url"):
-                        return {"success": True, "liveUrl": f"https://{result['url']}"}
-        except Exception as e:
-            logger.warning(f"Vercel deploy failed: {e}")
+                # We'll use the token to create a new site deploy; you can also specify site_id if you have one.
+                # Using the "deploy" endpoint without site_id creates a new site or uses the default.
+                # Since you have a token, we can use the "sites" endpoint to create a new site or deploy to existing.
+                # For simplicity, we'll use the "deploy" endpoint which requires a site_id.
+                # Since you didn't provide site_id, we'll create a new site per deployment? That's not ideal.
+                # Better: we'll assume you have a site ID stored in env NETLIFY_SITE_ID, but you didn't.
+                # In your .env you have NETLIFY_ACCESS_TOKEN only. We'll create a new site each time? No.
+                # We'll use the token to create a new site with a random name and deploy.
+                # But that may be overkill. Let's just create a new site with a random subdomain.
+                # Actually, we can use the "sites" endpoint to create a new site and then deploy.
+                # Let's do that: create a site and then deploy.
+                # However, this will create many sites. We'll just store the site ID in the session? Not possible.
+                # We'll just use the token to create a new site and return the URL.
+                # This is acceptable for preview deployments.
 
-    # Attempt Netlify
-    if NETLIFY_TOKEN and NETLIFY_SITE_ID:
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as http_client:
-                files_payload = {"file": ("index.html", sanitized.encode('utf-8'), "text/html")}
-                response = await http_client.post(
-                    f"https://api.netlify.com/api/v1/sites/{NETLIFY_SITE_ID}/deploys",
-                    headers={"Authorization": f"Bearer {NETLIFY_TOKEN}"},
-                    files=files_payload
+                # Step 1: Create a new site
+                site_name = f"axelr-deploy-{int(time.time())}"
+                create_resp = await http_client.post(
+                    "https://api.netlify.com/api/v1/sites",
+                    headers={"Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"},
+                    json={"name": site_name}
                 )
-                if response.status_code == 200:
-                    result = response.json()
-                    if result.get("deploy_url"):
-                        return {"success": True, "liveUrl": result["deploy_url"]}
+                if create_resp.status_code == 201:
+                    site = create_resp.json()
+                    site_id = site["id"]
+                    # Step 2: Deploy to that site
+                    deploy_resp = await http_client.post(
+                        f"https://api.netlify.com/api/v1/sites/{site_id}/deploys",
+                        headers={"Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"},
+                        files=files_payload
+                    )
+                    if deploy_resp.status_code == 200:
+                        deploy_result = deploy_resp.json()
+                        if deploy_result.get("deploy_url"):
+                            return {"success": True, "liveUrl": deploy_result["deploy_url"]}
+                # If anything fails, fallback to data URI
         except Exception as e:
             logger.warning(f"Netlify deploy failed: {e}")
 
@@ -1169,7 +1102,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     business_users = await users_col.count_documents({"tier": "business"})
     total_chats = await sessions_col.count_documents({})
 
-    # Aggregations
     pipeline_usage = [
         {"$group": {"_id": None, "totalQueries": {"$sum": "$dailyUsage"}, "totalBytes": {"$sum": "$storageBytesUsed"}}}
     ]
@@ -1183,14 +1115,12 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     tokens = tokens_result[0] if tokens_result else {"totalPrompt": 0, "totalCompletion": 0}
     total_tokens = tokens["totalPrompt"] + tokens["totalCompletion"]
 
-    # AI quota
     pipeline_ai = [
         {"$group": {"_id": None, "totalGroq": {"$sum": "$dailyGroqQuota"}, "totalOpenRouter": {"$sum": "$dailyOpenRouterQuota"}}}
     ]
     ai_result = await users_col.aggregate(pipeline_ai).to_list(length=1)
     ai_quotas = ai_result[0] if ai_result else {"totalGroq": 0, "totalOpenRouter": 0}
 
-    # Daily usage (today)
     pipeline_daily = [
         {"$match": {"lastUsageDate": {"$gte": today}}},
         {"$group": {"_id": None, "dailyQueries": {"$sum": "$dailyUsage"}}}
@@ -1268,7 +1198,7 @@ async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_curren
     plan = pricing.get(tier, {}).get(subTier)
     if not plan:
         raise HTTPException(status_code=400, detail="Invalid plan selection")
-    origin = "https://axelr.in"  # Could be dynamic
+    origin = "https://axelr.in"
     try:
         session = stripe_client.checkout.Session.create(
             payment_method_types=["card"],
@@ -1340,7 +1270,6 @@ async def stripe_webhook(request: Request):
                     }}
                 )
                 logger.info(f"User {user['email']} upgraded to {tier}")
-                # Send email notification
                 if SMTP_USER and SMTP_PASS:
                     try:
                         server = get_email_transport()
@@ -1401,5 +1330,5 @@ async def not_found(request, exc):
 
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 3000))
+    port = int(os.getenv("PORT", 8080))
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
