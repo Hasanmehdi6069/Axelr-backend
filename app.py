@@ -834,7 +834,7 @@ async def extract(
     files: List[UploadFile] = File([])
 ):
     # Rate limit per IP
-    client_ip = request.client.host
+    client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
     # Validate workspace
@@ -849,9 +849,10 @@ async def extract(
         raise HTTPException(status_code=400, detail="Too many files")
     total_size = 0
     for f in files:
-        if f.size > 10 * 1024 * 1024:
+        file_size = f.size or 0
+        if file_size > 10 * 1024 * 1024:
             raise HTTPException(status_code=400, detail=f"File {f.filename} exceeds 10MB")
-        total_size += f.size
+        total_size += file_size
     if total_size > 50 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Total upload size too large")
 
@@ -1400,8 +1401,5 @@ async def not_found(request, exc):
 
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.getenv("PORT", 3000))
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
-    if __name__ == '__main__':
-    # Hardcoded to Port 3000 to match SnapDeploy's free tier load balancer routing
-    app.run(host='0.0.0.0', port=3000)
