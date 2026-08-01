@@ -1333,7 +1333,7 @@ if __name__ == "__main__":
     logger.info(f"OPENROUTER_API_KEY: {'set' if OPENROUTER_API_KEY else 'MISSING'}")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
     # ================== Cloudflare Worker adapter ==================
-from cloudflare.workers.asgi import ASGIWorker   # ← correct import
+from cloudflare.workers.asgi import ASGIWorker   # correct import
 
-# 'app' is your FastAPI instance
+# Your FastAPI instance is named 'app'
 handle = ASGIWorker(app).handle
