@@ -1332,3 +1332,12 @@ if __name__ == "__main__":
     logger.info(f"GROQ_API_KEY: {'set' if GROQ_API_KEY else 'MISSING'}")
     logger.info(f"OPENROUTER_API_KEY: {'set' if OPENROUTER_API_KEY else 'MISSING'}")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
+    # At the very bottom of app.py, replace:
+# if __name__ == "__main__":
+#     ... uvicorn.run ...
+
+# Add this:
+from asgi_worker import ASGIWorker
+
+# Your FastAPI app instance is named 'app' (from app = FastAPI(...))
+handle = ASGIWorker(app).handle
