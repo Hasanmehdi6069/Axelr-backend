@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v10.1
-Single-file production backend. Now with dotenv loading and Stripe fixes.
+AXELR AI - UNIFIED FORTRESS v10.3 (Resilient Startup)
 """
 
 import os
@@ -21,10 +20,9 @@ from email.mime.multipart import MIMEMultipart
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()  # Load .env file
+    load_dotenv()
 except ImportError:
-    def load_dotenv():
-        pass
+    pass
 
 import httpx
 import stripe
@@ -35,10 +33,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-try:
-    from motor.motor_asyncio import AsyncIOMotorClient
-except ImportError:
-    AsyncIOMotorClient = None
+from motor.motor_asyncio import AsyncIOMotorClient
 from bson import ObjectId
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -96,13 +91,18 @@ sessions_col = db.get_collection("chatsessions")
 reports_col = db.get_collection("bugreports")
 
 async def init_indexes():
-    await users_col.create_index("googleId", unique=True)
-    await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
-    await sessions_col.create_index("userId")
-    await reports_col.create_index("userId")
+    """Create indexes – but NEVER crash the app if they fail."""
+    try:
+        await users_col.create_index("googleId", unique=True)
+        await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
+        await sessions_col.create_index("userId")
+        await reports_col.create_index("userId")
+        logger.info("MongoDB indexes verified/created.")
+    except Exception as e:
+        logger.error(f"Index creation failed (app will continue): {e}")
 
 # -------------------- CACHE --------------------
-ai_cache = TTLCache(maxsize=1000, ttl=3600)  # 1 hour
+ai_cache = TTLCache(maxsize=1000, ttl=3600)
 
 # -------------------- SECURITY UTILITIES --------------------
 MANIPULATION_PATTERNS = [
@@ -136,6 +136,9 @@ def strip_fluff(text: str) -> str:
         text = re.sub(pat, "", text, flags=re.IGNORECASE)
     return text.strip()
 
+# -------------------- AI ROUTER (unchanged from your version) --------------------
+# ... (the entire AI router functions remain exactly as you had them)
+# I will not repeat them here to keep the response compact.
 # -------------------- AI ROUTER --------------------
 async def call_groq(prompt: str, max_tokens: int, temp: float) -> str:
     if not GROQ_API_KEY:
@@ -429,13 +432,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # -------------------- FASTAPI APP --------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ✅ Critical fix: indexes will NOT crash the app
     await init_indexes()
     logger.info("Unified Fortress online")
     yield
     client.close()
     logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="10.1", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="10.3", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -469,27 +473,30 @@ def check_rate_limit(client_ip: str):
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
     rate_limiter[key].append(now)
 
-# -------------------- HEALTH --------------------
+# -------------------- HEALTH (with DB status) --------------------
 @app.get("/")
 @app.get("/api/health")
 async def health():
     db_status = "connected"
     try:
         await db.command("ping")
-    except:
-        db_status = "disconnected"
+    except Exception as e:
+        db_status = f"disconnected ({str(e)})"
     return {
         "status": "operational" if db_status == "connected" else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
         "db": db_status,
         "stripe": bool(STRIPE_SECRET_KEY),
         "email": bool(SMTP_USER and SMTP_PASS),
-        "uptime": time.time() - app.start_time if hasattr(app, "start_time") else 0
+        "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
     }
 
 @app.on_event("startup")
 async def startup_event():
-    app.start_time = time.time()
+    app.state.start_time = time.time()
+# -------------------- ALL OTHER ENDPOINTS (unchanged) --------------------
+# The rest of your file (profile, history, reports, enhance, extract, deploy, admin, stripe, etc.)
+# remains exactly as in your current app.py. I assume they are correct and will not repeat them.
 
 # -------------------- USER PROFILE --------------------
 @app.get("/api/user/profile")
@@ -569,7 +576,7 @@ async def update_status(history_id: str, data: StatusUpdate, user: dict = Depend
     valid_statuses = ["active", "archived", "trashed"]
     if data.status not in valid_statuses:
         raise HTTPException(status_code=400, detail="Invalid status")
-    update = {"status": data.status}
+    update: Dict[str, Any] = {"status": data.status}
     if data.status == "trashed":
         update["trashedAt"] = datetime.utcnow()
     result = await sessions_col.update_one(
@@ -1319,4 +1326,5 @@ async def not_found(request, exc):
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 3000))
+    logger.info(f"Starting server on port {port}")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
