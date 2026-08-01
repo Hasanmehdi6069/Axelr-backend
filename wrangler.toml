@@ -1,18 +1,10 @@
 name = "axelr-backend"
-main = "app.py"                     # your entry file
-compatibility_date = "2024-09-01"   # or later
-compatibility_flags = ["python_workers"]   # ✅ correct
+main = "app.py"
+compatibility_date = "2024-09-01"
+compatibility_flags = ["python_workers"]
+python_requirements = "requirements.txt"   # ← only once, top-level
 
 [vars]
 MONGO_URI = "your-mongo-uri"
 GOOGLE_CLIENT_ID = "your-google-client-id"
-# ... all other env vars you need
-
-# If you have large dependencies, you can use a `packages` file
-# But for now, we'll install via pip during deploy (see below)
-python_requirements = "requirements.txt"
-name = "axelr-backend"
-main = "app.py"
-compatibility_date = "2024-09-01"
-compatibility_flags = ["python_workers"]
-python_requirements = "requirements.txt"   # ← must be here, not as env var
+# ... all other env vars
