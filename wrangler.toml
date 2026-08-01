@@ -10,3 +10,4 @@ GOOGLE_CLIENT_ID = "your-google-client-id"
 
 # If you have large dependencies, you can use a `packages` file
 # But for now, we'll install via pip during deploy (see below)
+python_requirements = "requirements.txt"
