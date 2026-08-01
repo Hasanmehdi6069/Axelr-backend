@@ -5,7 +5,6 @@ compatibility_flags = ["python_workers"]
 python_requirements = "requirements.txt"
 
 [vars]
-# These are non‑secret values that can be safely stored in the repo
 ADMIN_EMAIL = "shanh1346@gmail.com"
 SMTP_HOST = "smtp.gmail.com"
 SMTP_PORT = "587"
@@ -13,13 +12,5 @@ FREE_TIER_TOKEN_LIMIT = "1000000"
 GROQ_DAILY_LIMIT = "1000"
 OPENROUTER_DAILY_LIMIT = "1000"
 
-# DO NOT PUT SECRETS HERE – they will be set via `wrangler secret put`
-wrangler secret put MONGO_URI
-wrangler secret put GOOGLE_CLIENT_ID
-wrangler secret put STRIPE_SECRET_KEY
-wrangler secret put STRIPE_WEBHOOK_SECRET
-wrangler secret put SMTP_USER
-wrangler secret put SMTP_PASS
-wrangler secret put NETLIFY_ACCESS_TOKEN
-wrangler secret put GROQ_API_KEY
-wrangler secret put OPENROUTER_API_KEY
+# Secrets are NOT stored here – they are set via Dashboard or `wrangler secret put`.
+# We'll set them in the Cloudflare Dashboard (no CLI needed).
