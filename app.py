@@ -18,13 +18,34 @@ from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+import urllib
+
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
 
-import httpx
+async def http_post_async(url, headers, json_data, timeout=90.0):
+    data = json.dumps(json_data).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    loop = asyncio.get_running_loop()
+    try:
+        response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=timeout)
+        content = response.read().decode('utf-8')
+        return json.loads(content)
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        raise Exception(f"HTTP error {e.code}: {error_body}")
+    except Exception as e:
+        raise Exception(f"HTTP request failed: {e}")
+    if NETLIFY_ACCESS_TOKEN:
+    try:
+        import httpx
+    except ImportError:
+        httpx = None
+    if httpx is not None:
+        # ... Netlify deploy with httpx
 import stripe
 import bleach
 from cachetools import TTLCache
@@ -1335,4 +1356,151 @@ if __name__ == "__main__":
     # ================== Cloudflare Worker adapter ==================
 from cloudflare.workers.asgi import ASGIWorker
 
+handle = ASGIWorker(app).handle
+
+
+
+
+# -*- coding: utf-8 -*-
+"""
+AXELR AI - UNIFIED FORTRESS v10.3 (Resilient Startup)
+"""
+
+import os
+import re
+import time
+import json
+import asyncio
+import hashlib
+import smtplib
+import logging
+import base64
+import urllib.request
+import urllib.error
+from datetime import datetime
+from typing import Optional, List, Dict, Any
+from contextlib import asynccontextmanager
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
+# -------------------- httpx is made optional --------------------
+try:
+    import httpx
+except ImportError:
+    httpx = None
+
+# rest of your imports (stripe, bleach, cachetools, motor, fastapi, etc.)
+# ... keep them as they are ...
+
+# -------------------- ASYNC HTTP HELPER (replaces httpx) --------------------
+async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: float = 90.0):
+    data = json.dumps(json_data).encode('utf-8')
+    req = urllib.request.Request(url, data=data, headers=headers, method='POST')
+    loop = asyncio.get_running_loop()
+    try:
+        response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=timeout)
+        content = response.read().decode('utf-8')
+        return json.loads(content)
+    except urllib.error.HTTPError as e:
+        error_body = e.read().decode('utf-8') if e.fp else ''
+        raise Exception(f"HTTP error {e.code}: {error_body}")
+    except Exception as e:
+        raise Exception(f"HTTP request failed: {e}")
+
+# -------------------- AI ROUTER (modified) --------------------
+async def call_groq(prompt: str, max_tokens: int, temp: float) -> str:
+    if not GROQ_API_KEY:
+        raise Exception("GROQ_API_KEY not configured")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+    }
+    model = "llama-3.1-70b-versatile"
+    effective_max = min(max_tokens, 1024)
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": effective_max,
+        "temperature": temp,
+        "stream": False
+    }
+    resp_json = await http_post_async(url, headers, payload, timeout=90.0)
+    return resp_json["choices"][0]["message"]["content"]
+
+async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float) -> str:
+    if not OPENROUTER_API_KEY:
+        raise Exception("OPENROUTER_API_KEY not configured")
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://axelr.in",
+        "X-Title": "Axelr AI"
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+    }
+    resp_json = await http_post_async(url, headers, payload, timeout=90.0)
+    return resp_json["choices"][0]["message"]["content"]
+
+# -------------------- DEPLOY endpoint (modified) --------------------
+@app.post("/api/deploy")
+async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
+    html = data.htmlContent
+    if not html:
+        raise HTTPException(status_code=400, detail="Missing HTML content")
+    if "<html" not in html or "</html>" not in html:
+        raise HTTPException(status_code=400, detail="Generated HTML is incomplete.")
+
+    # Sanitize (unchanged) ...
+
+    # Try Netlify deploy only if httpx is available
+    if NETLIFY_ACCESS_TOKEN and httpx is not None:
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as http_client:
+                files_payload = {"file": ("index.html", sanitized.encode('utf-8'), "text/html")}
+                site_name = f"axelr-deploy-{int(time.time())}"
+                create_resp = await http_client.post(
+                    "https://api.netlify.com/api/v1/sites",
+                    headers={"Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"},
+                    json={"name": site_name}
+                )
+                if create_resp.status_code == 201:
+                    site = create_resp.json()
+                    site_id = site["id"]
+                    deploy_resp = await http_client.post(
+                        f"https://api.netlify.com/api/v1/sites/{site_id}/deploys",
+                        headers={"Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"},
+                        files=files_payload
+                    )
+                    if deploy_resp.status_code == 200:
+                        deploy_result = deploy_resp.json()
+                        if deploy_result.get("deploy_url"):
+                            return {"success": True, "liveUrl": deploy_result["deploy_url"]}
+        except Exception as e:
+            logger.warning(f"Netlify deploy failed: {e}")
+
+    # Fallback: data URI (unchanged)
+    data_uri = f"data:text/html;charset=utf-8,{sanitized}"
+    return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
+
+# -------------------- MAIN (unchanged) --------------------
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 3000))
+    logger.info(f"=== STARTING AXELR AI ON PORT {port} ===")
+    uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
+
+# -------------------- Cloudflare Worker adapter (unchanged) --------------------
+from cloudflare.workers.asgi import ASGIWorker
 handle = ASGIWorker(app).handle
