@@ -1293,7 +1293,7 @@ async def stripe_webhook(request: Request):
     sig = request.headers.get("stripe-signature")
     event = None
     try:
-if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
+if (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
         else:
             event = json.loads(payload)
