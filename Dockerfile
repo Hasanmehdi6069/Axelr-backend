@@ -11,7 +11,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app.py .
 
-# The app reads PORT from environment; default 3000.
-EXPOSE 3000
-
-CMD ["python", "app.py"]
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

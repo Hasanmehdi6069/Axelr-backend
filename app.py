@@ -1326,5 +1326,9 @@ async def not_found(request, exc):
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 3000))
-    logger.info(f"Starting server on port {port}")
+    logger.info(f"=== STARTING AXELR AI ON PORT {port} ===")
+    logger.info(f"MONGO_URI: {'set' if MONGO_URI else 'MISSING'}")
+    logger.info(f"GOOGLE_CLIENT_ID: {'set' if GOOGLE_CLIENT_ID else 'MISSING'}")
+    logger.info(f"GROQ_API_KEY: {'set' if GROQ_API_KEY else 'MISSING'}")
+    logger.info(f"OPENROUTER_API_KEY: {'set' if OPENROUTER_API_KEY else 'MISSING'}")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
