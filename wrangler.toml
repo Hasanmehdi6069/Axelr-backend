@@ -5,6 +5,7 @@ compatibility_flags = ["python_workers"]
 python_requirements = "requirements.txt"
 
 [vars]
-MONGO_URI = "your-mongo-uri"
-GOOGLE_CLIENT_ID = "your-google-client-id"
-# ... all other env vars
+wrangler secret put MONGO_URI
+wrangler secret put GOOGLE_CLIENT_ID
+wrangler secret put STRIPE_SECRET_KEY
+# ... etc.
