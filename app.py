@@ -1374,7 +1374,6 @@ try:
     STRIPE_AVAILABLE = True
 except ImportError:
     pass
-
 # -------------------- 404 --------------------
 @app.exception_handler(404)
 async def not_found(request, exc):
