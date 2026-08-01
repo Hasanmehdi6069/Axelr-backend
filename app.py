@@ -28,7 +28,14 @@ except ImportError:
     pass
 
 # ---------- Pure‑Python imports (available in Pyodide) ----------
-import stripe
+# ---------- STRIPE (optional) ----------
+STRIPE_AVAILABLE = False
+stripe = None
+try:
+    import stripe
+    STRIPE_AVAILABLE = True
+except ImportError:
+    pass
 import bleach
 from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
