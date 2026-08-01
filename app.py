@@ -75,7 +75,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
 # -------------------- STRIPE INIT --------------------
-if STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
+if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
     stripe.api_key = STRIPE_SECRET_KEY
     logger.info("Stripe initialized")
 else:
@@ -1287,13 +1287,13 @@ async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_curren
 # -------------------- STRIPE WEBHOOK --------------------
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
-    if not STRIPE_SECRET_KEY:
+    if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
         return JSONResponse(content={"received": True, "note": "Stripe disabled"})
     payload = await request.body()
     sig = request.headers.get("stripe-signature")
     event = None
     try:
-        if STRIPE_WEBHOOK_SECRET:
+if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY)::
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
         else:
             event = json.loads(payload)
@@ -1374,7 +1374,7 @@ async def stripe_webhook(request: Request):
                     logger.warning(f"Cancellation email failed: {e}")
     return {"received": True}
     # ---------- STRIPE (optional) ----------
-STRIPE_AVAILABLE = False
+if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY) = False
 stripe = None
 try:
     import stripe
