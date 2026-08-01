@@ -5,22 +5,6 @@ compatibility_flags = ["python_workers"]
 python_requirements = "requirements.txt"
 
 [vars]
-MONGO_URI=mongodb://cartixAdmin:CartixAdmin2026@ac-o6ctw1h-shard-00-00.x4rpudx.mongodb.net:27017,ac-o6ctw1h-shard-00-01.x4rpudx.mongodb.net:27017,ac-o6ctw1h-shard-00-02.x4rpudx.mongodb.net:27017/NexusDB?ssl=true&replicaSet=atlas-v81p0f-shard-0&authSource=admin&appName=Cluster0
-GOOGLE_CLIENT_ID=474929925590-a0it7ijp845oqbni72iaqpsvqdvnu0jd.apps.googleusercontent.com
-ADMIN_EMAIL=shanh1346@gmail.com
-STRIPE_SECRET_KEY=sk_test_51TbOMpGotfnA5LPFpdjiUHX1knvzeBc1ickkCLjwjemLJXMZ9wgt1NQAIg4iMK0NLSDi61VLoquMZPz4Uxctl1ja00eU2JKwia
-STRIPE_WEBHOOK_SECRET=whsec_test_secret_for_now
-NETLIFY_ACCESS_TOKEN=nfp_K3EGGt28adcK87f5RcdLV1MD4qLmvT5D6527
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_USER=shanh1346@gmail.com
-SMTP_PASS=jkca qkjs zouk xeiq
-GROQ_API_KEY=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
-OPENROUTER_API_KEY=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
-SENTRY_DSN=https://7690e135792d6c753756e6ee64c78b24@o4511558042255360.ingest.us.sentry.io/4511558050447360
-FREE_TIER_TOKEN_LIMIT=1000000
-NODE_ENV=production
-MONGO_API_KEY=1ab90499-bc18-4dc2-b247-bd57048c442a
-SMTP_SECURE=false
-CLIENT_APP_URL=https://axelr.in
-SARBONOVA_API_KEY=075257cc-5ae1-4545-8d1b-5109c5496f4e
+MONGO_URI = "your-mongo-uri"
+GOOGLE_CLIENT_ID = "your-google-client-id"
+# ... all other env vars
