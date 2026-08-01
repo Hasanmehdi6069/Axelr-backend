@@ -12,14 +12,3 @@ bleach==6.2.0
 python-dotenv==1.0.1
 pydantic==2.10.4
 email-validator==2.2.0
-fastapi
-uvicorn
-motor
-stripe
-google-auth
-cachetools
-bleach
-python-dotenv
-httpx
-pydantic
-asgi-worker
