@@ -19,8 +19,12 @@ from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
-from dotenv import load_dotenv
-load_dotenv()  # Load .env file
+try:
+    from dotenv import load_dotenv
+    load_dotenv()  # Load .env file
+except ImportError:
+    def load_dotenv():
+        pass
 
 import httpx
 import stripe
@@ -31,7 +35,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
+try:
+    from motor.motor_asyncio import AsyncIOMotorClient
+except ImportError:
+    AsyncIOMotorClient = None
 from bson import ObjectId
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
@@ -1311,5 +1318,5 @@ async def not_found(request, exc):
 
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8080))
+    port = int(os.getenv("PORT", 3000))
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
