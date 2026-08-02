@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v10.4 (8‑Model Matrix)
-Single‑file deployment with smart routing to free AI models.
+AXELR AI - UNIFIED FORTRESS v11.0 (ELITE)
+Production‑ready with multi‑provider failover (Groq, OpenRouter, SambaNova, Pollinations)
+and fully integrated Touch‑Fix.
 """
 
 import os
@@ -71,23 +72,17 @@ NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
+SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
-# AI Provider API Keys (all optional – failover will skip missing ones)
-SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
-HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
-TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
-# Pollinations.ai is free, no key needed
-
-# -------------------- STRIPE INIT --------------------
+# ---------- STRIPE INIT ----------
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
     stripe.api_key = STRIPE_SECRET_KEY
     logger.info("Stripe initialized")
 else:
     logger.warning("Stripe not configured - payment features disabled")
 
-# -------------------- EMAIL --------------------
+# ---------- EMAIL ----------
 def get_email_transport():
     if SMTP_USER and SMTP_PASS:
         try:
@@ -99,7 +94,7 @@ def get_email_transport():
             logger.warning(f"Email transport failed: {e}")
     return None
 
-# -------------------- MONGO DB (lazy loading) --------------------
+# ---------- MONGO DB (lazy loading) ----------
 client = None
 db = None
 users_col = None
@@ -133,10 +128,10 @@ def get_object_id():
         return ObjectId
     return None
 
-# -------------------- CACHE --------------------
+# ---------- CACHE ----------
 ai_cache = TTLCache(maxsize=1000, ttl=3600)
 
-# -------------------- SECURITY UTILITIES --------------------
+# ---------- SECURITY UTILITIES ----------
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
     r"disregard (system prompt|guidelines|instructions)",
@@ -183,53 +178,45 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- 8‑MODEL MATRIX --------------------
+# -------------------- 8‑MODEL MATRIX (OpenRouter model names) --------------------
 MODEL_MATRIX = {
     # DATA WORKSPACE
-    "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",  # SambaNova equivalent via OpenRouter
-    "extraction":  "qwen/qwen-2.5-72b-instruct:free",              # Hyperbolic/HuggingFace
-    "scripting":   "meta-llama/llama-3-70b-instruct:free",         # Together AI
+    "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
+    "extraction":  "qwen/qwen-2.5-72b-instruct:free",
+    "scripting":   "meta-llama/llama-3-70b-instruct:free",
     # DESIGN WORKSPACE
-    "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",  # SambaNova
-    "frontend":    "qwen/qwen-2.5-coder-32b:free",                 # Hyperbolic – excellent for UI
-    "touch_fix":   "mistralai/codestral-22b-v0.1:free",            # Mistral Free Developer Tier (fallback: qwen-coder)
+    "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",
+    "frontend":    "qwen/qwen-2.5-coder-32b:free",
+    "touch_fix":   "mistralai/codestral-22b-v0.1:free",   # fallback to qwen-coder if unavailable
     # PROMPT WORKSPACE
-    "structuring": "meta-llama/llama-3-70b-instruct:free",         # Together AI
-    "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",         # Hyperbolic
+    "structuring": "meta-llama/llama-3-70b-instruct:free",
+    "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",
 }
 
-# Fallback model if the primary fails
-FALLBACK_MODEL = "qwen/qwen-2.5-coder-32b:free"  # robust and widely free
+FALLBACK_MODEL = "qwen/qwen-2.5-coder-32b:free"
 
 def select_model(task_type: str) -> str:
-    """Return the OpenRouter model string for the given task type."""
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-# -------------------- AI ROUTER (urllib) --------------------
+# -------------------- AI PROVIDERS (with failover) --------------------
 async def call_groq(prompt: str, max_tokens: int, temp: float) -> str:
     if not GROQ_API_KEY:
-        raise Exception("GROQ_API_KEY not configured")
+        raise Exception("GROQ_API_KEY missing")
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-        "Accept": "application/json"
-    }
-    model = "llama-3.1-70b-versatile"
-    effective_max = min(max_tokens, 1024)
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": model,
+        "model": "llama-3.1-70b-versatile",
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": effective_max,
+        "max_tokens": min(max_tokens, 1024),
         "temperature": temp,
         "stream": False
     }
-    resp_json = await http_post_async(url, headers, payload, timeout=90.0)
-    return resp_json["choices"][0]["message"]["content"]
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    return resp["choices"][0]["message"]["content"]
 
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float) -> str:
     if not OPENROUTER_API_KEY:
-        raise Exception("OPENROUTER_API_KEY not configured")
+        raise Exception("OPENROUTER_API_KEY missing")
     url = "https://openrouter.ai/api/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {OPENROUTER_API_KEY}",
@@ -243,8 +230,44 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float)
         "max_tokens": max_tokens,
         "temperature": temp,
     }
-    resp_json = await http_post_async(url, headers, payload, timeout=90.0)
-    return resp_json["choices"][0]["message"]["content"]
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+async def call_sambanova(prompt: str, max_tokens: int, temp: float) -> str:
+    if not SAMBANOVA_API_KEY:
+        raise Exception("SAMBANOVA_API_KEY missing")
+    url = "https://api.sambanova.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {SAMBANOVA_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": "DeepSeek-R1",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
+    # Pollinations.ai – free, no key, uses GET
+    import urllib.parse
+    encoded = urllib.parse.quote(prompt)
+    url = f"https://text.pollinations.ai/{encoded}?seed=42&model=openai"
+    req = urllib.request.Request(url, method='GET')
+    loop = asyncio.get_running_loop()
+    try:
+        response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=30)
+        content = response.read().decode('utf-8')
+        return content
+    except Exception as e:
+        raise Exception(f"Pollinations failed: {e}")
+
+# Provider chain (ordered by priority)
+PROVIDER_CHAIN = [
+    ("openrouter", call_openrouter, {}),   # model will be set per task
+    ("groq", call_groq, {}),
+    ("sambanova", call_sambanova, {}),
+    ("pollinations", call_pollinations, {}),
+]
 
 async def call_with_retries(provider_func, *args, retries=2, delay=1.0, **kwargs):
     last_exception = None
@@ -289,6 +312,8 @@ async def route_ai_request(
     tier: str
 ) -> Dict[str, Any]:
     start = time.time()
+
+    # Build full prompt
     history_text = ""
     if history:
         history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]])
@@ -298,87 +323,64 @@ async def route_ai_request(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
+    # Security
     if detect_manipulation(prompt):
         return {
             "success": False,
-            "text": "We have detected manipulative content in your request. Please adhere to our terms of service.",
+            "text": "Manipulation detected.",
             "provider": "security",
-            "model_used": "security-filter",
+            "model_used": "filter",
             "tokens_used": 0,
             "latency_ms": 0
         }
 
+    # Cache
     cache_key = hashlib.sha256(f"{workspace}:{task_type}:{full_prompt}".encode()).hexdigest()
     if cache_key in ai_cache:
         cached = ai_cache[cache_key]
-        return {
-            "success": True,
-            "text": cached["text"],
-            "provider": cached["provider"],
-            "model_used": cached["model_used"],
-            "tokens_used": cached.get("tokens_used", 0),
-            "latency_ms": 0,
-            "cached": True
-        }
+        return {**cached, "cached": True}
 
-    response_text = None
-    provider = None
-    model_used = None
-
-    # Select the primary model for this task type
+    # Choose primary model for OpenRouter
     primary_model = select_model(task_type)
 
-    # Try OpenRouter with primary model
-    try:
-        response_text = await call_with_retries(
-            call_openrouter,
-            primary_model,
-            full_prompt,
-            max_tokens,
-            temp,
-            retries=2
-        )
-        provider = "openrouter"
-        model_used = primary_model
-    except Exception as e:
-        logger.warning(f"Primary model {primary_model} failed: {e}")
-        # Fallback to Groq (if available) or another fallback model
+    response_text = None
+    provider_used = None
+    model_used = None
+
+    for name, func, kwargs in PROVIDER_CHAIN:
         try:
-            if GROQ_API_KEY:
-                response_text = await call_with_retries(call_groq, full_prompt, max_tokens, temp, retries=2)
-                provider = "groq-fallback"
-                model_used = "llama-3.1-70b-versatile"
-            else:
-                # Final fallback: use OpenRouter with a generic free model
-                fallback_model = FALLBACK_MODEL
+            if name == "openrouter":
+                # set the model dynamically
                 response_text = await call_with_retries(
-                    call_openrouter,
-                    fallback_model,
-                    full_prompt,
-                    max_tokens,
-                    temp,
-                    retries=2
+                    func, primary_model, full_prompt, max_tokens, temp, retries=2
                 )
-                provider = "openrouter-fallback"
-                model_used = fallback_model
-        except Exception as e2:
-            logger.error(f"All AI providers failed: {e2}")
-            raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
+            else:
+                response_text = await call_with_retries(
+                    func, full_prompt, max_tokens, temp, retries=2
+                )
+            provider_used = name
+            model_used = primary_model if name == "openrouter" else func.__name__.replace("call_", "")
+            break
+        except Exception as e:
+            logger.warning(f"Provider {name} failed: {e}")
+            continue
 
-    if response_text:
-        response_text = strip_fluff(response_text)
+    if not response_text:
+        response_text = "I'm sorry, all AI services are temporarily unavailable. Please try again in a few minutes."
+        provider_used = "static"
+        model_used = "fallback"
 
+    response_text = strip_fluff(response_text)
     latency = (time.time() - start) * 1000
     result = {
         "success": True,
         "text": response_text,
-        "provider": provider,
+        "provider": provider_used,
         "model_used": model_used,
         "tokens_used": len(response_text.split()),
         "latency_ms": round(latency, 2)
     }
-    if response_text:
-        ai_cache[cache_key] = result
+    ai_cache[cache_key] = result
     return result
 
 # -------------------- AUTHENTICATION --------------------
@@ -393,7 +395,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
             raise HTTPException(status_code=401, detail="Invalid issuer")
         user_doc = await users_col.find_one({"googleId": idinfo['sub']})
-        is_admin = idinfo['email'] == ADMIN_EMAIL
+        is_admin = (idinfo['email'] == ADMIN_EMAIL)
         if not user_doc:
             new_user = {
                 "googleId": idinfo['sub'],
@@ -429,9 +431,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             user_doc = await users_col.find_one({"_id": result.inserted_id})
             logger.info(f"New user created: {idinfo['email']}")
         else:
+            # Force admin flag update every request
             if user_doc.get("isAdmin") != is_admin:
                 await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"isAdmin": is_admin}})
                 user_doc["isAdmin"] = is_admin
+
             # Reset daily quotas if new day
             now = datetime.utcnow()
             today = datetime(now.year, now.month, now.day)
@@ -475,7 +479,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="10.4", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="11.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -804,7 +808,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
             "usage": used,
             "limit": limit
         })
-    # For prompt enhancement, we use "structuring" task type
     ai_result = await route_ai_request(
         workspace="prompt",
         task_type="structuring",
@@ -851,7 +854,7 @@ async def extract(
     user: dict = Depends(get_current_user),
     command: str = Form(...),
     workspace: str = Form("data"),
-    task_type: Optional[str] = Form(None),   # New field: analytics, extraction, scripting, fullstack, frontend, touch_fix, structuring, logic_math
+    task_type: Optional[str] = Form(None),
     isRetry: str = Form("false"),
     sessionId: Optional[str] = Form(None),
     files: List[UploadFile] = File([])
@@ -861,19 +864,15 @@ async def extract(
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
 
-    # Determine task_type if not provided
     if task_type is None:
         if workspace == "data":
-            # Default to 'extraction' for data workspace; could be overridden by user
             task_type = "extraction"
         elif workspace == "design":
             task_type = "frontend"
         else:
             task_type = "structuring"
-    # Validate task_type against supported list
     supported_types = list(MODEL_MATRIX.keys())
     if task_type not in supported_types:
-        # fallback to a safe one
         task_type = "extraction" if workspace == "data" else "frontend"
 
     if workspace not in ["data", "design", "general"]:
@@ -949,7 +948,7 @@ async def extract(
     if current_usage >= limit:
         raise HTTPException(status_code=403, detail={"code": "LIMIT_REACHED", "usage": current_usage, "limit": limit})
 
-    storage_limit = 5 * 1024 * 1024  # free
+    storage_limit = 5 * 1024 * 1024
     if tier == "pro":
         storage_limit = 20 * 1024 * 1024
     elif tier == "business":
@@ -958,7 +957,6 @@ async def extract(
     if current_storage + total_size > storage_limit:
         raise HTTPException(status_code=403, detail={"code": "STORAGE_LIMIT_REACHED", "message": f"Storage quota exceeded. Maximum {storage_limit / (1024*1024)}MB."})
 
-    # Read files as base64
     file_contents = []
     for f in files:
         content_bytes = await f.read()
@@ -978,7 +976,6 @@ async def extract(
             if isRetry == "true" and history and history[-1].get("role") == "model":
                 history = history[:-2]
 
-    # Route to AI with the selected task_type
     ai_result = await route_ai_request(
         workspace=workspace,
         task_type=task_type,
@@ -1110,7 +1107,41 @@ async def extract(
         "model": model_used
     }
 
-# -------------------- DEPLOY (with multipart using urllib) --------------------
+# -------------------- TOUCH FIX --------------------
+class TouchFixRequest(BaseModel):
+    code: str
+    error_message: str
+    task_type: Optional[str] = "touch_fix"
+
+@app.post("/api/touch_fix")
+async def touch_fix(data: TouchFixRequest, user: dict = Depends(get_current_user)):
+    if not data.code:
+        raise HTTPException(status_code=400, detail="No code provided")
+    prompt = f"""Fix the following code. The error is: {data.error_message}
+Return only the corrected code, without any explanation.
+
+```html
+{data.code}
+```"""
+    ai_result = await route_ai_request(
+        workspace="design",
+        task_type="touch_fix",
+        prompt=prompt,
+        history=[],
+        files=[],
+        max_tokens=2048,
+        temp=0.2,
+        tier=user.get("tier", "free")
+    )
+    if not ai_result.get("success"):
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+    fixed_code = ai_result["text"]
+    code_match = re.search(r"```(?:html|javascript|css)?\s*([\s\S]*?)```", fixed_code, re.DOTALL)
+    if code_match:
+        fixed_code = code_match.group(1).strip()
+    return {"success": True, "fixed_code": fixed_code}
+
+# -------------------- DEPLOY --------------------
 def _build_multipart(data: Dict, files: Dict) -> (bytes, str):
     boundary = '----WebKitFormBoundary' + hashlib.md5(os.urandom(16)).hexdigest()
     body_parts = []
@@ -1214,6 +1245,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="Database unavailable")
     if not user.get("isAdmin") or user.get("email") != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Admin access restricted")
+
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
     total_users = await users_col.count_documents({})
     pro_users = await users_col.count_documents({"tier": "pro"})
