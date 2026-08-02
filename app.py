@@ -1,8 +1,9 @@
+
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v11.0 (ELITE)
-Production‑ready with multi‑provider failover (Groq, OpenRouter, SambaNova, Pollinations)
-and fully integrated Touch‑Fix.
+AXELR AI - UNIFIED FORTRESS v13.0 (Elite Production)
+Zero‑cost, multi‑provider AI routing with enterprise‑grade failover,
+per‑user rate limiting, real‑time admin metrics, and bulletproof caching.
 """
 
 import os
@@ -17,11 +18,12 @@ import base64
 import urllib.request
 import urllib.error
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from collections import defaultdict
 
 try:
     from dotenv import load_dotenv
@@ -75,14 +77,14 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
-# ---------- STRIPE INIT ----------
+# -------------------- STRIPE INIT --------------------
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
     stripe.api_key = STRIPE_SECRET_KEY
     logger.info("Stripe initialized")
 else:
     logger.warning("Stripe not configured - payment features disabled")
 
-# ---------- EMAIL ----------
+# -------------------- EMAIL --------------------
 def get_email_transport():
     if SMTP_USER and SMTP_PASS:
         try:
@@ -94,7 +96,7 @@ def get_email_transport():
             logger.warning(f"Email transport failed: {e}")
     return None
 
-# ---------- MONGO DB (lazy loading) ----------
+# -------------------- MONGO DB (lazy loading) --------------------
 client = None
 db = None
 users_col = None
@@ -128,10 +130,15 @@ def get_object_id():
         return ObjectId
     return None
 
-# ---------- CACHE ----------
-ai_cache = TTLCache(maxsize=1000, ttl=3600)
+# -------------------- CACHE --------------------
+ai_cache = TTLCache(maxsize=2000, ttl=3600)  # exact prompt cache
 
-# ---------- SECURITY UTILITIES ----------
+# Circuit breaker for providers
+provider_failures = defaultdict(int)
+provider_last_fail = defaultdict(float)
+PROVIDER_COOLDOWN = 600  # 10 minutes
+
+# -------------------- SECURITY UTILITIES --------------------
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
     r"disregard (system prompt|guidelines|instructions)",
@@ -178,27 +185,23 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- 8‑MODEL MATRIX (OpenRouter model names) --------------------
+# -------------------- 8‑MODEL MATRIX --------------------
 MODEL_MATRIX = {
-    # DATA WORKSPACE
     "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
     "extraction":  "qwen/qwen-2.5-72b-instruct:free",
     "scripting":   "meta-llama/llama-3-70b-instruct:free",
-    # DESIGN WORKSPACE
     "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",
     "frontend":    "qwen/qwen-2.5-coder-32b:free",
-    "touch_fix":   "mistralai/codestral-22b-v0.1:free",   # fallback to qwen-coder if unavailable
-    # PROMPT WORKSPACE
+    "touch_fix":   "mistralai/codestral-22b-v0.1:free",
     "structuring": "meta-llama/llama-3-70b-instruct:free",
     "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",
 }
-
 FALLBACK_MODEL = "qwen/qwen-2.5-coder-32b:free"
 
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-# -------------------- AI PROVIDERS (with failover) --------------------
+# -------------------- AI PROVIDERS (with retries & error handling) --------------------
 async def call_groq(prompt: str, max_tokens: int, temp: float) -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY missing")
@@ -248,59 +251,61 @@ async def call_sambanova(prompt: str, max_tokens: int, temp: float) -> str:
     return resp["choices"][0]["message"]["content"]
 
 async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
-    # Pollinations.ai – free, no key, uses GET
     import urllib.parse
-    encoded = urllib.parse.quote(prompt)
+    encoded = urllib.parse.quote(prompt[:500])
     url = f"https://text.pollinations.ai/{encoded}?seed=42&model=openai"
     req = urllib.request.Request(url, method='GET')
     loop = asyncio.get_running_loop()
     try:
         response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=30)
         content = response.read().decode('utf-8')
-        return content
+        # Try to parse JSON; if fails, treat as plain text
+        try:
+            data = json.loads(content)
+            if isinstance(data, dict) and "text" in data:
+                return data["text"]
+            elif isinstance(data, str):
+                return data
+            else:
+                return content
+        except:
+            return content
     except Exception as e:
         raise Exception(f"Pollinations failed: {e}")
 
-# Provider chain (ordered by priority)
+# Provider chain – ordered by reliability
 PROVIDER_CHAIN = [
-    ("openrouter", call_openrouter, {}),   # model will be set per task
+    ("openrouter", call_openrouter, {}),
     ("groq", call_groq, {}),
     ("sambanova", call_sambanova, {}),
     ("pollinations", call_pollinations, {}),
 ]
 
-async def call_with_retries(provider_func, *args, retries=2, delay=1.0, **kwargs):
-    last_exception = None
-    for attempt in range(retries):
-        try:
-            return await provider_func(*args, **kwargs)
-        except Exception as e:
-            last_exception = e
-            logger.warning(f"Provider attempt {attempt+1} failed: {e}")
-            if attempt < retries - 1:
-                await asyncio.sleep(delay * (2 ** attempt))
-            else:
-                raise last_exception
-    raise last_exception
-
+# -------------------- SYSTEM PROMPT (concise directive) --------------------
 def get_system_prompt(workspace: str, task_type: str) -> str:
-    base = "You are AXELR - an elite, executive AI assistant. Keep responses concise, directly on point, with no fluff."
+    base = (
+        "You are AXELR – an elite, executive AI assistant. "
+        "RESPONSE MUST BE SHORT, CONCISE, AND ZERO‑FLUFF. "
+        "Do not add pleasantries, introductions, or conclusions. "
+        "Provide exactly what is asked, nothing more."
+    )
     if workspace == "design":
         return base + (
-            " You are AXELR ARCHITECT - a world-class UI/UX engineer. "
-            "Generate production-grade, pixel-perfect, fully responsive HTML/CSS/JS components "
-            "using modern Tailwind, flex/grid, micro-interactions, and dark mode. "
+            " You are AXELR ARCHITECT – a world-class UI/UX engineer. "
+            "Generate production‑grade, pixel‑perfect, fully responsive HTML/CSS/JS components "
+            "using modern Tailwind, flex/grid, micro‑interactions, and dark mode. "
             "Output complete code inside a single ```html block."
         )
     elif workspace == "data":
         return base + (
-            " You are AXELR DATA - an enterprise data analyst. "
+            " You are AXELR DATA – an enterprise data analyst. "
             "Clean, analyse, and transform the input into structured insights. "
             "Provide a concise summary followed by raw JSON inside [JSON-DATA]...[/JSON-DATA] tags."
         )
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
+# -------------------- AI ROUTER (with bulletproof failover & circuit breaker) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -312,8 +317,6 @@ async def route_ai_request(
     tier: str
 ) -> Dict[str, Any]:
     start = time.time()
-
-    # Build full prompt
     history_text = ""
     if history:
         history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]])
@@ -325,50 +328,66 @@ async def route_ai_request(
 
     # Security
     if detect_manipulation(prompt):
-        return {
-            "success": False,
-            "text": "Manipulation detected.",
-            "provider": "security",
-            "model_used": "filter",
-            "tokens_used": 0,
-            "latency_ms": 0
-        }
+        return {"success": False, "text": "Manipulation detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
 
-    # Cache
+    # Cache (exact match)
     cache_key = hashlib.sha256(f"{workspace}:{task_type}:{full_prompt}".encode()).hexdigest()
     if cache_key in ai_cache:
         cached = ai_cache[cache_key]
         return {**cached, "cached": True}
 
-    # Choose primary model for OpenRouter
-    primary_model = select_model(task_type)
+    # Select primary model
+    primary_model = MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
     response_text = None
     provider_used = None
     model_used = None
+    last_error = None
 
+    # Try each provider in order with retries and circuit breaker
     for name, func, kwargs in PROVIDER_CHAIN:
+        # Check circuit breaker
+        if provider_failures[name] >= 3 and time.time() - provider_last_fail[name] < PROVIDER_COOLDOWN:
+            logger.warning(f"Skipping provider {name} due to circuit breaker (cooldown)")
+            continue
         try:
-            if name == "openrouter":
-                # set the model dynamically
-                response_text = await call_with_retries(
-                    func, primary_model, full_prompt, max_tokens, temp, retries=2
-                )
-            else:
-                response_text = await call_with_retries(
-                    func, full_prompt, max_tokens, temp, retries=2
-                )
-            provider_used = name
-            model_used = primary_model if name == "openrouter" else func.__name__.replace("call_", "")
-            break
+            # Attempt up to 2 times per provider
+            for attempt in range(2):
+                try:
+                    if name == "openrouter":
+                        response_text = await func(primary_model, full_prompt, max_tokens, temp)
+                    else:
+                        response_text = await func(full_prompt, max_tokens, temp)
+                    provider_used = name
+                    model_used = primary_model if name == "openrouter" else name
+                    # Reset failures on success
+                    provider_failures[name] = 0
+                    break
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"Provider {name} attempt {attempt+1} failed: {e}")
+                    await asyncio.sleep(1 * (attempt+1))
+                    provider_failures[name] += 1
+                    provider_last_fail[name] = time.time()
+            if response_text:
+                break
         except Exception as e:
-            logger.warning(f"Provider {name} failed: {e}")
+            last_error = e
+            logger.warning(f"Provider {name} fully failed: {e}")
+            provider_failures[name] += 1
+            provider_last_fail[name] = time.time()
             continue
 
+    # If still no response, use a static fallback
     if not response_text:
-        response_text = "I'm sorry, all AI services are temporarily unavailable. Please try again in a few minutes."
+        # Check if we have a cached response for a similar prompt (fuzzy could be added, but we use generic)
+        response_text = (
+            "I'm currently experiencing very high demand. Please try again in a few seconds. "
+            "Alternatively, you can upgrade to Pro/Business for priority access."
+        )
         provider_used = "static"
         model_used = "fallback"
+        logger.error(f"All AI providers failed. Last error: {last_error}")
 
     response_text = strip_fluff(response_text)
     latency = (time.time() - start) * 1000
@@ -395,7 +414,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
             raise HTTPException(status_code=401, detail="Invalid issuer")
         user_doc = await users_col.find_one({"googleId": idinfo['sub']})
-        is_admin = (idinfo['email'] == ADMIN_EMAIL)
+        is_admin = idinfo['email'] == ADMIN_EMAIL
         if not user_doc:
             new_user = {
                 "googleId": idinfo['sub'],
@@ -425,17 +444,17 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "isAdmin": is_admin,
                 "dailyGroqQuota": 0,
                 "dailyOpenRouterQuota": 0,
+                "dailySambaNovaQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow()
             }
             result = await users_col.insert_one(new_user)
             user_doc = await users_col.find_one({"_id": result.inserted_id})
             logger.info(f"New user created: {idinfo['email']}")
         else:
-            # Force admin flag update every request
+            # Sync admin status
             if user_doc.get("isAdmin") != is_admin:
                 await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"isAdmin": is_admin}})
                 user_doc["isAdmin"] = is_admin
-
             # Reset daily quotas if new day
             now = datetime.utcnow()
             today = datetime(now.year, now.month, now.day)
@@ -457,6 +476,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "tokenUsage.lastTokenReset": datetime.utcnow(),
                             "dailyGroqQuota": 0,
                             "dailyOpenRouterQuota": 0,
+                            "dailySambaNovaQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
                     )
@@ -465,6 +485,26 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except Exception as e:
         logger.error(f"Auth failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+# -------------------- PER‑USER RATE LIMITING (requests per minute) --------------------
+user_rate_limiter = {}  # user_id -> list of timestamps
+
+RATE_LIMITS = {
+    "free": 2,      # 2 requests per minute
+    "pro": 5,
+    "business": 8,
+}
+
+def check_user_rate_limit(user_id: str, tier: str):
+    now = time.time()
+    limit = RATE_LIMITS.get(tier, 2)
+    if user_id not in user_rate_limiter:
+        user_rate_limiter[user_id] = []
+    # Remove timestamps older than 60 seconds
+    user_rate_limiter[user_id] = [t for t in user_rate_limiter[user_id] if now - t < 60]
+    if len(user_rate_limiter[user_id]) >= limit:
+        raise HTTPException(status_code=429, detail="Too many requests. Please slow down or upgrade your plan.")
+    user_rate_limiter[user_id].append(now)
 
 # -------------------- FASTAPI APP --------------------
 @asynccontextmanager
@@ -479,7 +519,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="11.0", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="13.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -497,21 +537,6 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=86400,
 )
-
-# -------------------- RATE LIMITING --------------------
-rate_limiter = {}
-RATE_LIMIT_WINDOW = 15 * 60
-RATE_LIMIT_MAX = 200
-
-def check_rate_limit(client_ip: str):
-    now = time.time()
-    key = client_ip
-    if key not in rate_limiter:
-        rate_limiter[key] = []
-    rate_limiter[key] = [t for t in rate_limiter[key] if now - t < RATE_LIMIT_WINDOW]
-    if len(rate_limiter[key]) >= RATE_LIMIT_MAX:
-        raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
-    rate_limiter[key].append(now)
 
 # -------------------- HEALTH --------------------
 @app.get("/")
@@ -561,6 +586,7 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "stripeSubscriptionId": user.get("stripeSubscriptionId"),
         "dailyGroqQuota": user.get("dailyGroqQuota", 0),
         "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
+        "dailySambaNovaQuota": user.get("dailySambaNovaQuota", 0),
     }
 
 class InstructionsUpdate(BaseModel):
@@ -591,7 +617,7 @@ async def delete_all_chats(user: dict = Depends(get_current_user)):
     await sessions_col.delete_many({"userId": user["_id"]})
     return {"success": True}
 
-# -------------------- HISTORY ROUTES --------------------
+# -------------------- HISTORY ROUTES (unchanged) --------------------
 class RenamePayload(BaseModel):
     action: str
     payload: Optional[str] = None
@@ -862,7 +888,8 @@ async def extract(
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
     client_ip = request.client.host if request.client else "unknown"
-    check_rate_limit(client_ip)
+    # Per‑user rate limiting
+    check_user_rate_limit(user["_id"], user.get("tier", "free"))
 
     if task_type is None:
         if workspace == "data":
@@ -1017,10 +1044,12 @@ async def extract(
             "storageBytesUsed": total_size,
         }
     }
-    if provider in ["groq", "groq-fallback"]:
+    if provider == "groq":
         update_query["$inc"]["dailyGroqQuota"] = 1
-    elif provider in ["openrouter", "openrouter-fallback"]:
+    elif provider == "openrouter":
         update_query["$inc"]["dailyOpenRouterQuota"] = 1
+    elif provider == "sambanova":
+        update_query["$inc"]["dailySambaNovaQuota"] = 1
     await users_col.update_one({"_id": user["_id"]}, update_query)
 
     session_id_out = None
@@ -1182,7 +1211,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Missing HTML content")
     if "<html" not in html or "</html>" not in html:
         raise HTTPException(status_code=400, detail="Generated HTML is incomplete.")
-
     allowed_tags = [
         'html', 'head', 'body', 'div', 'span', 'p', 'a', 'img', 'button', 'input', 'form', 'table',
         'tr', 'td', 'th', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'u',
@@ -1199,7 +1227,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
         'source': ['src', 'type'],
     }
     sanitized = bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
-
     if NETLIFY_ACCESS_TOKEN:
         try:
             create_headers = {
@@ -1234,11 +1261,10 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
                     return {"success": True, "liveUrl": deploy_resp["deploy_url"]}
         except Exception as e:
             logger.warning(f"Netlify deploy failed: {e}")
-
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS --------------------
+# -------------------- ADMIN METRICS (ENHANCED) --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1252,12 +1278,14 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     business_users = await users_col.count_documents({"tier": "business"})
     total_chats = await sessions_col.count_documents({})
 
+    # Aggregated usage (all time)
     pipeline_usage = [
         {"$group": {"_id": None, "totalQueries": {"$sum": "$dailyUsage"}, "totalBytes": {"$sum": "$storageBytesUsed"}}}
     ]
     usage_result = await users_col.aggregate(pipeline_usage).to_list(length=1)
     metrics = usage_result[0] if usage_result else {"totalQueries": 0, "totalBytes": 0}
 
+    # Token usage (all time)
     pipeline_tokens = [
         {"$group": {"_id": None, "totalPrompt": {"$sum": "$tokenUsage.totalPromptTokens"}, "totalCompletion": {"$sum": "$tokenUsage.totalCompletionTokens"}}}
     ]
@@ -1265,30 +1293,49 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     tokens = tokens_result[0] if tokens_result else {"totalPrompt": 0, "totalCompletion": 0}
     total_tokens = tokens["totalPrompt"] + tokens["totalCompletion"]
 
-    pipeline_ai = [
-        {"$group": {"_id": None, "totalGroq": {"$sum": "$dailyGroqQuota"}, "totalOpenRouter": {"$sum": "$dailyOpenRouterQuota"}}}
+    # Per‑provider usage (all time)
+    pipeline_provider = [
+        {"$group": {"_id": None,
+                    "totalGroq": {"$sum": "$dailyGroqQuota"},
+                    "totalOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
+                    "totalSambaNova": {"$sum": "$dailySambaNovaQuota"}}}
     ]
-    ai_result = await users_col.aggregate(pipeline_ai).to_list(length=1)
-    ai_quotas = ai_result[0] if ai_result else {"totalGroq": 0, "totalOpenRouter": 0}
+    provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
+    provider_totals = provider_result[0] if provider_result else {"totalGroq":0, "totalOpenRouter":0, "totalSambaNova":0}
 
-    pipeline_daily = [
+    # Today's provider usage
+    pipeline_daily_provider = [
+        {"$match": {"lastAiQuotaReset": {"$gte": today}}},
+        {"$group": {"_id": None,
+                    "dailyGroq": {"$sum": "$dailyGroqQuota"},
+                    "dailyOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
+                    "dailySambaNova": {"$sum": "$dailySambaNovaQuota"}}}
+    ]
+    daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
+    daily_provider = daily_provider_result[0] if daily_provider_result else {"dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0}
+
+    # Daily quotas (limits) – from env or defaults
+    groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
+    openrouter_limit = int(os.getenv("OPENROUTER_DAILY_LIMIT", 1000))
+    sambanova_limit = int(os.getenv("SAMBANOVA_DAILY_LIMIT", 200))
+
+    # Determine active provider (the one with most usage today)
+    daily_usage = {
+        "groq": daily_provider["dailyGroq"],
+        "openrouter": daily_provider["dailyOpenRouter"],
+        "sambanova": daily_provider["dailySambaNova"],
+    }
+    active_provider = max(daily_usage, key=daily_usage.get) if any(daily_usage.values()) else "openrouter"
+
+    # Today's overall queries
+    pipeline_daily_queries = [
         {"$match": {"lastUsageDate": {"$gte": today}}},
         {"$group": {"_id": None, "dailyQueries": {"$sum": "$dailyUsage"}}}
     ]
-    daily_result = await users_col.aggregate(pipeline_daily).to_list(length=1)
-    daily_queries = daily_result[0]["dailyQueries"] if daily_result else 0
+    daily_queries_result = await users_col.aggregate(pipeline_daily_queries).to_list(length=1)
+    daily_queries = daily_queries_result[0]["dailyQueries"] if daily_queries_result else 0
 
-    pipeline_daily_ai = [
-        {"$match": {"lastAiQuotaReset": {"$gte": today}}},
-        {"$group": {"_id": None, "dailyGroq": {"$sum": "$dailyGroqQuota"}, "dailyOpenRouter": {"$sum": "$dailyOpenRouterQuota"}}}
-    ]
-    daily_ai_result = await users_col.aggregate(pipeline_daily_ai).to_list(length=1)
-    daily_ai = daily_ai_result[0] if daily_ai_result else {"dailyGroq": 0, "dailyOpenRouter": 0}
-
-    groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
-    openrouter_limit = int(os.getenv("OPENROUTER_DAILY_LIMIT", 1000))
-
-    recent_users = await users_col.find({}, {"email": 1, "displayName": 1, "tier": 1, "createdAt": 1}).sort("createdAt", -1).limit(10).to_list(length=10)
+    recent_users = await users_col.find({}, {"email":1, "displayName":1, "tier":1, "createdAt":1}).sort("createdAt", -1).limit(10).to_list(length=10)
     for u in recent_users:
         u["_id"] = str(u["_id"])
 
@@ -1300,7 +1347,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "totalChats": total_chats,
         "metrics": {
             "totalQueries": metrics["totalQueries"],
-            "totalBytesMB": metrics["totalBytes"] / (1024 * 1024),
+            "totalBytesMB": round(metrics["totalBytes"] / (1024 * 1024), 2),
         },
         "tokenUsage": {
             "prompt": tokens["totalPrompt"],
@@ -1310,19 +1357,22 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "limit": FREE_TIER_TOKEN_LIMIT,
         },
         "aiQuota": {
-            "groq": ai_quotas["totalGroq"],
-            "openRouter": ai_quotas["totalOpenRouter"],
-            "dailyGroq": daily_ai["dailyGroq"],
-            "dailyOpenRouter": daily_ai["dailyOpenRouter"],
+            "groq": provider_totals["totalGroq"],
+            "openRouter": provider_totals["totalOpenRouter"],
+            "sambaNova": provider_totals["totalSambaNova"],
+            "dailyGroq": daily_provider["dailyGroq"],
+            "dailyOpenRouter": daily_provider["dailyOpenRouter"],
+            "dailySambaNova": daily_provider["dailySambaNova"],
             "groqLimit": groq_limit,
             "openRouterLimit": openrouter_limit,
+            "sambaNovaLimit": sambanova_limit,
+            "activeProvider": active_provider,
         },
         "dailyQueries": daily_queries,
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
     }
-
-# -------------------- STRIPE CHECKOUT --------------------
+# -------------------- STRIPE CHECKOUT & WEBHOOK (unchanged) --------------------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
     subTier: str = "full"
@@ -1383,7 +1433,6 @@ async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_curren
         logger.error(f"Checkout error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-# -------------------- STRIPE WEBHOOK --------------------
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
     if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
@@ -1469,7 +1518,6 @@ async def stripe_webhook(request: Request):
                 except Exception as e:
                     logger.warning(f"Cancellation email failed: {e}")
     return {"received": True}
-
 # -------------------- 404 --------------------
 @app.exception_handler(404)
 async def not_found(request, exc):
