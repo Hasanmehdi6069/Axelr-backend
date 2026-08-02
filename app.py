@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v10.3 (Cloudflare‑Ready)
-Refactored with lazy MongoDB imports for environment resilience.
+AXELR AI - UNIFIED FORTRESS v10.4 (8‑Model Matrix)
+Single‑file deployment with smart routing to free AI models.
 """
 
 import os
@@ -44,7 +44,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-# Imports for google auth (safe)
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 import uvicorn
@@ -74,6 +73,13 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
+# AI Provider API Keys (all optional – failover will skip missing ones)
+SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
+HYPERBOLIC_API_KEY = os.getenv("HYPERBOLIC_API_KEY")
+TOGETHER_API_KEY = os.getenv("TOGETHER_API_KEY")
+MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY")
+# Pollinations.ai is free, no key needed
+
 # -------------------- STRIPE INIT --------------------
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -102,40 +108,26 @@ reports_col = None
 db_available = False
 
 async def init_db():
-    """Lazy‑load MongoDB driver and collections. Handles import/environment errors."""
     global client, db, users_col, sessions_col, reports_col, db_available
     try:
-        # Import motor only now – this is where the bson conflict would occur.
         from motor.motor_asyncio import AsyncIOMotorClient
-        from bson import ObjectId  # also needed for ObjectId validation
+        from bson import ObjectId
         client = AsyncIOMotorClient(MONGO_URI)
         db = client.get_default_database()
         users_col = db.get_collection("users")
         sessions_col = db.get_collection("chatsessions")
         reports_col = db.get_collection("bugreports")
-        # Create indexes
-        try:
-            await users_col.create_index("googleId", unique=True)
-            await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
-            await sessions_col.create_index("userId")
-            await reports_col.create_index("userId")
-            logger.info("MongoDB indexes verified/created.")
-        except Exception as e:
-            logger.error(f"Index creation failed: {e}")
+        await users_col.create_index("googleId", unique=True)
+        await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
+        await sessions_col.create_index("userId")
+        await reports_col.create_index("userId")
         db_available = True
         logger.info("MongoDB connection established.")
-    except ImportError as e:
-        logger.error(f"Failed to import MongoDB driver: {e}")
-        logger.error("Please ensure the correct bson/pymongo packages are installed.")
-        db_available = False
     except Exception as e:
         logger.error(f"MongoDB initialization failed: {e}")
         db_available = False
 
-# We keep a reference to ObjectId for later use; we'll get it from the lazy import.
-# We'll define a helper to get ObjectId when needed.
 def get_object_id():
-    """Return ObjectId class if db is available, else None."""
     if db_available:
         from bson import ObjectId
         return ObjectId
@@ -191,7 +183,29 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- AI ROUTER (using urllib) --------------------
+# -------------------- 8‑MODEL MATRIX --------------------
+MODEL_MATRIX = {
+    # DATA WORKSPACE
+    "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",  # SambaNova equivalent via OpenRouter
+    "extraction":  "qwen/qwen-2.5-72b-instruct:free",              # Hyperbolic/HuggingFace
+    "scripting":   "meta-llama/llama-3-70b-instruct:free",         # Together AI
+    # DESIGN WORKSPACE
+    "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",  # SambaNova
+    "frontend":    "qwen/qwen-2.5-coder-32b:free",                 # Hyperbolic – excellent for UI
+    "touch_fix":   "mistralai/codestral-22b-v0.1:free",            # Mistral Free Developer Tier (fallback: qwen-coder)
+    # PROMPT WORKSPACE
+    "structuring": "meta-llama/llama-3-70b-instruct:free",         # Together AI
+    "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",         # Hyperbolic
+}
+
+# Fallback model if the primary fails
+FALLBACK_MODEL = "qwen/qwen-2.5-coder-32b:free"  # robust and widely free
+
+def select_model(task_type: str) -> str:
+    """Return the OpenRouter model string for the given task type."""
+    return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
+
+# -------------------- AI ROUTER (urllib) --------------------
 async def call_groq(prompt: str, max_tokens: int, temp: float) -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY not configured")
@@ -232,7 +246,7 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float)
     resp_json = await http_post_async(url, headers, payload, timeout=90.0)
     return resp_json["choices"][0]["message"]["content"]
 
-async def call_with_retries(provider_func, *args, retries=3, delay=1.0, **kwargs):
+async def call_with_retries(provider_func, *args, retries=2, delay=1.0, **kwargs):
     last_exception = None
     for attempt in range(retries):
         try:
@@ -246,7 +260,7 @@ async def call_with_retries(provider_func, *args, retries=3, delay=1.0, **kwargs
                 raise last_exception
     raise last_exception
 
-def get_system_prompt(workspace: str) -> str:
+def get_system_prompt(workspace: str, task_type: str) -> str:
     base = "You are AXELR - an elite, executive AI assistant. Keep responses concise, directly on point, with no fluff."
     if workspace == "design":
         return base + (
@@ -264,12 +278,21 @@ def get_system_prompt(workspace: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-async def route_ai_request(workspace: str, prompt: str, history: Optional[List[Dict]], files: Optional[List[Dict]], max_tokens: int, temp: float, tier: str) -> Dict[str, Any]:
+async def route_ai_request(
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: Optional[List[Dict]],
+    files: Optional[List[Dict]],
+    max_tokens: int,
+    temp: float,
+    tier: str
+) -> Dict[str, Any]:
     start = time.time()
     history_text = ""
     if history:
         history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]])
-    system_prompt = get_system_prompt(workspace)
+    system_prompt = get_system_prompt(workspace, task_type)
     full_prompt = f"{system_prompt}\n\n"
     if history_text:
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
@@ -285,7 +308,7 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
             "latency_ms": 0
         }
 
-    cache_key = hashlib.sha256(f"{workspace}:{full_prompt}".encode()).hexdigest()
+    cache_key = hashlib.sha256(f"{workspace}:{task_type}:{full_prompt}".encode()).hexdigest()
     if cache_key in ai_cache:
         cached = ai_cache[cache_key]
         return {
@@ -302,67 +325,45 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
     provider = None
     model_used = None
 
-    if workspace == "design":
+    # Select the primary model for this task type
+    primary_model = select_model(task_type)
+
+    # Try OpenRouter with primary model
+    try:
+        response_text = await call_with_retries(
+            call_openrouter,
+            primary_model,
+            full_prompt,
+            max_tokens,
+            temp,
+            retries=2
+        )
+        provider = "openrouter"
+        model_used = primary_model
+    except Exception as e:
+        logger.warning(f"Primary model {primary_model} failed: {e}")
+        # Fallback to Groq (if available) or another fallback model
         try:
-            response_text = await call_with_retries(call_groq, full_prompt, max_tokens, temp, retries=2)
-            provider = "groq"
-            model_used = "llama-3.1-70b-versatile"
-        except Exception as e:
-            logger.warning(f"Groq design failed: {e}")
-            try:
+            if GROQ_API_KEY:
+                response_text = await call_with_retries(call_groq, full_prompt, max_tokens, temp, retries=2)
+                provider = "groq-fallback"
+                model_used = "llama-3.1-70b-versatile"
+            else:
+                # Final fallback: use OpenRouter with a generic free model
+                fallback_model = FALLBACK_MODEL
                 response_text = await call_with_retries(
                     call_openrouter,
-                    "qwen/qwen-2.5-coder-32b:free",
+                    fallback_model,
                     full_prompt,
                     max_tokens,
                     temp,
                     retries=2
                 )
                 provider = "openrouter-fallback"
-                model_used = "qwen-2.5-coder-32b:free"
-            except Exception as e2:
-                logger.error(f"All design providers failed: {e2}")
-                raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
-    elif workspace == "data":
-        try:
-            model = "deepseek/deepseek-r1-distill-llama-70b:free"
-            response_text = await call_with_retries(
-                call_openrouter,
-                model,
-                full_prompt,
-                max_tokens,
-                temp,
-                retries=2
-            )
-            provider = "openrouter"
-            model_used = model
-        except Exception as e:
-            logger.warning(f"OpenRouter data failed: {e}")
-            try:
-                response_text = await call_with_retries(call_groq, full_prompt, max_tokens, temp, retries=2)
-                provider = "groq-fallback"
-                model_used = "llama-3.1-70b-versatile"
-            except Exception as e2:
-                logger.error(f"All data providers failed: {e2}")
-                raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
-    else:  # prompt enhancement
-        try:
-            model = "qwen/qwen-2.5-coder-32b:free"
-            response_text = await call_with_retries(
-                call_openrouter,
-                model,
-                f"You are an expert prompt engineer. Rewrite this user prompt into a detailed, professional system prompt:\n\n{prompt}",
-                max_tokens,
-                temp,
-                retries=2
-            )
-            provider = "openrouter"
-            model_used = model
-        except Exception as e:
-            logger.warning(f"OpenRouter prompt enhancement failed: {e}")
-            response_text = f"Please provide a detailed response to: {prompt}"
-            provider = "local-fallback"
-            model_used = "rule-engine"
+                model_used = fallback_model
+        except Exception as e2:
+            logger.error(f"All AI providers failed: {e2}")
+            raise HTTPException(status_code=503, detail="All AI providers are currently unavailable. Please try again later.")
 
     if response_text:
         response_text = strip_fluff(response_text)
@@ -474,7 +475,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="10.3", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="10.4", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -508,7 +509,7 @@ def check_rate_limit(client_ip: str):
         raise HTTPException(status_code=429, detail="Too many requests. Please slow down.")
     rate_limiter[key].append(now)
 
-# -------------------- HEALTH (with DB status) --------------------
+# -------------------- HEALTH --------------------
 @app.get("/")
 @app.get("/api/health")
 async def health():
@@ -803,8 +804,10 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
             "usage": used,
             "limit": limit
         })
+    # For prompt enhancement, we use "structuring" task type
     ai_result = await route_ai_request(
         workspace="prompt",
+        task_type="structuring",
         prompt=prompt_text,
         history=[],
         files=[],
@@ -848,6 +851,7 @@ async def extract(
     user: dict = Depends(get_current_user),
     command: str = Form(...),
     workspace: str = Form("data"),
+    task_type: Optional[str] = Form(None),   # New field: analytics, extraction, scripting, fullstack, frontend, touch_fix, structuring, logic_math
     isRetry: str = Form("false"),
     sessionId: Optional[str] = Form(None),
     files: List[UploadFile] = File([])
@@ -856,6 +860,22 @@ async def extract(
         raise HTTPException(status_code=503, detail="Database unavailable")
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
+
+    # Determine task_type if not provided
+    if task_type is None:
+        if workspace == "data":
+            # Default to 'extraction' for data workspace; could be overridden by user
+            task_type = "extraction"
+        elif workspace == "design":
+            task_type = "frontend"
+        else:
+            task_type = "structuring"
+    # Validate task_type against supported list
+    supported_types = list(MODEL_MATRIX.keys())
+    if task_type not in supported_types:
+        # fallback to a safe one
+        task_type = "extraction" if workspace == "data" else "frontend"
+
     if workspace not in ["data", "design", "general"]:
         workspace = "data"
     ObjectId = get_object_id()
@@ -958,8 +978,10 @@ async def extract(
             if isRetry == "true" and history and history[-1].get("role") == "model":
                 history = history[:-2]
 
+    # Route to AI with the selected task_type
     ai_result = await route_ai_request(
         workspace=workspace,
+        task_type=task_type,
         prompt=command,
         history=history,
         files=file_contents,
@@ -1090,7 +1112,6 @@ async def extract(
 
 # -------------------- DEPLOY (with multipart using urllib) --------------------
 def _build_multipart(data: Dict, files: Dict) -> (bytes, str):
-    """Build multipart/form-data body and content-type."""
     boundary = '----WebKitFormBoundary' + hashlib.md5(os.urandom(16)).hexdigest()
     body_parts = []
     for key, value in data.items():
@@ -1131,7 +1152,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     if "<html" not in html or "</html>" not in html:
         raise HTTPException(status_code=400, detail="Generated HTML is incomplete.")
 
-    # Sanitize with bleach
     allowed_tags = [
         'html', 'head', 'body', 'div', 'span', 'p', 'a', 'img', 'button', 'input', 'form', 'table',
         'tr', 'td', 'th', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'u',
@@ -1149,10 +1169,8 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     }
     sanitized = bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
 
-    # Try Netlify deploy if token exists
     if NETLIFY_ACCESS_TOKEN:
         try:
-            # Create site
             create_headers = {
                 "Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}",
                 "Content-Type": "application/json"
@@ -1167,7 +1185,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
             )
             if create_resp.get("id"):
                 site_id = create_resp["id"]
-                # Deploy with multipart file
                 deploy_headers = {
                     "Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"
                 }
@@ -1187,7 +1204,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
         except Exception as e:
             logger.warning(f"Netlify deploy failed: {e}")
 
-    # Fallback: data URI
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
@@ -1431,8 +1447,4 @@ async def not_found(request, exc):
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
     logger.info(f"=== STARTING AXELR AI ON PORT {port} ===")
-    logger.info(f"MONGO_URI: {'set' if MONGO_URI else 'MISSING'}")
-    logger.info(f"GOOGLE_CLIENT_ID: {'set' if GOOGLE_CLIENT_ID else 'MISSING'}")
-    logger.info(f"GROQ_API_KEY: {'set' if GROQ_API_KEY else 'MISSING'}")
-    logger.info(f"OPENROUTER_API_KEY: {'set' if OPENROUTER_API_KEY else 'MISSING'}")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
