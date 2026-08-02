@@ -1,7 +1,6 @@
-
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v13.0 (Elite Production)
+AXELR AI - UNIFIED FORTRESS v13.1 (Elite Production)
 Zero‑cost, multi‑provider AI routing with enterprise‑grade failover,
 per‑user rate limiting, real‑time admin metrics, and bulletproof caching.
 """
@@ -286,6 +285,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     base = (
         "You are AXELR – an elite, executive AI assistant. "
         "RESPONSE MUST BE SHORT, CONCISE, AND ZERO‑FLUFF. "
+        "Keep replies under 200 words unless code or detailed explanation is explicitly requested. "
         "Do not add pleasantries, introductions, or conclusions. "
         "Provide exactly what is asked, nothing more."
     )
@@ -378,9 +378,8 @@ async def route_ai_request(
             provider_last_fail[name] = time.time()
             continue
 
-    # If still no response, use a static fallback
+    # If still no response, use a static fallback with a helpful message
     if not response_text:
-        # Check if we have a cached response for a similar prompt (fuzzy could be added, but we use generic)
         response_text = (
             "I'm currently experiencing very high demand. Please try again in a few seconds. "
             "Alternatively, you can upgrade to Pro/Business for priority access."
@@ -519,7 +518,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="13.0", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="13.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1372,6 +1371,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
     }
+
 # -------------------- STRIPE CHECKOUT & WEBHOOK (unchanged) --------------------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
@@ -1518,6 +1518,7 @@ async def stripe_webhook(request: Request):
                 except Exception as e:
                     logger.warning(f"Cancellation email failed: {e}")
     return {"received": True}
+
 # -------------------- 404 --------------------
 @app.exception_handler(404)
 async def not_found(request, exc):
