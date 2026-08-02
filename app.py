@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 AXELR AI - UNIFIED FORTRESS v10.3 (Cloudflare‑Ready)
-Refactored for production Docker deployment.
+Refactored with lazy MongoDB imports for environment resilience.
 """
 
 import os
@@ -28,7 +28,6 @@ try:
 except ImportError:
     pass
 
-# ---------- Pure‑Python imports (available in Pyodide) ----------
 # ---------- STRIPE (optional) ----------
 STRIPE_AVAILABLE = False
 stripe = None
@@ -45,8 +44,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
-from motor.motor_asyncio import AsyncIOMotorClient
-from bson import ObjectId
+# Imports for google auth (safe)
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 import uvicorn
@@ -95,23 +93,53 @@ def get_email_transport():
             logger.warning(f"Email transport failed: {e}")
     return None
 
-# -------------------- MONGO DB --------------------
-client = AsyncIOMotorClient(MONGO_URI)
-db = client.get_default_database()
-users_col = db.get_collection("users")
-sessions_col = db.get_collection("chatsessions")
-reports_col = db.get_collection("bugreports")
+# -------------------- MONGO DB (lazy loading) --------------------
+client = None
+db = None
+users_col = None
+sessions_col = None
+reports_col = None
+db_available = False
 
-async def init_indexes():
-    """Create indexes – but NEVER crash the app if they fail."""
+async def init_db():
+    """Lazy‑load MongoDB driver and collections. Handles import/environment errors."""
+    global client, db, users_col, sessions_col, reports_col, db_available
     try:
-        await users_col.create_index("googleId", unique=True)
-        await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
-        await sessions_col.create_index("userId")
-        await reports_col.create_index("userId")
-        logger.info("MongoDB indexes verified/created.")
+        # Import motor only now – this is where the bson conflict would occur.
+        from motor.motor_asyncio import AsyncIOMotorClient
+        from bson import ObjectId  # also needed for ObjectId validation
+        client = AsyncIOMotorClient(MONGO_URI)
+        db = client.get_default_database()
+        users_col = db.get_collection("users")
+        sessions_col = db.get_collection("chatsessions")
+        reports_col = db.get_collection("bugreports")
+        # Create indexes
+        try:
+            await users_col.create_index("googleId", unique=True)
+            await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
+            await sessions_col.create_index("userId")
+            await reports_col.create_index("userId")
+            logger.info("MongoDB indexes verified/created.")
+        except Exception as e:
+            logger.error(f"Index creation failed: {e}")
+        db_available = True
+        logger.info("MongoDB connection established.")
+    except ImportError as e:
+        logger.error(f"Failed to import MongoDB driver: {e}")
+        logger.error("Please ensure the correct bson/pymongo packages are installed.")
+        db_available = False
     except Exception as e:
-        logger.error(f"Index creation failed (app will continue): {e}")
+        logger.error(f"MongoDB initialization failed: {e}")
+        db_available = False
+
+# We keep a reference to ObjectId for later use; we'll get it from the lazy import.
+# We'll define a helper to get ObjectId when needed.
+def get_object_id():
+    """Return ObjectId class if db is available, else None."""
+    if db_available:
+        from bson import ObjectId
+        return ObjectId
+    return None
 
 # -------------------- CACHE --------------------
 ai_cache = TTLCache(maxsize=1000, ttl=3600)
@@ -356,6 +384,8 @@ async def route_ai_request(workspace: str, prompt: str, history: Optional[List[D
 security = HTTPBearer()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     token = credentials.credentials
     try:
         idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
@@ -434,11 +464,15 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # -------------------- FASTAPI APP --------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_indexes()
-    logger.info("Unified Fortress online")
+    await init_db()
+    if not db_available:
+        logger.critical("MongoDB is not available. The application will run in degraded mode.")
+    else:
+        logger.info("Unified Fortress online")
     yield
-    client.close()
-    logger.info("Shutdown complete")
+    if client:
+        client.close()
+        logger.info("Shutdown complete")
 
 app = FastAPI(title="AXELR Unified", version="10.3", lifespan=lifespan)
 
@@ -478,11 +512,13 @@ def check_rate_limit(client_ip: str):
 @app.get("/")
 @app.get("/api/health")
 async def health():
-    db_status = "connected"
-    try:
-        await db.command("ping")
-    except Exception as e:
-        db_status = f"disconnected ({str(e)})"
+    db_status = "unavailable" if not db_available else "connected"
+    if db_available:
+        try:
+            await db.command("ping")
+            db_status = "connected"
+        except Exception as e:
+            db_status = f"disconnected ({str(e)})"
     return {
         "status": "operational" if db_status == "connected" else "degraded",
         "timestamp": datetime.utcnow().isoformat(),
@@ -499,6 +535,8 @@ async def startup_event():
 # -------------------- USER PROFILE --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     return {
         "tier": user.get("tier"),
         "dailyUsage": user.get("dailyUsage", 0),
@@ -525,12 +563,16 @@ class InstructionsUpdate(BaseModel):
 
 @app.put("/api/user/instructions")
 async def update_instructions(data: InstructionsUpdate, user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     instructions = data.instructions[:5000]
     await users_col.update_one({"_id": user["_id"]}, {"$set": {"customInstructions": instructions}})
     return {"success": True}
 
 @app.delete("/api/user/delete")
 async def delete_account(user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     uid = user["_id"]
     await sessions_col.delete_many({"userId": uid})
     await reports_col.delete_many({"userId": uid})
@@ -539,6 +581,8 @@ async def delete_account(user: dict = Depends(get_current_user)):
 
 @app.delete("/api/history/delete-all")
 async def delete_all_chats(user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     await sessions_col.delete_many({"userId": user["_id"]})
     return {"success": True}
 
@@ -549,7 +593,10 @@ class RenamePayload(BaseModel):
 
 @app.put("/api/history/{history_id}")
 async def update_history(history_id: str, data: RenamePayload, user: dict = Depends(get_current_user)):
-    if not ObjectId.is_valid(history_id):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    ObjectId = get_object_id()
+    if not ObjectId or not ObjectId.is_valid(history_id):
         raise HTTPException(status_code=400, detail="Invalid ID")
     session = await sessions_col.find_one({"_id": ObjectId(history_id), "userId": user["_id"]})
     if not session:
@@ -569,7 +616,10 @@ class StatusUpdate(BaseModel):
 
 @app.put("/api/history/{history_id}/status")
 async def update_status(history_id: str, data: StatusUpdate, user: dict = Depends(get_current_user)):
-    if not ObjectId.is_valid(history_id):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    ObjectId = get_object_id()
+    if not ObjectId or not ObjectId.is_valid(history_id):
         raise HTTPException(status_code=400, detail="Invalid ID")
     valid_statuses = ["active", "archived", "trashed"]
     if data.status not in valid_statuses:
@@ -587,7 +637,10 @@ async def update_status(history_id: str, data: StatusUpdate, user: dict = Depend
 
 @app.delete("/api/history/{history_id}")
 async def delete_history(history_id: str, user: dict = Depends(get_current_user)):
-    if not ObjectId.is_valid(history_id):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    ObjectId = get_object_id()
+    if not ObjectId or not ObjectId.is_valid(history_id):
         raise HTTPException(status_code=400, detail="Invalid ID")
     result = await sessions_col.delete_one({"_id": ObjectId(history_id), "userId": user["_id"], "status": "trashed"})
     if result.deleted_count == 0:
@@ -600,7 +653,10 @@ class VariantUpdate(BaseModel):
 
 @app.put("/api/history/{history_id}/variant")
 async def switch_variant(history_id: str, data: VariantUpdate, user: dict = Depends(get_current_user)):
-    if not ObjectId.is_valid(history_id):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    ObjectId = get_object_id()
+    if not ObjectId or not ObjectId.is_valid(history_id):
         raise HTTPException(status_code=400, detail="Invalid ID")
     session = await sessions_col.find_one({"_id": ObjectId(history_id), "userId": user["_id"]})
     if not session:
@@ -633,6 +689,8 @@ async def list_history(
     limit: int = 20,
     user: dict = Depends(get_current_user)
 ):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     if workspace not in ["data", "design", "general"]:
         workspace = "data"
     if status not in ["active", "archived", "trashed"]:
@@ -666,6 +724,8 @@ class ReportCreate(BaseModel):
 
 @app.post("/api/reports")
 async def create_report(data: ReportCreate, user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     report = {
         "userId": user["_id"],
         "type": data.type,
@@ -704,6 +764,8 @@ class EnhanceRequest(BaseModel):
 
 @app.post("/api/enhance-prompt")
 async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     prompt_text = data.promptText
     if not prompt_text:
         raise HTTPException(status_code=400, detail="No text provided")
@@ -790,11 +852,14 @@ async def extract(
     sessionId: Optional[str] = Form(None),
     files: List[UploadFile] = File([])
 ):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     client_ip = request.client.host if request.client else "unknown"
     check_rate_limit(client_ip)
     if workspace not in ["data", "design", "general"]:
         workspace = "data"
-    if sessionId and not ObjectId.is_valid(sessionId):
+    ObjectId = get_object_id()
+    if sessionId and (not ObjectId or not ObjectId.is_valid(sessionId)):
         sessionId = None
     if len(files) > 5:
         raise HTTPException(status_code=400, detail="Too many files")
@@ -886,7 +951,7 @@ async def extract(
 
     current_session = None
     history = []
-    if sessionId:
+    if sessionId and ObjectId:
         current_session = await sessions_col.find_one({"_id": ObjectId(sessionId), "userId": user["_id"]})
         if current_session:
             history = current_session.get("messages", [])
@@ -914,7 +979,7 @@ async def extract(
     if json_match:
         try:
             structured = json.loads(json_match.group(1).strip())
-        except:
+        except Exception:
             structured = []
         ai_text = re.sub(r'\[JSON-DATA\].*?\[/JSON-DATA\]', '', ai_text, flags=re.DOTALL).strip()
     if not ai_text:
@@ -1129,6 +1194,8 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
 # -------------------- ADMIN METRICS --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
     if not user.get("isAdmin") or user.get("email") != ADMIN_EMAIL:
         raise HTTPException(status_code=403, detail="Admin access restricted")
     today = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
