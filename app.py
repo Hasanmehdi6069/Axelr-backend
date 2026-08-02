@@ -13,12 +13,6 @@ import smtplib
 import logging
 import base64
 import urllib.request
-# Replace bleach.clean() with a quick regex fallback if it fails to compile on Edge
-import re
-
-def clean_html(raw_html):
-    clean_r = re.compile('<.*?>')
-    return re.sub(clean_r, '', raw_html)
 import urllib.error
 import urllib.parse
 from datetime import datetime
