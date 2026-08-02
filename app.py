@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 AXELR AI - UNIFIED FORTRESS v10.3 (Cloudflare‑Ready)
+Refactored for production Docker deployment.
 """
 
 import os
@@ -36,6 +37,7 @@ try:
     STRIPE_AVAILABLE = True
 except ImportError:
     pass
+
 import bleach
 from cachetools import TTLCache
 from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
@@ -1025,24 +1027,6 @@ async def extract(
 def _build_multipart(data: Dict, files: Dict) -> (bytes, str):
     """Build multipart/form-data body and content-type."""
     boundary = '----WebKitFormBoundary' + hashlib.md5(os.urandom(16)).hexdigest()
-    lines = []
-    for key, value in data.items():
-        lines.append(f'--{boundary}')
-        lines.append(f'Content-Disposition: form-data; name="{key}"')
-        lines.append('')
-        lines.append(str(value))
-    for field, (filename, content, mimetype) in files.items():
-        lines.append(f'--{boundary}')
-        lines.append(f'Content-Disposition: form-data; name="{field}"; filename="{filename}"')
-        lines.append(f'Content-Type: {mimetype}')
-        lines.append('')
-        lines.append(content)  # content is already bytes
-    lines.append(f'--{boundary}--')
-    body = '\r\n'.join(lines).encode('utf-8')
-    # Need to handle binary content; we used lines with content as string, but content can be bytes.
-    # Actually we need to assemble carefully.
-    # For simplicity, use bytes directly.
-    # Rebuild with bytes: 
     body_parts = []
     for key, value in data.items():
         body_parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode('utf-8'))
@@ -1292,16 +1276,8 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature")
     event = None
-  try:
-    import stripe
-     STRIPE_AVAILABLE = True
-except Exception:
-   STRIPE_AVAILABLE = False
-
- if (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
-     pass
-
-            event = json.loads(payload)
+    try:
+        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
     except Exception as e:
         logger.warning(f"Webhook signature verification failed: {e}")
         event = json.loads(payload)
@@ -1378,14 +1354,7 @@ except Exception:
                 except Exception as e:
                     logger.warning(f"Cancellation email failed: {e}")
     return {"received": True}
-    # ---------- STRIPE (optional) ----------
-if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY) = False
-stripe = None
-try:
-    import stripe
-    STRIPE_AVAILABLE = True
-except ImportError:
-    pass
+
 # -------------------- 404 --------------------
 @app.exception_handler(404)
 async def not_found(request, exc):
@@ -1393,14 +1362,10 @@ async def not_found(request, exc):
 
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 3000))
+    port = int(os.getenv("PORT", 8000))
     logger.info(f"=== STARTING AXELR AI ON PORT {port} ===")
     logger.info(f"MONGO_URI: {'set' if MONGO_URI else 'MISSING'}")
     logger.info(f"GOOGLE_CLIENT_ID: {'set' if GOOGLE_CLIENT_ID else 'MISSING'}")
     logger.info(f"GROQ_API_KEY: {'set' if GROQ_API_KEY else 'MISSING'}")
     logger.info(f"OPENROUTER_API_KEY: {'set' if OPENROUTER_API_KEY else 'MISSING'}")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
-
-# ================== Cloudflare Worker adapter ==================
-from cloudflare.workers.asgi import ASGIWorker
-handle = ASGIWorker(app).handle
