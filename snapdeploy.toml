@@ -1,6 +1,0 @@
-[build]
-builder = "docker"
-dockerfile = "Dockerfile"
-
-[run]
-port = 8000
