@@ -1292,23 +1292,14 @@ async def stripe_webhook(request: Request):
     payload = await request.body()
     sig = request.headers.get("stripe-signature")
     event = None
-   try:
+  try:
     import stripe
-    STRIPE_AVAILABLE = True
-except ImportError:
-    STRIPE_AVAILABLE = False
+     STRIPE_AVAILABLE = True
+except Exception:
+   STRIPE_AVAILABLE = False
 
-# --- FORCE DEPLOY FIX ---
-STRIPE_AVAILABLE = False
-STRIPE_SECRET_KEY = None
-
-if False:
-    # We trap the broken code under a dead block so Python completely ignores it
-    try:
-        pass
-    except Exception:
-        pass
-# ------------------------
+ if (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
+     pass
 
             event = json.loads(payload)
     except Exception as e:
