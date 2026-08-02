@@ -186,28 +186,39 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
 
 # -------------------- 8‑MODEL MATRIX --------------------
 MODEL_MATRIX = {
-    "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
-    "extraction":  "qwen/qwen-2.5-72b-instruct:free",
-    "scripting":   "meta-llama/llama-3-70b-instruct:free",
-    "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",
-    "frontend":    "qwen/qwen-2.5-coder-32b:free",
-    "touch_fix":   "mistralai/codestral-22b-v0.1:free",
+    "analytics":   "meta-llama/llama-3.1-8b-instruct:free",
+    "extraction":  "meta-llama/llama-3.1-8b-instruct:free",
+    "scripting":   "meta-llama/llama-3.1-8b-instruct:free",
+    "fullstack":   "meta-llama/llama-3.1-8b-instruct:free",
+    "frontend":    "meta-llama/llama-3.1-8b-instruct:free",
+    "touch_fix":   "meta-llama/llama-3.1-8b-instruct:free",
     "structuring": "meta-llama/llama-3-70b-instruct:free",
-    "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",
+    "logic_math":  "meta-llama/llama-3.1-8b-instruct:free",
 }
-FALLBACK_MODEL = "qwen/qwen-2.5-coder-32b:free"
+FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+
 
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
+
+def get_provider_model(provider: str, task_type: str) -> str:
+    if provider == "openrouter":
+        return os.getenv("OPENROUTER_MODEL") or MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
+    if provider == "sambanova":
+        return os.getenv("SAMBANOVA_MODEL") or "Meta-Llama-3.1-8B-Instruct"
+    if provider == "groq":
+        return os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
+    return ""
+
 # -------------------- AI PROVIDERS --------------------
-async def call_groq(prompt: str, max_tokens: int, temp: float) -> str:
+async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY missing")
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": "llama-3.1-70b-versatile",
+        "model": model or get_provider_model("groq", "scripting"),
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": min(max_tokens, 1024),
         "temperature": temp,
@@ -235,13 +246,13 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float)
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-async def call_sambanova(prompt: str, max_tokens: int, temp: float) -> str:
+async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not SAMBANOVA_API_KEY:
         raise Exception("SAMBANOVA_API_KEY missing")
     url = "https://api.sambanova.ai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {SAMBANOVA_API_KEY}", "Content-Type": "application/json"}
     payload = {
-        "model": "DeepSeek-R1",
+        "model": model or get_provider_model("sambanova", "analytics"),
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -271,7 +282,27 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     except Exception as e:
         raise Exception(f"Pollinations failed: {e}")
 
+async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat")
+    payload = {
+        "model": model or os.getenv("OLLAMA_MODEL", "llama3.2:3b"),
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "options": {
+            "num_predict": min(max_tokens, 1024),
+            "temperature": temp,
+        },
+    }
+    resp = await http_post_async(ollama_url, {"Content-Type": "application/json"}, payload, timeout=90)
+    if isinstance(resp, dict):
+        if isinstance(resp.get("message"), dict) and isinstance(resp["message"].get("content"), str):
+            return resp["message"]["content"]
+        if isinstance(resp.get("response"), str):
+            return resp["response"]
+    raise Exception("Ollama returned an unexpected payload")
+
 PROVIDER_CHAIN = [
+    ("ollama", call_ollama, {}),
     ("openrouter", call_openrouter, {}),
     ("groq", call_groq, {}),
     ("sambanova", call_sambanova, {}),
@@ -317,7 +348,23 @@ async def route_ai_request(
     start = time.time()
     history_text = ""
     if history:
-        history_text = "\n".join([f"{m['role']}: {m['content']}" for m in history[-4:]])
+        recent_entries = []
+        for message in history[-4:]:
+            if not isinstance(message, dict):
+                continue
+            role = message.get("role", "user")
+            content = message.get("content") or message.get("text") or ""
+            if isinstance(content, list):
+                text_parts = []
+                for part in content:
+                    if isinstance(part, dict):
+                        text_parts.append(part.get("text") or part.get("content") or "")
+                    elif isinstance(part, str):
+                        text_parts.append(part)
+                content = "\n".join([p for p in text_parts if p])
+            if isinstance(content, str) and content.strip():
+                recent_entries.append(f"{role}: {content.strip()}")
+        history_text = "\n".join(recent_entries)
     system_prompt = get_system_prompt(workspace, task_type)
     full_prompt = f"{system_prompt}\n\n"
     if history_text:
@@ -333,6 +380,8 @@ async def route_ai_request(
         return {**cached, "cached": True}
 
     primary_model = MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
+    openrouter_model = get_provider_model("openrouter", task_type)
+    sambanova_model = get_provider_model("sambanova", task_type)
 
     response_text = None
     provider_used = None
@@ -347,7 +396,13 @@ async def route_ai_request(
             for attempt in range(2):
                 try:
                     if name == "openrouter":
-                        response_text = await func(primary_model, full_prompt, max_tokens, temp)
+                        response_text = await func(openrouter_model, full_prompt, max_tokens, temp)
+                    elif name == "sambanova":
+                        response_text = await func(full_prompt, max_tokens, temp, sambanova_model)
+                    elif name == "groq":
+                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("groq", task_type))
+                    elif name == "ollama":
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
                     else:
                         response_text = await func(full_prompt, max_tokens, temp)
                     provider_used = name
