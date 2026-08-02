@@ -17,3 +17,8 @@ OPENROUTER_DAILY_LIMIT = "1000"
 main = "app.py"
 compatibility_flags = ["python_workers"]
 compatibility_date = "2024-03-25" # Or your target date
+name = "axelr-backend"
+main = "app.py" # Ensure this path points exactly to your app script relative to wrangler.toml
+
+compatibility_date = "2024-03-25" 
+compatibility_flags = ["python_workers"]
