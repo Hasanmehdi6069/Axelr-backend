@@ -26,7 +26,7 @@ from collections import defaultdict
 
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(override=True)
 except ImportError:
     pass
 
@@ -55,12 +55,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("axelr-unified")
 
 # -------------------- ENV VARS --------------------
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_URI = (os.getenv("MONGO_URI") or "").strip()
+GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+
 if not MONGO_URI:
-    raise RuntimeError("MONGO_URI is required")
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+    logger.warning("MONGO_URI is not configured; database-backed features will be unavailable")
 if not GOOGLE_CLIENT_ID:
-    raise RuntimeError("GOOGLE_CLIENT_ID is required")
+    logger.warning("GOOGLE_CLIENT_ID is not configured; Google auth will be unavailable")
 
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
@@ -71,9 +72,9 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
-OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
-SAMBANOVA_API_KEY = os.getenv("SAMBANOVA_API_KEY")
+GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
+OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
 # -------------------- STRIPE INIT --------------------
@@ -185,17 +186,18 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
         raise Exception(f"HTTP request failed: {e}")
 
 # -------------------- 8‑MODEL MATRIX --------------------
+# These are the safest public-provider defaults for Render-based deployments.
 MODEL_MATRIX = {
-    "analytics":   "meta-llama/llama-3.1-8b-instruct:free",
-    "extraction":  "meta-llama/llama-3.1-8b-instruct:free",
-    "scripting":   "meta-llama/llama-3.1-8b-instruct:free",
-    "fullstack":   "meta-llama/llama-3.1-8b-instruct:free",
-    "frontend":    "meta-llama/llama-3.1-8b-instruct:free",
-    "touch_fix":   "meta-llama/llama-3.1-8b-instruct:free",
-    "structuring": "meta-llama/llama-3-70b-instruct:free",
-    "logic_math":  "meta-llama/llama-3.1-8b-instruct:free",
+    "analytics":   "meta-llama/llama-3.1-8b-instruct",
+    "extraction":  "meta-llama/llama-3.1-8b-instruct",
+    "scripting":   "meta-llama/llama-3.1-8b-instruct",
+    "fullstack":   "meta-llama/llama-3.1-8b-instruct",
+    "frontend":    "meta-llama/llama-3.1-8b-instruct",
+    "touch_fix":   "meta-llama/llama-3.1-8b-instruct",
+    "structuring": "meta-llama/llama-3.1-8b-instruct",
+    "logic_math":  "microsoft/phi-4-mini-instruct",
 }
-FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
+FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct"
 
 
 def select_model(task_type: str) -> str:
@@ -204,12 +206,25 @@ def select_model(task_type: str) -> str:
 
 def get_provider_model(provider: str, task_type: str) -> str:
     if provider == "openrouter":
-        return os.getenv("OPENROUTER_MODEL") or MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
+        configured = (os.getenv("OPENROUTER_MODEL") or MODEL_MATRIX.get(task_type, FALLBACK_MODEL) or "").strip()
+        return configured or MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
     if provider == "sambanova":
         return os.getenv("SAMBANOVA_MODEL") or "Meta-Llama-3.1-8B-Instruct"
     if provider == "groq":
         return os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
     return ""
+
+
+def normalize_provider_model(provider: str, model: str) -> str:
+    if provider != "openrouter":
+        return model
+    if not model:
+        return model
+    if model.endswith(":free"):
+        model = model[:-5]
+    if model in {"meta-llama/llama-3.1-8b-instruct:free", "meta-llama/llama-3.1-8b-instruct"}:
+        return "meta-llama/llama-3.1-8b-instruct"
+    return model
 
 # -------------------- AI PROVIDERS --------------------
 async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
@@ -302,17 +317,25 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
     raise Exception("Ollama returned an unexpected payload")
 
 PROVIDER_CHAIN = [
-    ("ollama", call_ollama, {}),
     ("openrouter", call_openrouter, {}),
+    ("ollama", call_ollama, {}),
     ("groq", call_groq, {}),
     ("sambanova", call_sambanova, {}),
     ("pollinations", call_pollinations, {}),
 ]
 
+MASTER_PROMPT = (
+    "You are AXELR, an elite executive AI operating in zero-cost, production-safe mode. "
+    "Always answer directly, clearly, and usefully. Never claim a service is unavailable unless all configured paths fail. "
+    "Prefer concise, high-quality responses with actionable detail. For coding tasks, provide working code, short explanations, and no filler. "
+    "For analysis tasks, provide a concise summary and structured output when helpful. "
+    "Do not mention subscriptions, paid plans, or avoidable fluff."
+)
+
 # -------------------- SYSTEM PROMPT --------------------
 def get_system_prompt(workspace: str, task_type: str) -> str:
     base = (
-        "You are AXELR – an elite, executive AI assistant. "
+        f"{MASTER_PROMPT} "
         "RESPONSE MUST BE SHORT, CONCISE, AND ZERO‑FLUFF. "
         "Keep replies under 200 words unless code or detailed explanation is explicitly requested. "
         "Do not add pleasantries, introductions, or conclusions. "
@@ -380,7 +403,7 @@ async def route_ai_request(
         return {**cached, "cached": True}
 
     primary_model = MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
-    openrouter_model = get_provider_model("openrouter", task_type)
+    openrouter_model = normalize_provider_model("openrouter", get_provider_model("openrouter", task_type))
     sambanova_model = get_provider_model("sambanova", task_type)
 
     response_text = None
@@ -391,6 +414,15 @@ async def route_ai_request(
     for name, func, kwargs in PROVIDER_CHAIN:
         if provider_failures[name] >= 3 and time.time() - provider_last_fail[name] < PROVIDER_COOLDOWN:
             logger.warning(f"Skipping provider {name} due to circuit breaker (cooldown)")
+            continue
+        if name == "openrouter" and not OPENROUTER_API_KEY:
+            logger.info("Skipping openrouter because OPENROUTER_API_KEY is missing")
+            continue
+        if name == "groq" and not GROQ_API_KEY:
+            logger.info("Skipping groq because GROQ_API_KEY is missing")
+            continue
+        if name == "sambanova" and not SAMBANOVA_API_KEY:
+            logger.info("Skipping sambanova because SAMBANOVA_API_KEY is missing")
             continue
         try:
             for attempt in range(2):
@@ -406,7 +438,7 @@ async def route_ai_request(
                     else:
                         response_text = await func(full_prompt, max_tokens, temp)
                     provider_used = name
-                    model_used = primary_model if name == "openrouter" else name
+                    model_used = openrouter_model if name == "openrouter" else (sambanova_model if name == "sambanova" else (get_provider_model("groq", task_type) if name == "groq" else name))
                     provider_failures[name] = 0
                     break
                 except Exception as e:
@@ -426,8 +458,8 @@ async def route_ai_request(
 
     if not response_text:
         response_text = (
-            "I'm currently experiencing very high demand. Please try again in a few seconds. "
-            "Alternatively, you can upgrade to Pro/Business for priority access."
+            "The AI provider chain is currently unavailable. The backend is configured to retry remote providers, "
+            "but the service credentials or provider models are not accepting requests right now."
         )
         provider_used = "static"
         model_used = "fallback"
