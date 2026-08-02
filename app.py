@@ -1284,6 +1284,7 @@ async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_curren
         logger.error(f"Checkout error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+# -------------------- STRIPE WEBHOOK --------------------
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
     if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
@@ -1292,14 +1293,13 @@ async def stripe_webhook(request: Request):
     sig = request.headers.get("stripe-signature")
     event = None
     try:
-        if STRIPE_WEBHOOK_SECRET:
+if (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
             event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
         else:
             event = json.loads(payload)
     except Exception as e:
         logger.warning(f"Webhook signature verification failed: {e}")
         event = json.loads(payload)
-
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
         google_id = session.get("client_reference_id")
@@ -1373,6 +1373,14 @@ async def stripe_webhook(request: Request):
                 except Exception as e:
                     logger.warning(f"Cancellation email failed: {e}")
     return {"received": True}
+    # ---------- STRIPE (optional) ----------
+if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY) = False
+stripe = None
+try:
+    import stripe
+    STRIPE_AVAILABLE = True
+except ImportError:
+    pass
 # -------------------- 404 --------------------
 @app.exception_handler(404)
 async def not_found(request, exc):
