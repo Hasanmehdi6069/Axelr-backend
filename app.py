@@ -191,17 +191,18 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
 
 # -------------------- 8‑MODEL MATRIX (OpenRouter IDs with :free) --------------------
 MODEL_MATRIX = {
-    "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
-    "extraction":  "qwen/qwen-2.5-72b-instruct:free",
+    "analytics":   "meta-llama/llama-3.1-8b-instruct:free",
+    "extraction":  "meta-llama/llama-3.1-8b-instruct:free",
     "scripting":   "meta-llama/llama-3.1-8b-instruct:free",
-    "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",
-    "frontend":    "qwen/qwen-2.5-coder-32b:free",
-    "touch_fix":   "mistralai/codestral-22b-v0.1:free",
+    "fullstack":   "meta-llama/llama-3.1-8b-instruct:free",
+    "frontend":    "meta-llama/llama-3.1-8b-instruct:free",
+    "touch_fix":   "meta-llama/llama-3.1-8b-instruct:free",
     "structuring": "meta-llama/llama-3.1-8b-instruct:free",
-    "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",
+    "logic_math":  "meta-llama/llama-3.1-8b-instruct:free",
 }
 FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
-
+# Add to PROVIDER_CHAIN:
+("deepseek", call_deepseek, {}),  # implement using OpenRouter with model "deepseek/deepseek-chat:free"
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
@@ -233,7 +234,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
         raise Exception("GROQ_API_KEY missing")
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+    effective_model = model or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -502,9 +503,9 @@ async def route_ai_request(
                     elif name == "sambanova":
                         response_text = await func(full_prompt, max_tokens, temp, os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"))
                     elif name == "groq":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"))
                     elif name == "together":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"))
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo"))
                     elif name == "cerebras":
                         response_text = await func(full_prompt, max_tokens, temp, os.getenv("CEREBRAS_MODEL", "llama3.1-8b"))
                     elif name == "ollama":
@@ -1066,6 +1067,7 @@ async def extract(
     sessionId: Optional[str] = Form(None),
     files: List[UploadFile] = File([])
 ):
+    
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
     client_ip = request.client.host if request.client else "unknown"
