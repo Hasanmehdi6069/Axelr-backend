@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v13.3 (AI SYSTEM FULLY WORKING)
-7‑provider AI routing with enterprise‑grade failover, accurate quota,
+AXELR AI - UNIFIED FORTRESS v13.4 (Elite Production)
+7‑provider AI routing with bulletproof failover, accurate quota,
 workspace‑aware file handling, and real admin metrics.
 """
 
@@ -414,7 +414,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with full failover) --------------------
+# -------------------- AI ROUTER (with bulletproof failover & full logging) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -671,7 +671,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="13.3", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="13.4", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1010,7 +1010,7 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     )
     return {"success": True, "enhanced": enhanced}
 
-# -------------------- EXTRACT (MAIN) with workspace‑aware file validation --------------------
+# -------------------- EXTRACT (MAIN) with workspace‑aware file validation and fixed quota --------------------
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 if text else 0
 
@@ -1029,21 +1029,29 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
-    # For Data workspace: allow images, PDF, CSV, Excel, text/plain
+    # Data workspace: images, PDF, CSV, Excel, text
     if workspace == "data":
         allowed_data_types = [
             "image/", "application/pdf", "text/csv", "text/plain",
             "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ]
-        return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt'))
-    # For Design workspace: allow images, code files (HTML, CSS, JS, Python, JSON, Markdown, etc.)
+        allowed_data_exts = ('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt')
+        return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(allowed_data_exts)
+    # Design workspace: images, all code files, text files
     elif workspace == "design":
         allowed_design_types = [
-            "image/", "text/html", "text/css", "text/javascript", "text/x-python",
-            "application/javascript", "application/json", "text/x-js", "text/x-python-script",
-            "text/x-python", "text/x-c", "text/x-c++", "text/x-java", "text/x-php"
+            "image/", "text/html", "text/css", "text/javascript", "text/x-python", "text/x-python-script",
+            "application/javascript", "application/json", "text/x-js", "text/x-python", "text/x-c", "text/x-c++",
+            "text/x-java", "text/x-php", "text/x-rs", "text/x-go", "text/x-ruby", "text/x-swift", "text/x-kotlin",
+            "text/x-scala", "text/x-haskell", "text/x-lua", "text/x-perl", "text/x-r", "text/x-sh"
         ]
-        return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(('.html', '.css', '.js', '.py', '.json', '.txt', '.md', '.jsx', '.ts', '.tsx', '.vue', '.svelte'))
+        allowed_design_exts = ('.html', '.css', '.js', '.ts', '.jsx', '.tsx', '.vue', '.svelte',
+                               '.py', '.ipynb', '.java', '.c', '.cpp', '.h', '.hpp', '.go', '.rs',
+                               '.rb', '.php', '.swift', '.kt', '.scala', '.hs', '.lua', '.pl', '.r',
+                               '.sh', '.bash', '.zsh', '.json', '.yaml', '.yml', '.toml', '.ini',
+                               '.md', '.markdown', '.txt', '.xml', '.svg', '.wasm', '.dockerfile',
+                               '.dockerignore', '.gitignore')
+        return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(allowed_design_exts)
     # General: allow all
     return True
 
@@ -1083,7 +1091,7 @@ async def extract(
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file type(s) for {workspace} workspace: {', '.join(rejected)}. "
-                   f"Allowed: {'images, PDF, CSV, Excel, text' if workspace=='data' else 'images, HTML, CSS, JS, Python, JSON, Markdown'}."
+                   f"Allowed: {'images, PDF, CSV, Excel, text' if workspace=='data' else 'images, code files (HTML, CSS, JS, Python, etc.), JSON, Markdown, text'}."
         )
     files = valid_files
 
@@ -1102,6 +1110,9 @@ async def extract(
     is_design = workspace == "design"
 
     # Determine quota limits
+    # Free tier: data=5, design=0 (no design allowed)
+    # Pro: depends on subTierOptions
+    # Business: depends on subTierOptions
     if tier == "free":
         data_limit = 5
         ui_limit = 0
@@ -1149,7 +1160,7 @@ async def extract(
     else:
         current_usage = user.get(quota_field, 0)
 
-    # Cap usage to limit to prevent overflow
+    # Cap usage to limit to prevent overflow (should not exceed limit)
     if current_usage > limit:
         # Correct by setting to limit
         await users_col.update_one({"_id": user["_id"]}, {"$set": {quota_field: limit}})
@@ -1157,8 +1168,8 @@ async def extract(
 
     logger.info(f"User {user.get('email')} tier={tier} workspace={workspace} usage={current_usage}/{limit}")
 
-    # Enforce quota (if limit > 0)
-    if limit > 0 and current_usage >= limit:
+    # Enforce quota (even if limit is 0, reject when usage >= 0)
+    if current_usage >= limit:
         raise HTTPException(status_code=403, detail={
             "code": "LIMIT_REACHED",
             "usage": current_usage,
@@ -1356,7 +1367,7 @@ async def extract(
         "model": model_used
     }
 
-# -------------------- TOUCH FIX --------------------
+# -------------------- TOUCH FIX (unchanged) --------------------
 class TouchFixRequest(BaseModel):
     code: str
     error_message: str
@@ -1484,7 +1495,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS --------------------
+# -------------------- ADMIN METRICS (unchanged) --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
