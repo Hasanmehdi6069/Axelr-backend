@@ -201,8 +201,7 @@ MODEL_MATRIX = {
     "logic_math":  "meta-llama/llama-3.1-8b-instruct:free",
 }
 FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
-# Add to PROVIDER_CHAIN:
-("deepseek", call_deepseek, {}),  # implement using OpenRouter with model "deepseek/deepseek-chat:free"
+
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
@@ -267,7 +266,7 @@ async def call_together(prompt: str, max_tokens: int, temp: float, model: Option
         raise Exception("TOGETHER_API_KEY missing")
     url = "https://api.together.xyz/v1/chat/completions"
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
+    effective_model = model or os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -305,7 +304,6 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     try:
         response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=30)
         content = response.read().decode('utf-8')
-        # Try to parse JSON, else return raw
         try:
             data = json.loads(content)
             if isinstance(data, dict) and "text" in data:
@@ -346,7 +344,6 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
     if not prompt_text:
         return "I can help with that. Please share the task details and I will provide a structured response."
 
-    # Provide a useful, context‑aware reply
     if workspace == "design":
         return (
             f"UI/UX draft for: \"{prompt_text[:120]}\". "
@@ -572,19 +569,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "email": idinfo['email'],
                 "displayName": idinfo.get('name', idinfo['email']),
                 "tier": "free",
-                "dailyUsage": 0,
-                "dailyUiUxUsage": 0,
+                "dailyUsage": 0,                      # <-- SINGLE COUNTER
                 "storageBytesUsed": 0,
                 "lastUsageDate": datetime.utcnow(),
                 "customInstructions": "",
-                "subTierOptions": {"hasDataAccess": False, "hasDesignAccess": False},
-                "quotas": {
-                    "dailyExtractionsUsed": 0,
-                    "dailyGenerationsUsed": 0,
-                    "dailyEnhancementsUsed": 0,
-                    "monthlyEnhancementsLimit": 3,
-                    "lastQuotaReset": datetime.utcnow()
-                },
                 "tokenUsage": {
                     "totalPromptTokens": 0,
                     "totalCompletionTokens": 0,
@@ -593,6 +581,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                     "lastTokenReset": datetime.utcnow()
                 },
                 "isAdmin": is_admin,
+                # Provider quotas for admin metrics
                 "dailyGroqQuota": 0,
                 "dailyOpenRouterQuota": 0,
                 "dailySambaNovaQuota": 0,
@@ -607,10 +596,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             if user_doc.get("isAdmin") != is_admin:
                 await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"isAdmin": is_admin}})
                 user_doc["isAdmin"] = is_admin
-            # Reset daily quotas if new day
+            # Reset daily usage if new day
             now = datetime.utcnow()
             today = datetime(now.year, now.month, now.day)
-            last_reset = user_doc["quotas"]["lastQuotaReset"]
+            last_reset = user_doc.get("lastUsageDate")
             if last_reset:
                 last_reset_day = datetime(last_reset.year, last_reset.month, last_reset.day)
                 if today > last_reset_day:
@@ -618,11 +607,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                         {"_id": user_doc["_id"]},
                         {"$set": {
                             "dailyUsage": 0,
-                            "dailyUiUxUsage": 0,
-                            "quotas.dailyExtractionsUsed": 0,
-                            "quotas.dailyGenerationsUsed": 0,
-                            "quotas.dailyEnhancementsUsed": 0,
-                            "quotas.lastQuotaReset": datetime.utcnow(),
                             "tokenUsage.dailyPromptTokens": 0,
                             "tokenUsage.dailyCompletionTokens": 0,
                             "tokenUsage.lastTokenReset": datetime.utcnow(),
@@ -715,18 +699,27 @@ async def health():
 async def startup_event():
     app.state.start_time = time.time()
 
-# -------------------- USER PROFILE --------------------
+# -------------------- USER PROFILE (updated) --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
+    # Compute daily limit based on tier
+    tier = user.get("tier", "free")
+    if tier == "free":
+        daily_limit = 5
+    elif tier == "pro":
+        daily_limit = 20
+    elif tier == "business":
+        daily_limit = 30
+    else:
+        daily_limit = 5
+
     return {
-        "tier": user.get("tier"),
+        "tier": tier,
         "dailyUsage": user.get("dailyUsage", 0),
-        "dailyUiUxUsage": user.get("dailyUiUxUsage", 0),
+        "dailyLimit": daily_limit,                     # <-- send limit to frontend
         "customInstructions": user.get("customInstructions", ""),
-        "quotas": user.get("quotas", {}),
-        "subTierOptions": user.get("subTierOptions", {}),
         "tokenUsage": {
             "dailyPrompt": user.get("tokenUsage", {}).get("dailyPromptTokens", 0),
             "dailyCompletion": user.get("tokenUsage", {}).get("dailyCompletionTokens", 0),
@@ -737,6 +730,7 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "email": user.get("email"),
         "stripeCustomerId": user.get("stripeCustomerId"),
         "stripeSubscriptionId": user.get("stripeSubscriptionId"),
+        # Provider quotas (for admin only)
         "dailyGroqQuota": user.get("dailyGroqQuota", 0),
         "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
         "dailySambaNovaQuota": user.get("dailySambaNovaQuota", 0),
@@ -944,7 +938,7 @@ async def create_report(data: ReportCreate, user: dict = Depends(get_current_use
             logger.warning(f"Report email failed: {e}")
     return {"success": True}
 
-# -------------------- PROMPT ENHANCEMENT --------------------
+# -------------------- PROMPT ENHANCEMENT (unchanged) --------------------
 class EnhanceRequest(BaseModel):
     promptText: str
 
@@ -957,32 +951,25 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
         raise HTTPException(status_code=400, detail="No text provided")
     now = datetime.utcnow()
     today = datetime(now.year, now.month, now.day)
-    last_reset = user.get("quotas", {}).get("lastQuotaReset")
+    last_reset = user.get("lastUsageDate")
     if last_reset:
         last_day = datetime(last_reset.year, last_reset.month, last_reset.day)
         if today > last_day:
             await users_col.update_one(
                 {"_id": user["_id"]},
-                {"$set": {
-                    "quotas.dailyEnhancementsUsed": 0,
-                    "quotas.lastQuotaReset": datetime.utcnow()
-                }}
+                {"$set": {"dailyUsage": 0, "lastUsageDate": datetime.utcnow()}}
             )
             user = await users_col.find_one({"_id": user["_id"]})
     tier = user.get("tier", "free")
     if tier == "free":
         limit = 3
     elif tier == "pro":
-        has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
-        has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
-        limit = 7 if (has_data and has_design) else 5
+        limit = 7
     elif tier == "business":
-        has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
-        has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
-        limit = 15 if (has_data and has_design) else 10
+        limit = 15
     else:
         limit = 3
-    used = user.get("quotas", {}).get("dailyEnhancementsUsed", 0)
+    used = user.get("dailyUsage", 0)  # use the same dailyUsage
     if used >= limit:
         raise HTTPException(status_code=403, detail={
             "code": "LIMIT_REACHED",
@@ -1002,12 +989,10 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     if not ai_result.get("success"):
         raise HTTPException(status_code=503, detail="AI service unavailable")
     enhanced = ai_result["text"]
+    # Increment dailyUsage for enhancement as well
     await users_col.update_one(
         {"_id": user["_id"]},
-        {"$inc": {
-            "quotas.dailyEnhancementsUsed": 1,
-            "dailyUsage": 1
-        }}
+        {"$inc": {"dailyUsage": 1}}
     )
     return {"success": True, "enhanced": enhanced}
 
@@ -1107,78 +1092,47 @@ async def extract(
         raise HTTPException(status_code=400, detail="Total upload size too large")
 
     tier = user.get("tier", "free")
-    has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
-    has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
-    is_design = workspace == "design"
 
-    # Determine quota limits
-    # Free tier: data=5, design=0 (no design allowed)
-    # Pro: depends on subTierOptions
-    # Business: depends on subTierOptions
+    # ---------- SIMPLIFIED QUOTA LOGIC ----------
+    # Determine daily limit based on tier
     if tier == "free":
-        data_limit = 5
-        ui_limit = 0
+        daily_limit = 5
     elif tier == "pro":
-        if has_data and has_design:
-            data_limit = 20
-            ui_limit = 15
-        elif has_data:
-            data_limit = 19
-            ui_limit = 0
-        elif has_design:
-            data_limit = 0
-            ui_limit = 13
-        else:
-            data_limit = 0
-            ui_limit = 0
+        daily_limit = 20
     elif tier == "business":
-        if has_data and has_design:
-            data_limit = 30
-            ui_limit = 25
-        elif has_data:
-            data_limit = 28
-            ui_limit = 0
-        elif has_design:
-            data_limit = 0
-            ui_limit = 20
-        else:
-            data_limit = 0
-            ui_limit = 0
+        daily_limit = 30
     else:
-        data_limit = 5
-        ui_limit = 0
+        daily_limit = 5
 
-    if is_design:
-        limit = ui_limit
-        quota_field = "quotas.dailyGenerationsUsed"
-    else:
-        limit = data_limit
-        quota_field = "quotas.dailyExtractionsUsed"
+    # Get current daily usage
+    daily_used = user.get("dailyUsage", 0)
 
-    # Get current usage
-    quota_parts = quota_field.split('.')
-    if len(quota_parts) == 2:
-        current_usage = user.get(quota_parts[0], {}).get(quota_parts[1], 0)
-    else:
-        current_usage = user.get(quota_field, 0)
+    # Reset if new day (handled in get_current_user, but double-check)
+    now = datetime.utcnow()
+    last_reset = user.get("lastUsageDate")
+    if last_reset:
+        last_day = datetime(last_reset.year, last_reset.month, last_reset.day)
+        today = datetime(now.year, now.month, now.day)
+        if today > last_day:
+            # Reset dailyUsage
+            await users_col.update_one({"_id": user["_id"]}, {"$set": {"dailyUsage": 0, "lastUsageDate": now}})
+            daily_used = 0
+            # Also reset provider quotas in get_current_user handles it, but we already did earlier
+            # We'll refetch user
+            user = await users_col.find_one({"_id": user["_id"]})
+            daily_used = user.get("dailyUsage", 0)
 
-    # Cap usage to limit to prevent overflow (should not exceed limit)
-    if current_usage > limit:
-        # Correct by setting to limit
-        await users_col.update_one({"_id": user["_id"]}, {"$set": {quota_field: limit}})
-        current_usage = limit
+    logger.info(f"User {user.get('email')} tier={tier} daily_used={daily_used}/{daily_limit}")
 
-    logger.info(f"User {user.get('email')} tier={tier} workspace={workspace} usage={current_usage}/{limit}")
-
-    # Enforce quota (even if limit is 0, reject when usage >= 0)
-    if current_usage >= limit:
+    # Enforce limit
+    if daily_used >= daily_limit:
         raise HTTPException(status_code=403, detail={
             "code": "LIMIT_REACHED",
-            "usage": current_usage,
-            "limit": limit
+            "usage": daily_used,
+            "limit": daily_limit
         })
 
-    # Storage limit (not strictly enforced, but keep)
+    # Storage limit (keep as is)
     storage_limit = 5 * 1024 * 1024  # 5MB free
     if tier == "pro":
         storage_limit = 20 * 1024 * 1024
@@ -1263,8 +1217,7 @@ async def extract(
             "tokenUsage.totalCompletionTokens": completion_tokens,
             "tokenUsage.dailyPromptTokens": prompt_tokens,
             "tokenUsage.dailyCompletionTokens": completion_tokens,
-            quota_field: 1,
-            "dailyUsage": 1,
+            "dailyUsage": 1,                      # <-- increment single counter
             "storageBytesUsed": total_size,
         },
         "$set": {
@@ -1284,7 +1237,7 @@ async def extract(
         update_query["$inc"]["dailyCerebrasQuota"] = 1
     await users_col.update_one({"_id": user["_id"]}, update_query)
 
-    # Save session
+    # Save session (unchanged)
     session_id_out = None
     filename_out = "Export.csv"
     session_saved = False
@@ -1497,7 +1450,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS (unchanged) --------------------
+# -------------------- ADMIN METRICS (unchanged, but now uses dailyUsage) --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1511,6 +1464,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     business_users = await users_col.count_documents({"tier": "business"})
     total_chats = await sessions_col.count_documents({})
 
+    # Use dailyUsage as total queries
     pipeline_usage = [
         {"$group": {"_id": None, "totalQueries": {"$sum": "$dailyUsage"}, "totalBytes": {"$sum": "$storageBytesUsed"}}}
     ]
