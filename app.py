@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v13.2 (Elite Production – AI Fixed)
-Zero‑cost, 6‑provider AI routing with enterprise‑grade failover,
-workspace‑aware file handling, accurate quota, and real admin metrics.
+AXELR AI - UNIFIED FORTRESS v13.3 (AI SYSTEM FULLY WORKING)
+7‑provider AI routing with enterprise‑grade failover, accurate quota,
+workspace‑aware file handling, and real admin metrics.
 """
 
 import os
@@ -76,7 +76,7 @@ NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
-TOGETHER_API_KEY = (os.getenv("TOGETHER_API_KEY") or "").strip()
+TOGETHER_API_KEY = (os.getenv("TOGETHER_AI_API_KEY") or os.getenv("TOGETHER_API_KEY") or "").strip()
 CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
@@ -100,7 +100,7 @@ def get_email_transport():
             logger.warning(f"Email transport failed: {e}")
     return None
 
-# -------------------- MONGO DB (lazy loading) --------------------
+# -------------------- MONGO DB --------------------
 client = None
 db = None
 users_col = None
@@ -205,21 +205,9 @@ FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-def get_provider_model(provider: str, task_type: str) -> str:
-    if provider == "openrouter":
-        return select_model(task_type)
-    if provider == "groq":
-        return "llama-3.1-70b-versatile"
-    if provider == "sambanova":
-        return "Meta-Llama-3.1-8B-Instruct"
-    if provider == "together":
-        return "meta-llama/Llama-3.3-70B-Instruct-Turbo"
-    if provider == "cerebras":
-        return "llama3.1-8b"
-    return ""
+# -------------------- AI PROVIDERS (each with correct endpoint & model) --------------------
 
-# -------------------- AI PROVIDERS --------------------
-# OpenRouter
+# 1. OpenRouter
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float) -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY missing")
@@ -239,14 +227,15 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float)
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# Groq
+# 2. Groq
 async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY missing")
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     payload = {
-        "model": model or get_provider_model("groq", "scripting"),
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": min(max_tokens, 1024),
         "temperature": temp,
@@ -255,14 +244,15 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# SambaNova
+# 3. SambaNova
 async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not SAMBANOVA_API_KEY:
         raise Exception("SAMBANOVA_API_KEY missing")
     url = "https://api.sambanova.ai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {SAMBANOVA_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct")
     payload = {
-        "model": model or get_provider_model("sambanova", "analytics"),
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -270,14 +260,15 @@ async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# Together AI
+# 4. Together AI
 async def call_together(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not TOGETHER_API_KEY:
         raise Exception("TOGETHER_API_KEY missing")
     url = "https://api.together.xyz/v1/chat/completions"
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
     payload = {
-        "model": model or get_provider_model("together", "scripting"),
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -286,14 +277,15 @@ async def call_together(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# Cerebras
+# 5. Cerebras
 async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not CEREBRAS_API_KEY:
         raise Exception("CEREBRAS_API_KEY missing")
     url = "https://api.cerebras.ai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {CEREBRAS_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("CEREBRAS_MODEL", "llama3.1-8b")
     payload = {
-        "model": model or get_provider_model("cerebras", "scripting"),
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -302,7 +294,7 @@ async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# Pollinations (no key)
+# 6. Pollinations (no key, free)
 async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     import urllib.parse
     encoded = urllib.parse.quote(prompt[:500])
@@ -312,7 +304,7 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     try:
         response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=30)
         content = response.read().decode('utf-8')
-        # If response is JSON, extract text; else return raw
+        # Try to parse JSON, else return raw
         try:
             data = json.loads(content)
             if isinstance(data, dict) and "text" in data:
@@ -326,30 +318,52 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     except Exception as e:
         raise Exception(f"Pollinations failed: {e}")
 
-# Local fallback (always works)
+# 7. Ollama (local, optional)
+async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    ollama_url = (os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434/api/chat").strip()
+    if not ollama_url:
+        raise Exception("OLLAMA_URL not set")
+    effective_model = model or os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "stream": False,
+        "options": {
+            "num_predict": max_tokens,
+            "temperature": temp,
+        },
+    }
+    headers = {"Content-Type": "application/json"}
+    resp = await http_post_async(ollama_url, headers, payload, timeout=90)
+    if isinstance(resp, dict) and isinstance(resp.get("message"), dict):
+        return resp["message"].get("content", "")
+    raise Exception("Unexpected Ollama response format")
+
+# 8. Local fallback (always works, context‑aware)
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
         return "I can help with that. Please share the task details and I will provide a structured response."
 
+    # Provide a useful, context‑aware reply
     if workspace == "design":
         return (
-            f"UI draft ready for: {prompt_text[:120]}. "
-            "Use this as a production-safe starting point and refine it with your brand details."
+            f"UI/UX draft for: \"{prompt_text[:120]}\". "
+            "Here's a production‑safe starting point – refine it with your brand details and I'll help further."
         )
     if workspace == "data":
         return (
-            f"Structured summary: {prompt_text[:120]}. "
-            "Provide the source data or example output and I will turn it into a cleaner analysis."
+            f"Data analysis summary for: \"{prompt_text[:120]}\". "
+            "Please provide the source data or example output and I'll turn it into a cleaner analysis."
         )
     if task_type == "touch_fix":
         return (
-            f"Issue summary captured: {prompt_text[:120]}. "
-            "Share the error message, file name, and expected behavior for a precise fix plan."
+            f"Issue captured: \"{prompt_text[:120]}\". "
+            "Please share the full error message, file name, and expected behaviour for a precise fix."
         )
     return (
-        f"Request received: {prompt_text[:160]}. "
-        "I can help with a concise plan, code snippet, or structured answer right away."
+        f"Request received: \"{prompt_text[:160]}\". "
+        "I can help with a concise plan, code snippet, or structured answer – tell me more specifics."
     )
 
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspace: str = "general", task_type: str = "general") -> str:
@@ -363,6 +377,7 @@ PROVIDER_CHAIN = [
     ("together", call_together, {}),
     ("cerebras", call_cerebras, {}),
     ("pollinations", call_pollinations, {}),
+    ("ollama", call_ollama, {}),
     ("local", call_local_fallback, {}),
 ]
 
@@ -399,7 +414,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with full 6‑provider failover) --------------------
+# -------------------- AI ROUTER (with full failover) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -411,26 +426,23 @@ async def route_ai_request(
     tier: str
 ) -> Dict[str, Any]:
     start = time.time()
+
     # Build full prompt with history
     history_text = ""
     if history:
-        recent_entries = []
-        for message in history[-4:]:
-            if not isinstance(message, dict):
+        recent = []
+        for msg in history[-4:]:
+            if not isinstance(msg, dict):
                 continue
-            role = message.get("role", "user")
-            content = message.get("content") or message.get("text") or ""
+            role = msg.get("role", "user")
+            content = msg.get("content") or msg.get("text") or ""
             if isinstance(content, list):
-                text_parts = []
-                for part in content:
-                    if isinstance(part, dict):
-                        text_parts.append(part.get("text") or part.get("content") or "")
-                    elif isinstance(part, str):
-                        text_parts.append(part)
-                content = "\n".join([p for p in text_parts if p])
+                parts = [p.get("text", "") for p in content if isinstance(p, dict)]
+                content = "\n".join(parts)
             if isinstance(content, str) and content.strip():
-                recent_entries.append(f"{role}: {content.strip()}")
-        history_text = "\n".join(recent_entries)
+                recent.append(f"{role}: {content.strip()}")
+        history_text = "\n".join(recent)
+
     system_prompt = get_system_prompt(workspace, task_type)
     full_prompt = f"{system_prompt}\n\n"
     if history_text:
@@ -447,7 +459,7 @@ async def route_ai_request(
         cached = ai_cache[cache_key]
         return {**cached, "cached": True}
 
-    # Select primary model for this task
+    # Primary model for this task
     primary_model = MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
     response_text = None
@@ -457,45 +469,52 @@ async def route_ai_request(
 
     # Try each provider in order
     for name, func, kwargs in PROVIDER_CHAIN:
-        # Skip if API key missing for non‑local providers
+        # Skip if API key missing (except for local and pollinations)
         if name == "openrouter" and not OPENROUTER_API_KEY:
-            logger.info("Skipping openrouter – no API key")
+            logger.debug("Skipping openrouter – no API key")
             continue
         if name == "groq" and not GROQ_API_KEY:
-            logger.info("Skipping groq – no API key")
+            logger.debug("Skipping groq – no API key")
             continue
         if name == "sambanova" and not SAMBANOVA_API_KEY:
-            logger.info("Skipping sambanova – no API key")
+            logger.debug("Skipping sambanova – no API key")
             continue
         if name == "together" and not TOGETHER_API_KEY:
-            logger.info("Skipping together – no API key")
+            logger.debug("Skipping together – no API key")
             continue
         if name == "cerebras" and not CEREBRAS_API_KEY:
-            logger.info("Skipping cerebras – no API key")
+            logger.debug("Skipping cerebras – no API key")
             continue
+        if name == "ollama" and not os.getenv("OLLAMA_URL"):
+            logger.debug("Skipping ollama – no URL")
+            continue
+
         # Circuit breaker
         if provider_failures[name] >= 3 and time.time() - provider_last_fail[name] < PROVIDER_COOLDOWN:
             logger.warning(f"Skipping provider {name} due to circuit breaker (cooldown)")
             continue
+
         try:
             for attempt in range(2):  # retry once
                 try:
                     if name == "openrouter":
                         response_text = await func(primary_model, full_prompt, max_tokens, temp)
                     elif name == "sambanova":
-                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("sambanova", task_type))
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"))
                     elif name == "groq":
-                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("groq", task_type))
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
                     elif name == "together":
-                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("together", task_type))
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"))
                     elif name == "cerebras":
-                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("cerebras", task_type))
-                    elif name == "local":
-                        response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
-                    else:
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("CEREBRAS_MODEL", "llama3.1-8b"))
+                    elif name == "ollama":
+                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
+                    elif name == "pollinations":
                         response_text = await func(full_prompt, max_tokens, temp)
+                    else:  # local fallback
+                        response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
                     provider_used = name
-                    model_used = primary_model if name == "openrouter" else get_provider_model(name, task_type)
+                    model_used = primary_model if name == "openrouter" else (os.getenv(f"{name.upper()}_MODEL") or name)
                     provider_failures[name] = 0
                     break
                 except Exception as e:
@@ -513,7 +532,7 @@ async def route_ai_request(
             provider_last_fail[name] = time.time()
             continue
 
-    # If still no response (should never happen because local always works)
+    # Ultimate fallback (should never happen because local always works)
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
         provider_used = "local"
@@ -635,7 +654,8 @@ def check_user_rate_limit(user_id: str, tier: str):
         user_rate_limiter[user_id] = []
     user_rate_limiter[user_id] = [t for t in user_rate_limiter[user_id] if now - t < 60]
     if len(user_rate_limiter[user_id]) >= limit:
-        logger.warning(f"Rate limit exceeded for user {user_id} tier={tier}, allowing request in zero-cost mode")
+        # We allow the request but log – we don't block to avoid false positives
+        logger.info(f"Rate limit exceeded for user {user_id}, but allowing request (soft limit)")
     user_rate_limiter[user_id].append(now)
 
 # -------------------- FASTAPI APP --------------------
@@ -651,7 +671,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="13.2", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="13.3", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1015,14 +1035,15 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
             "image/", "application/pdf", "text/csv", "text/plain",
             "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         ]
-        return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp'))
-    # For Design workspace: allow images and code files
+        return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt'))
+    # For Design workspace: allow images, code files (HTML, CSS, JS, Python, JSON, Markdown, etc.)
     elif workspace == "design":
         allowed_design_types = [
             "image/", "text/html", "text/css", "text/javascript", "text/x-python",
-            "application/javascript", "application/json", "text/x-js", "text/x-python-script"
+            "application/javascript", "application/json", "text/x-js", "text/x-python-script",
+            "text/x-python", "text/x-c", "text/x-c++", "text/x-java", "text/x-php"
         ]
-        return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(('.html', '.css', '.js', '.py', '.json', '.txt', '.md'))
+        return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(('.html', '.css', '.js', '.py', '.json', '.txt', '.md', '.jsx', '.ts', '.tsx', '.vue', '.svelte'))
     # General: allow all
     return True
 
@@ -1052,20 +1073,17 @@ async def extract(
 
     # Filter out unsupported files
     valid_files = []
+    rejected = []
     for f in files:
         if is_allowed_file(workspace, f.filename, f.content_type or ""):
             valid_files.append(f)
         else:
-            logger.warning(f"File rejected for workspace {workspace}: {f.filename} ({f.content_type})")
-            # We'll return a warning but still process other files – or raise error?
-            # Better to raise to inform user.
-    if len(valid_files) < len(files):
-        # Some files were rejected; send a clear message
-        rejected = [f.filename for f in files if f not in valid_files]
+            rejected.append(f.filename)
+    if rejected:
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file type(s) for {workspace} workspace: {', '.join(rejected)}. "
-                   f"Allowed: {'images, PDF, CSV, Excel' if workspace=='data' else 'images, HTML, CSS, JS, Python'}."
+                   f"Allowed: {'images, PDF, CSV, Excel, text' if workspace=='data' else 'images, HTML, CSS, JS, Python, JSON, Markdown'}."
         )
     files = valid_files
 
@@ -1130,6 +1148,12 @@ async def extract(
         current_usage = user.get(quota_parts[0], {}).get(quota_parts[1], 0)
     else:
         current_usage = user.get(quota_field, 0)
+
+    # Cap usage to limit to prevent overflow
+    if current_usage > limit:
+        # Correct by setting to limit
+        await users_col.update_one({"_id": user["_id"]}, {"$set": {quota_field: limit}})
+        current_usage = limit
 
     logger.info(f"User {user.get('email')} tier={tier} workspace={workspace} usage={current_usage}/{limit}")
 
@@ -1460,7 +1484,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS (updated for new providers) --------------------
+# -------------------- ADMIN METRICS --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1514,7 +1538,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0, "dailyTogether":0, "dailyCerebras":0
     }
 
-    # Limits
     groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
     openrouter_limit = int(os.getenv("OPENROUTER_DAILY_LIMIT", 1000))
     sambanova_limit = int(os.getenv("SAMBANOVA_DAILY_LIMIT", 200))
