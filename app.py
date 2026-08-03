@@ -338,40 +338,39 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
-# 8. Local fallback (always works, context‑aware) - UPDATED to handle greetings
+# 8. Local fallback (always works, context‑aware) - IMPROVED
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
-    prompt_text = (prompt or "").strip()
+    prompt_text = (prompt or "").strip().lower()
+    
+    # Simple greeting detection
+    greetings = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening", "howdy"]
+    if any(prompt_text.startswith(g) for g in greetings) or prompt_text in ["hi", "hello", "hey"]:
+        return "Hello! I am Axelr AI, your executive intelligence assistant. How can I help you today? Feel free to ask me anything or upload a file for analysis."
+
+    # If no specific task, give a general helpful response
     if not prompt_text:
         return "I can help with that. Please share the task details and I will provide a structured response."
 
-    # Check for simple greetings / general questions
-    lower = prompt_text.lower()
-    greetings = ["hello", "hi", "hey", "how are you", "what's up", "good morning", "good afternoon", "good evening"]
-    if any(lower.startswith(g) for g in greetings) or len(prompt_text.split()) < 4:
-        return (
-            "Hello! I'm **Axelr AI**, your intelligent assistant. "
-            "I can help you with data extraction, UI/UX generation, code debugging, and more. "
-            "Feel free to upload a file or describe your task, and I'll get to work!"
-        )
-
+    # Otherwise, give a context-aware, actionable reply
     if workspace == "design":
         return (
             f"UI/UX draft for: \"{prompt_text[:120]}\". "
-            "Here's a production‑safe starting point – refine it with your brand details and I'll help further."
+            "I'll generate a production‑ready design – just tell me more about the layout, colors, and interactions you have in mind."
         )
     if workspace == "data":
         return (
-            f"Data analysis summary for: \"{prompt_text[:120]}\". "
-            "Please provide the source data or example output and I'll turn it into a cleaner analysis."
+            f"Data analysis for: \"{prompt_text[:120]}\". "
+            "I can clean, transform, and extract insights from your data. Please provide the source data or a sample, and I'll produce a structured output."
         )
     if task_type == "touch_fix":
         return (
             f"Issue captured: \"{prompt_text[:120]}\". "
-            "Please share the full error message, file name, and expected behaviour for a precise fix."
+            "Please share the full error message, file name, and expected behaviour, and I'll provide a targeted fix."
         )
+    # Default fallback for any other query
     return (
         f"Request received: \"{prompt_text[:160]}\". "
-        "I can help with a concise plan, code snippet, or structured answer – tell me more specifics."
+        "I am ready to help with a concise plan, code snippet, or structured answer. Tell me more specifics about what you need."
     )
 
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspace: str = "general", task_type: str = "general") -> str:
@@ -519,15 +518,15 @@ async def route_ai_request(
                         response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
                     elif name == "pollinations":
                         response_text = await func(full_prompt, max_tokens, temp)
-                    else:  # local fallback - FIX: pass original prompt, not full_prompt
-                        response_text = await func(prompt, max_tokens, temp, workspace, task_type)
+                    else:  # local fallback
+                        response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
                     provider_used = name
                     model_used = primary_model if name == "openrouter" else (os.getenv(f"{name.upper()}_MODEL") or name)
                     provider_failures[name] = 0
                     break
                 except Exception as e:
                     last_error = e
-                    logger.warning(f"Provider {name} attempt {attempt+1} failed: {e}")
+                    logger.warning(f"Provider {name} attempt {attempt+1} failed: {e.__class__.__name__}: {str(e)}")
                     await asyncio.sleep(1 * (attempt+1))
                     provider_failures[name] += 1
                     provider_last_fail[name] = time.time()
@@ -535,7 +534,7 @@ async def route_ai_request(
                 break
         except Exception as e:
             last_error = e
-            logger.warning(f"Provider {name} fully failed: {e}")
+            logger.warning(f"Provider {name} fully failed: {e.__class__.__name__}: {str(e)}")
             provider_failures[name] += 1
             provider_last_fail[name] = time.time()
             continue
@@ -696,7 +695,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    # If the detail is already a dict, return it as is
     if isinstance(exc.detail, dict):
         return JSONResponse(status_code=exc.status_code, content=exc.detail)
     else:
