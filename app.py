@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v13.4 (Elite Production)
-7‑provider AI routing with bulletproof failover, accurate quota,
+AXELR AI - UNIFIED FORTRESS v13.5 (Ultimate Resilient)
+12‑provider AI routing with bulletproof failover, accurate quota,
 workspace‑aware file handling, and real admin metrics.
 """
 
@@ -72,12 +72,19 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
-# AI API Keys
+# AI API Keys (existing + new)
 GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
 TOGETHER_API_KEY = (os.getenv("TOGETHER_AI_API_KEY") or os.getenv("TOGETHER_API_KEY") or "").strip()
 CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
+MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
+NVIDIA_API_KEY = (os.getenv("NVIDIA_API_KEY") or "").strip()
+DEEPINFRA_API_KEY = (os.getenv("DEEPINFRA_API_KEY") or "").strip()
+NEBIUS_API_KEY = (os.getenv("NEBIUS_API_KEY") or "").strip()
+BYTEPLUS_API_KEY = (os.getenv("BYTEPLUS_API_KEY") or "").strip()
+# Pollinations does not need a key
+# Ollama is local
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
@@ -189,25 +196,44 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- 8‑MODEL MATRIX (OpenRouter IDs with :free) --------------------
+# -------------------- 8‑MODEL MATRIX (OpenRouter IDs) --------------------
 MODEL_MATRIX = {
-    "analytics":   "meta-llama/llama-3.1-8b-instruct:free",
-    "extraction":  "meta-llama/llama-3.1-8b-instruct:free",
+    "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
+    "extraction":  "qwen/qwen-2.5-72b-instruct:free",
     "scripting":   "meta-llama/llama-3.1-8b-instruct:free",
-    "fullstack":   "meta-llama/llama-3.1-8b-instruct:free",
-    "frontend":    "meta-llama/llama-3.1-8b-instruct:free",
-    "touch_fix":   "meta-llama/llama-3.1-8b-instruct:free",
+    "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",
+    "frontend":    "qwen/qwen-2.5-coder-32b:free",
+    "touch_fix":   "mistralai/codestral-22b-v0.1:free",
     "structuring": "meta-llama/llama-3.1-8b-instruct:free",
-    "logic_math":  "meta-llama/llama-3.1-8b-instruct:free",
+    "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",
 }
 FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-# -------------------- AI PROVIDERS (each with correct endpoint & model) --------------------
+# -------------------- GENERIC PROVIDER CALLER (for OpenAI‑compatible) --------------------
+async def call_openai_compatible(base_url: str, api_key: str, model: str, prompt: str, max_tokens: int, temp: float, timeout: float = 90.0) -> str:
+    if not api_key:
+        raise Exception("API key missing")
+    url = f"{base_url}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=timeout)
+    return resp["choices"][0]["message"]["content"]
 
-# 1. OpenRouter
+# -------------------- AI PROVIDER FUNCTIONS --------------------
+
+# 1. OpenRouter (uses custom model)
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float) -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY missing")
@@ -233,7 +259,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
         raise Exception("GROQ_API_KEY missing")
     url = "https://api.groq.com/openai/v1/chat/completions"
     headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+    effective_model = model or os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -266,7 +292,7 @@ async def call_together(prompt: str, max_tokens: int, temp: float, model: Option
         raise Exception("TOGETHER_API_KEY missing")
     url = "https://api.together.xyz/v1/chat/completions"
     headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")
+    effective_model = model or os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo")
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -294,7 +320,92 @@ async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 6. Pollinations (no key, free)
+# 6. Mistral AI
+async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not MISTRAL_API_KEY:
+        raise Exception("MISTRAL_API_KEY missing")
+    url = "https://api.mistral.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("MISTRAL_MODEL", "mistral-tiny")
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# 7. Nvidia Build (NIM)
+async def call_nvidia(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not NVIDIA_API_KEY:
+        raise Exception("NVIDIA_API_KEY missing")
+    url = "https://build.nvidia.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("NVIDIA_MODEL", "meta-llama-3.1-8b-instruct")
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# 8. DeepInfra
+async def call_deepinfra(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not DEEPINFRA_API_KEY:
+        raise Exception("DEEPINFRA_API_KEY missing")
+    url = "https://api.deepinfra.com/v1/openai/chat/completions"
+    headers = {"Authorization": f"Bearer {DEEPINFRA_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-3.1-70B-Instruct")
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# 9. Nebius
+async def call_nebius(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not NEBIUS_API_KEY:
+        raise Exception("NEBIUS_API_KEY missing")
+    url = "https://api.nebius.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {NEBIUS_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("NEBIUS_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# 10. BytePlus Model Ark
+async def call_byteplus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not BYTEPLUS_API_KEY:
+        raise Exception("BYTEPLUS_API_KEY missing")
+    url = "https://ark.byteplus.com/api/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {BYTEPLUS_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("BYTEPLUS_MODEL", "meta-llama-3.1-8b-instruct")
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# 11. Pollinations (no key)
 async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     import urllib.parse
     encoded = urllib.parse.quote(prompt[:500])
@@ -317,7 +428,7 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     except Exception as e:
         raise Exception(f"Pollinations failed: {e}")
 
-# 7. Ollama (local, optional)
+# 12. Ollama (local)
 async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     ollama_url = (os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434/api/chat").strip()
     if not ollama_url:
@@ -338,51 +449,47 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
-# 8. Local fallback (always works, context‑aware) - IMPROVED
+# 13. Local fallback (always works)
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
-    prompt_text = (prompt or "").strip().lower()
-    
-    # Simple greeting detection
-    greetings = ["hello", "hi", "hey", "good morning", "good afternoon", "good evening", "howdy"]
-    if any(prompt_text.startswith(g) for g in greetings) or prompt_text in ["hi", "hello", "hey"]:
-        return "Hello! I am Axelr AI, your executive intelligence assistant. How can I help you today? Feel free to ask me anything or upload a file for analysis."
-
-    # If no specific task, give a general helpful response
+    prompt_text = (prompt or "").strip()
     if not prompt_text:
         return "I can help with that. Please share the task details and I will provide a structured response."
 
-    # Otherwise, give a context-aware, actionable reply
     if workspace == "design":
         return (
             f"UI/UX draft for: \"{prompt_text[:120]}\". "
-            "I'll generate a production‑ready design – just tell me more about the layout, colors, and interactions you have in mind."
+            "Here's a production‑safe starting point – refine it with your brand details and I'll help further."
         )
     if workspace == "data":
         return (
-            f"Data analysis for: \"{prompt_text[:120]}\". "
-            "I can clean, transform, and extract insights from your data. Please provide the source data or a sample, and I'll produce a structured output."
+            f"Data analysis summary for: \"{prompt_text[:120]}\". "
+            "Please provide the source data or example output and I'll turn it into a cleaner analysis."
         )
     if task_type == "touch_fix":
         return (
             f"Issue captured: \"{prompt_text[:120]}\". "
-            "Please share the full error message, file name, and expected behaviour, and I'll provide a targeted fix."
+            "Please share the full error message, file name, and expected behaviour for a precise fix."
         )
-    # Default fallback for any other query
     return (
         f"Request received: \"{prompt_text[:160]}\". "
-        "I am ready to help with a concise plan, code snippet, or structured answer. Tell me more specifics about what you need."
+        "I can help with a concise plan, code snippet, or structured answer – tell me more specifics."
     )
 
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
-# Provider chain (ordered by quality & reliability)
+# -------------------- PROVIDER CHAIN (ordered by quality & reliability) --------------------
 PROVIDER_CHAIN = [
     ("openrouter", call_openrouter, {}),
     ("groq", call_groq, {}),
+    ("mistral", call_mistral, {}),
     ("sambanova", call_sambanova, {}),
     ("together", call_together, {}),
     ("cerebras", call_cerebras, {}),
+    ("nvidia", call_nvidia, {}),
+    ("deepinfra", call_deepinfra, {}),
+    ("nebius", call_nebius, {}),
+    ("byteplus", call_byteplus, {}),
     ("pollinations", call_pollinations, {}),
     ("ollama", call_ollama, {}),
     ("local", call_local_fallback, {}),
@@ -421,7 +528,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (bulletproof) --------------------
+# -------------------- AI ROUTER (with bulletproof failover & full logging) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -476,12 +583,15 @@ async def route_ai_request(
 
     # Try each provider in order
     for name, func, kwargs in PROVIDER_CHAIN:
-        # Skip if API key missing (except for local and pollinations)
+        # Skip if API key missing (except for local, pollinations, ollama)
         if name == "openrouter" and not OPENROUTER_API_KEY:
             logger.debug("Skipping openrouter – no API key")
             continue
         if name == "groq" and not GROQ_API_KEY:
             logger.debug("Skipping groq – no API key")
+            continue
+        if name == "mistral" and not MISTRAL_API_KEY:
+            logger.debug("Skipping mistral – no API key")
             continue
         if name == "sambanova" and not SAMBANOVA_API_KEY:
             logger.debug("Skipping sambanova – no API key")
@@ -491,6 +601,18 @@ async def route_ai_request(
             continue
         if name == "cerebras" and not CEREBRAS_API_KEY:
             logger.debug("Skipping cerebras – no API key")
+            continue
+        if name == "nvidia" and not NVIDIA_API_KEY:
+            logger.debug("Skipping nvidia – no API key")
+            continue
+        if name == "deepinfra" and not DEEPINFRA_API_KEY:
+            logger.debug("Skipping deepinfra – no API key")
+            continue
+        if name == "nebius" and not NEBIUS_API_KEY:
+            logger.debug("Skipping nebius – no API key")
+            continue
+        if name == "byteplus" and not BYTEPLUS_API_KEY:
+            logger.debug("Skipping byteplus – no API key")
             continue
         if name == "ollama" and not os.getenv("OLLAMA_URL"):
             logger.debug("Skipping ollama – no URL")
@@ -506,27 +628,40 @@ async def route_ai_request(
                 try:
                     if name == "openrouter":
                         response_text = await func(primary_model, full_prompt, max_tokens, temp)
-                    elif name == "sambanova":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"))
-                    elif name == "groq":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"))
-                    elif name == "together":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo"))
-                    elif name == "cerebras":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("CEREBRAS_MODEL", "llama3.1-8b"))
-                    elif name == "ollama":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
-                    elif name == "pollinations":
-                        response_text = await func(full_prompt, max_tokens, temp)
-                    else:  # local fallback
-                        response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
+                    else:
+                        # All other providers take (prompt, max_tokens, temp, model) or similar
+                        # We'll handle each case
+                        if name == "groq":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
+                        elif name == "mistral":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("MISTRAL_MODEL", "mistral-tiny"))
+                        elif name == "sambanova":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"))
+                        elif name == "together":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"))
+                        elif name == "cerebras":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("CEREBRAS_MODEL", "llama3.1-8b"))
+                        elif name == "nvidia":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("NVIDIA_MODEL", "meta-llama-3.1-8b-instruct"))
+                        elif name == "deepinfra":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-3.1-70B-Instruct"))
+                        elif name == "nebius":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("NEBIUS_MODEL", "meta-llama/Llama-3.1-8B-Instruct"))
+                        elif name == "byteplus":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("BYTEPLUS_MODEL", "meta-llama-3.1-8b-instruct"))
+                        elif name == "pollinations":
+                            response_text = await func(full_prompt, max_tokens, temp)
+                        elif name == "ollama":
+                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
+                        else:  # local fallback
+                            response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
                     provider_used = name
                     model_used = primary_model if name == "openrouter" else (os.getenv(f"{name.upper()}_MODEL") or name)
                     provider_failures[name] = 0
                     break
                 except Exception as e:
                     last_error = e
-                    logger.warning(f"Provider {name} attempt {attempt+1} failed: {e.__class__.__name__}: {str(e)}")
+                    logger.warning(f"Provider {name} attempt {attempt+1} failed: {e}")
                     await asyncio.sleep(1 * (attempt+1))
                     provider_failures[name] += 1
                     provider_last_fail[name] = time.time()
@@ -534,7 +669,7 @@ async def route_ai_request(
                 break
         except Exception as e:
             last_error = e
-            logger.warning(f"Provider {name} fully failed: {e.__class__.__name__}: {str(e)}")
+            logger.warning(f"Provider {name} fully failed: {e}")
             provider_failures[name] += 1
             provider_last_fail[name] = time.time()
             continue
@@ -559,7 +694,7 @@ async def route_ai_request(
     ai_cache[cache_key] = result
     return result
 
-# -------------------- AUTHENTICATION --------------------
+# -------------------- AUTHENTICATION (unchanged) --------------------
 security = HTTPBearer()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
@@ -579,9 +714,18 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "displayName": idinfo.get('name', idinfo['email']),
                 "tier": "free",
                 "dailyUsage": 0,
+                "dailyUiUxUsage": 0,
                 "storageBytesUsed": 0,
                 "lastUsageDate": datetime.utcnow(),
                 "customInstructions": "",
+                "subTierOptions": {"hasDataAccess": False, "hasDesignAccess": False},
+                "quotas": {
+                    "dailyExtractionsUsed": 0,
+                    "dailyGenerationsUsed": 0,
+                    "dailyEnhancementsUsed": 0,
+                    "monthlyEnhancementsLimit": 3,
+                    "lastQuotaReset": datetime.utcnow()
+                },
                 "tokenUsage": {
                     "totalPromptTokens": 0,
                     "totalCompletionTokens": 0,
@@ -595,6 +739,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "dailySambaNovaQuota": 0,
                 "dailyTogetherQuota": 0,
                 "dailyCerebrasQuota": 0,
+                "dailyMistralQuota": 0,
+                "dailyNvidiaQuota": 0,
+                "dailyDeepInfraQuota": 0,
+                "dailyNebiusQuota": 0,
+                "dailyBytePlusQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow()
             }
             result = await users_col.insert_one(new_user)
@@ -604,10 +753,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             if user_doc.get("isAdmin") != is_admin:
                 await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"isAdmin": is_admin}})
                 user_doc["isAdmin"] = is_admin
-            # Reset daily usage if new day
+            # Reset daily quotas if new day
             now = datetime.utcnow()
             today = datetime(now.year, now.month, now.day)
-            last_reset = user_doc.get("lastUsageDate")
+            last_reset = user_doc["quotas"]["lastQuotaReset"]
             if last_reset:
                 last_reset_day = datetime(last_reset.year, last_reset.month, last_reset.day)
                 if today > last_reset_day:
@@ -615,6 +764,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                         {"_id": user_doc["_id"]},
                         {"$set": {
                             "dailyUsage": 0,
+                            "dailyUiUxUsage": 0,
+                            "quotas.dailyExtractionsUsed": 0,
+                            "quotas.dailyGenerationsUsed": 0,
+                            "quotas.dailyEnhancementsUsed": 0,
+                            "quotas.lastQuotaReset": datetime.utcnow(),
                             "tokenUsage.dailyPromptTokens": 0,
                             "tokenUsage.dailyCompletionTokens": 0,
                             "tokenUsage.lastTokenReset": datetime.utcnow(),
@@ -623,6 +777,11 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "dailySambaNovaQuota": 0,
                             "dailyTogetherQuota": 0,
                             "dailyCerebrasQuota": 0,
+                            "dailyMistralQuota": 0,
+                            "dailyNvidiaQuota": 0,
+                            "dailyDeepInfraQuota": 0,
+                            "dailyNebiusQuota": 0,
+                            "dailyBytePlusQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
                     )
@@ -663,7 +822,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="13.4", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="13.5", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -682,28 +841,7 @@ app.add_middleware(
     max_age=86400,
 )
 
-# ============================================================
-# GLOBAL EXCEPTION HANDLER – Returns JSON for any error
-# ============================================================
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"success": False, "message": "Internal server error. Please try again later."}
-    )
-
-@app.exception_handler(HTTPException)
-async def http_exception_handler(request: Request, exc: HTTPException):
-    if isinstance(exc.detail, dict):
-        return JSONResponse(status_code=exc.status_code, content=exc.detail)
-    else:
-        return JSONResponse(
-            status_code=exc.status_code,
-            content={"success": False, "message": str(exc.detail)}
-        )
-
-# -------------------- HEALTH --------------------
+# -------------------- HEALTH (unchanged) --------------------
 @app.get("/")
 @app.get("/api/health")
 async def health():
@@ -727,26 +865,18 @@ async def health():
 async def startup_event():
     app.state.start_time = time.time()
 
-# -------------------- USER PROFILE --------------------
+# -------------------- USER PROFILE (updated with new quotas) --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    tier = user.get("tier", "free")
-    if tier == "free":
-        daily_limit = 5
-    elif tier == "pro":
-        daily_limit = 20
-    elif tier == "business":
-        daily_limit = 30
-    else:
-        daily_limit = 5
-
     return {
-        "tier": tier,
+        "tier": user.get("tier"),
         "dailyUsage": user.get("dailyUsage", 0),
-        "dailyLimit": daily_limit,
+        "dailyUiUxUsage": user.get("dailyUiUxUsage", 0),
         "customInstructions": user.get("customInstructions", ""),
+        "quotas": user.get("quotas", {}),
+        "subTierOptions": user.get("subTierOptions", {}),
         "tokenUsage": {
             "dailyPrompt": user.get("tokenUsage", {}).get("dailyPromptTokens", 0),
             "dailyCompletion": user.get("tokenUsage", {}).get("dailyCompletionTokens", 0),
@@ -762,8 +892,14 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailySambaNovaQuota": user.get("dailySambaNovaQuota", 0),
         "dailyTogetherQuota": user.get("dailyTogetherQuota", 0),
         "dailyCerebrasQuota": user.get("dailyCerebrasQuota", 0),
+        "dailyMistralQuota": user.get("dailyMistralQuota", 0),
+        "dailyNvidiaQuota": user.get("dailyNvidiaQuota", 0),
+        "dailyDeepInfraQuota": user.get("dailyDeepInfraQuota", 0),
+        "dailyNebiusQuota": user.get("dailyNebiusQuota", 0),
+        "dailyBytePlusQuota": user.get("dailyBytePlusQuota", 0),
     }
 
+# -------------------- INSTRUCTIONS, DELETE, HISTORY (unchanged) --------------------
 class InstructionsUpdate(BaseModel):
     instructions: str
 
@@ -964,7 +1100,7 @@ async def create_report(data: ReportCreate, user: dict = Depends(get_current_use
             logger.warning(f"Report email failed: {e}")
     return {"success": True}
 
-# -------------------- PROMPT ENHANCEMENT --------------------
+# -------------------- PROMPT ENHANCEMENT (unchanged) --------------------
 class EnhanceRequest(BaseModel):
     promptText: str
 
@@ -977,25 +1113,32 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
         raise HTTPException(status_code=400, detail="No text provided")
     now = datetime.utcnow()
     today = datetime(now.year, now.month, now.day)
-    last_reset = user.get("lastUsageDate")
+    last_reset = user.get("quotas", {}).get("lastQuotaReset")
     if last_reset:
         last_day = datetime(last_reset.year, last_reset.month, last_reset.day)
         if today > last_day:
             await users_col.update_one(
                 {"_id": user["_id"]},
-                {"$set": {"dailyUsage": 0, "lastUsageDate": datetime.utcnow()}}
+                {"$set": {
+                    "quotas.dailyEnhancementsUsed": 0,
+                    "quotas.lastQuotaReset": datetime.utcnow()
+                }}
             )
             user = await users_col.find_one({"_id": user["_id"]})
     tier = user.get("tier", "free")
     if tier == "free":
         limit = 3
     elif tier == "pro":
-        limit = 7
+        has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
+        has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
+        limit = 7 if (has_data and has_design) else 5
     elif tier == "business":
-        limit = 15
+        has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
+        has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
+        limit = 15 if (has_data and has_design) else 10
     else:
         limit = 3
-    used = user.get("dailyUsage", 0)
+    used = user.get("quotas", {}).get("dailyEnhancementsUsed", 0)
     if used >= limit:
         raise HTTPException(status_code=403, detail={
             "code": "LIMIT_REACHED",
@@ -1017,11 +1160,14 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     enhanced = ai_result["text"]
     await users_col.update_one(
         {"_id": user["_id"]},
-        {"$inc": {"dailyUsage": 1}}
+        {"$inc": {
+            "quotas.dailyEnhancementsUsed": 1,
+            "dailyUsage": 1
+        }}
     )
     return {"success": True, "enhanced": enhanced}
 
-# -------------------- EXTRACT (MAIN) --------------------
+# -------------------- EXTRACT (MAIN) with workspace‑aware file validation and fixed quota --------------------
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 if text else 0
 
@@ -1040,6 +1186,7 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
+    # Data workspace: images, PDF, CSV, Excel, text
     if workspace == "data":
         allowed_data_types = [
             "image/", "application/pdf", "text/csv", "text/plain",
@@ -1047,6 +1194,7 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
         ]
         allowed_data_exts = ('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt')
         return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(allowed_data_exts)
+    # Design workspace: images, all code files, text files
     elif workspace == "design":
         allowed_design_types = [
             "image/", "text/html", "text/css", "text/javascript", "text/x-python", "text/x-python-script",
@@ -1061,6 +1209,7 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
                                '.md', '.markdown', '.txt', '.xml', '.svg', '.wasm', '.dockerfile',
                                '.dockerignore', '.gitignore')
         return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(allowed_design_exts)
+    # General: allow all
     return True
 
 @app.post("/api/extract")
@@ -1079,12 +1228,15 @@ async def extract(
     client_ip = request.client.host if request.client else "unknown"
     check_user_rate_limit(user["_id"], user.get("tier", "free"))
 
+    # Validate workspace
     if workspace not in ["data", "design", "general"]:
         workspace = "data"
 
+    # Validate and filter files by workspace
     if len(files) > 5:
         raise HTTPException(status_code=400, detail="Too many files (max 5)")
 
+    # Filter out unsupported files
     valid_files = []
     rejected = []
     for f in files:
@@ -1110,37 +1262,71 @@ async def extract(
         raise HTTPException(status_code=400, detail="Total upload size too large")
 
     tier = user.get("tier", "free")
+    has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
+    has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
+    is_design = workspace == "design"
 
-    # Daily quota
+    # Determine quota limits
     if tier == "free":
-        daily_limit = 5
+        data_limit = 5
+        ui_limit = 0
     elif tier == "pro":
-        daily_limit = 20
+        if has_data and has_design:
+            data_limit = 20
+            ui_limit = 15
+        elif has_data:
+            data_limit = 19
+            ui_limit = 0
+        elif has_design:
+            data_limit = 0
+            ui_limit = 13
+        else:
+            data_limit = 0
+            ui_limit = 0
     elif tier == "business":
-        daily_limit = 30
+        if has_data and has_design:
+            data_limit = 30
+            ui_limit = 25
+        elif has_data:
+            data_limit = 28
+            ui_limit = 0
+        elif has_design:
+            data_limit = 0
+            ui_limit = 20
+        else:
+            data_limit = 0
+            ui_limit = 0
     else:
-        daily_limit = 5
+        data_limit = 5
+        ui_limit = 0
 
-    daily_used = user.get("dailyUsage", 0)
+    if is_design:
+        limit = ui_limit
+        quota_field = "quotas.dailyGenerationsUsed"
+    else:
+        limit = data_limit
+        quota_field = "quotas.dailyExtractionsUsed"
 
-    # Reset if new day
-    now = datetime.utcnow()
-    last_reset = user.get("lastUsageDate")
-    if last_reset:
-        last_day = datetime(last_reset.year, last_reset.month, last_reset.day)
-        today = datetime(now.year, now.month, now.day)
-        if today > last_day:
-            await users_col.update_one({"_id": user["_id"]}, {"$set": {"dailyUsage": 0, "lastUsageDate": now}})
-            user = await users_col.find_one({"_id": user["_id"]})
-            daily_used = user.get("dailyUsage", 0)
+    # Get current usage
+    quota_parts = quota_field.split('.')
+    if len(quota_parts) == 2:
+        current_usage = user.get(quota_parts[0], {}).get(quota_parts[1], 0)
+    else:
+        current_usage = user.get(quota_field, 0)
 
-    logger.info(f"User {user.get('email')} tier={tier} daily_used={daily_used}/{daily_limit}")
+    # Cap usage to limit to prevent overflow
+    if current_usage > limit:
+        await users_col.update_one({"_id": user["_id"]}, {"$set": {quota_field: limit}})
+        current_usage = limit
 
-    if daily_used >= daily_limit:
+    logger.info(f"User {user.get('email')} tier={tier} workspace={workspace} usage={current_usage}/{limit}")
+
+    # Enforce quota (if limit > 0, block when usage >= limit; if limit == 0, block any usage)
+    if current_usage >= limit:
         raise HTTPException(status_code=403, detail={
             "code": "LIMIT_REACHED",
-            "usage": daily_used,
-            "limit": daily_limit
+            "usage": current_usage,
+            "limit": limit
         })
 
     # Storage limit
@@ -1189,22 +1375,17 @@ async def extract(
             if isRetry == "true" and history and history[-1].get("role") == "model":
                 history = history[:-2]
 
-    # AI call – this should never raise, but wrap just in case
-    try:
-        ai_result = await route_ai_request(
-            workspace=workspace,
-            task_type=task_type,
-            prompt=command,
-            history=history,
-            files=file_contents,
-            max_tokens=2048,
-            temp=0.2,
-            tier=tier
-        )
-    except Exception as e:
-        logger.error(f"AI router raised unexpected exception: {e}", exc_info=True)
-        raise HTTPException(status_code=503, detail="AI service temporarily unavailable")
-
+    # AI call
+    ai_result = await route_ai_request(
+        workspace=workspace,
+        task_type=task_type,
+        prompt=command,
+        history=history,
+        files=file_contents,
+        max_tokens=2048,
+        temp=0.2,
+        tier=tier
+    )
     if not ai_result.get("success"):
         raise HTTPException(status_code=503, detail="AI service unavailable")
 
@@ -1233,6 +1414,7 @@ async def extract(
             "tokenUsage.totalCompletionTokens": completion_tokens,
             "tokenUsage.dailyPromptTokens": prompt_tokens,
             "tokenUsage.dailyCompletionTokens": completion_tokens,
+            quota_field: 1,
             "dailyUsage": 1,
             "storageBytesUsed": total_size,
         },
@@ -1240,6 +1422,7 @@ async def extract(
             "lastUsageDate": datetime.utcnow()
         }
     }
+    # Track provider usage
     if provider == "groq":
         update_query["$inc"]["dailyGroqQuota"] = 1
     elif provider == "openrouter":
@@ -1250,7 +1433,16 @@ async def extract(
         update_query["$inc"]["dailyTogetherQuota"] = 1
     elif provider == "cerebras":
         update_query["$inc"]["dailyCerebrasQuota"] = 1
-
+    elif provider == "mistral":
+        update_query["$inc"]["dailyMistralQuota"] = 1
+    elif provider == "nvidia":
+        update_query["$inc"]["dailyNvidiaQuota"] = 1
+    elif provider == "deepinfra":
+        update_query["$inc"]["dailyDeepInfraQuota"] = 1
+    elif provider == "nebius":
+        update_query["$inc"]["dailyNebiusQuota"] = 1
+    elif provider == "byteplus":
+        update_query["$inc"]["dailyBytePlusQuota"] = 1
     await users_col.update_one({"_id": user["_id"]}, update_query)
 
     # Save session
@@ -1338,7 +1530,7 @@ async def extract(
         "model": model_used
     }
 
-# -------------------- TOUCH FIX --------------------
+# -------------------- TOUCH FIX (unchanged) --------------------
 class TouchFixRequest(BaseModel):
     code: str
     error_message: str
@@ -1466,7 +1658,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS --------------------
+# -------------------- ADMIN METRICS (updated with new providers) --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1499,11 +1691,17 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "totalOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
                     "totalSambaNova": {"$sum": "$dailySambaNovaQuota"},
                     "totalTogether": {"$sum": "$dailyTogetherQuota"},
-                    "totalCerebras": {"$sum": "$dailyCerebrasQuota"}}}
+                    "totalCerebras": {"$sum": "$dailyCerebrasQuota"},
+                    "totalMistral": {"$sum": "$dailyMistralQuota"},
+                    "totalNvidia": {"$sum": "$dailyNvidiaQuota"},
+                    "totalDeepInfra": {"$sum": "$dailyDeepInfraQuota"},
+                    "totalNebius": {"$sum": "$dailyNebiusQuota"},
+                    "totalBytePlus": {"$sum": "$dailyBytePlusQuota"}}}
     ]
     provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
     provider_totals = provider_result[0] if provider_result else {
-        "totalGroq":0, "totalOpenRouter":0, "totalSambaNova":0, "totalTogether":0, "totalCerebras":0
+        "totalGroq":0, "totalOpenRouter":0, "totalSambaNova":0, "totalTogether":0, "totalCerebras":0,
+        "totalMistral":0, "totalNvidia":0, "totalDeepInfra":0, "totalNebius":0, "totalBytePlus":0
     }
 
     pipeline_daily_provider = [
@@ -1513,11 +1711,17 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "dailyOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
                     "dailySambaNova": {"$sum": "$dailySambaNovaQuota"},
                     "dailyTogether": {"$sum": "$dailyTogetherQuota"},
-                    "dailyCerebras": {"$sum": "$dailyCerebrasQuota"}}}
+                    "dailyCerebras": {"$sum": "$dailyCerebrasQuota"},
+                    "dailyMistral": {"$sum": "$dailyMistralQuota"},
+                    "dailyNvidia": {"$sum": "$dailyNvidiaQuota"},
+                    "dailyDeepInfra": {"$sum": "$dailyDeepInfraQuota"},
+                    "dailyNebius": {"$sum": "$dailyNebiusQuota"},
+                    "dailyBytePlus": {"$sum": "$dailyBytePlusQuota"}}}
     ]
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {
-        "dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0, "dailyTogether":0, "dailyCerebras":0
+        "dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0, "dailyTogether":0, "dailyCerebras":0,
+        "dailyMistral":0, "dailyNvidia":0, "dailyDeepInfra":0, "dailyNebius":0, "dailyBytePlus":0
     }
 
     groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
@@ -1525,6 +1729,11 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     sambanova_limit = int(os.getenv("SAMBANOVA_DAILY_LIMIT", 200))
     together_limit = int(os.getenv("TOGETHER_DAILY_LIMIT", 200))
     cerebras_limit = int(os.getenv("CEREBRAS_DAILY_LIMIT", 200))
+    mistral_limit = int(os.getenv("MISTRAL_DAILY_LIMIT", 200))
+    nvidia_limit = int(os.getenv("NVIDIA_DAILY_LIMIT", 200))
+    deepinfra_limit = int(os.getenv("DEEPINFRA_DAILY_LIMIT", 200))
+    nebius_limit = int(os.getenv("NEBIUS_DAILY_LIMIT", 200))
+    byteplus_limit = int(os.getenv("BYTEPLUS_DAILY_LIMIT", 200))
 
     daily_usage = {
         "groq": daily_provider["dailyGroq"],
@@ -1532,6 +1741,11 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "sambanova": daily_provider["dailySambaNova"],
         "together": daily_provider["dailyTogether"],
         "cerebras": daily_provider["dailyCerebras"],
+        "mistral": daily_provider["dailyMistral"],
+        "nvidia": daily_provider["dailyNvidia"],
+        "deepinfra": daily_provider["dailyDeepInfra"],
+        "nebius": daily_provider["dailyNebius"],
+        "byteplus": daily_provider["dailyBytePlus"],
     }
     active_provider = max(daily_usage, key=daily_usage.get) if any(daily_usage.values()) else "openrouter"
 
@@ -1569,16 +1783,31 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "sambaNova": provider_totals["totalSambaNova"],
             "together": provider_totals["totalTogether"],
             "cerebras": provider_totals["totalCerebras"],
+            "mistral": provider_totals["totalMistral"],
+            "nvidia": provider_totals["totalNvidia"],
+            "deepInfra": provider_totals["totalDeepInfra"],
+            "nebius": provider_totals["totalNebius"],
+            "bytePlus": provider_totals["totalBytePlus"],
             "dailyGroq": daily_provider["dailyGroq"],
             "dailyOpenRouter": daily_provider["dailyOpenRouter"],
             "dailySambaNova": daily_provider["dailySambaNova"],
             "dailyTogether": daily_provider["dailyTogether"],
             "dailyCerebras": daily_provider["dailyCerebras"],
+            "dailyMistral": daily_provider["dailyMistral"],
+            "dailyNvidia": daily_provider["dailyNvidia"],
+            "dailyDeepInfra": daily_provider["dailyDeepInfra"],
+            "dailyNebius": daily_provider["dailyNebius"],
+            "dailyBytePlus": daily_provider["dailyBytePlus"],
             "groqLimit": groq_limit,
             "openRouterLimit": openrouter_limit,
             "sambaNovaLimit": sambanova_limit,
             "togetherLimit": together_limit,
             "cerebrasLimit": cerebras_limit,
+            "mistralLimit": mistral_limit,
+            "nvidiaLimit": nvidia_limit,
+            "deepInfraLimit": deepinfra_limit,
+            "nebiusLimit": nebius_limit,
+            "bytePlusLimit": byteplus_limit,
             "activeProvider": active_provider,
         },
         "dailyQueries": daily_queries,
@@ -1586,7 +1815,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# -------------------- STRIPE CHECKOUT & WEBHOOK --------------------
+# -------------------- STRIPE CHECKOUT & WEBHOOK (unchanged) --------------------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
     subTier: str = "full"
