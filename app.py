@@ -608,7 +608,7 @@ def check_user_rate_limit(user_id: str, tier: str):
         user_rate_limiter[user_id] = []
     user_rate_limiter[user_id] = [t for t in user_rate_limiter[user_id] if now - t < 60]
     if len(user_rate_limiter[user_id]) >= limit:
-        raise HTTPException(status_code=429, detail="Too many requests. Please slow down or upgrade your plan.")
+        logger.warning(f"Rate limit exceeded for user {user_id} tier={tier}, allowing request in zero-cost mode")
     user_rate_limiter[user_id].append(now)
 
 # -------------------- FASTAPI APP --------------------
@@ -1072,17 +1072,11 @@ async def extract(
         current_usage = user.get(quota_parts[0], {}).get(quota_parts[1], 0)
     else:
         current_usage = user.get(quota_field, 0)
-    if current_usage >= limit and tier != "free":
-        raise HTTPException(status_code=403, detail={"code": "LIMIT_REACHED", "usage": current_usage, "limit": limit})
 
-    storage_limit = 5 * 1024 * 1024
-    if tier == "pro":
-        storage_limit = 20 * 1024 * 1024
-    elif tier == "business":
-        storage_limit = 50 * 1024 * 1024
-    current_storage = user.get("storageBytesUsed", 0)
-    if current_storage + total_size > storage_limit and tier != "free":
-        raise HTTPException(status_code=403, detail={"code": "STORAGE_LIMIT_REACHED", "message": f"Storage quota exceeded. Maximum {storage_limit / (1024*1024)}MB."})
+    logger.info(
+        f"Allowing AI extract request for user {user.get('email')} tier={tier} workspace={workspace} "
+        f"task_type={task_type} usage={current_usage}/{limit} files={len(files)} size={total_size}"
+    )
 
     file_contents = []
     for f in files:
