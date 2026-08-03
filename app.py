@@ -412,7 +412,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with bulletproof failover & full logging) --------------------
+# -------------------- AI ROUTER (bulletproof) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -569,7 +569,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "email": idinfo['email'],
                 "displayName": idinfo.get('name', idinfo['email']),
                 "tier": "free",
-                "dailyUsage": 0,                      # <-- SINGLE COUNTER
+                "dailyUsage": 0,
                 "storageBytesUsed": 0,
                 "lastUsageDate": datetime.utcnow(),
                 "customInstructions": "",
@@ -581,7 +581,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                     "lastTokenReset": datetime.utcnow()
                 },
                 "isAdmin": is_admin,
-                # Provider quotas for admin metrics
                 "dailyGroqQuota": 0,
                 "dailyOpenRouterQuota": 0,
                 "dailySambaNovaQuota": 0,
@@ -639,7 +638,6 @@ def check_user_rate_limit(user_id: str, tier: str):
         user_rate_limiter[user_id] = []
     user_rate_limiter[user_id] = [t for t in user_rate_limiter[user_id] if now - t < 60]
     if len(user_rate_limiter[user_id]) >= limit:
-        # We allow the request but log – we don't block to avoid false positives
         logger.info(f"Rate limit exceeded for user {user_id}, but allowing request (soft limit)")
     user_rate_limiter[user_id].append(now)
 
@@ -675,6 +673,28 @@ app.add_middleware(
     max_age=86400,
 )
 
+# ============================================================
+# GLOBAL EXCEPTION HANDLER – Returns JSON for any error
+# ============================================================
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "message": "Internal server error. Please try again later."}
+    )
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # If the detail is already a dict, return it as is
+    if isinstance(exc.detail, dict):
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+    else:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"success": False, "message": str(exc.detail)}
+        )
+
 # -------------------- HEALTH --------------------
 @app.get("/")
 @app.get("/api/health")
@@ -699,12 +719,11 @@ async def health():
 async def startup_event():
     app.state.start_time = time.time()
 
-# -------------------- USER PROFILE (updated) --------------------
+# -------------------- USER PROFILE --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    # Compute daily limit based on tier
     tier = user.get("tier", "free")
     if tier == "free":
         daily_limit = 5
@@ -718,7 +737,7 @@ async def get_profile(user: dict = Depends(get_current_user)):
     return {
         "tier": tier,
         "dailyUsage": user.get("dailyUsage", 0),
-        "dailyLimit": daily_limit,                     # <-- send limit to frontend
+        "dailyLimit": daily_limit,
         "customInstructions": user.get("customInstructions", ""),
         "tokenUsage": {
             "dailyPrompt": user.get("tokenUsage", {}).get("dailyPromptTokens", 0),
@@ -730,7 +749,6 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "email": user.get("email"),
         "stripeCustomerId": user.get("stripeCustomerId"),
         "stripeSubscriptionId": user.get("stripeSubscriptionId"),
-        # Provider quotas (for admin only)
         "dailyGroqQuota": user.get("dailyGroqQuota", 0),
         "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
         "dailySambaNovaQuota": user.get("dailySambaNovaQuota", 0),
@@ -938,7 +956,7 @@ async def create_report(data: ReportCreate, user: dict = Depends(get_current_use
             logger.warning(f"Report email failed: {e}")
     return {"success": True}
 
-# -------------------- PROMPT ENHANCEMENT (unchanged) --------------------
+# -------------------- PROMPT ENHANCEMENT --------------------
 class EnhanceRequest(BaseModel):
     promptText: str
 
@@ -969,7 +987,7 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
         limit = 15
     else:
         limit = 3
-    used = user.get("dailyUsage", 0)  # use the same dailyUsage
+    used = user.get("dailyUsage", 0)
     if used >= limit:
         raise HTTPException(status_code=403, detail={
             "code": "LIMIT_REACHED",
@@ -989,14 +1007,13 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     if not ai_result.get("success"):
         raise HTTPException(status_code=503, detail="AI service unavailable")
     enhanced = ai_result["text"]
-    # Increment dailyUsage for enhancement as well
     await users_col.update_one(
         {"_id": user["_id"]},
         {"$inc": {"dailyUsage": 1}}
     )
     return {"success": True, "enhanced": enhanced}
 
-# -------------------- EXTRACT (MAIN) with workspace‑aware file validation and fixed quota --------------------
+# -------------------- EXTRACT (MAIN) --------------------
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 if text else 0
 
@@ -1015,7 +1032,6 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
-    # Data workspace: images, PDF, CSV, Excel, text
     if workspace == "data":
         allowed_data_types = [
             "image/", "application/pdf", "text/csv", "text/plain",
@@ -1023,7 +1039,6 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
         ]
         allowed_data_exts = ('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt')
         return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(allowed_data_exts)
-    # Design workspace: images, all code files, text files
     elif workspace == "design":
         allowed_design_types = [
             "image/", "text/html", "text/css", "text/javascript", "text/x-python", "text/x-python-script",
@@ -1038,7 +1053,6 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
                                '.md', '.markdown', '.txt', '.xml', '.svg', '.wasm', '.dockerfile',
                                '.dockerignore', '.gitignore')
         return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(allowed_design_exts)
-    # General: allow all
     return True
 
 @app.post("/api/extract")
@@ -1052,21 +1066,17 @@ async def extract(
     sessionId: Optional[str] = Form(None),
     files: List[UploadFile] = File([])
 ):
-    
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
     client_ip = request.client.host if request.client else "unknown"
     check_user_rate_limit(user["_id"], user.get("tier", "free"))
 
-    # Validate workspace
     if workspace not in ["data", "design", "general"]:
         workspace = "data"
 
-    # Validate and filter files by workspace
     if len(files) > 5:
         raise HTTPException(status_code=400, detail="Too many files (max 5)")
 
-    # Filter out unsupported files
     valid_files = []
     rejected = []
     for f in files:
@@ -1093,8 +1103,7 @@ async def extract(
 
     tier = user.get("tier", "free")
 
-    # ---------- SIMPLIFIED QUOTA LOGIC ----------
-    # Determine daily limit based on tier
+    # Daily quota
     if tier == "free":
         daily_limit = 5
     elif tier == "pro":
@@ -1104,27 +1113,21 @@ async def extract(
     else:
         daily_limit = 5
 
-    # Get current daily usage
     daily_used = user.get("dailyUsage", 0)
 
-    # Reset if new day (handled in get_current_user, but double-check)
+    # Reset if new day
     now = datetime.utcnow()
     last_reset = user.get("lastUsageDate")
     if last_reset:
         last_day = datetime(last_reset.year, last_reset.month, last_reset.day)
         today = datetime(now.year, now.month, now.day)
         if today > last_day:
-            # Reset dailyUsage
             await users_col.update_one({"_id": user["_id"]}, {"$set": {"dailyUsage": 0, "lastUsageDate": now}})
-            daily_used = 0
-            # Also reset provider quotas in get_current_user handles it, but we already did earlier
-            # We'll refetch user
             user = await users_col.find_one({"_id": user["_id"]})
             daily_used = user.get("dailyUsage", 0)
 
     logger.info(f"User {user.get('email')} tier={tier} daily_used={daily_used}/{daily_limit}")
 
-    # Enforce limit
     if daily_used >= daily_limit:
         raise HTTPException(status_code=403, detail={
             "code": "LIMIT_REACHED",
@@ -1132,7 +1135,7 @@ async def extract(
             "limit": daily_limit
         })
 
-    # Storage limit (keep as is)
+    # Storage limit
     storage_limit = 5 * 1024 * 1024  # 5MB free
     if tier == "pro":
         storage_limit = 20 * 1024 * 1024
@@ -1178,17 +1181,22 @@ async def extract(
             if isRetry == "true" and history and history[-1].get("role") == "model":
                 history = history[:-2]
 
-    # AI call
-    ai_result = await route_ai_request(
-        workspace=workspace,
-        task_type=task_type,
-        prompt=command,
-        history=history,
-        files=file_contents,
-        max_tokens=2048,
-        temp=0.2,
-        tier=tier
-    )
+    # AI call – this should never raise, but wrap just in case
+    try:
+        ai_result = await route_ai_request(
+            workspace=workspace,
+            task_type=task_type,
+            prompt=command,
+            history=history,
+            files=file_contents,
+            max_tokens=2048,
+            temp=0.2,
+            tier=tier
+        )
+    except Exception as e:
+        logger.error(f"AI router raised unexpected exception: {e}", exc_info=True)
+        raise HTTPException(status_code=503, detail="AI service temporarily unavailable")
+
     if not ai_result.get("success"):
         raise HTTPException(status_code=503, detail="AI service unavailable")
 
@@ -1217,14 +1225,13 @@ async def extract(
             "tokenUsage.totalCompletionTokens": completion_tokens,
             "tokenUsage.dailyPromptTokens": prompt_tokens,
             "tokenUsage.dailyCompletionTokens": completion_tokens,
-            "dailyUsage": 1,                      # <-- increment single counter
+            "dailyUsage": 1,
             "storageBytesUsed": total_size,
         },
         "$set": {
             "lastUsageDate": datetime.utcnow()
         }
     }
-    # Track provider usage
     if provider == "groq":
         update_query["$inc"]["dailyGroqQuota"] = 1
     elif provider == "openrouter":
@@ -1235,9 +1242,10 @@ async def extract(
         update_query["$inc"]["dailyTogetherQuota"] = 1
     elif provider == "cerebras":
         update_query["$inc"]["dailyCerebrasQuota"] = 1
+
     await users_col.update_one({"_id": user["_id"]}, update_query)
 
-    # Save session (unchanged)
+    # Save session
     session_id_out = None
     filename_out = "Export.csv"
     session_saved = False
@@ -1322,7 +1330,7 @@ async def extract(
         "model": model_used
     }
 
-# -------------------- TOUCH FIX (unchanged) --------------------
+# -------------------- TOUCH FIX --------------------
 class TouchFixRequest(BaseModel):
     code: str
     error_message: str
@@ -1450,7 +1458,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS (unchanged, but now uses dailyUsage) --------------------
+# -------------------- ADMIN METRICS --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1464,7 +1472,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     business_users = await users_col.count_documents({"tier": "business"})
     total_chats = await sessions_col.count_documents({})
 
-    # Use dailyUsage as total queries
     pipeline_usage = [
         {"$group": {"_id": None, "totalQueries": {"$sum": "$dailyUsage"}, "totalBytes": {"$sum": "$storageBytesUsed"}}}
     ]
@@ -1571,7 +1578,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# -------------------- STRIPE CHECKOUT & WEBHOOK (unchanged) --------------------
+# -------------------- STRIPE CHECKOUT & WEBHOOK --------------------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
     subTier: str = "full"
