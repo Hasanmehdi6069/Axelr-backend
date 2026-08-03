@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v13.1 (Elite Production)
-Zero‑cost, multi‑provider AI routing with enterprise‑grade failover,
-per‑user rate limiting, real‑time admin metrics, and bulletproof caching.
+AXELR AI - UNIFIED FORTRESS v13.2 (Elite Production – AI Fixed)
+Zero‑cost, 6‑provider AI routing with enterprise‑grade failover,
+workspace‑aware file handling, accurate quota, and real admin metrics.
 """
 
 import os
@@ -72,9 +72,13 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
+# AI API Keys
 GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
+TOGETHER_API_KEY = (os.getenv("TOGETHER_API_KEY") or "").strip()
+CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
+
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
 # -------------------- STRIPE INIT --------------------
@@ -185,63 +189,37 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- 8‑MODEL MATRIX --------------------
-# These are the safest public-provider defaults for Render-based deployments.
+# -------------------- 8‑MODEL MATRIX (OpenRouter IDs with :free) --------------------
 MODEL_MATRIX = {
-    "analytics":   "meta-llama/llama-3.1-8b-instruct",
-    "extraction":  "meta-llama/llama-3.1-8b-instruct",
-    "scripting":   "meta-llama/llama-3.1-8b-instruct",
-    "fullstack":   "meta-llama/llama-3.1-8b-instruct",
-    "frontend":    "meta-llama/llama-3.1-8b-instruct",
-    "touch_fix":   "meta-llama/llama-3.1-8b-instruct",
-    "structuring": "meta-llama/llama-3.1-8b-instruct",
-    "logic_math":  "microsoft/phi-4-mini-instruct",
+    "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
+    "extraction":  "qwen/qwen-2.5-72b-instruct:free",
+    "scripting":   "meta-llama/llama-3.1-8b-instruct:free",
+    "fullstack":   "deepseek/deepseek-r1-distill-llama-70b:free",
+    "frontend":    "qwen/qwen-2.5-coder-32b:free",
+    "touch_fix":   "mistralai/codestral-22b-v0.1:free",
+    "structuring": "meta-llama/llama-3.1-8b-instruct:free",
+    "logic_math":  "qwen/qwen-2.5-math-72b-instruct:free",
 }
-FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct"
-
+FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-
 def get_provider_model(provider: str, task_type: str) -> str:
     if provider == "openrouter":
-        configured = (os.getenv("OPENROUTER_MODEL") or MODEL_MATRIX.get(task_type, FALLBACK_MODEL) or "").strip()
-        return configured or MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
-    if provider == "sambanova":
-        return os.getenv("SAMBANOVA_MODEL") or "Meta-Llama-3.1-8B-Instruct"
+        return select_model(task_type)
     if provider == "groq":
-        return os.getenv("GROQ_MODEL") or "llama-3.3-70b-versatile"
+        return "llama-3.1-70b-versatile"
+    if provider == "sambanova":
+        return "Meta-Llama-3.1-8B-Instruct"
+    if provider == "together":
+        return "meta-llama/Llama-3.3-70B-Instruct-Turbo"
+    if provider == "cerebras":
+        return "llama3.1-8b"
     return ""
 
-
-def normalize_provider_model(provider: str, model: str) -> str:
-    if provider != "openrouter":
-        return model
-    if not model:
-        return model
-    if model.endswith(":free"):
-        model = model[:-5]
-    if model in {"meta-llama/llama-3.1-8b-instruct:free", "meta-llama/llama-3.1-8b-instruct"}:
-        return "meta-llama/llama-3.1-8b-instruct"
-    return model
-
 # -------------------- AI PROVIDERS --------------------
-async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not GROQ_API_KEY:
-        raise Exception("GROQ_API_KEY missing")
-    url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
-    payload = {
-        "model": model or get_provider_model("groq", "scripting"),
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": min(max_tokens, 1024),
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    return resp["choices"][0]["message"]["content"]
-
+# OpenRouter
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float) -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY missing")
@@ -261,6 +239,23 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float)
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
+# Groq
+async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not GROQ_API_KEY:
+        raise Exception("GROQ_API_KEY missing")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": model or get_provider_model("groq", "scripting"),
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": min(max_tokens, 1024),
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    return resp["choices"][0]["message"]["content"]
+
+# SambaNova
 async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not SAMBANOVA_API_KEY:
         raise Exception("SAMBANOVA_API_KEY missing")
@@ -275,6 +270,39 @@ async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
+# Together AI
+async def call_together(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not TOGETHER_API_KEY:
+        raise Exception("TOGETHER_API_KEY missing")
+    url = "https://api.together.xyz/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": model or get_provider_model("together", "scripting"),
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# Cerebras
+async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not CEREBRAS_API_KEY:
+        raise Exception("CEREBRAS_API_KEY missing")
+    url = "https://api.cerebras.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {CEREBRAS_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": model or get_provider_model("cerebras", "scripting"),
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# Pollinations (no key)
 async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     import urllib.parse
     encoded = urllib.parse.quote(prompt[:500])
@@ -284,6 +312,7 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     try:
         response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=30)
         content = response.read().decode('utf-8')
+        # If response is JSON, extract text; else return raw
         try:
             data = json.loads(content)
             if isinstance(data, dict) and "text" in data:
@@ -297,26 +326,7 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     except Exception as e:
         raise Exception(f"Pollinations failed: {e}")
 
-async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    ollama_url = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434/api/chat")
-    payload = {
-        "model": model or os.getenv("OLLAMA_MODEL", "llama3.2:3b"),
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-        "options": {
-            "num_predict": min(max_tokens, 1024),
-            "temperature": temp,
-        },
-    }
-    resp = await http_post_async(ollama_url, {"Content-Type": "application/json"}, payload, timeout=90)
-    if isinstance(resp, dict):
-        if isinstance(resp.get("message"), dict) and isinstance(resp["message"].get("content"), str):
-            return resp["message"]["content"]
-        if isinstance(resp.get("response"), str):
-            return resp["response"]
-    raise Exception("Ollama returned an unexpected payload")
-
-
+# Local fallback (always works)
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
@@ -342,20 +352,21 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
         "I can help with a concise plan, code snippet, or structured answer right away."
     )
 
-
-async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None, workspace: str = "general", task_type: str = "general") -> str:
+async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
-
+# Provider chain (ordered by quality & reliability)
 PROVIDER_CHAIN = [
     ("openrouter", call_openrouter, {}),
     ("groq", call_groq, {}),
     ("sambanova", call_sambanova, {}),
-    ("ollama", call_ollama, {}),
+    ("together", call_together, {}),
+    ("cerebras", call_cerebras, {}),
     ("pollinations", call_pollinations, {}),
     ("local", call_local_fallback, {}),
 ]
 
+# -------------------- MASTER SYSTEM PROMPT --------------------
 MASTER_PROMPT = (
     "You are AXELR, an elite executive AI operating in zero-cost, production-safe mode. "
     "Always answer directly, clearly, and usefully. Never claim a service is unavailable unless all configured paths fail. "
@@ -364,7 +375,6 @@ MASTER_PROMPT = (
     "Do not mention subscriptions, paid plans, or avoidable fluff."
 )
 
-# -------------------- SYSTEM PROMPT --------------------
 def get_system_prompt(workspace: str, task_type: str) -> str:
     base = (
         f"{MASTER_PROMPT} "
@@ -389,7 +399,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with bulletproof failover) --------------------
+# -------------------- AI ROUTER (with full 6‑provider failover) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -401,6 +411,7 @@ async def route_ai_request(
     tier: str
 ) -> Dict[str, Any]:
     start = time.time()
+    # Build full prompt with history
     history_text = ""
     if history:
         recent_entries = []
@@ -426,55 +437,65 @@ async def route_ai_request(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
+    # Security
     if detect_manipulation(prompt):
         return {"success": False, "text": "Manipulation detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
 
+    # Cache
     cache_key = hashlib.sha256(f"{workspace}:{task_type}:{full_prompt}".encode()).hexdigest()
     if cache_key in ai_cache:
         cached = ai_cache[cache_key]
         return {**cached, "cached": True}
 
+    # Select primary model for this task
     primary_model = MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
-    openrouter_model = normalize_provider_model("openrouter", get_provider_model("openrouter", task_type))
-    sambanova_model = get_provider_model("sambanova", task_type)
 
     response_text = None
     provider_used = None
     model_used = None
     last_error = None
 
+    # Try each provider in order
     for name, func, kwargs in PROVIDER_CHAIN:
-        if name == "local":
-            pass
-        elif provider_failures[name] >= 3 and time.time() - provider_last_fail[name] < PROVIDER_COOLDOWN:
-            logger.warning(f"Skipping provider {name} due to circuit breaker (cooldown)")
-            continue
+        # Skip if API key missing for non‑local providers
         if name == "openrouter" and not OPENROUTER_API_KEY:
-            logger.info("Skipping openrouter because OPENROUTER_API_KEY is missing")
+            logger.info("Skipping openrouter – no API key")
             continue
         if name == "groq" and not GROQ_API_KEY:
-            logger.info("Skipping groq because GROQ_API_KEY is missing")
+            logger.info("Skipping groq – no API key")
             continue
         if name == "sambanova" and not SAMBANOVA_API_KEY:
-            logger.info("Skipping sambanova because SAMBANOVA_API_KEY is missing")
+            logger.info("Skipping sambanova – no API key")
+            continue
+        if name == "together" and not TOGETHER_API_KEY:
+            logger.info("Skipping together – no API key")
+            continue
+        if name == "cerebras" and not CEREBRAS_API_KEY:
+            logger.info("Skipping cerebras – no API key")
+            continue
+        # Circuit breaker
+        if provider_failures[name] >= 3 and time.time() - provider_last_fail[name] < PROVIDER_COOLDOWN:
+            logger.warning(f"Skipping provider {name} due to circuit breaker (cooldown)")
             continue
         try:
-            for attempt in range(2):
+            for attempt in range(2):  # retry once
                 try:
                     if name == "openrouter":
-                        response_text = await func(openrouter_model, full_prompt, max_tokens, temp)
+                        response_text = await func(primary_model, full_prompt, max_tokens, temp)
                     elif name == "sambanova":
-                        response_text = await func(full_prompt, max_tokens, temp, sambanova_model)
+                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("sambanova", task_type))
                     elif name == "groq":
                         response_text = await func(full_prompt, max_tokens, temp, get_provider_model("groq", task_type))
-                    elif name == "ollama":
-                        response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
+                    elif name == "together":
+                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("together", task_type))
+                    elif name == "cerebras":
+                        response_text = await func(full_prompt, max_tokens, temp, get_provider_model("cerebras", task_type))
                     elif name == "local":
-                        response_text = await func(full_prompt, max_tokens, temp, None, workspace, task_type)
+                        response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
                     else:
                         response_text = await func(full_prompt, max_tokens, temp)
                     provider_used = name
-                    model_used = openrouter_model if name == "openrouter" else (sambanova_model if name == "sambanova" else (get_provider_model("groq", task_type) if name == "groq" else name))
+                    model_used = primary_model if name == "openrouter" else get_provider_model(name, task_type)
                     provider_failures[name] = 0
                     break
                 except Exception as e:
@@ -492,11 +513,12 @@ async def route_ai_request(
             provider_last_fail[name] = time.time()
             continue
 
+    # If still no response (should never happen because local always works)
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
         provider_used = "local"
         model_used = "local-fallback"
-        logger.error(f"All AI providers failed. Last error: {last_error}")
+        logger.error(f"All providers failed. Last error: {last_error}")
 
     response_text = strip_fluff(response_text)
     latency = (time.time() - start) * 1000
@@ -554,6 +576,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "dailyGroqQuota": 0,
                 "dailyOpenRouterQuota": 0,
                 "dailySambaNovaQuota": 0,
+                "dailyTogetherQuota": 0,
+                "dailyCerebrasQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow()
             }
             result = await users_col.insert_one(new_user)
@@ -563,6 +587,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
             if user_doc.get("isAdmin") != is_admin:
                 await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"isAdmin": is_admin}})
                 user_doc["isAdmin"] = is_admin
+            # Reset daily quotas if new day
             now = datetime.utcnow()
             today = datetime(now.year, now.month, now.day)
             last_reset = user_doc["quotas"]["lastQuotaReset"]
@@ -584,6 +609,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "dailyGroqQuota": 0,
                             "dailyOpenRouterQuota": 0,
                             "dailySambaNovaQuota": 0,
+                            "dailyTogetherQuota": 0,
+                            "dailyCerebrasQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
                     )
@@ -593,7 +620,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         logger.error(f"Auth failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-# -------------------- PER‑USER RATE LIMITING --------------------
+# -------------------- PER‑USER RATE LIMITING (soft) --------------------
 user_rate_limiter = {}
 RATE_LIMITS = {
     "free": 2,
@@ -624,7 +651,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="13.1", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="13.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -692,6 +719,8 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailyGroqQuota": user.get("dailyGroqQuota", 0),
         "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
         "dailySambaNovaQuota": user.get("dailySambaNovaQuota", 0),
+        "dailyTogetherQuota": user.get("dailyTogetherQuota", 0),
+        "dailyCerebrasQuota": user.get("dailyCerebrasQuota", 0),
     }
 
 class InstructionsUpdate(BaseModel):
@@ -961,7 +990,7 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     )
     return {"success": True, "enhanced": enhanced}
 
-# -------------------- EXTRACT (MAIN) --------------------
+# -------------------- EXTRACT (MAIN) with workspace‑aware file validation --------------------
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 if text else 0
 
@@ -979,6 +1008,24 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
         return " ".join(words[:3])[:60]
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
+def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
+    # For Data workspace: allow images, PDF, CSV, Excel, text/plain
+    if workspace == "data":
+        allowed_data_types = [
+            "image/", "application/pdf", "text/csv", "text/plain",
+            "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        ]
+        return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp'))
+    # For Design workspace: allow images and code files
+    elif workspace == "design":
+        allowed_design_types = [
+            "image/", "text/html", "text/css", "text/javascript", "text/x-python",
+            "application/javascript", "application/json", "text/x-js", "text/x-python-script"
+        ]
+        return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(('.html', '.css', '.js', '.py', '.json', '.txt', '.md'))
+    # General: allow all
+    return True
+
 @app.post("/api/extract")
 async def extract(
     request: Request,
@@ -995,24 +1042,33 @@ async def extract(
     client_ip = request.client.host if request.client else "unknown"
     check_user_rate_limit(user["_id"], user.get("tier", "free"))
 
-    if task_type is None:
-        if workspace == "data":
-            task_type = "extraction"
-        elif workspace == "design":
-            task_type = "frontend"
-        else:
-            task_type = "structuring"
-    supported_types = list(MODEL_MATRIX.keys())
-    if task_type not in supported_types:
-        task_type = "extraction" if workspace == "data" else "frontend"
-
+    # Validate workspace
     if workspace not in ["data", "design", "general"]:
         workspace = "data"
-    ObjectId = get_object_id()
-    if sessionId and (not ObjectId or not ObjectId.is_valid(sessionId)):
-        sessionId = None
+
+    # Validate and filter files by workspace
     if len(files) > 5:
-        raise HTTPException(status_code=400, detail="Too many files")
+        raise HTTPException(status_code=400, detail="Too many files (max 5)")
+
+    # Filter out unsupported files
+    valid_files = []
+    for f in files:
+        if is_allowed_file(workspace, f.filename, f.content_type or ""):
+            valid_files.append(f)
+        else:
+            logger.warning(f"File rejected for workspace {workspace}: {f.filename} ({f.content_type})")
+            # We'll return a warning but still process other files – or raise error?
+            # Better to raise to inform user.
+    if len(valid_files) < len(files):
+        # Some files were rejected; send a clear message
+        rejected = [f.filename for f in files if f not in valid_files]
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type(s) for {workspace} workspace: {', '.join(rejected)}. "
+                   f"Allowed: {'images, PDF, CSV, Excel' if workspace=='data' else 'images, HTML, CSS, JS, Python'}."
+        )
+    files = valid_files
+
     total_size = 0
     for f in files:
         file_size = f.size or 0
@@ -1027,6 +1083,7 @@ async def extract(
     has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
     is_design = workspace == "design"
 
+    # Determine quota limits
     if tier == "free":
         data_limit = 5
         ui_limit = 0
@@ -1067,17 +1124,34 @@ async def extract(
         limit = data_limit
         quota_field = "quotas.dailyExtractionsUsed"
 
+    # Get current usage
     quota_parts = quota_field.split('.')
     if len(quota_parts) == 2:
         current_usage = user.get(quota_parts[0], {}).get(quota_parts[1], 0)
     else:
         current_usage = user.get(quota_field, 0)
 
-    logger.info(
-        f"Allowing AI extract request for user {user.get('email')} tier={tier} workspace={workspace} "
-        f"task_type={task_type} usage={current_usage}/{limit} files={len(files)} size={total_size}"
-    )
+    logger.info(f"User {user.get('email')} tier={tier} workspace={workspace} usage={current_usage}/{limit}")
 
+    # Enforce quota (if limit > 0)
+    if limit > 0 and current_usage >= limit:
+        raise HTTPException(status_code=403, detail={
+            "code": "LIMIT_REACHED",
+            "usage": current_usage,
+            "limit": limit
+        })
+
+    # Storage limit (not strictly enforced, but keep)
+    storage_limit = 5 * 1024 * 1024  # 5MB free
+    if tier == "pro":
+        storage_limit = 20 * 1024 * 1024
+    elif tier == "business":
+        storage_limit = 50 * 1024 * 1024
+    current_storage = user.get("storageBytesUsed", 0)
+    if current_storage + total_size > storage_limit:
+        raise HTTPException(status_code=403, detail={"code": "STORAGE_LIMIT_REACHED", "message": f"Storage quota exceeded. Maximum {storage_limit / (1024*1024)}MB."})
+
+    # Read files
     file_contents = []
     for f in files:
         content_bytes = await f.read()
@@ -1088,6 +1162,22 @@ async def extract(
             "content_base64": b64
         })
 
+    # Determine task_type
+    if task_type is None:
+        if workspace == "data":
+            task_type = "extraction"
+        elif workspace == "design":
+            task_type = "frontend"
+        else:
+            task_type = "structuring"
+    supported_types = list(MODEL_MATRIX.keys())
+    if task_type not in supported_types:
+        task_type = "extraction" if workspace == "data" else "frontend"
+
+    ObjectId = get_object_id()
+    if sessionId and (not ObjectId or not ObjectId.is_valid(sessionId)):
+        sessionId = None
+
     current_session = None
     history = []
     if sessionId and ObjectId:
@@ -1097,6 +1187,7 @@ async def extract(
             if isRetry == "true" and history and history[-1].get("role") == "model":
                 history = history[:-2]
 
+    # AI call
     ai_result = await route_ai_request(
         workspace=workspace,
         task_type=task_type,
@@ -1114,6 +1205,7 @@ async def extract(
     provider = ai_result.get("provider")
     model_used = ai_result.get("model_used")
 
+    # Parse JSON data if present
     structured = []
     json_match = re.search(r'\[JSON-DATA\](.*?)\[/JSON-DATA\]', ai_text, re.DOTALL)
     if json_match:
@@ -1125,6 +1217,7 @@ async def extract(
     if not ai_text:
         ai_text = "I am Axelr AI. How can I help you?"
 
+    # Update usage and tokens
     prompt_tokens = estimate_tokens(command) + sum(estimate_tokens(f["filename"]) + len(f["content_base64"]) // 4 for f in file_contents)
     completion_tokens = estimate_tokens(ai_text)
     update_query = {
@@ -1136,16 +1229,25 @@ async def extract(
             quota_field: 1,
             "dailyUsage": 1,
             "storageBytesUsed": total_size,
+        },
+        "$set": {
+            "lastUsageDate": datetime.utcnow()
         }
     }
+    # Track provider usage
     if provider == "groq":
         update_query["$inc"]["dailyGroqQuota"] = 1
     elif provider == "openrouter":
         update_query["$inc"]["dailyOpenRouterQuota"] = 1
     elif provider == "sambanova":
         update_query["$inc"]["dailySambaNovaQuota"] = 1
+    elif provider == "together":
+        update_query["$inc"]["dailyTogetherQuota"] = 1
+    elif provider == "cerebras":
+        update_query["$inc"]["dailyCerebrasQuota"] = 1
     await users_col.update_one({"_id": user["_id"]}, update_query)
 
+    # Save session
     session_id_out = None
     filename_out = "Export.csv"
     session_saved = False
@@ -1264,7 +1366,7 @@ Return only the corrected code, without any explanation.
         fixed_code = code_match.group(1).strip()
     return {"success": True, "fixed_code": fixed_code}
 
-# -------------------- DEPLOY --------------------
+# -------------------- DEPLOY (unchanged) --------------------
 def _build_multipart(data: Dict, files: Dict) -> (bytes, str):
     boundary = '----WebKitFormBoundary' + hashlib.md5(os.urandom(16)).hexdigest()
     body_parts = []
@@ -1358,7 +1460,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS --------------------
+# -------------------- ADMIN METRICS (updated for new providers) --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1389,29 +1491,42 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         {"$group": {"_id": None,
                     "totalGroq": {"$sum": "$dailyGroqQuota"},
                     "totalOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
-                    "totalSambaNova": {"$sum": "$dailySambaNovaQuota"}}}
+                    "totalSambaNova": {"$sum": "$dailySambaNovaQuota"},
+                    "totalTogether": {"$sum": "$dailyTogetherQuota"},
+                    "totalCerebras": {"$sum": "$dailyCerebrasQuota"}}}
     ]
     provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
-    provider_totals = provider_result[0] if provider_result else {"totalGroq":0, "totalOpenRouter":0, "totalSambaNova":0}
+    provider_totals = provider_result[0] if provider_result else {
+        "totalGroq":0, "totalOpenRouter":0, "totalSambaNova":0, "totalTogether":0, "totalCerebras":0
+    }
 
     pipeline_daily_provider = [
         {"$match": {"lastAiQuotaReset": {"$gte": today}}},
         {"$group": {"_id": None,
                     "dailyGroq": {"$sum": "$dailyGroqQuota"},
                     "dailyOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
-                    "dailySambaNova": {"$sum": "$dailySambaNovaQuota"}}}
+                    "dailySambaNova": {"$sum": "$dailySambaNovaQuota"},
+                    "dailyTogether": {"$sum": "$dailyTogetherQuota"},
+                    "dailyCerebras": {"$sum": "$dailyCerebrasQuota"}}}
     ]
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
-    daily_provider = daily_provider_result[0] if daily_provider_result else {"dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0}
+    daily_provider = daily_provider_result[0] if daily_provider_result else {
+        "dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0, "dailyTogether":0, "dailyCerebras":0
+    }
 
+    # Limits
     groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
     openrouter_limit = int(os.getenv("OPENROUTER_DAILY_LIMIT", 1000))
     sambanova_limit = int(os.getenv("SAMBANOVA_DAILY_LIMIT", 200))
+    together_limit = int(os.getenv("TOGETHER_DAILY_LIMIT", 200))
+    cerebras_limit = int(os.getenv("CEREBRAS_DAILY_LIMIT", 200))
 
     daily_usage = {
         "groq": daily_provider["dailyGroq"],
         "openrouter": daily_provider["dailyOpenRouter"],
         "sambanova": daily_provider["dailySambaNova"],
+        "together": daily_provider["dailyTogether"],
+        "cerebras": daily_provider["dailyCerebras"],
     }
     active_provider = max(daily_usage, key=daily_usage.get) if any(daily_usage.values()) else "openrouter"
 
@@ -1447,12 +1562,18 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "groq": provider_totals["totalGroq"],
             "openRouter": provider_totals["totalOpenRouter"],
             "sambaNova": provider_totals["totalSambaNova"],
+            "together": provider_totals["totalTogether"],
+            "cerebras": provider_totals["totalCerebras"],
             "dailyGroq": daily_provider["dailyGroq"],
             "dailyOpenRouter": daily_provider["dailyOpenRouter"],
             "dailySambaNova": daily_provider["dailySambaNova"],
+            "dailyTogether": daily_provider["dailyTogether"],
+            "dailyCerebras": daily_provider["dailyCerebras"],
             "groqLimit": groq_limit,
             "openRouterLimit": openrouter_limit,
             "sambaNovaLimit": sambanova_limit,
+            "togetherLimit": together_limit,
+            "cerebrasLimit": cerebras_limit,
             "activeProvider": active_provider,
         },
         "dailyQueries": daily_queries,
@@ -1460,7 +1581,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# -------------------- STRIPE CHECKOUT & WEBHOOK --------------------
+# -------------------- STRIPE CHECKOUT & WEBHOOK (unchanged) --------------------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
     subTier: str = "full"
