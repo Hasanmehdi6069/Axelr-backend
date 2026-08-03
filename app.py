@@ -338,11 +338,21 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
-# 8. Local fallback (always works, context‑aware)
+# 8. Local fallback (always works, context‑aware) - UPDATED to handle greetings
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
         return "I can help with that. Please share the task details and I will provide a structured response."
+
+    # Check for simple greetings / general questions
+    lower = prompt_text.lower()
+    greetings = ["hello", "hi", "hey", "how are you", "what's up", "good morning", "good afternoon", "good evening"]
+    if any(lower.startswith(g) for g in greetings) or len(prompt_text.split()) < 4:
+        return (
+            "Hello! I'm **Axelr AI**, your intelligent assistant. "
+            "I can help you with data extraction, UI/UX generation, code debugging, and more. "
+            "Feel free to upload a file or describe your task, and I'll get to work!"
+        )
 
     if workspace == "design":
         return (
@@ -509,8 +519,8 @@ async def route_ai_request(
                         response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
                     elif name == "pollinations":
                         response_text = await func(full_prompt, max_tokens, temp)
-                    else:  # local fallback
-                        response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
+                    else:  # local fallback - FIX: pass original prompt, not full_prompt
+                        response_text = await func(prompt, max_tokens, temp, workspace, task_type)
                     provider_used = name
                     model_used = primary_model if name == "openrouter" else (os.getenv(f"{name.upper()}_MODEL") or name)
                     provider_failures[name] = 0
