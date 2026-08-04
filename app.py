@@ -1954,19 +1954,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
     }
-let providerHtml = '';
-if (data.providerStatus) {
-    providerHtml = `<div style="border-top:1px solid var(--border-muted);margin:10px 0;"></div>
-    <div style="font-weight:600;margin-bottom:8px;">Provider Health</div>
-    <table style="width:100%;font-size:12px;border-collapse:collapse;">
-        <tr><th style="text-align:left;">Provider</th><th>Status</th><th>Daily Usage</th></tr>`;
-    for (const [name, info] of Object.entries(data.providerStatus)) {
-        const statusColor = info.status === 'active' ? '#10b981' : info.status === 'cooldown' ? '#f59e0b' : '#ef4444';
-        providerHtml += `<tr><td>${name}</td><td style="color:${statusColor};">${info.status}</td><td>${info.daily_usage || 0}</td></tr>`;
-    }
-    providerHtml += `</table>`;
-}
-document.getElementById('admin-metrics-container').innerHTML = `...existing metrics... ${providerHtml}`;
+
 # -------------------- STRIPE CHECKOUT & WEBHOOK (unchanged) --------------------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
