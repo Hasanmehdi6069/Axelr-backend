@@ -665,18 +665,19 @@ async def route_ai_request(
                 continue
         else:
             # Providers with model list
+                        # Providers with model list
             if not models:
                 # Fallback to environment default or a known model
                 if provider_name == "groq":
                     models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
                 elif provider_name == "openrouter":
-    models = [
-        "google/gemma-2-9b-it:free",
-        "microsoft/phi-3-mini-128k-instruct:free",
-        "nousresearch/hermes-3-llama-3.1-8b:free",
-        "mistralai/mistral-7b-instruct:free",
-        "deepseek/deepseek-r1-distill-llama-70b:free"
-    ]
+                    models = [
+                        "google/gemma-2-9b-it:free",
+                        "microsoft/phi-3-mini-128k-instruct:free",
+                        "nousresearch/hermes-3-llama-3.1-8b:free",
+                        "mistralai/mistral-7b-instruct:free",
+                        "deepseek/deepseek-r1-distill-llama-70b:free"
+                    ]
                 elif provider_name == "together":
                     models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
                 else:
@@ -733,12 +734,11 @@ async def route_ai_request(
                     continue
             if response_text:
                 break  # break provider loop
-
-    # Stage 2: If still no response, try all providers in parallel (except local) to catch any that might respond quickly
-   # Stage 2: Parallel attempt across ALL models of ALL providers (except local)
-if not response_text:
-    logger.info("All ordered providers failed. Attempting parallel fallback on all models...")
-    parallel_tasks = []
+    # Stage 2: If still no response, try all providers in parallel
+    if not response_text:
+        logger.info("All ordered providers failed. Attempting parallel fallback on all models...")
+        parallel_tasks = []
+        # ... rest of the parallel logic
     for provider_name, func in PROVIDER_CHAIN:
         if provider_name in ["local"]:
             continue
