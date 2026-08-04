@@ -231,12 +231,12 @@ def select_model(task_type: str) -> str:
 # For other providers, we use their free tier models.
 PROVIDER_MODELS = {
     "openrouter": [
-        "google/gemma-2-9b-it",           # Free
-        "microsoft/phi-3-mini-128k-instruct",  # Free
-        "mistralai/mistral-7b-instruct",  # Free
-        "qwen/qwen-2.5-72b-instruct",     # Free
-        "meta-llama/llama-3.1-8b-instruct", # Paid? but we keep as last resort
-    ],
+    "google/gemma-2-9b-it:free",                     # works as of August 2026
+    "microsoft/phi-3-mini-128k-instruct:free",       # works
+    "nousresearch/hermes-3-llama-3.1-8b:free",       # works
+    "mistralai/mistral-7b-instruct:free",            # works (was missing)
+    "deepseek/deepseek-r1-distill-llama-70b:free",   # may work but large
+],
     "groq": [
         "llama-3.1-8b-instant",
         "llama-3.1-70b-versatile",
@@ -681,7 +681,7 @@ async def route_ai_request(
             for model in models:
                 try:
                     # Attempt up to 2 retries per model
-                    for attempt in range(2):
+                    for attempt in range(1):
                         try:
                             if provider_name == "openrouter":
                                 response_text = await func(model, full_prompt, max_tokens, temp)
