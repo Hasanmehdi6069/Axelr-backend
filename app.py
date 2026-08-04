@@ -30,7 +30,8 @@ try:
     load_dotenv(override=True)
 except ImportError:
     pass
-
+if not os.getenv("RENDER"):
+    load_dotenv(override=True)
 # ---------- STRIPE (optional) ----------
 STRIPE_AVAILABLE = False
 stripe = None
@@ -231,12 +232,12 @@ def select_model(task_type: str) -> str:
 # For other providers, we use their free tier models.
 PROVIDER_MODELS = {
     "openrouter": [
-    "google/gemma-2-9b-it:free",                     # works as of August 2026
-    "microsoft/phi-3-mini-128k-instruct:free",       # works
-    "nousresearch/hermes-3-llama-3.1-8b:free",       # works
-    "mistralai/mistral-7b-instruct:free",            # works (was missing)
-    "deepseek/deepseek-r1-distill-llama-70b:free",   # may work but large
-],
+        "google/gemma-2-9b-it:free",
+        "microsoft/phi-3-mini-128k-instruct:free",
+        "nousresearch/hermes-3-llama-3.1-8b:free",
+        "mistralai/mistral-7b-instruct:free",
+        "deepseek/deepseek-r1-distill-llama-70b:free",
+    ],
     "groq": [
         "llama-3.1-8b-instant",
         "llama-3.1-70b-versatile",
@@ -244,40 +245,42 @@ PROVIDER_MODELS = {
         "mixtral-8x7b-32768",
     ],
     "sambanova": [
-        "Meta-Llama-3.1-8B-Instruct-4096",  # Updated model (if available)
-        "Meta-Llama-3.1-8B-Instruct",       # Deprecated, but fallback
+        "Meta-Llama-3.1-8B-Instruct-4096",   # newer model
+        "Meta-Llama-3.1-8B-Instruct",
     ],
     "together": [
         "meta-llama/Llama-3.1-8B-Instruct-Turbo",
+        "meta-llama/Llama-3.1-70B-Instruct-Turbo",
         "mistralai/Mistral-7B-Instruct-v0.3",
         "NousResearch/Hermes-2-Pro-Llama-3-8B",
-        "meta-llama/Llama-3.1-70B-Instruct-Turbo",
         "google/gemma-2-9b-it",
+        "upstage/SOLAR-10.7B-Instruct-v1.0",
     ],
     "cerebras": [
         "llama3.1-8b",
-        "llama3.1-70b",   # if available
+        "llama3.1-70b",
     ],
     "byteplus": [
         "deepseek-r1-250120",
-        "deepseek-r1-250120",  # only one known
     ],
     "mistral": [
         "mistral-tiny",
         "mistral-small",
         "open-mistral-7b",
+        "open-mixtral-8x7b",
     ],
     "nvidia": [
         "nvidia/llama-3.1-70b-instruct",
-        "nvidia/llama-3.1-8b-instruct",  # if available
+        "nvidia/llama-3.1-8b-instruct",
     ],
     "deepinfra": [
         "meta-llama/Llama-3.1-70B-Instruct",
         "meta-llama/Llama-3.1-8B-Instruct",
         "mistralai/Mistral-7B-Instruct-v0.3",
         "google/gemma-2-9b-it",
+        "deepseek-ai/deepseek-coder-6.7b-instruct",
     ],
-    "pollinations": [],   # no model list needed
+    "pollinations": [],
     "ollama": [],
     "local": [],
 }
@@ -667,7 +670,13 @@ async def route_ai_request(
                 if provider_name == "groq":
                     models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
                 elif provider_name == "openrouter":
-                    models = ["google/gemma-2-9b-it", "microsoft/phi-3-mini-128k-instruct"]
+    models = [
+        "google/gemma-2-9b-it:free",
+        "microsoft/phi-3-mini-128k-instruct:free",
+        "nousresearch/hermes-3-llama-3.1-8b:free",
+        "mistralai/mistral-7b-instruct:free",
+        "deepseek/deepseek-r1-distill-llama-70b:free"
+    ]
                 elif provider_name == "together":
                     models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
                 else:
@@ -726,90 +735,66 @@ async def route_ai_request(
                 break  # break provider loop
 
     # Stage 2: If still no response, try all providers in parallel (except local) to catch any that might respond quickly
-    if not response_text:
-        logger.info("All ordered providers failed. Attempting parallel fallback...")
-        parallel_tasks = []
-        for provider_name, func in PROVIDER_CHAIN:
-            if provider_name in ["local"]:
-                continue
-            # Skip if key missing
-            if provider_name == "openrouter" and not OPENROUTER_API_KEY:
-                continue
-            if provider_name == "groq" and not GROQ_API_KEY:
-                continue
-            if provider_name == "sambanova" and not SAMBANOVA_API_KEY:
-                continue
-            if provider_name == "together" and not TOGETHER_API_KEY:
-                continue
-            if provider_name == "cerebras" and not CEREBRAS_API_KEY:
-                continue
-            if provider_name == "byteplus" and not BYTEPLUS_API_KEY:
-                continue
-            if provider_name == "mistral" and not MISTRAL_API_KEY:
-                continue
-            if provider_name == "nvidia" and not NVIDIA_API_KEY:
-                continue
-            if provider_name == "deepinfra" and not DEEPINFRA_API_KEY:
-                continue
-            if provider_name == "ollama" and not os.getenv("OLLAMA_URL"):
-                continue
-            # For each, we'll try the first model in its list (or fallback)
-            models = PROVIDER_MODELS.get(provider_name, [])
-            if not models:
-                if provider_name == "groq":
-                    models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
-                elif provider_name == "openrouter":
-                    models = ["google/gemma-2-9b-it"]
-                elif provider_name == "together":
-                    models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
+   # Stage 2: Parallel attempt across ALL models of ALL providers (except local)
+if not response_text:
+    logger.info("All ordered providers failed. Attempting parallel fallback on all models...")
+    parallel_tasks = []
+    for provider_name, func in PROVIDER_CHAIN:
+        if provider_name in ["local"]:
+            continue
+        # Skip if key missing (same checks as before)
+        if provider_name == "openrouter" and not OPENROUTER_API_KEY: continue
+        if provider_name == "groq" and not GROQ_API_KEY: continue
+        if provider_name == "sambanova" and not SAMBANOVA_API_KEY: continue
+        if provider_name == "together" and not TOGETHER_API_KEY: continue
+        if provider_name == "cerebras" and not CEREBRAS_API_KEY: continue
+        if provider_name == "byteplus" and not BYTEPLUS_API_KEY: continue
+        if provider_name == "mistral" and not MISTRAL_API_KEY: continue
+        if provider_name == "nvidia" and not NVIDIA_API_KEY: continue
+        if provider_name == "deepinfra" and not DEEPINFRA_API_KEY: continue
+        if provider_name == "ollama" and not os.getenv("OLLAMA_URL"): continue
+
+        models = PROVIDER_MODELS.get(provider_name, [])
+        if not models:
+            # fallback default
+            if provider_name == "groq":
+                models = ["llama-3.1-8b-instant"]
+            elif provider_name == "openrouter":
+                models = ["google/gemma-2-9b-it:free"]
+            elif provider_name == "together":
+                models = ["meta-llama/Llama-3.1-8B-Instruct-Turbo"]
+            else:
+                default_model = os.getenv(f"{provider_name.upper()}_MODEL")
+                if default_model:
+                    models = [default_model]
                 else:
-                    default_model = os.getenv(f"{provider_name.upper()}_MODEL")
-                    if default_model:
-                        models = [default_model]
-                    else:
-                        continue
-            # Use the first model
-            model = models[0]
-            # Create a coroutine that calls the provider with a short timeout
-            async def attempt(provider_name, func, model):
+                    continue
+
+        for model in models:
+            # Create a coroutine with a 10-second timeout
+            async def attempt(p_name, p_func, p_model):
                 try:
-                    if provider_name == "openrouter":
-                        return await asyncio.wait_for(func(model, full_prompt, max_tokens, temp), timeout=15)
-                    elif provider_name == "groq":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "sambanova":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "together":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "cerebras":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "byteplus":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "mistral":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "nvidia":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "deepinfra":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
-                    elif provider_name == "pollinations":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp), timeout=15)
-                    elif provider_name == "ollama":
-                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    if p_name == "pollinations":
+                        return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp), timeout=10)
+                    elif p_name == "openrouter":
+                        return await asyncio.wait_for(p_func(p_model, full_prompt, max_tokens, temp), timeout=10)
+                    else:
+                        return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp, p_model), timeout=10)
                 except Exception as e:
-                    logger.debug(f"Parallel attempt {provider_name} failed: {e}")
+                    logger.debug(f"Parallel attempt {p_name}/{p_model} failed: {e}")
                     return None
             parallel_tasks.append(attempt(provider_name, func, model))
 
-        # Run all parallel attempts
-        results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-        for idx, res in enumerate(results):
-            if res and isinstance(res, str):
-                response_text = res
-                provider_used = PROVIDER_CHAIN[idx][0]
-                model_used = PROVIDER_MODELS.get(provider_used, [""])[0] if provider_used != "pollinations" else "pollinations"
-                logger.info(f"Parallel fallback succeeded with provider {provider_used}")
-                break
-
+    results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+    for idx, res in enumerate(results):
+        if res and isinstance(res, str):
+            response_text = res
+            # Determine which provider/model succeeded
+            # We can store the provider/model in a dict, but for simplicity we'll just use the first success
+            provider_used = "parallel_fallback"
+            model_used = "parallel_success"
+            logger.info(f"Parallel fallback succeeded with a model.")
+            break
     # Ultimate fallback (local always works)
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
@@ -1969,7 +1954,19 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
     }
-
+let providerHtml = '';
+if (data.providerStatus) {
+    providerHtml = `<div style="border-top:1px solid var(--border-muted);margin:10px 0;"></div>
+    <div style="font-weight:600;margin-bottom:8px;">Provider Health</div>
+    <table style="width:100%;font-size:12px;border-collapse:collapse;">
+        <tr><th style="text-align:left;">Provider</th><th>Status</th><th>Daily Usage</th></tr>`;
+    for (const [name, info] of Object.entries(data.providerStatus)) {
+        const statusColor = info.status === 'active' ? '#10b981' : info.status === 'cooldown' ? '#f59e0b' : '#ef4444';
+        providerHtml += `<tr><td>${name}</td><td style="color:${statusColor};">${info.status}</td><td>${info.daily_usage || 0}</td></tr>`;
+    }
+    providerHtml += `</table>`;
+}
+document.getElementById('admin-metrics-container').innerHTML = `...existing metrics... ${providerHtml}`;
 # -------------------- STRIPE CHECKOUT & WEBHOOK (unchanged) --------------------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
