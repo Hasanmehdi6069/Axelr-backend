@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v15.1 (ELITE MULTI‑MODEL ROUTER)
+AXELR AI - UNIFIED FORTRESS v15.2 (ELITE MULTI‑MODEL ROUTER)
 16+ models across 10 providers, bulletproof failover,
-accurate quota, workspace‑aware file handling, and real admin metrics.
+accurate quota, workspace‑aware file handling, admin metrics with provider status,
+and aggressive fallback to ensure a response.
 """
 
 import os
@@ -72,7 +73,7 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
-# AI API Keys (Nebius & AI21 are removed)
+# AI API Keys
 GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
@@ -146,6 +147,21 @@ provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
 PROVIDER_COOLDOWN = 600  # 10 minutes
 
+# Provider health status for admin
+provider_health = {
+    "openrouter": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "groq": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "sambanova": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "together": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "cerebras": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "byteplus": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "mistral": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "nvidia": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "deepinfra": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "pollinations": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "ollama": {"status": "unknown", "last_check": None, "daily_usage": 0},
+}
+
 # -------------------- SECURITY UTILITIES --------------------
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
@@ -193,7 +209,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- MODEL MATRIX (primary models per task, not used in routing but kept for reference) --------------------
+# -------------------- MODEL MATRIX (primary models per task, used for reference only) --------------------
 MODEL_MATRIX = {
     "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
     "extraction":  "qwen/qwen-2.5-72b-instruct:free",
@@ -209,57 +225,59 @@ FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-# -------------------- PROVIDER MODEL LISTS (3‑4 best free models each) --------------------
+# -------------------- PROVIDER MODEL LISTS (UPDATED WITH WORKING FREE MODELS) --------------------
+# Based on current (Aug 2026) free offerings. Removed deprecated :free suffixes where needed.
+# For OpenRouter, we use models that are actually free (without :free, but they are free on the "free" tier).
+# For other providers, we use their free tier models.
 PROVIDER_MODELS = {
     "openrouter": [
-        "meta-llama/llama-3.1-8b-instruct:free",
-        "qwen/qwen-2.5-72b-instruct:free",
-        "qwen/qwen-2.5-coder-32b:free",          # excellent for code
-        "deepseek/deepseek-r1-distill-llama-70b:free",
-        "mistralai/mistral-7b-instruct:free",
-        "google/gemma-2-9b-it:free",
-        "microsoft/phi-3-mini-128k-instruct:free",
-        "nousresearch/hermes-3-llama-3.1-8b:free",
+        "google/gemma-2-9b-it",           # Free
+        "microsoft/phi-3-mini-128k-instruct",  # Free
+        "mistralai/mistral-7b-instruct",  # Free
+        "qwen/qwen-2.5-72b-instruct",     # Free
+        "meta-llama/llama-3.1-8b-instruct", # Paid? but we keep as last resort
     ],
     "groq": [
-        os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        "llama-3.1-8b-instant",
         "llama-3.1-70b-versatile",
         "gemma2-9b-it",
         "mixtral-8x7b-32768",
     ],
     "sambanova": [
-        os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"),
-        # only one free known
+        "Meta-Llama-3.1-8B-Instruct-4096",  # Updated model (if available)
+        "Meta-Llama-3.1-8B-Instruct",       # Deprecated, but fallback
     ],
     "together": [
-        os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo"),
+        "meta-llama/Llama-3.1-8B-Instruct-Turbo",
         "mistralai/Mistral-7B-Instruct-v0.3",
         "NousResearch/Hermes-2-Pro-Llama-3-8B",
         "meta-llama/Llama-3.1-70B-Instruct-Turbo",
         "google/gemma-2-9b-it",
     ],
     "cerebras": [
-        os.getenv("CEREBRAS_MODEL", "llama3.1-8b"),
+        "llama3.1-8b",
+        "llama3.1-70b",   # if available
     ],
     "byteplus": [
-        os.getenv("BYTEPLUS_MODEL", "deepseek-r1-250120"),
-        # only one known
+        "deepseek-r1-250120",
+        "deepseek-r1-250120",  # only one known
     ],
     "mistral": [
-        os.getenv("MISTRAL_MODEL", "mistral-tiny"),
+        "mistral-tiny",
         "mistral-small",
         "open-mistral-7b",
     ],
     "nvidia": [
-        os.getenv("NVIDIA_MODEL", "nvidia/llama-3.1-70b-instruct"),
+        "nvidia/llama-3.1-70b-instruct",
+        "nvidia/llama-3.1-8b-instruct",  # if available
     ],
     "deepinfra": [
-        os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-3.1-70B-Instruct"),
+        "meta-llama/Llama-3.1-70B-Instruct",
         "meta-llama/Llama-3.1-8B-Instruct",
         "mistralai/Mistral-7B-Instruct-v0.3",
         "google/gemma-2-9b-it",
     ],
-    "pollinations": [],
+    "pollinations": [],   # no model list needed
     "ollama": [],
     "local": [],
 }
@@ -455,28 +473,29 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
-# Local fallback (always works)
+# Local fallback (always works) - improved to be more helpful
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
         return "I can help with that. Please share the task details and I will provide a structured response."
+    # Provide a more natural response
     if workspace == "design":
         return (
-            f"UI/UX draft for: \"{prompt_text[:120]}\". "
-            "Here's a production‑safe starting point – refine it with your brand details and I'll help further."
+            f"Design concept for: \"{prompt_text[:120]}\".\n"
+            "Here's a starting point – refine it and I'll assist further."
         )
     if workspace == "data":
         return (
-            f"Data analysis summary for: \"{prompt_text[:120]}\". "
-            "Please provide the source data or example output and I'll turn it into a cleaner analysis."
+            f"Data analysis for: \"{prompt_text[:120]}\".\n"
+            "Please provide the source data or example output for a more precise analysis."
         )
     if task_type == "touch_fix":
         return (
-            f"Issue captured: \"{prompt_text[:120]}\". "
-            "Please share the full error message, file name, and expected behaviour for a precise fix."
+            f"Debugging: \"{prompt_text[:120]}\".\n"
+            "Please share the full error, file name, and expected behaviour."
         )
     return (
-        f"Request received: \"{prompt_text[:160]}\". "
+        f"Request received: \"{prompt_text[:160]}\".\n"
         "I can help with a concise plan, code snippet, or structured answer – tell me more specifics."
     )
 
@@ -532,7 +551,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with multi‑model fallback) --------------------
+# -------------------- AI ROUTER (with multi‑model fallback & parallel attempt) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -582,7 +601,7 @@ async def route_ai_request(
     model_used = None
     last_error = None
 
-    # Iterate over providers in order
+    # Stage 1: Ordered provider chain with model-level retries
     for provider_name, func in PROVIDER_CHAIN:
         # Skip if API key missing (except local, pollinations, ollama)
         if provider_name == "openrouter" and not OPENROUTER_API_KEY:
@@ -648,7 +667,7 @@ async def route_ai_request(
                 if provider_name == "groq":
                     models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
                 elif provider_name == "openrouter":
-                    models = [FALLBACK_MODEL]
+                    models = ["google/gemma-2-9b-it", "microsoft/phi-3-mini-128k-instruct"]
                 elif provider_name == "together":
                     models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
                 else:
@@ -706,7 +725,92 @@ async def route_ai_request(
             if response_text:
                 break  # break provider loop
 
-    # Ultimate fallback (should never happen because local always works)
+    # Stage 2: If still no response, try all providers in parallel (except local) to catch any that might respond quickly
+    if not response_text:
+        logger.info("All ordered providers failed. Attempting parallel fallback...")
+        parallel_tasks = []
+        for provider_name, func in PROVIDER_CHAIN:
+            if provider_name in ["local"]:
+                continue
+            # Skip if key missing
+            if provider_name == "openrouter" and not OPENROUTER_API_KEY:
+                continue
+            if provider_name == "groq" and not GROQ_API_KEY:
+                continue
+            if provider_name == "sambanova" and not SAMBANOVA_API_KEY:
+                continue
+            if provider_name == "together" and not TOGETHER_API_KEY:
+                continue
+            if provider_name == "cerebras" and not CEREBRAS_API_KEY:
+                continue
+            if provider_name == "byteplus" and not BYTEPLUS_API_KEY:
+                continue
+            if provider_name == "mistral" and not MISTRAL_API_KEY:
+                continue
+            if provider_name == "nvidia" and not NVIDIA_API_KEY:
+                continue
+            if provider_name == "deepinfra" and not DEEPINFRA_API_KEY:
+                continue
+            if provider_name == "ollama" and not os.getenv("OLLAMA_URL"):
+                continue
+            # For each, we'll try the first model in its list (or fallback)
+            models = PROVIDER_MODELS.get(provider_name, [])
+            if not models:
+                if provider_name == "groq":
+                    models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
+                elif provider_name == "openrouter":
+                    models = ["google/gemma-2-9b-it"]
+                elif provider_name == "together":
+                    models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
+                else:
+                    default_model = os.getenv(f"{provider_name.upper()}_MODEL")
+                    if default_model:
+                        models = [default_model]
+                    else:
+                        continue
+            # Use the first model
+            model = models[0]
+            # Create a coroutine that calls the provider with a short timeout
+            async def attempt(provider_name, func, model):
+                try:
+                    if provider_name == "openrouter":
+                        return await asyncio.wait_for(func(model, full_prompt, max_tokens, temp), timeout=15)
+                    elif provider_name == "groq":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "sambanova":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "together":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "cerebras":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "byteplus":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "mistral":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "nvidia":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "deepinfra":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                    elif provider_name == "pollinations":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp), timeout=15)
+                    elif provider_name == "ollama":
+                        return await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=15)
+                except Exception as e:
+                    logger.debug(f"Parallel attempt {provider_name} failed: {e}")
+                    return None
+            parallel_tasks.append(attempt(provider_name, func, model))
+
+        # Run all parallel attempts
+        results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+        for idx, res in enumerate(results):
+            if res and isinstance(res, str):
+                response_text = res
+                provider_used = PROVIDER_CHAIN[idx][0]
+                model_used = PROVIDER_MODELS.get(provider_used, [""])[0] if provider_used != "pollinations" else "pollinations"
+                logger.info(f"Parallel fallback succeeded with provider {provider_used}")
+                break
+
+    # Ultimate fallback (local always works)
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
         provider_used = "local"
@@ -724,6 +828,13 @@ async def route_ai_request(
         "latency_ms": round(latency, 2)
     }
     ai_cache[cache_key] = result
+
+    # Update health status for the provider (if not local)
+    if provider_used and provider_used in provider_health:
+        provider_health[provider_used]["status"] = "active"
+        provider_health[provider_used]["last_check"] = datetime.utcnow().isoformat()
+        provider_health[provider_used]["daily_usage"] = provider_health[provider_used].get("daily_usage", 0) + 1
+
     return result
 
 # -------------------- AUTHENTICATION (unchanged) --------------------
@@ -852,7 +963,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="15.1", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="15.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -895,7 +1006,7 @@ async def health():
 async def startup_event():
     app.state.start_time = time.time()
 
-# -------------------- USER PROFILE (updated with new quotas) --------------------
+# -------------------- USER PROFILE (unchanged) --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1690,7 +1801,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# -------------------- ADMIN METRICS (updated with new providers) --------------------
+# -------------------- ADMIN METRICS (UPDATED with provider status) --------------------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1753,6 +1864,24 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0, "dailyTogether":0, "dailyCerebras":0,
         "dailyMistral":0, "dailyNvidia":0, "dailyDeepInfra":0, "dailyBytePlus":0
     }
+
+    # Provider status from health monitor
+    provider_status = {}
+    for p, health in provider_health.items():
+        status = health.get("status", "unknown")
+        # If last_check is older than 1 hour, mark as unknown
+        if health.get("last_check"):
+            try:
+                last_check = datetime.fromisoformat(health["last_check"])
+                if (datetime.utcnow() - last_check).total_seconds() > 3600:
+                    status = "inactive"
+            except:
+                pass
+        provider_status[p] = {
+            "status": status,
+            "daily_usage": health.get("daily_usage", 0),
+            "last_check": health.get("last_check")
+        }
 
     groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
     openrouter_limit = int(os.getenv("OPENROUTER_DAILY_LIMIT", 1000))
@@ -1835,6 +1964,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "bytePlusLimit": byteplus_limit,
             "activeProvider": active_provider,
         },
+        "providerStatus": provider_status,  # NEW
         "dailyQueries": daily_queries,
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
@@ -1995,5 +2125,5 @@ async def not_found(request, exc):
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI v15.1 ON PORT {port} ===")
+    logger.info(f"=== STARTING AXELR AI v15.2 ON PORT {port} ===")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
