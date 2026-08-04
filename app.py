@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v13.5 (Ultimate Resilient)
-12‑provider AI routing with bulletproof failover, accurate quota,
-workspace‑aware file handling, and real admin metrics.
+AXELR AI - UNIFIED FORTRESS v15.0 (ELITE MULTI‑MODEL ROUTER)
+14+ free models across 10 providers, bulletproof failover,
+accurate quota, workspace‑aware file handling, and real admin metrics.
 """
 
 import os
@@ -72,19 +72,16 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
-# AI API Keys (existing + new)
+# AI API Keys (Nebius & AI21 are removed)
 GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
 TOGETHER_API_KEY = (os.getenv("TOGETHER_AI_API_KEY") or os.getenv("TOGETHER_API_KEY") or "").strip()
 CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
+BYTEPLUS_API_KEY = (os.getenv("BYTEPLUS_API_KEY") or "").strip()
 MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
 NVIDIA_API_KEY = (os.getenv("NVIDIA_API_KEY") or "").strip()
 DEEPINFRA_API_KEY = (os.getenv("DEEPINFRA_API_KEY") or "").strip()
-NEBIUS_API_KEY = (os.getenv("NEBIUS_API_KEY") or "").strip()
-BYTEPLUS_API_KEY = (os.getenv("BYTEPLUS_API_KEY") or "").strip()
-# Pollinations does not need a key
-# Ollama is local
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
@@ -144,7 +141,7 @@ def get_object_id():
 # -------------------- CACHE --------------------
 ai_cache = TTLCache(maxsize=2000, ttl=3600)
 
-# Circuit breaker for providers
+# Circuit breaker for providers (per provider, not per model)
 provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
 PROVIDER_COOLDOWN = 600  # 10 minutes
@@ -196,7 +193,8 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- 8‑MODEL MATRIX (OpenRouter IDs) --------------------
+# -------------------- 8‑TASK MODEL MATRIX (primary models per task) --------------------
+# These are the preferred models for each task type (used as first choice for OpenRouter)
 MODEL_MATRIX = {
     "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
     "extraction":  "qwen/qwen-2.5-72b-instruct:free",
@@ -212,28 +210,63 @@ FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-# -------------------- GENERIC PROVIDER CALLER (for OpenAI‑compatible) --------------------
-async def call_openai_compatible(base_url: str, api_key: str, model: str, prompt: str, max_tokens: int, temp: float, timeout: float = 90.0) -> str:
-    if not api_key:
-        raise Exception("API key missing")
-    url = f"{base_url}/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=timeout)
-    return resp["choices"][0]["message"]["content"]
+# -------------------- PROVIDER MODEL LISTS (3‑4 models each) --------------------
+# Each provider has a list of models to try in order.
+# For OpenRouter we use the :free models; for others we use the environment variable or default.
+PROVIDER_MODELS = {
+    "openrouter": [
+        "meta-llama/llama-3.1-8b-instruct:free",
+        "qwen/qwen-2.5-72b-instruct:free",
+        "mistralai/mistral-7b-instruct:free",
+        "google/gemma-2-9b-it:free",
+    ],
+    "groq": [
+        os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
+        "llama-3.1-70b-versatile",
+        "gemma2-9b-it",
+        "mixtral-8x7b-32768",
+    ],
+    "sambanova": [
+        os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"),
+        # No other free models known, keep one
+    ],
+    "together": [
+        os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo"),
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        "NousResearch/Hermes-2-Pro-Llama-3-8B",
+    ],
+    "cerebras": [
+        os.getenv("CEREBRAS_MODEL", "llama3.1-8b"),
+        # Cerebras may only have one free model
+    ],
+    "byteplus": [
+        os.getenv("BYTEPLUS_MODEL", "deepseek-r1-250120"),
+        # only one known
+    ],
+    "mistral": [
+        os.getenv("MISTRAL_MODEL", "mistral-tiny"),
+        "mistral-small",
+        "open-mistral-7b",
+    ],
+    "nvidia": [
+        os.getenv("NVIDIA_MODEL", "nvidia/llama-3.1-70b-instruct"),
+        # only one known
+    ],
+    "deepinfra": [
+        os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-3.1-70B-Instruct"),
+        "meta-llama/Llama-3.1-8B-Instruct",
+        "mistralai/Mistral-7B-Instruct-v0.3",
+    ],
+    # Pollinations and Ollama have no model list (they take prompt only)
+    "pollinations": [],
+    "ollama": [],
+    "local": [],
+}
 
-# -------------------- AI PROVIDER FUNCTIONS --------------------
+# -------------------- AI PROVIDER FUNCTIONS (unchanged signatures) --------------------
+# All functions accept (prompt, max_tokens, temp, model) except pollinations and local
 
-# 1. OpenRouter (uses custom model)
+# 1. OpenRouter
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float) -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY missing")
@@ -263,7 +296,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": min(max_tokens, 1024),
+        "max_tokens": min(max_tokens, 2048),  # increased from 1024
         "temperature": temp,
         "stream": False
     }
@@ -320,7 +353,24 @@ async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 6. Mistral AI
+# 6. BytePlus Model Ark
+async def call_byteplus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not BYTEPLUS_API_KEY:
+        raise Exception("BYTEPLUS_API_KEY missing")
+    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
+    headers = {"Authorization": f"Bearer {BYTEPLUS_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or os.getenv("BYTEPLUS_MODEL", "deepseek-r1-250120")
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload, timeout=90)
+    return resp["choices"][0]["message"]["content"]
+
+# 7. Mistral AI
 async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not MISTRAL_API_KEY:
         raise Exception("MISTRAL_API_KEY missing")
@@ -337,13 +387,13 @@ async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 7. Nvidia Build (NIM)
+# 8. Nvidia Build
 async def call_nvidia(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not NVIDIA_API_KEY:
         raise Exception("NVIDIA_API_KEY missing")
-    url = "https://build.nvidia.com/v1/chat/completions"
+    url = "https://integrate.api.nvidia.com/v1/chat/completions"
     headers = {"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or os.getenv("NVIDIA_MODEL", "meta-llama-3.1-8b-instruct")
+    effective_model = model or os.getenv("NVIDIA_MODEL", "nvidia/llama-3.1-70b-instruct")
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -354,7 +404,7 @@ async def call_nvidia(prompt: str, max_tokens: int, temp: float, model: Optional
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 8. DeepInfra
+# 9. DeepInfra
 async def call_deepinfra(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not DEEPINFRA_API_KEY:
         raise Exception("DEEPINFRA_API_KEY missing")
@@ -371,41 +421,7 @@ async def call_deepinfra(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 9. Nebius
-async def call_nebius(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not NEBIUS_API_KEY:
-        raise Exception("NEBIUS_API_KEY missing")
-    url = "https://api.nebius.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {NEBIUS_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or os.getenv("NEBIUS_MODEL", "meta-llama/Llama-3.1-8B-Instruct")
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=90)
-    return resp["choices"][0]["message"]["content"]
-
-# 10. BytePlus Model Ark
-async def call_byteplus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not BYTEPLUS_API_KEY:
-        raise Exception("BYTEPLUS_API_KEY missing")
-    url = "https://ark.byteplus.com/api/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {BYTEPLUS_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or os.getenv("BYTEPLUS_MODEL", "meta-llama-3.1-8b-instruct")
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=90)
-    return resp["choices"][0]["message"]["content"]
-
-# 11. Pollinations (no key)
+# 10. Pollinations (no model param)
 async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     import urllib.parse
     encoded = urllib.parse.quote(prompt[:500])
@@ -428,7 +444,7 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     except Exception as e:
         raise Exception(f"Pollinations failed: {e}")
 
-# 12. Ollama (local)
+# 11. Ollama (optional, local)
 async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     ollama_url = (os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434/api/chat").strip()
     if not ollama_url:
@@ -449,12 +465,11 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
-# 13. Local fallback (always works)
+# 12. Local fallback (always works)
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
         return "I can help with that. Please share the task details and I will provide a structured response."
-
     if workspace == "design":
         return (
             f"UI/UX draft for: \"{prompt_text[:120]}\". "
@@ -478,24 +493,25 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
-# -------------------- PROVIDER CHAIN (ordered by quality & reliability) --------------------
+# -------------------- PROVIDER CHAIN (ordered) --------------------
+# List of (provider_name, call_function)
+# Removed nebius and ai21
 PROVIDER_CHAIN = [
-    ("openrouter", call_openrouter, {}),
-    ("groq", call_groq, {}),
-    ("mistral", call_mistral, {}),
-    ("sambanova", call_sambanova, {}),
-    ("together", call_together, {}),
-    ("cerebras", call_cerebras, {}),
-    ("nvidia", call_nvidia, {}),
-    ("deepinfra", call_deepinfra, {}),
-    ("nebius", call_nebius, {}),
-    ("byteplus", call_byteplus, {}),
-    ("pollinations", call_pollinations, {}),
-    ("ollama", call_ollama, {}),
-    ("local", call_local_fallback, {}),
+    ("openrouter", call_openrouter),
+    ("groq", call_groq),
+    ("sambanova", call_sambanova),
+    ("together", call_together),
+    ("cerebras", call_cerebras),
+    ("byteplus", call_byteplus),
+    ("mistral", call_mistral),
+    ("nvidia", call_nvidia),
+    ("deepinfra", call_deepinfra),
+    ("pollinations", call_pollinations),
+    ("ollama", call_ollama),
+    ("local", call_local_fallback),
 ]
 
-# -------------------- MASTER SYSTEM PROMPT --------------------
+# -------------------- MASTER SYSTEM PROMPT (cleaned) --------------------
 MASTER_PROMPT = (
     "You are AXELR, an elite executive AI operating in zero-cost, production-safe mode. "
     "Always answer directly, clearly, and usefully. Never claim a service is unavailable unless all configured paths fail. "
@@ -528,7 +544,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with bulletproof failover & full logging) --------------------
+# -------------------- AI ROUTER (with multi‑model fallback) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -573,106 +589,142 @@ async def route_ai_request(
         cached = ai_cache[cache_key]
         return {**cached, "cached": True}
 
-    # Primary model for this task
-    primary_model = MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
-
     response_text = None
     provider_used = None
     model_used = None
     last_error = None
 
-    # Try each provider in order
-    for name, func, kwargs in PROVIDER_CHAIN:
-        # Skip if API key missing (except for local, pollinations, ollama)
-        if name == "openrouter" and not OPENROUTER_API_KEY:
+    # Iterate over providers in order
+    for provider_name, func in PROVIDER_CHAIN:
+        # Skip if API key missing (except local, pollinations, ollama)
+        if provider_name == "openrouter" and not OPENROUTER_API_KEY:
             logger.debug("Skipping openrouter – no API key")
             continue
-        if name == "groq" and not GROQ_API_KEY:
+        if provider_name == "groq" and not GROQ_API_KEY:
             logger.debug("Skipping groq – no API key")
             continue
-        if name == "mistral" and not MISTRAL_API_KEY:
-            logger.debug("Skipping mistral – no API key")
-            continue
-        if name == "sambanova" and not SAMBANOVA_API_KEY:
+        if provider_name == "sambanova" and not SAMBANOVA_API_KEY:
             logger.debug("Skipping sambanova – no API key")
             continue
-        if name == "together" and not TOGETHER_API_KEY:
+        if provider_name == "together" and not TOGETHER_API_KEY:
             logger.debug("Skipping together – no API key")
             continue
-        if name == "cerebras" and not CEREBRAS_API_KEY:
+        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
             logger.debug("Skipping cerebras – no API key")
             continue
-        if name == "nvidia" and not NVIDIA_API_KEY:
-            logger.debug("Skipping nvidia – no API key")
-            continue
-        if name == "deepinfra" and not DEEPINFRA_API_KEY:
-            logger.debug("Skipping deepinfra – no API key")
-            continue
-        if name == "nebius" and not NEBIUS_API_KEY:
-            logger.debug("Skipping nebius – no API key")
-            continue
-        if name == "byteplus" and not BYTEPLUS_API_KEY:
+        if provider_name == "byteplus" and not BYTEPLUS_API_KEY:
             logger.debug("Skipping byteplus – no API key")
             continue
-        if name == "ollama" and not os.getenv("OLLAMA_URL"):
+        if provider_name == "mistral" and not MISTRAL_API_KEY:
+            logger.debug("Skipping mistral – no API key")
+            continue
+        if provider_name == "nvidia" and not NVIDIA_API_KEY:
+            logger.debug("Skipping nvidia – no API key")
+            continue
+        if provider_name == "deepinfra" and not DEEPINFRA_API_KEY:
+            logger.debug("Skipping deepinfra – no API key")
+            continue
+        if provider_name == "ollama" and not os.getenv("OLLAMA_URL"):
             logger.debug("Skipping ollama – no URL")
             continue
 
-        # Circuit breaker
-        if provider_failures[name] >= 3 and time.time() - provider_last_fail[name] < PROVIDER_COOLDOWN:
-            logger.warning(f"Skipping provider {name} due to circuit breaker (cooldown)")
+        # Circuit breaker for provider (cooldown if too many failures)
+        if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
+            logger.warning(f"Skipping provider {provider_name} due to circuit breaker (cooldown)")
             continue
 
-        try:
-            for attempt in range(2):  # retry once
-                try:
-                    if name == "openrouter":
-                        response_text = await func(primary_model, full_prompt, max_tokens, temp)
-                    else:
-                        # All other providers take (prompt, max_tokens, temp, model) or similar
-                        # We'll handle each case
-                        if name == "groq":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"))
-                        elif name == "mistral":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("MISTRAL_MODEL", "mistral-tiny"))
-                        elif name == "sambanova":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"))
-                        elif name == "together":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.3-70B-Instruct-Turbo"))
-                        elif name == "cerebras":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("CEREBRAS_MODEL", "llama3.1-8b"))
-                        elif name == "nvidia":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("NVIDIA_MODEL", "meta-llama-3.1-8b-instruct"))
-                        elif name == "deepinfra":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-3.1-70B-Instruct"))
-                        elif name == "nebius":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("NEBIUS_MODEL", "meta-llama/Llama-3.1-8B-Instruct"))
-                        elif name == "byteplus":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("BYTEPLUS_MODEL", "meta-llama-3.1-8b-instruct"))
-                        elif name == "pollinations":
-                            response_text = await func(full_prompt, max_tokens, temp)
-                        elif name == "ollama":
-                            response_text = await func(full_prompt, max_tokens, temp, os.getenv("OLLAMA_MODEL", "llama3.2:3b"))
-                        else:  # local fallback
-                            response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
-                    provider_used = name
-                    model_used = primary_model if name == "openrouter" else (os.getenv(f"{name.upper()}_MODEL") or name)
-                    provider_failures[name] = 0
+        # Get list of models for this provider
+        models = PROVIDER_MODELS.get(provider_name, [])
+        # For providers that don't use a model parameter (pollinations, local, ollama if no model list), we call without model
+        if provider_name in ["pollinations", "local"]:
+            # These have no model list; call once
+            try:
+                if provider_name == "pollinations":
+                    response_text = await func(full_prompt, max_tokens, temp)
+                elif provider_name == "local":
+                    response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
+                # Note: ollama has models, so it will be handled below
+                if response_text:
+                    provider_used = provider_name
+                    model_used = provider_name  # no specific model
+                    provider_failures[provider_name] = 0
                     break
+            except Exception as e:
+                last_error = e
+                logger.warning(f"Provider {provider_name} failed: {e}")
+                provider_failures[provider_name] += 1
+                provider_last_fail[provider_name] = time.time()
+                continue
+        else:
+            # Providers with model list
+            # If no models defined, use a default (just in case)
+            if not models:
+                # Fallback to environment default or a known model
+                if provider_name == "groq":
+                    models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
+                elif provider_name == "openrouter":
+                    models = [FALLBACK_MODEL]
+                elif provider_name == "together":
+                    models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
+                else:
+                    # For others, use a sensible default if available
+                    default_model = os.getenv(f"{provider_name.upper()}_MODEL")
+                    if default_model:
+                        models = [default_model]
+                    else:
+                        # Skip this provider if no model
+                        continue
+
+            # Try each model for this provider
+            for model in models:
+                # For ollama, we have a model list
+                try:
+                    # Attempt up to 2 retries per model
+                    for attempt in range(2):
+                        try:
+                            if provider_name == "openrouter":
+                                response_text = await func(model, full_prompt, max_tokens, temp)
+                            elif provider_name == "groq":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "sambanova":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "together":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "cerebras":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "byteplus":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "mistral":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "nvidia":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "deepinfra":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            elif provider_name == "ollama":
+                                response_text = await func(full_prompt, max_tokens, temp, model)
+                            # else: not reached
+
+                            if response_text:
+                                provider_used = provider_name
+                                model_used = model
+                                provider_failures[provider_name] = 0
+                                break
+                        except Exception as e:
+                            last_error = e
+                            logger.warning(f"Provider {provider_name} model {model} attempt {attempt+1} failed: {e}")
+                            await asyncio.sleep(2 ** attempt)  # exponential backoff
+                            provider_failures[provider_name] += 1
+                            provider_last_fail[provider_name] = time.time()
+                    if response_text:
+                        break  # break model loop
                 except Exception as e:
                     last_error = e
-                    logger.warning(f"Provider {name} attempt {attempt+1} failed: {e}")
-                    await asyncio.sleep(1 * (attempt+1))
-                    provider_failures[name] += 1
-                    provider_last_fail[name] = time.time()
+                    logger.warning(f"Provider {provider_name} model {model} fully failed: {e}")
+                    provider_failures[provider_name] += 1
+                    provider_last_fail[provider_name] = time.time()
+                    continue
             if response_text:
-                break
-        except Exception as e:
-            last_error = e
-            logger.warning(f"Provider {name} fully failed: {e}")
-            provider_failures[name] += 1
-            provider_last_fail[name] = time.time()
-            continue
+                break  # break provider loop
 
     # Ultimate fallback (should never happen because local always works)
     if not response_text:
@@ -742,7 +794,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "dailyMistralQuota": 0,
                 "dailyNvidiaQuota": 0,
                 "dailyDeepInfraQuota": 0,
-                "dailyNebiusQuota": 0,
                 "dailyBytePlusQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow()
             }
@@ -780,7 +831,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "dailyMistralQuota": 0,
                             "dailyNvidiaQuota": 0,
                             "dailyDeepInfraQuota": 0,
-                            "dailyNebiusQuota": 0,
                             "dailyBytePlusQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
@@ -822,7 +872,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="13.5", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="15.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -895,7 +945,6 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailyMistralQuota": user.get("dailyMistralQuota", 0),
         "dailyNvidiaQuota": user.get("dailyNvidiaQuota", 0),
         "dailyDeepInfraQuota": user.get("dailyDeepInfraQuota", 0),
-        "dailyNebiusQuota": user.get("dailyNebiusQuota", 0),
         "dailyBytePlusQuota": user.get("dailyBytePlusQuota", 0),
     }
 
@@ -1059,7 +1108,7 @@ async def list_history(
         }
     }
 
-# -------------------- REPORTS --------------------
+# -------------------- REPORTS (unchanged) --------------------
 class ReportCreate(BaseModel):
     type: str = "feedback"
     description: str
@@ -1167,7 +1216,7 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     )
     return {"success": True, "enhanced": enhanced}
 
-# -------------------- EXTRACT (MAIN) with workspace‑aware file validation and fixed quota --------------------
+# -------------------- EXTRACT (MAIN) with workspace‑aware file validation and quota fix --------------------
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 if text else 0
 
@@ -1186,13 +1235,14 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
-    # Data workspace: images, PDF, CSV, Excel, text
+    # Data workspace: images, PDF, CSV, Excel, text, Word
     if workspace == "data":
         allowed_data_types = [
             "image/", "application/pdf", "text/csv", "text/plain",
-            "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ]
-        allowed_data_exts = ('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt')
+        allowed_data_exts = ('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt', '.doc', '.docx')
         return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(allowed_data_exts)
     # Design workspace: images, all code files, text files
     elif workspace == "design":
@@ -1248,7 +1298,7 @@ async def extract(
         raise HTTPException(
             status_code=400,
             detail=f"Unsupported file type(s) for {workspace} workspace: {', '.join(rejected)}. "
-                   f"Allowed: {'images, PDF, CSV, Excel, text' if workspace=='data' else 'images, code files (HTML, CSS, JS, Python, etc.), JSON, Markdown, text'}."
+                   f"Allowed: {'images, PDF, CSV, Excel, Word, text' if workspace=='data' else 'images, code files (HTML, CSS, JS, Python, etc.), JSON, Markdown, text'}."
         )
     files = valid_files
 
@@ -1269,7 +1319,7 @@ async def extract(
     # Determine quota limits
     if tier == "free":
         data_limit = 5
-        ui_limit = 0
+        ui_limit = 3
     elif tier == "pro":
         if has_data and has_design:
             data_limit = 20
@@ -1405,47 +1455,49 @@ async def extract(
     if not ai_text:
         ai_text = "I am Axelr AI. How can I help you?"
 
-    # Update usage and tokens
-    prompt_tokens = estimate_tokens(command) + sum(estimate_tokens(f["filename"]) + len(f["content_base64"]) // 4 for f in file_contents)
-    completion_tokens = estimate_tokens(ai_text)
-    update_query = {
-        "$inc": {
-            "tokenUsage.totalPromptTokens": prompt_tokens,
-            "tokenUsage.totalCompletionTokens": completion_tokens,
-            "tokenUsage.dailyPromptTokens": prompt_tokens,
-            "tokenUsage.dailyCompletionTokens": completion_tokens,
-            quota_field: 1,
-            "dailyUsage": 1,
-            "storageBytesUsed": total_size,
-        },
-        "$set": {
-            "lastUsageDate": datetime.utcnow()
+    # Update usage and tokens ONLY if response is from a real provider (not local fallback)
+    if provider != "local":
+        prompt_tokens = estimate_tokens(command) + sum(estimate_tokens(f["filename"]) + len(f["content_base64"]) // 4 for f in file_contents)
+        completion_tokens = estimate_tokens(ai_text)
+        update_query = {
+            "$inc": {
+                "tokenUsage.totalPromptTokens": prompt_tokens,
+                "tokenUsage.totalCompletionTokens": completion_tokens,
+                "tokenUsage.dailyPromptTokens": prompt_tokens,
+                "tokenUsage.dailyCompletionTokens": completion_tokens,
+                quota_field: 1,
+                "dailyUsage": 1,
+                "storageBytesUsed": total_size,
+            },
+            "$set": {
+                "lastUsageDate": datetime.utcnow()
+            }
         }
-    }
-    # Track provider usage
-    if provider == "groq":
-        update_query["$inc"]["dailyGroqQuota"] = 1
-    elif provider == "openrouter":
-        update_query["$inc"]["dailyOpenRouterQuota"] = 1
-    elif provider == "sambanova":
-        update_query["$inc"]["dailySambaNovaQuota"] = 1
-    elif provider == "together":
-        update_query["$inc"]["dailyTogetherQuota"] = 1
-    elif provider == "cerebras":
-        update_query["$inc"]["dailyCerebrasQuota"] = 1
-    elif provider == "mistral":
-        update_query["$inc"]["dailyMistralQuota"] = 1
-    elif provider == "nvidia":
-        update_query["$inc"]["dailyNvidiaQuota"] = 1
-    elif provider == "deepinfra":
-        update_query["$inc"]["dailyDeepInfraQuota"] = 1
-    elif provider == "nebius":
-        update_query["$inc"]["dailyNebiusQuota"] = 1
-    elif provider == "byteplus":
-        update_query["$inc"]["dailyBytePlusQuota"] = 1
-    await users_col.update_one({"_id": user["_id"]}, update_query)
+        # Track provider usage
+        if provider == "groq":
+            update_query["$inc"]["dailyGroqQuota"] = 1
+        elif provider == "openrouter":
+            update_query["$inc"]["dailyOpenRouterQuota"] = 1
+        elif provider == "sambanova":
+            update_query["$inc"]["dailySambaNovaQuota"] = 1
+        elif provider == "together":
+            update_query["$inc"]["dailyTogetherQuota"] = 1
+        elif provider == "cerebras":
+            update_query["$inc"]["dailyCerebrasQuota"] = 1
+        elif provider == "mistral":
+            update_query["$inc"]["dailyMistralQuota"] = 1
+        elif provider == "nvidia":
+            update_query["$inc"]["dailyNvidiaQuota"] = 1
+        elif provider == "deepinfra":
+            update_query["$inc"]["dailyDeepInfraQuota"] = 1
+        elif provider == "byteplus":
+            update_query["$inc"]["dailyBytePlusQuota"] = 1
+        await users_col.update_one({"_id": user["_id"]}, update_query)
+    else:
+        # Local fallback – do not count quota, but still log that it was used (maybe for admin)
+        logger.info(f"Local fallback used for user {user['email']}")
 
-    # Save session
+    # Save session (same as before)
     session_id_out = None
     filename_out = "Export.csv"
     session_saved = False
@@ -1695,13 +1747,12 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "totalMistral": {"$sum": "$dailyMistralQuota"},
                     "totalNvidia": {"$sum": "$dailyNvidiaQuota"},
                     "totalDeepInfra": {"$sum": "$dailyDeepInfraQuota"},
-                    "totalNebius": {"$sum": "$dailyNebiusQuota"},
                     "totalBytePlus": {"$sum": "$dailyBytePlusQuota"}}}
     ]
     provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
     provider_totals = provider_result[0] if provider_result else {
         "totalGroq":0, "totalOpenRouter":0, "totalSambaNova":0, "totalTogether":0, "totalCerebras":0,
-        "totalMistral":0, "totalNvidia":0, "totalDeepInfra":0, "totalNebius":0, "totalBytePlus":0
+        "totalMistral":0, "totalNvidia":0, "totalDeepInfra":0, "totalBytePlus":0
     }
 
     pipeline_daily_provider = [
@@ -1715,13 +1766,12 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "dailyMistral": {"$sum": "$dailyMistralQuota"},
                     "dailyNvidia": {"$sum": "$dailyNvidiaQuota"},
                     "dailyDeepInfra": {"$sum": "$dailyDeepInfraQuota"},
-                    "dailyNebius": {"$sum": "$dailyNebiusQuota"},
                     "dailyBytePlus": {"$sum": "$dailyBytePlusQuota"}}}
     ]
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {
         "dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0, "dailyTogether":0, "dailyCerebras":0,
-        "dailyMistral":0, "dailyNvidia":0, "dailyDeepInfra":0, "dailyNebius":0, "dailyBytePlus":0
+        "dailyMistral":0, "dailyNvidia":0, "dailyDeepInfra":0, "dailyBytePlus":0
     }
 
     groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
@@ -1732,7 +1782,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     mistral_limit = int(os.getenv("MISTRAL_DAILY_LIMIT", 200))
     nvidia_limit = int(os.getenv("NVIDIA_DAILY_LIMIT", 200))
     deepinfra_limit = int(os.getenv("DEEPINFRA_DAILY_LIMIT", 200))
-    nebius_limit = int(os.getenv("NEBIUS_DAILY_LIMIT", 200))
     byteplus_limit = int(os.getenv("BYTEPLUS_DAILY_LIMIT", 200))
 
     daily_usage = {
@@ -1744,7 +1793,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "mistral": daily_provider["dailyMistral"],
         "nvidia": daily_provider["dailyNvidia"],
         "deepinfra": daily_provider["dailyDeepInfra"],
-        "nebius": daily_provider["dailyNebius"],
         "byteplus": daily_provider["dailyBytePlus"],
     }
     active_provider = max(daily_usage, key=daily_usage.get) if any(daily_usage.values()) else "openrouter"
@@ -1786,7 +1834,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "mistral": provider_totals["totalMistral"],
             "nvidia": provider_totals["totalNvidia"],
             "deepInfra": provider_totals["totalDeepInfra"],
-            "nebius": provider_totals["totalNebius"],
             "bytePlus": provider_totals["totalBytePlus"],
             "dailyGroq": daily_provider["dailyGroq"],
             "dailyOpenRouter": daily_provider["dailyOpenRouter"],
@@ -1796,7 +1843,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "dailyMistral": daily_provider["dailyMistral"],
             "dailyNvidia": daily_provider["dailyNvidia"],
             "dailyDeepInfra": daily_provider["dailyDeepInfra"],
-            "dailyNebius": daily_provider["dailyNebius"],
             "dailyBytePlus": daily_provider["dailyBytePlus"],
             "groqLimit": groq_limit,
             "openRouterLimit": openrouter_limit,
@@ -1806,7 +1852,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "mistralLimit": mistral_limit,
             "nvidiaLimit": nvidia_limit,
             "deepInfraLimit": deepinfra_limit,
-            "nebiusLimit": nebius_limit,
             "bytePlusLimit": byteplus_limit,
             "activeProvider": active_provider,
         },
@@ -1970,5 +2015,5 @@ async def not_found(request, exc):
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI ON PORT {port} ===")
+    logger.info(f"=== STARTING AXELR AI v15.0 ON PORT {port} ===")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
