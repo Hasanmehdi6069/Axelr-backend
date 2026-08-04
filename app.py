@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v15.0 (ELITE MULTI‑MODEL ROUTER)
-14+ free models across 10 providers, bulletproof failover,
+AXELR AI - UNIFIED FORTRESS v15.1 (ELITE MULTI‑MODEL ROUTER)
+16+ models across 10 providers, bulletproof failover,
 accurate quota, workspace‑aware file handling, and real admin metrics.
 """
 
@@ -193,8 +193,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- 8‑TASK MODEL MATRIX (primary models per task) --------------------
-# These are the preferred models for each task type (used as first choice for OpenRouter)
+# -------------------- MODEL MATRIX (primary models per task, not used in routing but kept for reference) --------------------
 MODEL_MATRIX = {
     "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
     "extraction":  "qwen/qwen-2.5-72b-instruct:free",
@@ -210,15 +209,17 @@ FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-# -------------------- PROVIDER MODEL LISTS (3‑4 models each) --------------------
-# Each provider has a list of models to try in order.
-# For OpenRouter we use the :free models; for others we use the environment variable or default.
+# -------------------- PROVIDER MODEL LISTS (3‑4 best free models each) --------------------
 PROVIDER_MODELS = {
     "openrouter": [
         "meta-llama/llama-3.1-8b-instruct:free",
         "qwen/qwen-2.5-72b-instruct:free",
+        "qwen/qwen-2.5-coder-32b:free",          # excellent for code
+        "deepseek/deepseek-r1-distill-llama-70b:free",
         "mistralai/mistral-7b-instruct:free",
         "google/gemma-2-9b-it:free",
+        "microsoft/phi-3-mini-128k-instruct:free",
+        "nousresearch/hermes-3-llama-3.1-8b:free",
     ],
     "groq": [
         os.getenv("GROQ_MODEL", "llama-3.1-8b-instant"),
@@ -228,16 +229,17 @@ PROVIDER_MODELS = {
     ],
     "sambanova": [
         os.getenv("SAMBANOVA_MODEL", "Meta-Llama-3.1-8B-Instruct"),
-        # No other free models known, keep one
+        # only one free known
     ],
     "together": [
         os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo"),
         "mistralai/Mistral-7B-Instruct-v0.3",
         "NousResearch/Hermes-2-Pro-Llama-3-8B",
+        "meta-llama/Llama-3.1-70B-Instruct-Turbo",
+        "google/gemma-2-9b-it",
     ],
     "cerebras": [
         os.getenv("CEREBRAS_MODEL", "llama3.1-8b"),
-        # Cerebras may only have one free model
     ],
     "byteplus": [
         os.getenv("BYTEPLUS_MODEL", "deepseek-r1-250120"),
@@ -250,14 +252,13 @@ PROVIDER_MODELS = {
     ],
     "nvidia": [
         os.getenv("NVIDIA_MODEL", "nvidia/llama-3.1-70b-instruct"),
-        # only one known
     ],
     "deepinfra": [
         os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-3.1-70B-Instruct"),
         "meta-llama/Llama-3.1-8B-Instruct",
         "mistralai/Mistral-7B-Instruct-v0.3",
+        "google/gemma-2-9b-it",
     ],
-    # Pollinations and Ollama have no model list (they take prompt only)
     "pollinations": [],
     "ollama": [],
     "local": [],
@@ -266,7 +267,6 @@ PROVIDER_MODELS = {
 # -------------------- AI PROVIDER FUNCTIONS (unchanged signatures) --------------------
 # All functions accept (prompt, max_tokens, temp, model) except pollinations and local
 
-# 1. OpenRouter
 async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float) -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY missing")
@@ -286,7 +286,6 @@ async def call_openrouter(model: str, prompt: str, max_tokens: int, temp: float)
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 2. Groq
 async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY missing")
@@ -296,14 +295,13 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": min(max_tokens, 2048),  # increased from 1024
+        "max_tokens": min(max_tokens, 2048),
         "temperature": temp,
         "stream": False
     }
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# 3. SambaNova
 async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not SAMBANOVA_API_KEY:
         raise Exception("SAMBANOVA_API_KEY missing")
@@ -319,7 +317,6 @@ async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 4. Together AI
 async def call_together(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not TOGETHER_API_KEY:
         raise Exception("TOGETHER_API_KEY missing")
@@ -336,7 +333,6 @@ async def call_together(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 5. Cerebras
 async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not CEREBRAS_API_KEY:
         raise Exception("CEREBRAS_API_KEY missing")
@@ -353,7 +349,6 @@ async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 6. BytePlus Model Ark
 async def call_byteplus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not BYTEPLUS_API_KEY:
         raise Exception("BYTEPLUS_API_KEY missing")
@@ -370,7 +365,6 @@ async def call_byteplus(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 7. Mistral AI
 async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not MISTRAL_API_KEY:
         raise Exception("MISTRAL_API_KEY missing")
@@ -387,7 +381,6 @@ async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 8. Nvidia Build
 async def call_nvidia(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not NVIDIA_API_KEY:
         raise Exception("NVIDIA_API_KEY missing")
@@ -404,7 +397,6 @@ async def call_nvidia(prompt: str, max_tokens: int, temp: float, model: Optional
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 9. DeepInfra
 async def call_deepinfra(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not DEEPINFRA_API_KEY:
         raise Exception("DEEPINFRA_API_KEY missing")
@@ -421,7 +413,6 @@ async def call_deepinfra(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload, timeout=90)
     return resp["choices"][0]["message"]["content"]
 
-# 10. Pollinations (no model param)
 async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     import urllib.parse
     encoded = urllib.parse.quote(prompt[:500])
@@ -444,7 +435,6 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     except Exception as e:
         raise Exception(f"Pollinations failed: {e}")
 
-# 11. Ollama (optional, local)
 async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     ollama_url = (os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434/api/chat").strip()
     if not ollama_url:
@@ -465,7 +455,7 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
-# 12. Local fallback (always works)
+# Local fallback (always works)
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
@@ -494,8 +484,6 @@ async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspa
     return build_local_fallback_response(workspace, task_type, prompt)
 
 # -------------------- PROVIDER CHAIN (ordered) --------------------
-# List of (provider_name, call_function)
-# Removed nebius and ai21
 PROVIDER_CHAIN = [
     ("openrouter", call_openrouter),
     ("groq", call_groq),
@@ -637,16 +625,14 @@ async def route_ai_request(
         models = PROVIDER_MODELS.get(provider_name, [])
         # For providers that don't use a model parameter (pollinations, local, ollama if no model list), we call without model
         if provider_name in ["pollinations", "local"]:
-            # These have no model list; call once
             try:
                 if provider_name == "pollinations":
                     response_text = await func(full_prompt, max_tokens, temp)
                 elif provider_name == "local":
                     response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
-                # Note: ollama has models, so it will be handled below
                 if response_text:
                     provider_used = provider_name
-                    model_used = provider_name  # no specific model
+                    model_used = provider_name
                     provider_failures[provider_name] = 0
                     break
             except Exception as e:
@@ -657,7 +643,6 @@ async def route_ai_request(
                 continue
         else:
             # Providers with model list
-            # If no models defined, use a default (just in case)
             if not models:
                 # Fallback to environment default or a known model
                 if provider_name == "groq":
@@ -667,17 +652,14 @@ async def route_ai_request(
                 elif provider_name == "together":
                     models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
                 else:
-                    # For others, use a sensible default if available
                     default_model = os.getenv(f"{provider_name.upper()}_MODEL")
                     if default_model:
                         models = [default_model]
                     else:
-                        # Skip this provider if no model
                         continue
 
             # Try each model for this provider
             for model in models:
-                # For ollama, we have a model list
                 try:
                     # Attempt up to 2 retries per model
                     for attempt in range(2):
@@ -702,8 +684,6 @@ async def route_ai_request(
                                 response_text = await func(full_prompt, max_tokens, temp, model)
                             elif provider_name == "ollama":
                                 response_text = await func(full_prompt, max_tokens, temp, model)
-                            # else: not reached
-
                             if response_text:
                                 provider_used = provider_name
                                 model_used = model
@@ -872,7 +852,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="15.0", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="15.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1235,7 +1215,7 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
-    # Data workspace: images, PDF, CSV, Excel, text, Word
+    # Data workspace: images, PDF, CSV, Excel, Word, text
     if workspace == "data":
         allowed_data_types = [
             "image/", "application/pdf", "text/csv", "text/plain",
@@ -2015,5 +1995,5 @@ async def not_found(request, exc):
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI v15.0 ON PORT {port} ===")
+    logger.info(f"=== STARTING AXELR AI v15.1 ON PORT {port} ===")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
