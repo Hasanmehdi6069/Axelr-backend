@@ -480,9 +480,7 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
-        return " "I'm sorry, all AI services are temporarily unavailable. "
-                "Please try again in a few minutes. "
-                "If the issue persists, contact support.""
+        return "I'm sorry, all AI services are temporarily unavailable. Please try again in a few minutes. If the issue persists, contact support."
     # Provide a more natural response
     if workspace == "design":
         return (
