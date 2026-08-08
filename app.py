@@ -231,30 +231,45 @@ def select_model(task_type: str) -> str:
 # For OpenRouter, we use models that are actually free (without :free, but they are free on the "free" tier).
 # For other providers, we use their free tier models.
 PROVIDER_MODELS = {
+    "huggingface": [
+        "google/gemma-2-9b-it",
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        "meta-llama/Llama-3.1-8B-Instruct",
+    ],
+    "deepinfra": [
+        "meta-llama/Llama-3.1-70B-Instruct",
+        "meta-llama/Llama-3.1-8B-Instruct",
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        "google/gemma-2-9b-it",
+    ],
+    "mistral": [
+        "mistral-tiny",
+        "mistral-small",
+        "open-mistral-7b",
+        "open-mixtral-8x7b",
+    ],
+    "together": [
+        "meta-llama/Llama-3.1-8B-Instruct-Turbo",
+        "mistralai/Mistral-7B-Instruct-v0.3",
+        "NousResearch/Hermes-2-Pro-Llama-3-8B",
+        "google/gemma-2-9b-it",
+    ],
     "openrouter": [
         "google/gemma-2-9b-it:free",
         "microsoft/phi-3-mini-128k-instruct:free",
         "nousresearch/hermes-3-llama-3.1-8b:free",
         "mistralai/mistral-7b-instruct:free",
-        "deepseek/deepseek-r1-distill-llama-70b:free",
+        "deepseek/deepseek-r1-distill-llama-70b:free",  # large but can work
     ],
     "groq": [
         "llama-3.1-8b-instant",
-        "llama-3.1-70b-versatile",
         "gemma2-9b-it",
         "mixtral-8x7b-32768",
+        "llama-3.1-70b-versatile",
     ],
     "sambanova": [
-        "Meta-Llama-3.1-8B-Instruct-4096",   # newer model
+        "Meta-Llama-3.1-8B-Instruct-4096",
         "Meta-Llama-3.1-8B-Instruct",
-    ],
-    "together": [
-        "meta-llama/Llama-3.1-8B-Instruct-Turbo",
-        "meta-llama/Llama-3.1-70B-Instruct-Turbo",
-        "mistralai/Mistral-7B-Instruct-v0.3",
-        "NousResearch/Hermes-2-Pro-Llama-3-8B",
-        "google/gemma-2-9b-it",
-        "upstage/SOLAR-10.7B-Instruct-v1.0",
     ],
     "cerebras": [
         "llama3.1-8b",
@@ -263,28 +278,14 @@ PROVIDER_MODELS = {
     "byteplus": [
         "deepseek-r1-250120",
     ],
-    "mistral": [
-        "mistral-tiny",
-        "mistral-small",
-        "open-mistral-7b",
-        "open-mixtral-8x7b",
-    ],
     "nvidia": [
         "nvidia/llama-3.1-70b-instruct",
         "nvidia/llama-3.1-8b-instruct",
-    ],
-    "deepinfra": [
-        "meta-llama/Llama-3.1-70B-Instruct",
-        "meta-llama/Llama-3.1-8B-Instruct",
-        "mistralai/Mistral-7B-Instruct-v0.3",
-        "google/gemma-2-9b-it",
-        "deepseek-ai/deepseek-coder-6.7b-instruct",
     ],
     "pollinations": [],
     "ollama": [],
     "local": [],
 }
-
 # -------------------- AI PROVIDER FUNCTIONS (unchanged signatures) --------------------
 # All functions accept (prompt, max_tokens, temp, model) except pollinations and local
 
@@ -476,6 +477,12 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
+def build_local_fallback_response(workspace, task_type, prompt):
+    return (
+        "I'm sorry, all AI services are temporarily unavailable. "
+        "Please try again in a few minutes. "
+        "If the issue persists, contact support."
+    )
 # Local fallback (always works) - improved to be more helpful
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
@@ -507,20 +514,20 @@ async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspa
 
 # -------------------- PROVIDER CHAIN (ordered) --------------------
 PROVIDER_CHAIN = [
-    ("openrouter", call_openrouter),
-    ("groq", call_groq),
-    ("sambanova", call_sambanova),
-    ("together", call_together),
+    ("huggingface", call_huggingface),   # New – reliable, generous free tier
+    ("deepinfra", call_deepinfra),       # Reliable
+    ("mistral", call_mistral),           # Reliable
+    ("together", call_together),         # Good
+    ("openrouter", call_openrouter),     # Moved after reliable ones
+    ("groq", call_groq),                 # Moved later
+    ("sambanova", call_sambanova),       # Deprecated, but keep
     ("cerebras", call_cerebras),
     ("byteplus", call_byteplus),
-    ("mistral", call_mistral),
     ("nvidia", call_nvidia),
-    ("deepinfra", call_deepinfra),
     ("pollinations", call_pollinations),
-    ("ollama", call_ollama),
+    ("ollama", call_ollama),             # Only if local
     ("local", call_local_fallback),
 ]
-
 # -------------------- MASTER SYSTEM PROMPT (cleaned) --------------------
 MASTER_PROMPT = (
     "You are AXELR, an elite executive AI operating in zero-cost, production-safe mode. "
@@ -821,7 +828,26 @@ async def route_ai_request(
         provider_health[provider_used]["daily_usage"] = provider_health[provider_used].get("daily_usage", 0) + 1
 
     return result
+# Add to environment variables
+HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
 
+async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
+    if not HF_API_KEY:
+        raise Exception("HF_API_KEY missing")
+    url = f"https://api-inference.huggingface.co/models/{model}"
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": max_tokens,
+            "temperature": temp,
+            "return_full_text": False,
+        }
+    }
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    if isinstance(resp, list):
+        return resp[0].get("generated_text", "")
+    return resp.get("generated_text", "")
 # -------------------- AUTHENTICATION (unchanged) --------------------
 security = HTTPBearer()
 
