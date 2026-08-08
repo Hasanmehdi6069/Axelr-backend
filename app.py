@@ -476,17 +476,13 @@ async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional
         return resp["message"].get("content", "")
     raise Exception("Unexpected Ollama response format")
 
-def build_local_fallback_response(workspace, task_type, prompt):
-    return (
-        "I'm sorry, all AI services are temporarily unavailable. "
-        "Please try again in a few minutes. "
-        "If the issue persists, contact support."
-    )
 # Local fallback (always works) - improved to be more helpful
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
-        return "I can help with that. Please share the task details and I will provide a structured response."
+        return " "I'm sorry, all AI services are temporarily unavailable. "
+                "Please try again in a few minutes. "
+                "If the issue persists, contact support.""
     # Provide a more natural response
     if workspace == "design":
         return (
@@ -561,6 +557,10 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
 # -------------------- AI ROUTER (with multi‑model fallback & parallel attempt) --------------------
+# Ensure HF_API_KEY is defined
+HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "").strip()
+
+# Define call_huggingface before PROVIDER_CHAIN
 async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
     if not HF_API_KEY:
         raise Exception("HF_API_KEY missing")
@@ -578,7 +578,6 @@ async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str
     if isinstance(resp, list):
         return resp[0].get("generated_text", "")
     return resp.get("generated_text", "")
-
 async def route_ai_request(
     workspace: str,
     task_type: str,
