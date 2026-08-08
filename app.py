@@ -238,21 +238,16 @@ PROVIDER_MODELS = {
         "meta-llama/Llama-3.1-8B-Instruct",
     ],
     "deepinfra": [
-        "meta-llama/Llama-3.1-70B-Instruct",
-        "meta-llama/Llama-3.1-8B-Instruct",
-        "mistralai/Mistral-7B-Instruct-v0.3",
-        "google/gemma-2-9b-it",
+        "meta-llama/Meta-Llama-3.1-8B-Instruct",   # corrected name
+        "google/gemma-2-9b-it",                    # if free
     ],
     "mistral": [
-        "mistral-tiny",
-        "mistral-small",
+        "mistral-tiny",      # check if this is still free; might need "open-mistral-7b"
         "open-mistral-7b",
-        "open-mixtral-8x7b",
     ],
     "together": [
-        "meta-llama/Llama-3.1-8B-Instruct-Turbo",
+        "meta-llama/Llama-3.1-8B-Instruct-Turbo",  # verify
         "mistralai/Mistral-7B-Instruct-v0.3",
-        "google/gemma-2-9b-it",
     ],
     "openrouter": [
         "google/gemma-2-9b-it:free",
@@ -264,15 +259,12 @@ PROVIDER_MODELS = {
         "llama-3.1-8b-instant",
         "gemma2-9b-it",
         "mixtral-8x7b-32768",
-        "llama-3.1-70b-versatile",
     ],
     "sambanova": [
-        "Meta-Llama-3.1-8B-Instruct-4096",
         "Meta-Llama-3.1-8B-Instruct",
     ],
     "cerebras": [
-        "llama3.1-8b",
-        "llama3.1-70b",
+        "llama3.1-8b",      # check if free
     ],
     "byteplus": [
         "deepseek-r1-250120",
@@ -281,9 +273,9 @@ PROVIDER_MODELS = {
         "nvidia/llama-3.1-70b-instruct",
         "nvidia/llama-3.1-8b-instruct",
     ],
-    "pollinations": [],   # no model parameter
-    "ollama": [],         # model passed via env
-    "local": [],          # no model
+    "pollinations": [],
+    "ollama": [],
+    "local": [],
 }
 # -------------------- AI PROVIDER FUNCTIONS (unchanged signatures) --------------------
 # All functions accept (prompt, max_tokens, temp, model) except pollinations and local
@@ -441,6 +433,7 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
     req = urllib.request.Request(url, method='GET')
     loop = asyncio.get_running_loop()
     try:
+        http_post_async
         response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=30)
         content = response.read().decode('utf-8')
         try:
