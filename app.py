@@ -1,6 +1,3 @@
-
-📋 Complete app.py (v16.1 – Ultimate Reliability)
-python 
 # -*- coding: utf-8 -*-
 """
 AXELR AI - UNIFIED FORTRESS v16.1 (ULTIMATE RELIABILITY)
