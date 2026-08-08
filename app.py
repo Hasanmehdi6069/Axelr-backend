@@ -504,8 +504,29 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
 
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
-
 # -------------------- PROVIDER CHAIN (ordered) --------------------
+# First, define HF_API_KEY and call_huggingface
+HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "").strip()
+
+async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
+    if not HF_API_KEY:
+        raise Exception("HF_API_KEY missing")
+    url = f"https://api-inference.huggingface.co/models/{model}"
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": max_tokens,
+            "temperature": temp,
+            "return_full_text": False,
+        }
+    }
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    if isinstance(resp, list):
+        return resp[0].get("generated_text", "")
+    return resp.get("generated_text", "")
+
+# Now define the provider chain using call_huggingface
 PROVIDER_CHAIN = [
     ("huggingface", call_huggingface),   # #1 – highest free quota, very stable
     ("deepinfra", call_deepinfra),       # #2 – generous, fast
@@ -555,27 +576,6 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
 # -------------------- AI ROUTER (with multi‑model fallback & parallel attempt) --------------------
-# Ensure HF_API_KEY is defined
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY", "").strip()
-
-# Define call_huggingface before PROVIDER_CHAIN
-async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
-    if not HF_API_KEY:
-        raise Exception("HF_API_KEY missing")
-    url = f"https://api-inference.huggingface.co/models/{model}"
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": max_tokens,
-            "temperature": temp,
-            "return_full_text": False,
-        }
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    if isinstance(resp, list):
-        return resp[0].get("generated_text", "")
-    return resp.get("generated_text", "")
 async def route_ai_request(
     workspace: str,
     task_type: str,
