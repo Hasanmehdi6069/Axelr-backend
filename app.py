@@ -233,6 +233,7 @@ def select_model(task_type: str) -> str:
 PROVIDER_MODELS = {
     "huggingface": [
         "google/gemma-2-9b-it",
+        "meta-llama/Llama-3.2-3B-Instruct",
         "mistralai/Mistral-7B-Instruct-v0.3",
         "meta-llama/Llama-3.1-8B-Instruct",
     ],
@@ -251,15 +252,13 @@ PROVIDER_MODELS = {
     "together": [
         "meta-llama/Llama-3.1-8B-Instruct-Turbo",
         "mistralai/Mistral-7B-Instruct-v0.3",
-        "NousResearch/Hermes-2-Pro-Llama-3-8B",
         "google/gemma-2-9b-it",
     ],
     "openrouter": [
         "google/gemma-2-9b-it:free",
         "microsoft/phi-3-mini-128k-instruct:free",
         "nousresearch/hermes-3-llama-3.1-8b:free",
-        "mistralai/mistral-7b-instruct:free",
-        "deepseek/deepseek-r1-distill-llama-70b:free",  # large but can work
+        "deepseek/deepseek-r1-distill-llama-70b:free",
     ],
     "groq": [
         "llama-3.1-8b-instant",
@@ -282,9 +281,9 @@ PROVIDER_MODELS = {
         "nvidia/llama-3.1-70b-instruct",
         "nvidia/llama-3.1-8b-instruct",
     ],
-    "pollinations": [],
-    "ollama": [],
-    "local": [],
+    "pollinations": [],   # no model parameter
+    "ollama": [],         # model passed via env
+    "local": [],          # no model
 }
 # -------------------- AI PROVIDER FUNCTIONS (unchanged signatures) --------------------
 # All functions accept (prompt, max_tokens, temp, model) except pollinations and local
@@ -514,19 +513,19 @@ async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspa
 
 # -------------------- PROVIDER CHAIN (ordered) --------------------
 PROVIDER_CHAIN = [
-    ("huggingface", call_huggingface),   # New – reliable, generous free tier
-    ("deepinfra", call_deepinfra),       # Reliable
-    ("mistral", call_mistral),           # Reliable
-    ("together", call_together),         # Good
-    ("openrouter", call_openrouter),     # Moved after reliable ones
-    ("groq", call_groq),                 # Moved later
-    ("sambanova", call_sambanova),       # Deprecated, but keep
-    ("cerebras", call_cerebras),
-    ("byteplus", call_byteplus),
-    ("nvidia", call_nvidia),
-    ("pollinations", call_pollinations),
-    ("ollama", call_ollama),             # Only if local
-    ("local", call_local_fallback),
+    ("huggingface", call_huggingface),   # #1 – highest free quota, very stable
+    ("deepinfra", call_deepinfra),       # #2 – generous, fast
+    ("mistral", call_mistral),           # #3 – reliable, free tier
+    ("together", call_together),         # #4 – good free models
+    ("openrouter", call_openrouter),     # #5 – large model variety
+    ("groq", call_groq),                 # #6 – fast, but rate‑limited
+    ("sambanova", call_sambanova),       # #7 – free but limited
+    ("cerebras", call_cerebras),         # #8
+    ("byteplus", call_byteplus),         # #9
+    ("nvidia", call_nvidia),             # #10
+    ("pollinations", call_pollinations), # #11 – fallback
+    ("ollama", call_ollama),             # #12 – local, if available
+    ("local", call_local_fallback),      # #13 – always works
 ]
 # -------------------- MASTER SYSTEM PROMPT (cleaned) --------------------
 MASTER_PROMPT = (
@@ -562,6 +561,24 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
 # -------------------- AI ROUTER (with multi‑model fallback & parallel attempt) --------------------
+async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
+    if not HF_API_KEY:
+        raise Exception("HF_API_KEY missing")
+    url = f"https://api-inference.huggingface.co/models/{model}"
+    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
+    payload = {
+        "inputs": prompt,
+        "parameters": {
+            "max_new_tokens": max_tokens,
+            "temperature": temp,
+            "return_full_text": False,
+        }
+    }
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    if isinstance(resp, list):
+        return resp[0].get("generated_text", "")
+    return resp.get("generated_text", "")
+
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -574,7 +591,7 @@ async def route_ai_request(
 ) -> Dict[str, Any]:
     start = time.time()
 
-    # Build full prompt with history
+    # Build full prompt
     history_text = ""
     if history:
         recent = []
@@ -596,7 +613,7 @@ async def route_ai_request(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
-    # Security
+    # Security check
     if detect_manipulation(prompt):
         return {"success": False, "text": "Manipulation detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
 
@@ -611,165 +628,49 @@ async def route_ai_request(
     model_used = None
     last_error = None
 
-    # Stage 1: Ordered provider chain with model-level retries
+    # ----- Stage 1: Ordered provider chain with model-level retries -----
     for provider_name, func in PROVIDER_CHAIN:
-        # Skip if API key missing (except local, pollinations, ollama)
+        # Skip unavailable providers (key missing or disabled)
         if provider_name == "openrouter" and not OPENROUTER_API_KEY:
-            logger.debug("Skipping openrouter – no API key")
             continue
         if provider_name == "groq" and not GROQ_API_KEY:
-            logger.debug("Skipping groq – no API key")
             continue
         if provider_name == "sambanova" and not SAMBANOVA_API_KEY:
-            logger.debug("Skipping sambanova – no API key")
             continue
         if provider_name == "together" and not TOGETHER_API_KEY:
-            logger.debug("Skipping together – no API key")
             continue
         if provider_name == "cerebras" and not CEREBRAS_API_KEY:
-            logger.debug("Skipping cerebras – no API key")
             continue
         if provider_name == "byteplus" and not BYTEPLUS_API_KEY:
-            logger.debug("Skipping byteplus – no API key")
             continue
         if provider_name == "mistral" and not MISTRAL_API_KEY:
-            logger.debug("Skipping mistral – no API key")
             continue
         if provider_name == "nvidia" and not NVIDIA_API_KEY:
-            logger.debug("Skipping nvidia – no API key")
             continue
         if provider_name == "deepinfra" and not DEEPINFRA_API_KEY:
-            logger.debug("Skipping deepinfra – no API key")
             continue
         if provider_name == "ollama" and not os.getenv("OLLAMA_URL"):
-            logger.debug("Skipping ollama – no URL")
+            continue
+        if provider_name == "huggingface" and not HF_API_KEY:
             continue
 
-        # Circuit breaker for provider (cooldown if too many failures)
+        # Circuit breaker
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
-            logger.warning(f"Skipping provider {provider_name} due to circuit breaker (cooldown)")
+            logger.warning(f"Skipping {provider_name} (circuit breaker)")
             continue
 
         # Get list of models for this provider
         models = PROVIDER_MODELS.get(provider_name, [])
-        # For providers that don't use a model parameter (pollinations, local, ollama if no model list), we call without model
-        if provider_name in ["pollinations", "local"]:
-            try:
-                if provider_name == "pollinations":
-                    response_text = await func(full_prompt, max_tokens, temp)
-                elif provider_name == "local":
-                    response_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
-                if response_text:
-                    provider_used = provider_name
-                    model_used = provider_name
-                    provider_failures[provider_name] = 0
-                    break
-            except Exception as e:
-                last_error = e
-                logger.warning(f"Provider {provider_name} failed: {e}")
-                provider_failures[provider_name] += 1
-                provider_last_fail[provider_name] = time.time()
-                continue
-        else:
-            # Providers with model list
-                        # Providers with model list
-            if not models:
-                # Fallback to environment default or a known model
-                if provider_name == "groq":
-                    models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
-                elif provider_name == "openrouter":
-                    models = [
-                        "google/gemma-2-9b-it:free",
-                        "microsoft/phi-3-mini-128k-instruct:free",
-                        "nousresearch/hermes-3-llama-3.1-8b:free",
-                        "mistralai/mistral-7b-instruct:free",
-                        "deepseek/deepseek-r1-distill-llama-70b:free"
-                    ]
-                elif provider_name == "together":
-                    models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
-                else:
-                    default_model = os.getenv(f"{provider_name.upper()}_MODEL")
-                    if default_model:
-                        models = [default_model]
-                    else:
-                        continue
-
-            # Try each model for this provider
-            for model in models:
-                try:
-                    # Attempt up to 2 retries per model
-                    for attempt in range(1):
-                        try:
-                            if provider_name == "openrouter":
-                                response_text = await func(model, full_prompt, max_tokens, temp)
-                            elif provider_name == "groq":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "sambanova":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "together":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "cerebras":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "byteplus":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "mistral":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "nvidia":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "deepinfra":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            elif provider_name == "ollama":
-                                response_text = await func(full_prompt, max_tokens, temp, model)
-                            if response_text:
-                                provider_used = provider_name
-                                model_used = model
-                                provider_failures[provider_name] = 0
-                                break
-                        except Exception as e:
-                            last_error = e
-                            logger.warning(f"Provider {provider_name} model {model} attempt {attempt+1} failed: {e}")
-                            await asyncio.sleep(2 ** attempt)  # exponential backoff
-                            provider_failures[provider_name] += 1
-                            provider_last_fail[provider_name] = time.time()
-                    if response_text:
-                        break  # break model loop
-                except Exception as e:
-                    last_error = e
-                    logger.warning(f"Provider {provider_name} model {model} fully failed: {e}")
-                    provider_failures[provider_name] += 1
-                    provider_last_fail[provider_name] = time.time()
-                    continue
-            if response_text:
-                break  # break provider loop
-    # Stage 2: If still no response, try all providers in parallel
-    if not response_text:
-        logger.info("All ordered providers failed. Attempting parallel fallback on all models...")
-        parallel_tasks = []
-        # ... rest of the parallel logic
-    for provider_name, func in PROVIDER_CHAIN:
-        if provider_name in ["local"]:
-            continue
-        # Skip if key missing (same checks as before)
-        if provider_name == "openrouter" and not OPENROUTER_API_KEY: continue
-        if provider_name == "groq" and not GROQ_API_KEY: continue
-        if provider_name == "sambanova" and not SAMBANOVA_API_KEY: continue
-        if provider_name == "together" and not TOGETHER_API_KEY: continue
-        if provider_name == "cerebras" and not CEREBRAS_API_KEY: continue
-        if provider_name == "byteplus" and not BYTEPLUS_API_KEY: continue
-        if provider_name == "mistral" and not MISTRAL_API_KEY: continue
-        if provider_name == "nvidia" and not NVIDIA_API_KEY: continue
-        if provider_name == "deepinfra" and not DEEPINFRA_API_KEY: continue
-        if provider_name == "ollama" and not os.getenv("OLLAMA_URL"): continue
-
-        models = PROVIDER_MODELS.get(provider_name, [])
         if not models:
-            # fallback default
+            # Default fallback models per provider
             if provider_name == "groq":
-                models = ["llama-3.1-8b-instant"]
+                models = [os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")]
             elif provider_name == "openrouter":
                 models = ["google/gemma-2-9b-it:free"]
             elif provider_name == "together":
-                models = ["meta-llama/Llama-3.1-8B-Instruct-Turbo"]
+                models = [os.getenv("TOGETHER_MODEL", "meta-llama/Llama-3.1-8B-Instruct-Turbo")]
+            elif provider_name == "huggingface":
+                models = ["google/gemma-2-9b-it"]
             else:
                 default_model = os.getenv(f"{provider_name.upper()}_MODEL")
                 if default_model:
@@ -777,32 +678,113 @@ async def route_ai_request(
                 else:
                     continue
 
+        # Try each model for this provider
         for model in models:
-            # Create a coroutine with a 10-second timeout
-            async def attempt(p_name, p_func, p_model):
+            for attempt in range(2):  # 2 attempts per model
                 try:
-                    if p_name == "pollinations":
-                        return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp), timeout=10)
-                    elif p_name == "openrouter":
-                        return await asyncio.wait_for(p_func(p_model, full_prompt, max_tokens, temp), timeout=10)
+                    # Dispatch to the correct call signature
+                    if provider_name == "openrouter":
+                        resp_text = await func(model, full_prompt, max_tokens, temp)
+                    elif provider_name == "pollinations":
+                        resp_text = await func(full_prompt, max_tokens, temp)
+                    elif provider_name == "local":
+                        resp_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
                     else:
-                        return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp, p_model), timeout=10)
-                except Exception as e:
-                    logger.debug(f"Parallel attempt {p_name}/{p_model} failed: {e}")
-                    return None
-            parallel_tasks.append(attempt(provider_name, func, model))
+                        # All others: func(prompt, max_tokens, temp, model)
+                        resp_text = await func(full_prompt, max_tokens, temp, model)
 
-    results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-    for idx, res in enumerate(results):
-        if res and isinstance(res, str):
-            response_text = res
-            # Determine which provider/model succeeded
-            # We can store the provider/model in a dict, but for simplicity we'll just use the first success
-            provider_used = "parallel_fallback"
-            model_used = "parallel_success"
-            logger.info(f"Parallel fallback succeeded with a model.")
+                    if resp_text:
+                        response_text = resp_text
+                        provider_used = provider_name
+                        model_used = model
+                        provider_failures[provider_name] = 0
+                        break
+                except Exception as e:
+                    last_error = e
+                    logger.warning(f"{provider_name}/{model} attempt {attempt+1} failed: {e}")
+                    await asyncio.sleep(2 ** attempt)
+                    provider_failures[provider_name] += 1
+                    provider_last_fail[provider_name] = time.time()
+            if response_text:
+                break
+        if response_text:
             break
-    # Ultimate fallback (local always works)
+
+    # ----- Stage 2: Parallel fallback if ordered chain failed -----
+    if not response_text:
+        logger.info("Ordered chain failed, launching parallel fallback on all providers...")
+        parallel_tasks = []
+        for provider_name, func in PROVIDER_CHAIN:
+            if provider_name == "local":
+                continue  # local will be the ultimate fallback
+            # Skip unavailable
+            if provider_name == "openrouter" and not OPENROUTER_API_KEY:
+                continue
+            if provider_name == "groq" and not GROQ_API_KEY:
+                continue
+            if provider_name == "sambanova" and not SAMBANOVA_API_KEY:
+                continue
+            if provider_name == "together" and not TOGETHER_API_KEY:
+                continue
+            if provider_name == "cerebras" and not CEREBRAS_API_KEY:
+                continue
+            if provider_name == "byteplus" and not BYTEPLUS_API_KEY:
+                continue
+            if provider_name == "mistral" and not MISTRAL_API_KEY:
+                continue
+            if provider_name == "nvidia" and not NVIDIA_API_KEY:
+                continue
+            if provider_name == "deepinfra" and not DEEPINFRA_API_KEY:
+                continue
+            if provider_name == "ollama" and not os.getenv("OLLAMA_URL"):
+                continue
+            if provider_name == "huggingface" and not HF_API_KEY:
+                continue
+
+            models = PROVIDER_MODELS.get(provider_name, [])
+            if not models:
+                if provider_name == "groq":
+                    models = ["llama-3.1-8b-instant"]
+                elif provider_name == "openrouter":
+                    models = ["google/gemma-2-9b-it:free"]
+                elif provider_name == "together":
+                    models = ["meta-llama/Llama-3.1-8B-Instruct-Turbo"]
+                elif provider_name == "huggingface":
+                    models = ["google/gemma-2-9b-it"]
+                else:
+                    default = os.getenv(f"{provider_name.upper()}_MODEL")
+                    if default:
+                        models = [default]
+                    else:
+                        continue
+
+            for model in models:
+                async def attempt(p_name, p_func, p_model):
+                    try:
+                        if p_name == "pollinations":
+                            return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp), timeout=8)
+                        elif p_name == "openrouter":
+                            return await asyncio.wait_for(p_func(p_model, full_prompt, max_tokens, temp), timeout=8)
+                        elif p_name == "local":
+                            return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp, workspace, task_type), timeout=8)
+                        else:
+                            return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp, p_model), timeout=8)
+                    except Exception as e:
+                        logger.debug(f"Parallel {p_name}/{p_model} failed: {e}")
+                        return None
+                parallel_tasks.append(attempt(provider_name, func, model))
+
+        # Run all parallel tasks concurrently
+        results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
+        for res in results:
+            if res and isinstance(res, str):
+                response_text = res
+                provider_used = "parallel_fallback"
+                model_used = "parallel_success"
+                logger.info("Parallel fallback succeeded")
+                break
+
+    # ----- Ultimate fallback (local) -----
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
         provider_used = "local"
@@ -821,33 +803,13 @@ async def route_ai_request(
     }
     ai_cache[cache_key] = result
 
-    # Update health status for the provider (if not local)
+    # Update provider health for admin dashboard
     if provider_used and provider_used in provider_health:
         provider_health[provider_used]["status"] = "active"
         provider_health[provider_used]["last_check"] = datetime.utcnow().isoformat()
         provider_health[provider_used]["daily_usage"] = provider_health[provider_used].get("daily_usage", 0) + 1
 
     return result
-# Add to environment variables
-HF_API_KEY = os.getenv("HUGGINGFACE_API_KEY")
-
-async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
-    if not HF_API_KEY:
-        raise Exception("HF_API_KEY missing")
-    url = f"https://api-inference.huggingface.co/models/{model}"
-    headers = {"Authorization": f"Bearer {HF_API_KEY}"}
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": max_tokens,
-            "temperature": temp,
-            "return_full_text": False,
-        }
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    if isinstance(resp, list):
-        return resp[0].get("generated_text", "")
-    return resp.get("generated_text", "")
 # -------------------- AUTHENTICATION (unchanged) --------------------
 security = HTTPBearer()
 
