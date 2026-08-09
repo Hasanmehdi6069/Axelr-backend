@@ -1,7 +1,8 @@
+
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v16.1 (ULTIMATE RELIABILITY)
-10+ elite providers with zero‑cost, permanent free tiers,
+AXELR AI - UNIFIED FORTRESS v17.1 (FIXED PROVIDER MODELS & SSL)
+8 elite providers with zero‑cost, permanent free tiers,
 automatic failover, 429 handling, and aggressive fallback.
 """
 
@@ -14,6 +15,7 @@ import hashlib
 import smtplib
 import logging
 import base64
+import ssl
 import urllib.request
 import urllib.error
 import urllib.parse
@@ -23,6 +25,10 @@ from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import defaultdict
+
+# Disable SSL verification globally for Hugging Face (development only)
+# Remove this line for production with proper certificates
+ssl._create_default_https_context = ssl._create_unverified_context
 
 try:
     from dotenv import load_dotenv
@@ -74,21 +80,24 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
-# AI API Keys (only for providers we now use)
-AION_API_KEY = (os.getenv("AION_API_KEY") or "").strip()
-CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
+# ---------- AI API KEYS (only the ones we actually use) ----------
+GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
+OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 TOGETHER_API_KEY = (os.getenv("TOGETHER_AI_API_KEY") or os.getenv("TOGETHER_API_KEY") or "").strip()
 MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
+CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
+HF_API_KEY = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
+DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+CLOUDFLARE_API_TOKEN = (os.getenv("CLOUDFLARE_API_TOKEN") or "").strip()
+CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
+
+# Keep others for reference but they are not used in the chain
+AION_API_KEY = (os.getenv("AION_API_KEY") or "").strip()
 SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
 BYTEPLUS_API_KEY = (os.getenv("BYTEPLUS_API_KEY") or "").strip()
 NVIDIA_API_KEY = (os.getenv("NVIDIA_API_KEY") or "").strip()
 DEEPINFRA_API_KEY = (os.getenv("DEEPINFRA_API_KEY") or "").strip()
-HF_API_KEY = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
-
-# Deprecated / problematic – kept but demoted (or removed)
 GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
-OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
-GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
@@ -153,24 +162,18 @@ provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
 PROVIDER_COOLDOWN = 600  # 10 minutes
 
-# Provider health status (expanded)
+# Provider health status (only active providers)
 provider_health = {
-    "aion": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "cerebras": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "groq": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "openrouter": {"status": "unknown", "last_check": None, "daily_usage": 0},
     "together": {"status": "unknown", "last_check": None, "daily_usage": 0},
     "mistral": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "sambanova": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "byteplus": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "nvidia": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "deepinfra": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "deepseek": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "cloudflare": {"status": "unknown", "last_check": None, "daily_usage": 0},
+    "cerebras": {"status": "unknown", "last_check": None, "daily_usage": 0},
     "huggingface": {"status": "unknown", "last_check": None, "daily_usage": 0},
     "pollinations": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "ollama": {"status": "unknown", "last_check": None, "daily_usage": 0},
     "local": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    # Deprecated but kept for metrics
-    "openrouter": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "groq": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "gemini": {"status": "unknown", "last_check": None, "daily_usage": 0},
 }
 
 # -------------------- SECURITY UTILITIES --------------------
@@ -205,7 +208,7 @@ def strip_fluff(text: str) -> str:
         text = re.sub(pat, "", text, flags=re.IGNORECASE)
     return text.strip()
 
-# -------------------- ASYNC HTTP HELPER --------------------
+# -------------------- ASYNC HTTP HELPER (with requests fallback) --------------------
 async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: float = 90.0):
     data = json.dumps(json_data).encode('utf-8')
     req = urllib.request.Request(url, data=data, headers=headers, method='POST')
@@ -216,12 +219,28 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
         return json.loads(content)
     except urllib.error.HTTPError as e:
         error_body = e.read().decode('utf-8') if e.fp else ''
-        # Detect quota exceeded (429) to avoid retrying
         if e.code == 429:
             raise Exception(f"Quota exceeded: {error_body}")
         raise Exception(f"HTTP error {e.code}: {error_body}")
     except Exception as e:
-        raise Exception(f"HTTP request failed: {e}")
+        # Fallback to requests if urllib fails (e.g., SSL, proxy)
+        try:
+            import requests
+            logger.warning(f"urllib failed, falling back to requests: {e}")
+            resp = await asyncio.to_thread(
+                requests.post,
+                url,
+                headers=headers,
+                json=json_data,
+                timeout=timeout,
+                verify=False  # Allow self‑signed / invalid SSL certificates
+            )
+            resp.raise_for_status()
+            return resp.json()
+        except ImportError:
+            raise Exception(f"HTTP request failed: {e}")
+        except Exception as req_e:
+            raise Exception(f"HTTP request failed (both urllib and requests): {req_e}")
 
 # -------------------- MODEL MATRIX (task → model hints) --------------------
 MODEL_MATRIX = {
@@ -239,68 +258,29 @@ FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 def select_model(task_type: str) -> str:
     return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
 
-# -------------------- PROVIDER MODEL LISTS (free, no‑card) --------------------
-# Each provider’s model list – only confirmed free models.
-# Limits (as of Aug 2026):
-#   Aion:      15 RPM, 20k tokens/day
-#   Cerebras:  5 RPM, 1M tokens/day
-#   Together:  Free Mistral-7B, generous
-#   Mistral:   open-mistral-7b (free tier)
-#   Sambanova: free Llama-3.1-8B
-#   Byteplus:  free DeepSeek-R1
-#   Nvidia:    free Llama-3.1-8B
-#   DeepInfra: may require balance; treat as fallback
-#   HuggingFace: free inference, rate limited
-#   Pollinations: always free, no limits
+# -------------------- PROVIDER MODEL LISTS (UPDATED FREE MODELS) --------------------
 PROVIDER_MODELS = {
-    "aion": [
-        "aion-3.0",
-        "aion-2.5",
-    ],
-    "cerebras": [
-        "llama3.1-8b",
-        "gpt-oss-120b",  # free tier
-    ],
-    "together": [
-        "mistralai/Mistral-7B-Instruct-v0.3",
-        "google/gemma-2-9b-it",
-    ],
-    "mistral": [
-        "open-mistral-7b",
-    ],
-    "sambanova": [
-        "Meta-Llama-3.1-8B-Instruct",
-    ],
-    "byteplus": [
-        "deepseek-r1-250120",
-    ],
-    "nvidia": [
-        "nvidia/llama-3.1-8b-instruct",
-    ],
-    "deepinfra": [
-        "meta-llama/Meta-Llama-3.1-8B-Instruct",
-    ],
-    "huggingface": [
-        "google/gemma-2-9b-it",
-        "meta-llama/Llama-3.2-3B-Instruct",
-    ],
+    "groq": ["llama-3.1-8b-instant"],
+    "mistral": ["open-mistral-7b"],
+    "cloudflare": ["@cf/meta/llama-3.1-8b-instruct"],
+    "openrouter": ["mistralai/mistral-7b-instruct:free"],           # working free model
+    "together": ["google/gemma-2-9b-it"],                           # free model
+    "deepseek": ["deepseek-chat"],                                  # will likely fail (balance)
+    "cerebras": ["llama3.1-8b"],                                    # key may be invalid
+    "huggingface": ["google/gemma-2-9b-it", "meta-llama/Llama-3.2-3B-Instruct"],
     "pollinations": [],
-    "ollama": [],
     "local": [],
 }
 
 # -------------------- AI PROVIDER FUNCTIONS --------------------
 
-# ---------- AION LABS ----------
-async def call_aion(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not AION_API_KEY:
-        raise Exception("AION_API_KEY missing")
-    url = "https://api.aionlabs.ai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {AION_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    effective_model = model or "aion-3.0"
+# ---------- GROQ ----------
+async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not GROQ_API_KEY:
+        raise Exception("GROQ_API_KEY missing")
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or "llama-3.1-8b-instant"
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -311,13 +291,18 @@ async def call_aion(prompt: str, max_tokens: int, temp: float, model: Optional[s
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# ---------- CEREBRAS ----------
-async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not CEREBRAS_API_KEY:
-        raise Exception("CEREBRAS_API_KEY missing")
-    url = "https://api.cerebras.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {CEREBRAS_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "llama3.1-8b"
+# ---------- OPENROUTER ----------
+async def call_openrouter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not OPENROUTER_API_KEY:
+        raise Exception("OPENROUTER_API_KEY missing")
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://axelr.in",
+        "X-Title": "Axelr AI"
+    }
+    effective_model = model or "meta-llama/llama-3.1-8b-instruct:free"
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -362,29 +347,13 @@ async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# ---------- SAMBANOVA ----------
-async def call_sambanova(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not SAMBANOVA_API_KEY:
-        raise Exception("SAMBANOVA_API_KEY missing")
-    url = "https://api.sambanova.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {SAMBANOVA_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "Meta-Llama-3.1-8B-Instruct"
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    return resp["choices"][0]["message"]["content"]
-
-# ---------- BYTEPLUS ----------
-async def call_byteplus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not BYTEPLUS_API_KEY:
-        raise Exception("BYTEPLUS_API_KEY missing")
-    url = "https://ark.cn-beijing.volces.com/api/v3/chat/completions"
-    headers = {"Authorization": f"Bearer {BYTEPLUS_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "deepseek-r1-250120"
+# ---------- DEEPSEEK ----------
+async def call_deepseek(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not DEEPSEEK_API_KEY:
+        raise Exception("DEEPSEEK_API_KEY missing")
+    url = "https://api.deepseek.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or "deepseek-chat"
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -395,13 +364,30 @@ async def call_byteplus(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# ---------- NVIDIA ----------
-async def call_nvidia(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not NVIDIA_API_KEY:
-        raise Exception("NVIDIA_API_KEY missing")
-    url = "https://integrate.api.nvidia.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {NVIDIA_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "nvidia/llama-3.1-8b-instruct"
+# ---------- CLOUDFLARE WORKERS AI ----------
+async def call_cloudflare(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not CLOUDFLARE_API_TOKEN:
+        raise Exception("CLOUDFLARE_API_TOKEN missing")
+    if not CLOUDFLARE_ACCOUNT_ID:
+        raise Exception("CLOUDFLARE_ACCOUNT_ID missing")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or '@cf/meta/llama-3.1-8b-instruct'}"
+    headers = {"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}", "Content-Type": "application/json"}
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+    }
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    # Cloudflare returns {"result": {"response": "..."}}
+    return resp.get("result", {}).get("response", "")
+
+# ---------- CEREBRAS ----------
+async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not CEREBRAS_API_KEY:
+        raise Exception("CEREBRAS_API_KEY missing")
+    url = "https://api.cerebras.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {CEREBRAS_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or "llama3.1-8b"
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -412,24 +398,7 @@ async def call_nvidia(prompt: str, max_tokens: int, temp: float, model: Optional
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# ---------- DEEPINFRA ----------
-async def call_deepinfra(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not DEEPINFRA_API_KEY:
-        raise Exception("DEEPINFRA_API_KEY missing")
-    url = "https://api.deepinfra.com/v1/openai/chat/completions"
-    headers = {"Authorization": f"Bearer {DEEPINFRA_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "meta-llama/Meta-Llama-3.1-8B-Instruct"
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    return resp["choices"][0]["message"]["content"]
-
-# ---------- HUGGINGFACE ----------
+# ---------- HUGGING FACE ----------
 async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
     if not HF_API_KEY:
         raise Exception("HF_API_KEY missing")
@@ -469,28 +438,8 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
         except:
             return content
     except Exception as e:
+        # Pollinations may return 402 if quota exceeded; just raise
         raise Exception(f"Pollinations failed: {e}")
-
-# ---------- OLLAMA (local) ----------
-async def call_ollama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    ollama_url = (os.getenv("OLLAMA_URL") or "http://127.0.0.1:11434/api/chat").strip()
-    if not ollama_url:
-        raise Exception("OLLAMA_URL not set")
-    effective_model = model or os.getenv("OLLAMA_MODEL", "llama3.2:3b")
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "stream": False,
-        "options": {
-            "num_predict": max_tokens,
-            "temperature": temp,
-        },
-    }
-    headers = {"Content-Type": "application/json"}
-    resp = await http_post_async(ollama_url, headers, payload, timeout=90)
-    if isinstance(resp, dict) and isinstance(resp.get("message"), dict):
-        return resp["message"].get("content", "")
-    raise Exception("Unexpected Ollama response format")
 
 # ---------- LOCAL FALLBACK ----------
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
@@ -508,21 +457,19 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
-# -------------------- PROVIDER CHAIN (prioritized, verified working) --------------------
-# Order: most reliable first.
+# -------------------- PROVIDER CHAIN (prioritized) --------------------
 PROVIDER_CHAIN = [
-    ("aion", call_aion),                # #1 – reasoning, 20k/day
-    ("cerebras", call_cerebras),        # #2 – 1M tokens/day
-    ("together", call_together),        # #3 – free Mistral-7B
-    ("mistral", call_mistral),          # #4 – open-mistral-7b
-    ("sambanova", call_sambanova),      # #5 – Llama-3.1-8B
-    ("byteplus", call_byteplus),        # #6 – DeepSeek-R1
-    ("nvidia", call_nvidia),            # #7 – Llama-3.1-8B
-    ("deepinfra", call_deepinfra),      # #8 – fallback (may need balance)
-    ("huggingface", call_huggingface),  # #9 – free inference
-    ("pollinations", call_pollinations),# #10 – always free
-    ("ollama", call_ollama),            # #11 – local (if configured)
-    ("local", call_local_fallback),     # #12 – ultimate fallback
+    ("groq", call_groq),
+    ("mistral", call_mistral),
+    ("cloudflare", call_cloudflare),
+    ("openrouter", call_openrouter),
+    ("together", call_together),
+    ("deepseek", call_deepseek),
+    ("cloudflare", call_cloudflare),
+    ("cerebras", call_cerebras),
+    ("huggingface", call_huggingface),
+    ("pollinations", call_pollinations),
+    ("local", call_local_fallback),
 ]
 
 # -------------------- MASTER SYSTEM PROMPT --------------------
@@ -558,7 +505,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with robust fallback) --------------------
+# -------------------- AI ROUTER (with robust provider chain) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -610,27 +557,24 @@ async def route_ai_request(
 
     # ----- Stage 1: Ordered provider chain with model-level retries -----
     for provider_name, func in PROVIDER_CHAIN:
-        # Skip if key missing
-        if provider_name == "aion" and not AION_API_KEY:
+        # Skip if key missing (we only check for providers that need a key)
+        if provider_name == "groq" and not GROQ_API_KEY:
             continue
-        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
+        if provider_name == "openrouter" and not OPENROUTER_API_KEY:
             continue
         if provider_name == "together" and not TOGETHER_API_KEY:
             continue
         if provider_name == "mistral" and not MISTRAL_API_KEY:
             continue
-        if provider_name == "sambanova" and not SAMBANOVA_API_KEY:
+        if provider_name == "deepseek" and not DEEPSEEK_API_KEY:
             continue
-        if provider_name == "byteplus" and not BYTEPLUS_API_KEY:
+        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
             continue
-        if provider_name == "nvidia" and not NVIDIA_API_KEY:
-            continue
-        if provider_name == "deepinfra" and not DEEPINFRA_API_KEY:
+        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
             continue
         if provider_name == "huggingface" and not HF_API_KEY:
             continue
-        if provider_name == "ollama" and not os.getenv("OLLAMA_URL"):
-            continue
+        # pollinations and local don't need a key
 
         # Circuit breaker
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
@@ -645,20 +589,14 @@ async def route_ai_request(
                 models = ["mistralai/Mistral-7B-Instruct-v0.3"]
             elif provider_name == "huggingface":
                 models = ["google/gemma-2-9b-it"]
-            elif provider_name == "aion":
-                models = ["aion-3.0"]
             elif provider_name == "cerebras":
                 models = ["llama3.1-8b"]
             elif provider_name == "mistral":
                 models = ["open-mistral-7b"]
-            elif provider_name == "sambanova":
-                models = ["Meta-Llama-3.1-8B-Instruct"]
-            elif provider_name == "byteplus":
-                models = ["deepseek-r1-250120"]
-            elif provider_name == "nvidia":
-                models = ["nvidia/llama-3.1-8b-instruct"]
-            elif provider_name == "deepinfra":
-                models = ["meta-llama/Meta-Llama-3.1-8B-Instruct"]
+            elif provider_name == "deepseek":
+                models = ["deepseek-chat"]
+            elif provider_name == "cloudflare":
+                models = ["@cf/meta/llama-3.1-8b-instruct"]
             else:
                 default_model = os.getenv(f"{provider_name.upper()}_MODEL")
                 if default_model:
@@ -674,7 +612,6 @@ async def route_ai_request(
                     elif provider_name == "local":
                         resp_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
                     else:
-                        # All others: func(prompt, max_tokens, temp, model)
                         resp_text = await func(full_prompt, max_tokens, temp, model)
 
                     if resp_text:
@@ -686,10 +623,9 @@ async def route_ai_request(
                 except Exception as e:
                     last_error = e
                     error_msg = str(e).lower()
-                    # If quota exceeded (429), skip retries for this provider now
                     if "quota" in error_msg or "429" in error_msg:
                         logger.warning(f"{provider_name}/{model} quota exceeded, skipping further attempts")
-                        break  # break out of the attempt loop (don't retry)
+                        break
                     logger.warning(f"{provider_name}/{model} attempt {attempt+1} failed: {e}")
                     await asyncio.sleep(2 ** attempt)
                     provider_failures[provider_name] += 1
@@ -707,25 +643,21 @@ async def route_ai_request(
             if provider_name == "local":
                 continue
             # Skip if key missing (same checks as above)
-            if provider_name == "aion" and not AION_API_KEY:
+            if provider_name == "groq" and not GROQ_API_KEY:
                 continue
-            if provider_name == "cerebras" and not CEREBRAS_API_KEY:
+            if provider_name == "openrouter" and not OPENROUTER_API_KEY:
                 continue
             if provider_name == "together" and not TOGETHER_API_KEY:
                 continue
             if provider_name == "mistral" and not MISTRAL_API_KEY:
                 continue
-            if provider_name == "sambanova" and not SAMBANOVA_API_KEY:
+            if provider_name == "deepseek" and not DEEPSEEK_API_KEY:
                 continue
-            if provider_name == "byteplus" and not BYTEPLUS_API_KEY:
+            if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
                 continue
-            if provider_name == "nvidia" and not NVIDIA_API_KEY:
-                continue
-            if provider_name == "deepinfra" and not DEEPINFRA_API_KEY:
+            if provider_name == "cerebras" and not CEREBRAS_API_KEY:
                 continue
             if provider_name == "huggingface" and not HF_API_KEY:
-                continue
-            if provider_name == "ollama" and not os.getenv("OLLAMA_URL"):
                 continue
 
             models = PROVIDER_MODELS.get(provider_name, [])
@@ -734,20 +666,14 @@ async def route_ai_request(
                     models = ["mistralai/Mistral-7B-Instruct-v0.3"]
                 elif provider_name == "huggingface":
                     models = ["google/gemma-2-9b-it"]
-                elif provider_name == "aion":
-                    models = ["aion-3.0"]
                 elif provider_name == "cerebras":
                     models = ["llama3.1-8b"]
                 elif provider_name == "mistral":
                     models = ["open-mistral-7b"]
-                elif provider_name == "sambanova":
-                    models = ["Meta-Llama-3.1-8B-Instruct"]
-                elif provider_name == "byteplus":
-                    models = ["deepseek-r1-250120"]
-                elif provider_name == "nvidia":
-                    models = ["nvidia/llama-3.1-8b-instruct"]
-                elif provider_name == "deepinfra":
-                    models = ["meta-llama/Meta-Llama-3.1-8B-Instruct"]
+                elif provider_name == "deepseek":
+                    models = ["deepseek-chat"]
+                elif provider_name == "cloudflare":
+                    models = ["@cf/meta/llama-3.1-8b-instruct"]
                 else:
                     default = os.getenv(f"{provider_name.upper()}_MODEL")
                     if default:
@@ -758,7 +684,7 @@ async def route_ai_request(
             for model in models:
                 async def attempt(p_name, p_func, p_model):
                     try:
-                        timeout = 15  # increased for reliability
+                        timeout = 15
                         if p_name == "pollinations":
                             return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp), timeout=timeout)
                         elif p_name == "local":
@@ -847,14 +773,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 },
                 "isAdmin": is_admin,
                 # Provider quotas (we only track used ones)
-                "dailyAionQuota": 0,
-                "dailyCerebrasQuota": 0,
+                "dailyGroqQuota": 0,
+                "dailyOpenRouterQuota": 0,
                 "dailyTogetherQuota": 0,
                 "dailyMistralQuota": 0,
-                "dailySambaNovaQuota": 0,
-                "dailyBytePlusQuota": 0,
-                "dailyNvidiaQuota": 0,
-                "dailyDeepInfraQuota": 0,
+                "dailyDeepSeekQuota": 0,
+                "dailyCloudflareQuota": 0,
+                "dailyCerebrasQuota": 0,
                 "dailyHuggingFaceQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow()
             }
@@ -884,14 +809,13 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "tokenUsage.dailyPromptTokens": 0,
                             "tokenUsage.dailyCompletionTokens": 0,
                             "tokenUsage.lastTokenReset": datetime.utcnow(),
-                            "dailyAionQuota": 0,
-                            "dailyCerebrasQuota": 0,
+                            "dailyGroqQuota": 0,
+                            "dailyOpenRouterQuota": 0,
                             "dailyTogetherQuota": 0,
                             "dailyMistralQuota": 0,
-                            "dailySambaNovaQuota": 0,
-                            "dailyBytePlusQuota": 0,
-                            "dailyNvidiaQuota": 0,
-                            "dailyDeepInfraQuota": 0,
+                            "dailyDeepSeekQuota": 0,
+                            "dailyCloudflareQuota": 0,
+                            "dailyCerebrasQuota": 0,
                             "dailyHuggingFaceQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
@@ -933,7 +857,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="16.1", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="17.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -976,6 +900,78 @@ async def health():
 async def startup_event():
     app.state.start_time = time.time()
 
+# -------------------- PROVIDER HEALTH CHECK (new) --------------------
+@app.get("/api/health/providers")
+async def provider_health_check():
+    """Lightweight ping to each provider to check their status."""
+    test_prompt = "Say 'OK'"
+    results = {}
+    for provider_name, func in PROVIDER_CHAIN:
+        if provider_name == "local":
+            continue
+        # Skip if key missing
+        if provider_name == "groq" and not GROQ_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "openrouter" and not OPENROUTER_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "together" and not TOGETHER_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "mistral" and not MISTRAL_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "deepseek" and not DEEPSEEK_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
+            results[provider_name] = {"status": "skipped", "reason": "Missing Cloudflare credentials"}
+            continue
+        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "huggingface" and not HF_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        # pollinations has no key
+
+        # Get a model
+        models = PROVIDER_MODELS.get(provider_name, [])
+        if not models:
+            if provider_name == "together":
+                models = ["mistralai/Mistral-7B-Instruct-v0.3"]
+            elif provider_name == "huggingface":
+                models = ["google/gemma-2-9b-it"]
+            elif provider_name == "cerebras":
+                models = ["llama3.1-8b"]
+            elif provider_name == "mistral":
+                models = ["open-mistral-7b"]
+            elif provider_name == "deepseek":
+                models = ["deepseek-chat"]
+            elif provider_name == "cloudflare":
+                models = ["@cf/meta/llama-3.1-8b-instruct"]
+            else:
+                models = [None]
+        model = models[0] if models else None
+
+        try:
+            start = time.time()
+            if provider_name == "pollinations":
+                resp = await func(test_prompt, 5, 0.0)
+            elif provider_name == "local":
+                resp = await func(test_prompt, 5, 0.0, "general", "general")
+            else:
+                resp = await func(test_prompt, 5, 0.0, model)
+            latency = (time.time() - start) * 1000
+            if resp and "OK" in resp:
+                results[provider_name] = {"status": "healthy", "latency_ms": round(latency, 2)}
+            else:
+                results[provider_name] = {"status": "unhealthy", "response": resp[:50]}
+        except Exception as e:
+            results[provider_name] = {"status": "error", "error": str(e)[:100]}
+    return {"providers": results}
+
 # -------------------- USER PROFILE --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
@@ -998,14 +994,13 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "email": user.get("email"),
         "stripeCustomerId": user.get("stripeCustomerId"),
         "stripeSubscriptionId": user.get("stripeSubscriptionId"),
-        "dailyAionQuota": user.get("dailyAionQuota", 0),
-        "dailyCerebrasQuota": user.get("dailyCerebrasQuota", 0),
+        "dailyGroqQuota": user.get("dailyGroqQuota", 0),
+        "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
         "dailyTogetherQuota": user.get("dailyTogetherQuota", 0),
         "dailyMistralQuota": user.get("dailyMistralQuota", 0),
-        "dailySambaNovaQuota": user.get("dailySambaNovaQuota", 0),
-        "dailyBytePlusQuota": user.get("dailyBytePlusQuota", 0),
-        "dailyNvidiaQuota": user.get("dailyNvidiaQuota", 0),
-        "dailyDeepInfraQuota": user.get("dailyDeepInfraQuota", 0),
+        "dailyDeepSeekQuota": user.get("dailyDeepSeekQuota", 0),
+        "dailyCloudflareQuota": user.get("dailyCloudflareQuota", 0),
+        "dailyCerebrasQuota": user.get("dailyCerebrasQuota", 0),
         "dailyHuggingFaceQuota": user.get("dailyHuggingFaceQuota", 0),
     }
 
@@ -1518,25 +1513,23 @@ async def extract(
                 "lastUsageDate": datetime.utcnow()
             }
         }
-        # Track provider usage
+        # Track provider usage (only for those we track)
         if provider == "groq":
             update_query["$inc"]["dailyGroqQuota"] = 1
         elif provider == "openrouter":
             update_query["$inc"]["dailyOpenRouterQuota"] = 1
-        elif provider == "sambanova":
-            update_query["$inc"]["dailySambaNovaQuota"] = 1
         elif provider == "together":
             update_query["$inc"]["dailyTogetherQuota"] = 1
-        elif provider == "cerebras":
-            update_query["$inc"]["dailyCerebrasQuota"] = 1
         elif provider == "mistral":
             update_query["$inc"]["dailyMistralQuota"] = 1
-        elif provider == "nvidia":
-            update_query["$inc"]["dailyNvidiaQuota"] = 1
-        elif provider == "deepinfra":
-            update_query["$inc"]["dailyDeepInfraQuota"] = 1
-        elif provider == "byteplus":
-            update_query["$inc"]["dailyBytePlusQuota"] = 1
+        elif provider == "deepseek":
+            update_query["$inc"]["dailyDeepSeekQuota"] = 1
+        elif provider == "cloudflare":
+            update_query["$inc"]["dailyCloudflareQuota"] = 1
+        elif provider == "cerebras":
+            update_query["$inc"]["dailyCerebrasQuota"] = 1
+        elif provider == "huggingface":
+            update_query["$inc"]["dailyHuggingFaceQuota"] = 1
         await users_col.update_one({"_id": user["_id"]}, update_query)
     else:
         logger.info(f"Local fallback used for user {user['email']}")
@@ -1784,18 +1777,17 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         {"$group": {"_id": None,
                     "totalGroq": {"$sum": "$dailyGroqQuota"},
                     "totalOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
-                    "totalSambaNova": {"$sum": "$dailySambaNovaQuota"},
                     "totalTogether": {"$sum": "$dailyTogetherQuota"},
-                    "totalCerebras": {"$sum": "$dailyCerebrasQuota"},
                     "totalMistral": {"$sum": "$dailyMistralQuota"},
-                    "totalNvidia": {"$sum": "$dailyNvidiaQuota"},
-                    "totalDeepInfra": {"$sum": "$dailyDeepInfraQuota"},
-                    "totalBytePlus": {"$sum": "$dailyBytePlusQuota"}}}
+                    "totalDeepSeek": {"$sum": "$dailyDeepSeekQuota"},
+                    "totalCloudflare": {"$sum": "$dailyCloudflareQuota"},
+                    "totalCerebras": {"$sum": "$dailyCerebrasQuota"},
+                    "totalHuggingFace": {"$sum": "$dailyHuggingFaceQuota"}}}
     ]
     provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
     provider_totals = provider_result[0] if provider_result else {
-        "totalGroq":0, "totalOpenRouter":0, "totalSambaNova":0, "totalTogether":0, "totalCerebras":0,
-        "totalMistral":0, "totalNvidia":0, "totalDeepInfra":0, "totalBytePlus":0
+        "totalGroq":0, "totalOpenRouter":0, "totalTogether":0, "totalMistral":0,
+        "totalDeepSeek":0, "totalCloudflare":0, "totalCerebras":0, "totalHuggingFace":0
     }
 
     pipeline_daily_provider = [
@@ -1803,18 +1795,17 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         {"$group": {"_id": None,
                     "dailyGroq": {"$sum": "$dailyGroqQuota"},
                     "dailyOpenRouter": {"$sum": "$dailyOpenRouterQuota"},
-                    "dailySambaNova": {"$sum": "$dailySambaNovaQuota"},
                     "dailyTogether": {"$sum": "$dailyTogetherQuota"},
-                    "dailyCerebras": {"$sum": "$dailyCerebrasQuota"},
                     "dailyMistral": {"$sum": "$dailyMistralQuota"},
-                    "dailyNvidia": {"$sum": "$dailyNvidiaQuota"},
-                    "dailyDeepInfra": {"$sum": "$dailyDeepInfraQuota"},
-                    "dailyBytePlus": {"$sum": "$dailyBytePlusQuota"}}}
+                    "dailyDeepSeek": {"$sum": "$dailyDeepSeekQuota"},
+                    "dailyCloudflare": {"$sum": "$dailyCloudflareQuota"},
+                    "dailyCerebras": {"$sum": "$dailyCerebrasQuota"},
+                    "dailyHuggingFace": {"$sum": "$dailyHuggingFaceQuota"}}}
     ]
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {
-        "dailyGroq":0, "dailyOpenRouter":0, "dailySambaNova":0, "dailyTogether":0, "dailyCerebras":0,
-        "dailyMistral":0, "dailyNvidia":0, "dailyDeepInfra":0, "dailyBytePlus":0
+        "dailyGroq":0, "dailyOpenRouter":0, "dailyTogether":0, "dailyMistral":0,
+        "dailyDeepSeek":0, "dailyCloudflare":0, "dailyCerebras":0, "dailyHuggingFace":0
     }
 
     provider_status = {}
@@ -1833,26 +1824,25 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "last_check": health.get("last_check")
         }
 
-    groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000))
-    openrouter_limit = int(os.getenv("OPENROUTER_DAILY_LIMIT", 1000))
-    sambanova_limit = int(os.getenv("SAMBANOVA_DAILY_LIMIT", 200))
-    together_limit = int(os.getenv("TOGETHER_DAILY_LIMIT", 200))
-    cerebras_limit = int(os.getenv("CEREBRAS_DAILY_LIMIT", 200))
-    mistral_limit = int(os.getenv("MISTRAL_DAILY_LIMIT", 200))
-    nvidia_limit = int(os.getenv("NVIDIA_DAILY_LIMIT", 200))
-    deepinfra_limit = int(os.getenv("DEEPINFRA_DAILY_LIMIT", 200))
-    byteplus_limit = int(os.getenv("BYTEPLUS_DAILY_LIMIT", 200))
+    # Limits per provider (default high; you can override via env)
+    groq_limit = int(os.getenv("GROQ_DAILY_LIMIT", 1000000))
+    openrouter_limit = int(os.getenv("OPENROUTER_DAILY_LIMIT", 1000000))
+    together_limit = int(os.getenv("TOGETHER_DAILY_LIMIT", 1000000))
+    mistral_limit = int(os.getenv("MISTRAL_DAILY_LIMIT", 1000000))
+    deepseek_limit = int(os.getenv("DEEPSEEK_DAILY_LIMIT", 1000000))
+    cloudflare_limit = int(os.getenv("CLOUDFLARE_DAILY_LIMIT", 1000000))
+    cerebras_limit = int(os.getenv("CEREBRAS_DAILY_LIMIT", 1000000))
+    huggingface_limit = int(os.getenv("HUGGINGFACE_DAILY_LIMIT", 1000000))
 
     daily_usage = {
         "groq": daily_provider["dailyGroq"],
         "openrouter": daily_provider["dailyOpenRouter"],
-        "sambanova": daily_provider["dailySambaNova"],
         "together": daily_provider["dailyTogether"],
-        "cerebras": daily_provider["dailyCerebras"],
         "mistral": daily_provider["dailyMistral"],
-        "nvidia": daily_provider["dailyNvidia"],
-        "deepinfra": daily_provider["dailyDeepInfra"],
-        "byteplus": daily_provider["dailyBytePlus"],
+        "deepseek": daily_provider["dailyDeepSeek"],
+        "cloudflare": daily_provider["dailyCloudflare"],
+        "cerebras": daily_provider["dailyCerebras"],
+        "huggingface": daily_provider["dailyHuggingFace"],
     }
     active_provider = max(daily_usage, key=daily_usage.get) if any(daily_usage.values()) else "openrouter"
 
@@ -1887,31 +1877,28 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "aiQuota": {
             "groq": provider_totals["totalGroq"],
             "openRouter": provider_totals["totalOpenRouter"],
-            "sambaNova": provider_totals["totalSambaNova"],
             "together": provider_totals["totalTogether"],
-            "cerebras": provider_totals["totalCerebras"],
             "mistral": provider_totals["totalMistral"],
-            "nvidia": provider_totals["totalNvidia"],
-            "deepInfra": provider_totals["totalDeepInfra"],
-            "bytePlus": provider_totals["totalBytePlus"],
+            "deepSeek": provider_totals["totalDeepSeek"],
+            "cloudflare": provider_totals["totalCloudflare"],
+            "cerebras": provider_totals["totalCerebras"],
+            "huggingFace": provider_totals["totalHuggingFace"],
             "dailyGroq": daily_provider["dailyGroq"],
             "dailyOpenRouter": daily_provider["dailyOpenRouter"],
-            "dailySambaNova": daily_provider["dailySambaNova"],
             "dailyTogether": daily_provider["dailyTogether"],
-            "dailyCerebras": daily_provider["dailyCerebras"],
             "dailyMistral": daily_provider["dailyMistral"],
-            "dailyNvidia": daily_provider["dailyNvidia"],
-            "dailyDeepInfra": daily_provider["dailyDeepInfra"],
-            "dailyBytePlus": daily_provider["dailyBytePlus"],
+            "dailyDeepSeek": daily_provider["dailyDeepSeek"],
+            "dailyCloudflare": daily_provider["dailyCloudflare"],
+            "dailyCerebras": daily_provider["dailyCerebras"],
+            "dailyHuggingFace": daily_provider["dailyHuggingFace"],
             "groqLimit": groq_limit,
             "openRouterLimit": openrouter_limit,
-            "sambaNovaLimit": sambanova_limit,
             "togetherLimit": together_limit,
-            "cerebrasLimit": cerebras_limit,
             "mistralLimit": mistral_limit,
-            "nvidiaLimit": nvidia_limit,
-            "deepInfraLimit": deepinfra_limit,
-            "bytePlusLimit": byteplus_limit,
+            "deepSeekLimit": deepseek_limit,
+            "cloudflareLimit": cloudflare_limit,
+            "cerebrasLimit": cerebras_limit,
+            "huggingFaceLimit": huggingface_limit,
             "activeProvider": active_provider,
         },
         "providerStatus": provider_status,
@@ -2075,5 +2062,5 @@ async def not_found(request, exc):
 # -------------------- MAIN --------------------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI v15.3 ON PORT {port} ===")
+    logger.info(f"=== STARTING AXELR AI v17.0 ON PORT {port} ===")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
