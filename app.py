@@ -1,11 +1,9 @@
 
 # -*- coding: utf-8 -*-
 """
-AXELR AI - UNIFIED FORTRESS v17.1 (FIXED PROVIDER MODELS & SSL)
-8 elite providers with zero‑cost, permanent free tiers,
-automatic failover, 429 handling, and aggressive fallback.
+AXELR AI - MINIMAL RELIABLE CHAIN v18.0
+Cloudflare-first with fallback to Groq, OpenRouter, Hugging Face, and local.
 """
-
 import os
 import re
 import time
@@ -19,15 +17,14 @@ import ssl
 import urllib.request
 import urllib.error
 import urllib.parse
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import defaultdict
 
-# Disable SSL verification globally for Hugging Face (development only)
-# Remove this line for production with proper certificates
+# Disable SSL verification for Hugging Face (development)
 ssl._create_default_https_context = ssl._create_unverified_context
 
 try:
@@ -58,19 +55,12 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 import uvicorn
 
-# -------------------- LOGGING --------------------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("axelr-unified")
 
 # -------------------- ENV VARS --------------------
 MONGO_URI = (os.getenv("MONGO_URI") or "").strip()
 GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
-
-if not MONGO_URI:
-    logger.warning("MONGO_URI is not configured; database-backed features will be unavailable")
-if not GOOGLE_CLIENT_ID:
-    logger.warning("GOOGLE_CLIENT_ID is not configured; Google auth will be unavailable")
-
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
@@ -80,24 +70,13 @@ SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
-# ---------- AI API KEYS (only the ones we actually use) ----------
+# ---------- AI API KEYS ----------
 GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
-TOGETHER_API_KEY = (os.getenv("TOGETHER_AI_API_KEY") or os.getenv("TOGETHER_API_KEY") or "").strip()
-MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
-CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
 HF_API_KEY = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
-DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
 CLOUDFLARE_API_TOKEN = (os.getenv("CLOUDFLARE_API_TOKEN") or "").strip()
 CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
-
-# Keep others for reference but they are not used in the chain
-AION_API_KEY = (os.getenv("AION_API_KEY") or "").strip()
-SAMBANOVA_API_KEY = (os.getenv("SAMBANOVA_API_KEY") or "").strip()
-BYTEPLUS_API_KEY = (os.getenv("BYTEPLUS_API_KEY") or "").strip()
-NVIDIA_API_KEY = (os.getenv("NVIDIA_API_KEY") or "").strip()
-DEEPINFRA_API_KEY = (os.getenv("DEEPINFRA_API_KEY") or "").strip()
-GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
+# Mistral, Together, DeepSeek, Cerebras are removed – they are unreliable.
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
@@ -105,8 +84,6 @@ FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
     stripe.api_key = STRIPE_SECRET_KEY
     logger.info("Stripe initialized")
-else:
-    logger.warning("Stripe not configured - payment features disabled")
 
 # -------------------- EMAIL --------------------
 def get_email_transport():
@@ -154,29 +131,13 @@ def get_object_id():
         return ObjectId
     return None
 
-# -------------------- CACHE --------------------
+# -------------------- CACHE & CIRCUIT BREAKER --------------------
 ai_cache = TTLCache(maxsize=2000, ttl=3600)
-
-# Circuit breaker for providers
 provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
-PROVIDER_COOLDOWN = 600  # 10 minutes
+PROVIDER_COOLDOWN = 600
 
-# Provider health status (only active providers)
-provider_health = {
-    "groq": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "openrouter": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "together": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "mistral": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "deepseek": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "cloudflare": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "cerebras": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "huggingface": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "pollinations": {"status": "unknown", "last_check": None, "daily_usage": 0},
-    "local": {"status": "unknown", "last_check": None, "daily_usage": 0},
-}
-
-# -------------------- SECURITY UTILITIES --------------------
+# -------------------- SECURITY --------------------
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
     r"disregard (system prompt|guidelines|instructions)",
@@ -223,7 +184,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
             raise Exception(f"Quota exceeded: {error_body}")
         raise Exception(f"HTTP error {e.code}: {error_body}")
     except Exception as e:
-        # Fallback to requests if urllib fails (e.g., SSL, proxy)
+        # Fallback to requests with SSL verification disabled
         try:
             import requests
             logger.warning(f"urllib failed, falling back to requests: {e}")
@@ -233,7 +194,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
                 headers=headers,
                 json=json_data,
                 timeout=timeout,
-                verify=False  # Allow self‑signed / invalid SSL certificates
+                verify=False
             )
             resp.raise_for_status()
             return resp.json()
@@ -242,7 +203,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
         except Exception as req_e:
             raise Exception(f"HTTP request failed (both urllib and requests): {req_e}")
 
-# -------------------- MODEL MATRIX (task → model hints) --------------------
+# -------------------- MODEL MATRIX (unchanged) --------------------
 MODEL_MATRIX = {
     "analytics":   "deepseek/deepseek-r1-distill-llama-70b:free",
     "extraction":  "qwen/qwen-2.5-72b-instruct:free",
@@ -255,24 +216,21 @@ MODEL_MATRIX = {
 }
 FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 
-def select_model(task_type: str) -> str:
-    return MODEL_MATRIX.get(task_type, FALLBACK_MODEL)
+# -------------------- PROVIDER FUNCTIONS (only reliable ones) --------------------
 
-# -------------------- PROVIDER MODEL LISTS (UPDATED FREE MODELS) --------------------
-PROVIDER_MODELS = {
-    "groq": ["llama-3.1-8b-instant"],
-    "mistral": ["open-mistral-7b"],
-    "cloudflare": ["@cf/meta/llama-3.1-8b-instruct"],
-    "openrouter": ["mistralai/mistral-7b-instruct:free"],           # working free model
-    "together": ["google/gemma-2-9b-it"],                           # free model
-    "deepseek": ["deepseek-chat"],                                  # will likely fail (balance)
-    "cerebras": ["llama3.1-8b"],                                    # key may be invalid
-    "huggingface": ["google/gemma-2-9b-it", "meta-llama/Llama-3.2-3B-Instruct"],
-    "pollinations": [],
-    "local": [],
-}
-
-# -------------------- AI PROVIDER FUNCTIONS --------------------
+# ---------- CLOUDFLARE (primary) ----------
+async def call_cloudflare(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID:
+        raise Exception("Cloudflare credentials missing")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or '@cf/meta/llama-3.1-8b-instruct'}"
+    headers = {"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}", "Content-Type": "application/json"}
+    payload = {
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+    }
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    return resp.get("result", {}).get("response", "")
 
 # ---------- GROQ ----------
 async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
@@ -313,91 +271,6 @@ async def call_openrouter(prompt: str, max_tokens: int, temp: float, model: Opti
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# ---------- TOGETHER ----------
-async def call_together(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not TOGETHER_API_KEY:
-        raise Exception("TOGETHER_API_KEY missing")
-    url = "https://api.together.xyz/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {TOGETHER_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "mistralai/Mistral-7B-Instruct-v0.3"
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    return resp["choices"][0]["message"]["content"]
-
-# ---------- MISTRAL ----------
-async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not MISTRAL_API_KEY:
-        raise Exception("MISTRAL_API_KEY missing")
-    url = "https://api.mistral.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "open-mistral-7b"
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    return resp["choices"][0]["message"]["content"]
-
-# ---------- DEEPSEEK ----------
-async def call_deepseek(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not DEEPSEEK_API_KEY:
-        raise Exception("DEEPSEEK_API_KEY missing")
-    url = "https://api.deepseek.com/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "deepseek-chat"
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    return resp["choices"][0]["message"]["content"]
-
-# ---------- CLOUDFLARE WORKERS AI ----------
-async def call_cloudflare(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not CLOUDFLARE_API_TOKEN:
-        raise Exception("CLOUDFLARE_API_TOKEN missing")
-    if not CLOUDFLARE_ACCOUNT_ID:
-        raise Exception("CLOUDFLARE_ACCOUNT_ID missing")
-    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or '@cf/meta/llama-3.1-8b-instruct'}"
-    headers = {"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}", "Content-Type": "application/json"}
-    payload = {
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    # Cloudflare returns {"result": {"response": "..."}}
-    return resp.get("result", {}).get("response", "")
-
-# ---------- CEREBRAS ----------
-async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not CEREBRAS_API_KEY:
-        raise Exception("CEREBRAS_API_KEY missing")
-    url = "https://api.cerebras.ai/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {CEREBRAS_API_KEY}", "Content-Type": "application/json"}
-    effective_model = model or "llama3.1-8b"
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload, timeout=60)
-    return resp["choices"][0]["message"]["content"]
-
 # ---------- HUGGING FACE ----------
 async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
     if not HF_API_KEY:
@@ -417,30 +290,6 @@ async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str
         return resp[0].get("generated_text", "")
     return resp.get("generated_text", "")
 
-# ---------- POLLINATIONS ----------
-async def call_pollinations(prompt: str, max_tokens: int, temp: float) -> str:
-    import urllib.parse
-    encoded = urllib.parse.quote(prompt[:500])
-    url = f"https://text.pollinations.ai/{encoded}?seed=42&model=openai"
-    req = urllib.request.Request(url, method='GET')
-    loop = asyncio.get_running_loop()
-    try:
-        response = await asyncio.to_thread(urllib.request.urlopen, req, timeout=30)
-        content = response.read().decode('utf-8')
-        try:
-            data = json.loads(content)
-            if isinstance(data, dict) and "text" in data:
-                return data["text"]
-            elif isinstance(data, str):
-                return data
-            else:
-                return content
-        except:
-            return content
-    except Exception as e:
-        # Pollinations may return 402 if quota exceeded; just raise
-        raise Exception(f"Pollinations failed: {e}")
-
 # ---------- LOCAL FALLBACK ----------
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
@@ -458,19 +307,26 @@ async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspa
     return build_local_fallback_response(workspace, task_type, prompt)
 
 # -------------------- PROVIDER CHAIN (prioritized) --------------------
-# -------------------- PROVIDER CHAIN (prioritized) --------------------
 PROVIDER_CHAIN = [
-    ("groq", call_groq),               # may 403 – fallback
-    ("mistral", call_mistral),         # may 401 – fallback
-    ("cloudflare", call_cloudflare),   # ✅ working in your test
-    ("openrouter", call_openrouter),   # now uses mistralai/mistral-7b-instruct:free
-    ("together", call_together),       # may 402 – fallback
-    ("deepseek", call_deepseek),       # may 402 – fallback
-    ("cerebras", call_cerebras),       # may 401 – fallback
-    ("huggingface", call_huggingface), # SSL bypassed
-    ("pollinations", call_pollinations),
-    ("local", call_local_fallback),
+    ("cloudflare", call_cloudflare),   # primary – works on Render
+    ("groq", call_groq),               # fallback – works locally
+    ("openrouter", call_openrouter),   # fallback
+    ("huggingface", call_huggingface), # fallback
+    ("local", call_local_fallback),    # ultimate fallback
 ]
+
+# Map provider to its required model list
+PROVIDER_MODELS = {
+    "cloudflare": ["@cf/meta/llama-3.1-8b-instruct"],
+    "groq": ["llama-3.1-8b-instant"],
+    "openrouter": ["meta-llama/llama-3.1-8b-instruct:free"],
+    "huggingface": ["google/gemma-2-9b-it", "meta-llama/Llama-3.2-3B-Instruct"],
+    "local": [],
+}
+
+# Health status
+provider_health = {p: {"status": "unknown", "last_check": None, "daily_usage": 0} for p, _ in PROVIDER_CHAIN}
+
 # -------------------- MASTER SYSTEM PROMPT --------------------
 MASTER_PROMPT = (
     "You are AXELR, an elite executive AI operating in zero-cost, production-safe mode. "
@@ -504,7 +360,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (with robust provider chain) --------------------
+# -------------------- AI ROUTER (simplified) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -539,7 +395,7 @@ async def route_ai_request(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
-    # Security check
+    # Security
     if detect_manipulation(prompt):
         return {"success": False, "text": "Manipulation detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
 
@@ -554,65 +410,37 @@ async def route_ai_request(
     model_used = None
     last_error = None
 
-    # ----- Stage 1: Ordered provider chain with model-level retries -----
+    # Ordered chain
     for provider_name, func in PROVIDER_CHAIN:
-        # Skip if key missing (we only check for providers that need a key)
+        if provider_name == "local":
+            continue  # handled last
+        # Skip if key missing
+        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
+            continue
         if provider_name == "groq" and not GROQ_API_KEY:
             continue
         if provider_name == "openrouter" and not OPENROUTER_API_KEY:
             continue
-        if provider_name == "together" and not TOGETHER_API_KEY:
-            continue
-        if provider_name == "mistral" and not MISTRAL_API_KEY:
-            continue
-        if provider_name == "deepseek" and not DEEPSEEK_API_KEY:
-            continue
-        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
-            continue
-        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
-            continue
         if provider_name == "huggingface" and not HF_API_KEY:
             continue
-        # pollinations and local don't need a key
 
         # Circuit breaker
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
             logger.warning(f"Skipping {provider_name} (circuit breaker)")
             continue
 
-        # Get models list
         models = PROVIDER_MODELS.get(provider_name, [])
         if not models:
-            # Fallback default models
-            if provider_name == "together":
-                models = ["mistralai/Mistral-7B-Instruct-v0.3"]
-            elif provider_name == "huggingface":
+            # Fallback default
+            if provider_name == "huggingface":
                 models = ["google/gemma-2-9b-it"]
-            elif provider_name == "cerebras":
-                models = ["llama3.1-8b"]
-            elif provider_name == "mistral":
-                models = ["open-mistral-7b"]
-            elif provider_name == "deepseek":
-                models = ["deepseek-chat"]
-            elif provider_name == "cloudflare":
-                models = ["@cf/meta/llama-3.1-8b-instruct"]
             else:
-                default_model = os.getenv(f"{provider_name.upper()}_MODEL")
-                if default_model:
-                    models = [default_model]
-                else:
-                    continue
+                continue
 
         for model in models:
-            for attempt in range(2):  # max 2 attempts; 429 will raise immediately
+            for attempt in range(2):
                 try:
-                    if provider_name == "pollinations":
-                        resp_text = await func(full_prompt, max_tokens, temp)
-                    elif provider_name == "local":
-                        resp_text = await func(full_prompt, max_tokens, temp, workspace, task_type)
-                    else:
-                        resp_text = await func(full_prompt, max_tokens, temp, model)
-
+                    resp_text = await func(full_prompt, max_tokens, temp, model)
                     if resp_text:
                         response_text = resp_text
                         provider_used = provider_name
@@ -623,7 +451,7 @@ async def route_ai_request(
                     last_error = e
                     error_msg = str(e).lower()
                     if "quota" in error_msg or "429" in error_msg:
-                        logger.warning(f"{provider_name}/{model} quota exceeded, skipping further attempts")
+                        logger.warning(f"{provider_name}/{model} quota exceeded, skipping")
                         break
                     logger.warning(f"{provider_name}/{model} attempt {attempt+1} failed: {e}")
                     await asyncio.sleep(2 ** attempt)
@@ -634,77 +462,7 @@ async def route_ai_request(
         if response_text:
             break
 
-    # ----- Stage 2: Parallel fallback (if ordered chain fails) -----
-    if not response_text:
-        logger.info("Ordered chain failed, launching parallel fallback...")
-        parallel_tasks = []
-        for provider_name, func in PROVIDER_CHAIN:
-            if provider_name == "local":
-                continue
-            # Skip if key missing (same checks as above)
-            if provider_name == "groq" and not GROQ_API_KEY:
-                continue
-            if provider_name == "openrouter" and not OPENROUTER_API_KEY:
-                continue
-            if provider_name == "together" and not TOGETHER_API_KEY:
-                continue
-            if provider_name == "mistral" and not MISTRAL_API_KEY:
-                continue
-            if provider_name == "deepseek" and not DEEPSEEK_API_KEY:
-                continue
-            if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
-                continue
-            if provider_name == "cerebras" and not CEREBRAS_API_KEY:
-                continue
-            if provider_name == "huggingface" and not HF_API_KEY:
-                continue
-
-            models = PROVIDER_MODELS.get(provider_name, [])
-            if not models:
-                if provider_name == "together":
-                    models = ["mistralai/Mistral-7B-Instruct-v0.3"]
-                elif provider_name == "huggingface":
-                    models = ["google/gemma-2-9b-it"]
-                elif provider_name == "cerebras":
-                    models = ["llama3.1-8b"]
-                elif provider_name == "mistral":
-                    models = ["open-mistral-7b"]
-                elif provider_name == "deepseek":
-                    models = ["deepseek-chat"]
-                elif provider_name == "cloudflare":
-                    models = ["@cf/meta/llama-3.1-8b-instruct"]
-                else:
-                    default = os.getenv(f"{provider_name.upper()}_MODEL")
-                    if default:
-                        models = [default]
-                    else:
-                        continue
-
-            for model in models:
-                async def attempt(p_name, p_func, p_model):
-                    try:
-                        timeout = 15
-                        if p_name == "pollinations":
-                            return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp), timeout=timeout)
-                        elif p_name == "local":
-                            return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp, workspace, task_type), timeout=timeout)
-                        else:
-                            return await asyncio.wait_for(p_func(full_prompt, max_tokens, temp, p_model), timeout=timeout)
-                    except Exception as e:
-                        logger.debug(f"Parallel {p_name}/{p_model} failed: {e}")
-                        return None
-                parallel_tasks.append(attempt(provider_name, func, model))
-
-        results = await asyncio.gather(*parallel_tasks, return_exceptions=True)
-        for res in results:
-            if res and isinstance(res, str):
-                response_text = res
-                provider_used = "parallel_fallback"
-                model_used = "parallel_success"
-                logger.info("Parallel fallback succeeded")
-                break
-
-    # ----- Ultimate fallback (local) -----
+    # Ultimate fallback
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
         provider_used = "local"
@@ -771,14 +529,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                     "lastTokenReset": datetime.utcnow()
                 },
                 "isAdmin": is_admin,
-                # Provider quotas (we only track used ones)
+                "dailyCloudflareQuota": 0,
                 "dailyGroqQuota": 0,
                 "dailyOpenRouterQuota": 0,
-                "dailyTogetherQuota": 0,
-                "dailyMistralQuota": 0,
-                "dailyDeepSeekQuota": 0,
-                "dailyCloudflareQuota": 0,
-                "dailyCerebrasQuota": 0,
                 "dailyHuggingFaceQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow()
             }
@@ -808,13 +561,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "tokenUsage.dailyPromptTokens": 0,
                             "tokenUsage.dailyCompletionTokens": 0,
                             "tokenUsage.lastTokenReset": datetime.utcnow(),
+                            "dailyCloudflareQuota": 0,
                             "dailyGroqQuota": 0,
                             "dailyOpenRouterQuota": 0,
-                            "dailyTogetherQuota": 0,
-                            "dailyMistralQuota": 0,
-                            "dailyDeepSeekQuota": 0,
-                            "dailyCloudflareQuota": 0,
-                            "dailyCerebrasQuota": 0,
                             "dailyHuggingFaceQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
@@ -827,11 +576,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 
 # -------------------- PER‑USER RATE LIMITING (soft) --------------------
 user_rate_limiter = {}
-RATE_LIMITS = {
-    "free": 2,
-    "pro": 5,
-    "business": 8,
-}
+RATE_LIMITS = {"free": 2, "pro": 5, "business": 8}
 
 def check_user_rate_limit(user_id: str, tier: str):
     now = time.time()
@@ -856,7 +601,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="17.0", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="18.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -874,6 +619,10 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=86400,
 )
+
+@app.on_event("startup")
+async def startup_event():
+    app.state.start_time = time.time()
 
 # -------------------- HEALTH --------------------
 @app.get("/")
@@ -895,73 +644,32 @@ async def health():
         "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
     }
 
-@app.on_event("startup")
-async def startup_event():
-    app.state.start_time = time.time()
-
-# -------------------- PROVIDER HEALTH CHECK (new) --------------------
 @app.get("/api/health/providers")
 async def provider_health_check():
-    """Lightweight ping to each provider to check their status."""
+    """Ping each provider to check status."""
     test_prompt = "Say 'OK'"
     results = {}
     for provider_name, func in PROVIDER_CHAIN:
         if provider_name == "local":
             continue
-        # Skip if key missing
+        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
+            results[provider_name] = {"status": "skipped", "reason": "Missing credentials"}
+            continue
         if provider_name == "groq" and not GROQ_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
         if provider_name == "openrouter" and not OPENROUTER_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
-        if provider_name == "together" and not TOGETHER_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "mistral" and not MISTRAL_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "deepseek" and not DEEPSEEK_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
-            results[provider_name] = {"status": "skipped", "reason": "Missing Cloudflare credentials"}
-            continue
-        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
         if provider_name == "huggingface" and not HF_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
-        # pollinations has no key
 
-        # Get a model
         models = PROVIDER_MODELS.get(provider_name, [])
-        if not models:
-            if provider_name == "together":
-                models = ["mistralai/Mistral-7B-Instruct-v0.3"]
-            elif provider_name == "huggingface":
-                models = ["google/gemma-2-9b-it"]
-            elif provider_name == "cerebras":
-                models = ["llama3.1-8b"]
-            elif provider_name == "mistral":
-                models = ["open-mistral-7b"]
-            elif provider_name == "deepseek":
-                models = ["deepseek-chat"]
-            elif provider_name == "cloudflare":
-                models = ["@cf/meta/llama-3.1-8b-instruct"]
-            else:
-                models = [None]
         model = models[0] if models else None
-
         try:
             start = time.time()
-            if provider_name == "pollinations":
-                resp = await func(test_prompt, 5, 0.0)
-            elif provider_name == "local":
-                resp = await func(test_prompt, 5, 0.0, "general", "general")
-            else:
-                resp = await func(test_prompt, 5, 0.0, model)
+            resp = await func(test_prompt, 5, 0.0, model)
             latency = (time.time() - start) * 1000
             if resp and "OK" in resp:
                 results[provider_name] = {"status": "healthy", "latency_ms": round(latency, 2)}
@@ -971,7 +679,7 @@ async def provider_health_check():
             results[provider_name] = {"status": "error", "error": str(e)[:100]}
     return {"providers": results}
 
-# -------------------- USER PROFILE --------------------
+# -------------------- USER PROFILE (minimal) --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -993,13 +701,9 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "email": user.get("email"),
         "stripeCustomerId": user.get("stripeCustomerId"),
         "stripeSubscriptionId": user.get("stripeSubscriptionId"),
+        "dailyCloudflareQuota": user.get("dailyCloudflareQuota", 0),
         "dailyGroqQuota": user.get("dailyGroqQuota", 0),
         "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
-        "dailyTogetherQuota": user.get("dailyTogetherQuota", 0),
-        "dailyMistralQuota": user.get("dailyMistralQuota", 0),
-        "dailyDeepSeekQuota": user.get("dailyDeepSeekQuota", 0),
-        "dailyCloudflareQuota": user.get("dailyCloudflareQuota", 0),
-        "dailyCerebrasQuota": user.get("dailyCerebrasQuota", 0),
         "dailyHuggingFaceQuota": user.get("dailyHuggingFaceQuota", 0),
     }
 
