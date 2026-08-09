@@ -1,8 +1,10 @@
-
 # -*- coding: utf-8 -*-
 """
-AXELR AI - MINIMAL RELIABLE CHAIN v18.0
-Cloudflare-first with fallback to Groq, OpenRouter, Hugging Face, and local.
+AXELR AI - ULTIMATE PRODUCTION v19.0
+Primary: Cloudflare Workers AI
+Secondary: Google Gemini 2.0 Flash (free, no card)
+Fallback: Groq, OpenRouter, Hugging Face, local.
+All endpoints preserved.
 """
 import os
 import re
@@ -17,14 +19,14 @@ import ssl
 import urllib.request
 import urllib.error
 import urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import defaultdict
 
-# Disable SSL verification for Hugging Face (development)
+# Disable SSL verification for Hugging Face (safe for development)
 ssl._create_default_https_context = ssl._create_unverified_context
 
 try:
@@ -71,12 +73,13 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
 # ---------- AI API KEYS ----------
+CLOUDFLARE_API_TOKEN = (os.getenv("CLOUDFLARE_API_TOKEN") or "").strip()
+CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
+GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()          # NEW
 GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 HF_API_KEY = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
-CLOUDFLARE_API_TOKEN = (os.getenv("CLOUDFLARE_API_TOKEN") or "").strip()
-CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
-# Mistral, Together, DeepSeek, Cerebras are removed – they are unreliable.
+# (Mistral, Together, DeepSeek, Cerebras, Pollinations are intentionally removed)
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
@@ -135,7 +138,9 @@ def get_object_id():
 ai_cache = TTLCache(maxsize=2000, ttl=3600)
 provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
-PROVIDER_COOLDOWN = 600
+PROVIDER_COOLDOWN = 600  # 10 minutes
+
+provider_health = {}
 
 # -------------------- SECURITY --------------------
 MANIPULATION_PATTERNS = [
@@ -184,7 +189,6 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
             raise Exception(f"Quota exceeded: {error_body}")
         raise Exception(f"HTTP error {e.code}: {error_body}")
     except Exception as e:
-        # Fallback to requests with SSL verification disabled
         try:
             import requests
             logger.warning(f"urllib failed, falling back to requests: {e}")
@@ -216,9 +220,9 @@ MODEL_MATRIX = {
 }
 FALLBACK_MODEL = "meta-llama/llama-3.1-8b-instruct:free"
 
-# -------------------- PROVIDER FUNCTIONS (only reliable ones) --------------------
+# -------------------- PROVIDER FUNCTIONS --------------------
 
-# ---------- CLOUDFLARE (primary) ----------
+# 1. CLOUDFLARE (primary)
 async def call_cloudflare(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID:
         raise Exception("Cloudflare credentials missing")
@@ -232,7 +236,33 @@ async def call_cloudflare(prompt: str, max_tokens: int, temp: float, model: Opti
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp.get("result", {}).get("response", "")
 
-# ---------- GROQ ----------
+# 2. GEMINI (free, no card) – using Google AI Studio REST API
+async def call_gemini(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not GEMINI_API_KEY:
+        raise Exception("GEMINI_API_KEY missing")
+    # Use the latest stable model: gemini-2.0-flash (or gemini-2.0-pro)
+    effective_model = model or "gemini-2.0-flash"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{effective_model}:generateContent?key={GEMINI_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}],
+        "generationConfig": {
+            "temperature": temp,
+            "maxOutputTokens": max_tokens,
+            "topP": 0.95,
+        }
+    }
+    resp = await http_post_async(url, headers, payload, timeout=60)
+    # Response structure: {"candidates": [{"content": {"parts": [{"text": "..."}]}}]}
+    candidates = resp.get("candidates", [])
+    if not candidates:
+        raise Exception("No response from Gemini")
+    parts = candidates[0].get("content", {}).get("parts", [])
+    if not parts:
+        raise Exception("Empty response from Gemini")
+    return parts[0].get("text", "")
+
+# 3. GROQ
 async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY missing")
@@ -249,7 +279,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# ---------- OPENROUTER ----------
+# 4. OPENROUTER
 async def call_openrouter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not OPENROUTER_API_KEY:
         raise Exception("OPENROUTER_API_KEY missing")
@@ -271,7 +301,7 @@ async def call_openrouter(prompt: str, max_tokens: int, temp: float, model: Opti
     resp = await http_post_async(url, headers, payload, timeout=60)
     return resp["choices"][0]["message"]["content"]
 
-# ---------- HUGGING FACE ----------
+# 5. HUGGING FACE
 async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
     if not HF_API_KEY:
         raise Exception("HF_API_KEY missing")
@@ -290,7 +320,7 @@ async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str
         return resp[0].get("generated_text", "")
     return resp.get("generated_text", "")
 
-# ---------- LOCAL FALLBACK ----------
+# 6. LOCAL FALLBACK
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
     if not prompt_text:
@@ -308,24 +338,26 @@ async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspa
 
 # -------------------- PROVIDER CHAIN (prioritized) --------------------
 PROVIDER_CHAIN = [
-    ("cloudflare", call_cloudflare),   # primary – works on Render
-    ("groq", call_groq),               # fallback – works locally
-    ("openrouter", call_openrouter),   # fallback
-    ("huggingface", call_huggingface), # fallback
-    ("local", call_local_fallback),    # ultimate fallback
+    ("cloudflare", call_cloudflare),
+    ("gemini", call_gemini),      # NEW – reliable, high quality
+    ("groq", call_groq),
+    ("openrouter", call_openrouter),
+    ("huggingface", call_huggingface),
+    ("local", call_local_fallback),
 ]
 
-# Map provider to its required model list
 PROVIDER_MODELS = {
     "cloudflare": ["@cf/meta/llama-3.1-8b-instruct"],
+    "gemini": ["gemini-2.0-flash", "gemini-2.0-pro"],   # flash is cheaper/faster
     "groq": ["llama-3.1-8b-instant"],
     "openrouter": ["meta-llama/llama-3.1-8b-instruct:free"],
     "huggingface": ["google/gemma-2-9b-it", "meta-llama/Llama-3.2-3B-Instruct"],
     "local": [],
 }
 
-# Health status
-provider_health = {p: {"status": "unknown", "last_check": None, "daily_usage": 0} for p, _ in PROVIDER_CHAIN}
+# Initialize health
+for p, _ in PROVIDER_CHAIN:
+    provider_health[p] = {"status": "unknown", "last_check": None, "daily_usage": 0}
 
 # -------------------- MASTER SYSTEM PROMPT --------------------
 MASTER_PROMPT = (
@@ -360,7 +392,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (simplified) --------------------
+# -------------------- AI ROUTER (simplified, robust) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -417,6 +449,8 @@ async def route_ai_request(
         # Skip if key missing
         if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
             continue
+        if provider_name == "gemini" and not GEMINI_API_KEY:
+            continue
         if provider_name == "groq" and not GROQ_API_KEY:
             continue
         if provider_name == "openrouter" and not OPENROUTER_API_KEY:
@@ -434,6 +468,8 @@ async def route_ai_request(
             # Fallback default
             if provider_name == "huggingface":
                 models = ["google/gemma-2-9b-it"]
+            elif provider_name == "gemini":
+                models = ["gemini-2.0-flash"]
             else:
                 continue
 
@@ -450,8 +486,8 @@ async def route_ai_request(
                 except Exception as e:
                     last_error = e
                     error_msg = str(e).lower()
-                    if "quota" in error_msg or "429" in error_msg:
-                        logger.warning(f"{provider_name}/{model} quota exceeded, skipping")
+                    if "quota" in error_msg or "429" in error_msg or "credit" in error_msg:
+                        logger.warning(f"{provider_name}/{model} quota/credit issue, skipping")
                         break
                     logger.warning(f"{provider_name}/{model} attempt {attempt+1} failed: {e}")
                     await asyncio.sleep(2 ** attempt)
@@ -481,7 +517,6 @@ async def route_ai_request(
     }
     ai_cache[cache_key] = result
 
-    # Update health
     if provider_used and provider_used in provider_health:
         provider_health[provider_used]["status"] = "active"
         provider_health[provider_used]["last_check"] = datetime.utcnow().isoformat()
