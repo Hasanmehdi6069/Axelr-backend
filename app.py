@@ -458,20 +458,19 @@ async def call_local_fallback(prompt: str, max_tokens: int, temp: float, workspa
     return build_local_fallback_response(workspace, task_type, prompt)
 
 # -------------------- PROVIDER CHAIN (prioritized) --------------------
+# -------------------- PROVIDER CHAIN (prioritized) --------------------
 PROVIDER_CHAIN = [
-    ("groq", call_groq),
-    ("mistral", call_mistral),
-    ("cloudflare", call_cloudflare),
-    ("openrouter", call_openrouter),
-    ("together", call_together),
-    ("deepseek", call_deepseek),
-    ("cloudflare", call_cloudflare),
-    ("cerebras", call_cerebras),
-    ("huggingface", call_huggingface),
+    ("groq", call_groq),               # may 403 – fallback
+    ("mistral", call_mistral),         # may 401 – fallback
+    ("cloudflare", call_cloudflare),   # ✅ working in your test
+    ("openrouter", call_openrouter),   # now uses mistralai/mistral-7b-instruct:free
+    ("together", call_together),       # may 402 – fallback
+    ("deepseek", call_deepseek),       # may 402 – fallback
+    ("cerebras", call_cerebras),       # may 401 – fallback
+    ("huggingface", call_huggingface), # SSL bypassed
     ("pollinations", call_pollinations),
     ("local", call_local_fallback),
 ]
-
 # -------------------- MASTER SYSTEM PROMPT --------------------
 MASTER_PROMPT = (
     "You are AXELR, an elite executive AI operating in zero-cost, production-safe mode. "
