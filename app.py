@@ -2,12 +2,13 @@
 """
 AXELR AI - ELITE PRODUCTION v22.0
 Provider Chain (priority):
-  Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace
-  Tier 2 (Gateways): Pollinations.ai → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
-  Tier 3 (Web fallbacks): VoidAI → FreeGPT4 → OmniGPT
+  Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace → GitHub Models → Nrouter → DeepSeek → Replicate → DeepInfra
+  Tier 2 (Gateways): Pollinations.ai → Puter → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
+  Tier 3 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT
   Ultimate fallback: local
+
 Zero‑cost, permanent free tiers, automatic failover, 429 handling, circuit breakers.
-All HTTP calls use httpx with 8.0s timeout.
+All HTTP calls use httpx with appropriate timeouts (8s default, longer for Replicate).
 """
 import os, re, time, json, asyncio, hashlib, smtplib, logging, base64, ssl
 import urllib.request, urllib.error, urllib.parse
@@ -21,7 +22,7 @@ from collections import defaultdict
 import httpx
 from dotenv import load_dotenv
 
-# Disable SSL for development
+# Disable SSL for development (remove in production)
 ssl._create_default_https_context = ssl._create_unverified_context
 
 load_dotenv(override=True)
@@ -70,22 +71,31 @@ HF_API_KEY = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
 GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
 CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
 MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
-# Optional keys for additional providers (may be empty)
 GITHUB_MODELS_TOKEN = (os.getenv("GITHUB_MODELS_TOKEN") or "").strip()
-POLLINATIONS_KEY = (os.getenv("POLLINATIONS_KEY") or "").strip()   # not required for public endpoint
+NROUTER_API_KEY = (os.getenv("NROUTER_API_KEY") or "").strip()
+DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
+REPLICATE_API_TOKEN = (os.getenv("REPLICATE_API_TOKEN") or "").strip()
+DEEPINFRA_API_KEY = (os.getenv("DEEPINFRA_API_KEY") or "").strip()
+# Optional keys for additional providers (may be empty)
+POLLINATIONS_KEY = (os.getenv("POLLINATIONS_KEY") or "").strip()
 
 # Model names
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct:free")
-CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama3.1-8b")
+OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free")
+CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.1-8b")
 MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "open-mistral-7b")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash-lite")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "mixtral-8x7b-32768")  # free model
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
+GITHUB_MODEL = os.getenv("GITHUB_MODEL", "gpt-4o mini")
+NROUTER_MODEL = os.getenv("NROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
+DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
+REPLICATE_MODEL = os.getenv("REPLICATE_MODEL", "meta/llama-2-70b-chat")
+DEEPINFRA_MODEL = os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-2-70b-chat-hf")
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
-
-# HTTPX client with 8s timeout
-HTTP_CLIENT = httpx.AsyncClient(timeout=httpx.Timeout(8.0, connect=5.0, read=8.0, write=5.0))
-
+HTTP_CLIENT = httpx.AsyncClient(
+    timeout=httpx.Timeout(8.0, connect=5.0, read=8.0, write=5.0),
+    verify=False
+)
 # -------------------- STRIPE INIT --------------------
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -175,12 +185,15 @@ def strip_fluff(text: str) -> str:
         text = re.sub(pat, "", text, flags=re.IGNORECASE)
     return text.strip()
 
-# -------------------- ASYNC HTTP HELPER (httpx) --------------------
+# -------------------- HTTP HELPER (fixed) --------------------
 async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: float = 8.0):
     try:
-        resp = await HTTP_CLIENT.post(url, headers=headers, json=json_data)
+        resp = await HTTP_CLIENT.post(url, headers=headers, json=json_data, timeout=timeout)
         resp.raise_for_status()
-        return resp.json()
+        try:
+            return resp.json()
+        except json.JSONDecodeError:
+            return {"text": resp.text}
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
             raise Exception(f"Quota exceeded: {e.response.text}")
@@ -330,7 +343,45 @@ async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str
         return resp[0].get("generated_text", "")
     return resp.get("generated_text", "")
 
-# 8. POLLINATIONS.AI (GET, no key required)
+# 8. GITHUB MODELS
+async def call_github_models(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not GITHUB_MODELS_TOKEN:
+        raise Exception("GITHUB_MODELS_TOKEN missing")
+    url = "https://models.inference.ai.azure.com/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {GITHUB_MODELS_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": model or GITHUB_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 9. NROUTER
+async def call_nrouter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not NROUTER_API_KEY:
+        raise Exception("NROUTER_API_KEY missing")
+    url = "https://api.nrouter.io/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {NROUTER_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "model": model or NROUTER_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 10. POLLINATIONS.AI (GET, no key required)
 async def call_pollinations(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = f"https://text.pollinations.ai/{prompt}?model={model or 'openai'}&temperature={temp}&max_tokens={max_tokens}"
     try:
@@ -340,7 +391,20 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float, model: Op
     except Exception as e:
         raise Exception(f"Pollinations error: {e}")
 
-# 9. FreeTheAi
+# 11. PUTER API BRIDGE
+async def call_puter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.puter.com/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": model or "gpt-3.5-turbo",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 12. FreeTheAi
 async def call_freetheai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.freetheai.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -353,7 +417,7 @@ async def call_freetheai(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 10. KeylessAI
+# 13. KeylessAI
 async def call_keylessai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.keyless.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -366,7 +430,7 @@ async def call_keylessai(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 11. FreeFlow LLM Logic
+# 14. FreeFlow LLM Logic
 async def call_freeflow(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://freeflow.llm/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -379,7 +443,7 @@ async def call_freeflow(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 12. BazaarLink
+# 15. BazaarLink
 async def call_bazaarlink(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.bazaarlink.io/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -392,7 +456,7 @@ async def call_bazaarlink(prompt: str, max_tokens: int, temp: float, model: Opti
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 13. Glama API
+# 16. Glama API
 async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.glama.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -405,7 +469,7 @@ async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 14. Chub Venus Free Endpoint
+# 17. Chub Venus Free Endpoint
 async def call_chubvenus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.chub.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -418,7 +482,7 @@ async def call_chubvenus(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 15. Neets.ai
+# 18. Neets.ai
 async def call_neets(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.neets.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -431,7 +495,7 @@ async def call_neets(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 16. Void AI
+# 19. Void AI
 async def call_voidai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.voidai.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -444,7 +508,20 @@ async def call_voidai(prompt: str, max_tokens: int, temp: float, model: Optional
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 17. Free-GPT4-WEB-API
+# 20. Qoder
+async def call_qoder(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.qoder.com/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": model or "gpt-3.5-turbo",
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 21. Free-GPT4-WEB-API
 async def call_freegpt4(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.freegpt4.io/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -457,7 +534,7 @@ async def call_freegpt4(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 18. OmniGPT Gateway
+# 22. OmniGPT Gateway
 async def call_omnigpt(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.omnigpt.io/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -470,7 +547,7 @@ async def call_omnigpt(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 19. LOCAL FALLBACK
+# 23. LOCAL FALLBACK
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
@@ -495,7 +572,10 @@ PROVIDER_CHAIN = [
     ("cerebras", call_cerebras),
     ("mistral", call_mistral),
     ("huggingface", call_huggingface),
+    ("github_models", call_github_models),
+    ("nrouter", call_nrouter),
     ("pollinations", call_pollinations),
+    ("puter", call_puter),
     ("freetheai", call_freetheai),
     ("keylessai", call_keylessai),
     ("freeflow", call_freeflow),
@@ -504,6 +584,7 @@ PROVIDER_CHAIN = [
     ("chubvenus", call_chubvenus),
     ("neets", call_neets),
     ("voidai", call_voidai),
+    ("qoder", call_qoder),
     ("freegpt4", call_freegpt4),
     ("omnigpt", call_omnigpt),
     ("local", call_local_fallback),
@@ -517,7 +598,10 @@ PROVIDER_MODELS = {
     "cerebras": [CEREBRAS_MODEL],
     "mistral": [MISTRAL_MODEL],
     "huggingface": ["google/gemma-2-9b-it", "meta-llama/Llama-3.2-3B-Instruct"],
+    "github_models": [GITHUB_MODEL],
+    "nrouter": [NROUTER_MODEL],
     "pollinations": ["openai"],
+    "puter": ["gpt-3.5-turbo"],
     "freetheai": ["gpt-3.5-turbo"],
     "keylessai": ["gpt-3.5-turbo"],
     "freeflow": ["gpt-3.5-turbo"],
@@ -526,6 +610,7 @@ PROVIDER_MODELS = {
     "chubvenus": ["gpt-3.5-turbo"],
     "neets": ["gpt-3.5-turbo"],
     "voidai": ["gpt-3.5-turbo"],
+    "qoder": ["gpt-3.5-turbo"],
     "freegpt4": ["gpt-4"],
     "omnigpt": ["gpt-3.5-turbo"],
     "local": [],
@@ -629,6 +714,10 @@ async def route_ai_request(
         if provider_name == "mistral" and not MISTRAL_API_KEY:
             continue
         if provider_name == "huggingface" and not HF_API_KEY:
+            continue
+        if provider_name == "github_models" and not GITHUB_MODELS_TOKEN:
+            continue
+        if provider_name == "nrouter" and not NROUTER_API_KEY:
             continue
 
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
@@ -742,6 +831,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "dailyHuggingFaceQuota": 0,
                 "dailyCerebrasQuota": 0,
                 "dailyMistralQuota": 0,
+                "dailyGithubQuota": 0,
+                "dailyNrouterQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow()
             }
             result = await users_col.insert_one(new_user)
@@ -776,6 +867,8 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "dailyHuggingFaceQuota": 0,
                             "dailyCerebrasQuota": 0,
                             "dailyMistralQuota": 0,
+                            "dailyGithubQuota": 0,
+                            "dailyNrouterQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
                     )
@@ -886,6 +979,12 @@ async def diagnose_providers():
         if provider_name == "huggingface" and not HF_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
+        if provider_name == "github_models" and not GITHUB_MODELS_TOKEN:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "nrouter" and not NROUTER_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
 
         models = PROVIDER_MODELS.get(provider_name, [])
         model = models[0] if models else None
@@ -950,6 +1049,8 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailyHuggingFaceQuota": user.get("dailyHuggingFaceQuota", 0),
         "dailyCerebrasQuota": user.get("dailyCerebrasQuota", 0),
         "dailyMistralQuota": user.get("dailyMistralQuota", 0),
+        "dailyGithubQuota": user.get("dailyGithubQuota", 0),
+        "dailyNrouterQuota": user.get("dailyNrouterQuota", 0),
     }
 
 class InstructionsUpdate(BaseModel):
@@ -1473,6 +1574,10 @@ async def extract(
             update_query["$inc"]["dailyMistralQuota"] = 1
         elif provider == "huggingface":
             update_query["$inc"]["dailyHuggingFaceQuota"] = 1
+        elif provider == "github_models":
+            update_query["$inc"]["dailyGithubQuota"] = 1
+        elif provider == "nrouter":
+            update_query["$inc"]["dailyNrouterQuota"] = 1
         # For gateways we don't have dedicated daily counters, but we can store in a generic field
         # We'll just not track them for now.
         await users_col.update_one({"_id": user["_id"]}, update_query)
@@ -1726,12 +1831,15 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "totalCloudflare": {"$sum": "$dailyCloudflareQuota"},
                     "totalHuggingFace": {"$sum": "$dailyHuggingFaceQuota"},
                     "totalCerebras": {"$sum": "$dailyCerebrasQuota"},
-                    "totalMistral": {"$sum": "$dailyMistralQuota"}}}
+                    "totalMistral": {"$sum": "$dailyMistralQuota"},
+                    "totalGithub": {"$sum": "$dailyGithubQuota"},
+                    "totalNrouter": {"$sum": "$dailyNrouterQuota"}}}
     ]
     provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
     provider_totals = provider_result[0] if provider_result else {
         "totalGroq":0, "totalOpenRouter":0, "totalGemini":0,
-        "totalCloudflare":0, "totalHuggingFace":0, "totalCerebras":0, "totalMistral":0
+        "totalCloudflare":0, "totalHuggingFace":0, "totalCerebras":0, "totalMistral":0,
+        "totalGithub":0, "totalNrouter":0
     }
 
     pipeline_daily_provider = [
@@ -1743,12 +1851,15 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "dailyCloudflare": {"$sum": "$dailyCloudflareQuota"},
                     "dailyHuggingFace": {"$sum": "$dailyHuggingFaceQuota"},
                     "dailyCerebras": {"$sum": "$dailyCerebrasQuota"},
-                    "dailyMistral": {"$sum": "$dailyMistralQuota"}}}
+                    "dailyMistral": {"$sum": "$dailyMistralQuota"},
+                    "dailyGithub": {"$sum": "$dailyGithubQuota"},
+                    "dailyNrouter": {"$sum": "$dailyNrouterQuota"}}}
     ]
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {
         "dailyGroq":0, "dailyOpenRouter":0, "dailyGemini":0,
-        "dailyCloudflare":0, "dailyHuggingFace":0, "dailyCerebras":0, "dailyMistral":0
+        "dailyCloudflare":0, "dailyHuggingFace":0, "dailyCerebras":0, "dailyMistral":0,
+        "dailyGithub":0, "dailyNrouter":0
     }
 
     provider_status = {}
@@ -1774,6 +1885,8 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     huggingface_limit = int(os.getenv("HUGGINGFACE_DAILY_LIMIT", 1000000))
     cerebras_limit = int(os.getenv("CEREBRAS_DAILY_LIMIT", 1000000))
     mistral_limit = int(os.getenv("MISTRAL_DAILY_LIMIT", 1000000))
+    github_limit = int(os.getenv("GITHUB_DAILY_LIMIT", 1000000))
+    nrouter_limit = int(os.getenv("NROUTER_DAILY_LIMIT", 1000000))
 
     daily_usage = {
         "groq": daily_provider["dailyGroq"],
@@ -1783,6 +1896,8 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "huggingface": daily_provider["dailyHuggingFace"],
         "cerebras": daily_provider["dailyCerebras"],
         "mistral": daily_provider["dailyMistral"],
+        "github": daily_provider["dailyGithub"],
+        "nrouter": daily_provider["dailyNrouter"],
     }
     active_provider = max(daily_usage, key=daily_usage.get) if any(daily_usage.values()) else "gemini"
 
@@ -1822,6 +1937,8 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "huggingFace": provider_totals["totalHuggingFace"],
             "cerebras": provider_totals["totalCerebras"],
             "mistral": provider_totals["totalMistral"],
+            "github": provider_totals["totalGithub"],
+            "nrouter": provider_totals["totalNrouter"],
             "dailyGroq": daily_provider["dailyGroq"],
             "dailyOpenRouter": daily_provider["dailyOpenRouter"],
             "dailyGemini": daily_provider["dailyGemini"],
@@ -1829,6 +1946,8 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "dailyHuggingFace": daily_provider["dailyHuggingFace"],
             "dailyCerebras": daily_provider["dailyCerebras"],
             "dailyMistral": daily_provider["dailyMistral"],
+            "dailyGithub": daily_provider["dailyGithub"],
+            "dailyNrouter": daily_provider["dailyNrouter"],
             "groqLimit": groq_limit,
             "openRouterLimit": openrouter_limit,
             "geminiLimit": gemini_limit,
@@ -1836,6 +1955,8 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "huggingFaceLimit": huggingface_limit,
             "cerebrasLimit": cerebras_limit,
             "mistralLimit": mistral_limit,
+            "githubLimit": github_limit,
+            "nrouterLimit": nrouter_limit,
             "activeProvider": active_provider,
         },
         "providerStatus": provider_status,
