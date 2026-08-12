@@ -211,11 +211,24 @@ MANIPULATION_PATTERNS = [
     r"you are (not|no longer) bound by",
     r"bypass your safety",
     r"stop following your instructions",
-    r"reset your instructions"
+    r"reset your instructions",
+    r"act as (an|a) (evil|unethical|unrestricted) AI",
+]
+
+EXPLICIT_PATTERNS = [
+    r"(?:sexual|porn|nude|sex|erotic|adult content)",
+    r"(?:hack|exploit|malware|virus|crack)",
+    r"(?:threat|kill|murder|terrorism)",
 ]
 
 def detect_manipulation(text: str) -> bool:
     for pattern in MANIPULATION_PATTERNS:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+def contains_explicit(text: str) -> bool:
+    for pattern in EXPLICIT_PATTERNS:
         if re.search(pattern, text, re.IGNORECASE):
             return True
     return False
@@ -708,6 +721,30 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
+# -------------------- WORKSPACE-SPECIFIC PRIORITY --------------------
+WORKSPACE_PRIORITY = {
+    "data": ["gemini", "groq", "cloudflare", "mistral", "openrouter"],
+    "design": ["cloudflare", "groq", "gemini", "openrouter", "mistral"],
+    "general": ["gemini", "groq", "cloudflare", "openrouter", "mistral"],
+    "prompt": ["gemini", "openrouter", "groq"],
+    "touch_fix": ["groq", "mistral", "gemini"],
+}
+
+def get_provider_order(workspace: str) -> List[str]:
+    """Return ordered list of provider names for the given workspace."""
+    provider_names = [name for name, _ in PROVIDER_CHAIN if name != "local"]
+    priority = WORKSPACE_PRIORITY.get(workspace, WORKSPACE_PRIORITY["general"])
+    ordered = []
+    for name in priority:
+        if name in provider_names and name not in ordered:
+            ordered.append(name)
+    # Append remaining providers in original order
+    for name in provider_names:
+        if name not in ordered:
+            ordered.append(name)
+    ordered.append("local")
+    return ordered
+
 # -------------------- AI ROUTER (with per-model fallback) --------------------
 async def route_ai_request(
     workspace: str,
@@ -720,6 +757,26 @@ async def route_ai_request(
     tier: str
 ) -> Dict[str, Any]:
     start = time.time()
+
+    # Security checks
+    if detect_manipulation(prompt):
+        return {
+            "success": False,
+            "text": "⚠️ WARNING: Manipulation attempt detected. Your action has been logged. Please stay within operational parameters.",
+            "provider": "security",
+            "model_used": "filter",
+            "tokens_used": 0,
+            "latency_ms": 0
+        }
+    if contains_explicit(prompt):
+        return {
+            "success": False,
+            "text": "🚫 Your request violates our content policy. Please revise your input.",
+            "provider": "security",
+            "model_used": "blocked",
+            "tokens_used": 0,
+            "latency_ms": 0
+        }
 
     history_text = ""
     if history:
@@ -742,9 +799,6 @@ async def route_ai_request(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
-    if detect_manipulation(prompt):
-        return {"success": False, "text": "Manipulation detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
-
     cache_key = hashlib.sha256(f"{workspace}:{task_type}:{full_prompt}".encode()).hexdigest()
     if cache_key in ai_cache:
         cached = ai_cache[cache_key]
@@ -755,8 +809,16 @@ async def route_ai_request(
     model_used = None
     last_error = None
 
-    for provider_name, func in PROVIDER_CHAIN:
+    provider_names = [name for name, _ in PROVIDER_CHAIN if name != "local"]
+    provider_order = get_provider_order(workspace)
+    # Build a dict for fast lookup
+    provider_func_map = dict(PROVIDER_CHAIN)
+
+    for provider_name in provider_order:
         if provider_name == "local":
+            continue
+        func = provider_func_map.get(provider_name)
+        if not func:
             continue
         # Skip if API key missing (for those that require keys)
         if provider_name == "gemini" and not GEMINI_API_KEY:
