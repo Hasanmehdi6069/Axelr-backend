@@ -2,12 +2,14 @@
 """
 AXELR AI - ELITE PRODUCTION v22.1
 Provider Chain (priority):
-  Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace → GitHub Models → Nrouter → Pollinations → Puter → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
-  Tier 2 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT
+  Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace → GitHub Models → Nrouter
+  Tier 2 (Gateways): Pollinations.ai → Puter → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
+  Tier 3 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT
   Ultimate fallback: local
 
 Zero‑cost, permanent free tiers, automatic failover, 429 handling, circuit breakers.
-All HTTP calls use httpx with appropriate timeouts (8s default, longer for Replicate removed).
+All HTTP calls use httpx with appropriate timeouts (8s default).
+Each provider may have multiple free models; the router tries each model sequentially.
 """
 import os, re, time, json, asyncio, hashlib, smtplib, logging, base64, ssl
 import urllib.request, urllib.error, urllib.parse
@@ -76,7 +78,7 @@ NROUTER_API_KEY = (os.getenv("NROUTER_API_KEY") or "").strip()
 POLLINATIONS_KEY = (os.getenv("POLLINATIONS_KEY") or "").strip()
 
 # ---------- MODEL LISTS (read from env, with defaults) ----------
-# OpenRouter free models
+# OpenRouter free models (verified as of Aug 2026)
 OPENROUTER_MODELS_STR = os.getenv(
     "OPENROUTER_MODELS",
     "nvidia/nemotron-3.5-lightning:free,"
@@ -86,7 +88,10 @@ OPENROUTER_MODELS_STR = os.getenv(
     "google/gemma-2-9b-it:free,"
     "microsoft/phi-3-mini-128k-instruct:free,"
     "qwen/qwen-2.5-7b-instruct:free,"
-    "mistralai/mistral-7b-instruct:free"
+    "mistralai/mistral-7b-instruct:free,"
+    "deepseek/deepseek-chat:free,"
+    "cognitivecomputations/dolphin-mixtral-8x7b:free,"
+    "perplexity/llama-3.1-sonar-small-128k-online:free"
 )
 OPENROUTER_MODELS = [m.strip() for m in OPENROUTER_MODELS_STR.split(",") if m.strip()]
 
@@ -95,17 +100,16 @@ HF_MODELS_STR = os.getenv(
     "HUGGINGFACE_MODELS",
     "google/gemma-2-9b-it,"
     "meta-llama/Llama-3.2-3B-Instruct,"
-    "meta-llama/Llama-3.1-8B-Instruct,"
-    "microsoft/Phi-3-mini-4k-instruct"
+    "mistralai/Mistral-7B-Instruct-v0.3"
 )
 HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
 
-# Groq free models
-GROQ_MODELS_STR = os.getenv("GROQ_MODELS", "llama-3.1-8b-instant,llama-3.1-70b-versatile")
+# Groq free models (check current availability)
+GROQ_MODELS_STR = os.getenv("GROQ_MODELS", "llama-3.1-8b-instant,llama-3.1-70b-versatile,mixtral-8x7b-32768")
 GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
 
 # Mistral free models
-MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b")
+MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b,mistral-small-latest,mistral-tiny")
 MISTRAL_MODELS = [m.strip() for m in MISTRAL_MODELS_STR.split(",") if m.strip()]
 
 # Gemini (only one known free model)
@@ -125,6 +129,9 @@ POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "openai")
 
 # Glama (if free, but we keep)
 GLAMA_MODEL = os.getenv("GLAMA_MODEL", "gpt-3.5-turbo")
+
+# Cerebras (only one free model if available)
+CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.1-8b")
 
 # Free tier token limit
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
@@ -189,7 +196,11 @@ def get_object_id():
 ai_cache = TTLCache(maxsize=2000, ttl=3600)
 provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
+# Per-model failure tracking
+model_failures = defaultdict(int)
+model_last_fail = defaultdict(float)
 PROVIDER_COOLDOWN = 600  # 10 minutes
+MODEL_COOLDOWN = 120     # 2 minutes per model
 
 # -------------------- SECURITY --------------------
 MANIPULATION_PATTERNS = [
@@ -246,8 +257,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- PROVIDER FUNCTIONS (only those kept) --------------------
-
+# -------------------- PROVIDER FUNCTIONS --------------------
 # 1. GEMINI
 async def call_gemini(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GEMINI_API_KEY:
@@ -279,8 +289,9 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json"
     }
+    effective_model = model or GROQ_MODELS[0]
     payload = {
-        "model": model or GROQ_MODELS[0],  # use first as default
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -334,8 +345,7 @@ async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Option
         "Authorization": f"Bearer {CEREBRAS_API_KEY}",
         "Content-Type": "application/json"
     }
-    # Cerebras has a single known free model; we use the provided model or fallback
-    effective_model = model or "llama-3.1-8b"  # default
+    effective_model = model or CEREBRAS_MODEL
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -366,7 +376,7 @@ async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 7. HUGGING FACE
+# 7. HUGGINGFACE
 async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
     if not HF_API_KEY:
         raise Exception("HF_API_KEY missing")
@@ -425,7 +435,7 @@ async def call_nrouter(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 10. POLLINATIONS.AI (GET, no key required)
+# 10. POLLINATIONS
 async def call_pollinations(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     encoded_prompt = urllib.parse.quote(prompt)
     url = f"https://text.pollinations.ai/{encoded_prompt}?model={model or POLLINATIONS_MODEL}&temperature={temp}&max_tokens={max_tokens}"
@@ -436,7 +446,7 @@ async def call_pollinations(prompt: str, max_tokens: int, temp: float, model: Op
     except Exception as e:
         raise Exception(f"Pollinations error: {e}")
 
-# 11. PUTER API BRIDGE
+# 11. PUTER
 async def call_puter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.puter.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -475,7 +485,7 @@ async def call_keylessai(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 14. FreeFlow LLM Logic
+# 14. FreeFlow
 async def call_freeflow(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://freeflow.llm/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -501,7 +511,7 @@ async def call_bazaarlink(prompt: str, max_tokens: int, temp: float, model: Opti
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 16. Glama API
+# 16. Glama
 async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.glama.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -515,7 +525,7 @@ async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 17. Chub Venus Free Endpoint
+# 17. Chub Venus
 async def call_chubvenus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.chub.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -541,7 +551,7 @@ async def call_neets(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 19. Void AI
+# 19. VoidAI
 async def call_voidai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.voidai.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -567,7 +577,7 @@ async def call_qoder(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 21. Free-GPT4-WEB-API
+# 21. FreeGPT4
 async def call_freegpt4(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.freegpt4.io/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -580,7 +590,7 @@ async def call_freegpt4(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 22. OmniGPT Gateway
+# 22. OmniGPT
 async def call_omnigpt(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.omnigpt.io/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -609,7 +619,7 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
         return f"Debugging: \"{prompt_text[:120]}\".\nPlease share the full error, file name, and expected behaviour."
     return f"Request received: \"{prompt_text[:160]}\".\nI can help with a concise plan, code snippet, or structured answer – tell me more specifics."
 
-# -------------------- PROVIDER CHAIN (UPDATED, removed DeepSeek, Replicate, DeepInfra) --------------------
+# -------------------- PROVIDER CHAIN --------------------
 PROVIDER_CHAIN = [
     ("gemini", call_gemini),
     ("groq", call_groq),
@@ -636,13 +646,13 @@ PROVIDER_CHAIN = [
     ("local", call_local_fallback),
 ]
 
-# PROVIDER_MODELS: map provider name to list of model names (read from env with defaults)
+# PROVIDER_MODELS: map provider name to list of model names
 PROVIDER_MODELS = {
     "gemini": [GEMINI_MODEL],
     "groq": GROQ_MODELS,
     "cloudflare": [CLOUDFLARE_MODEL],
     "openrouter": OPENROUTER_MODELS,
-    "cerebras": ["llama-3.1-8b"],   # Cerebras free model
+    "cerebras": [CEREBRAS_MODEL],
     "mistral": MISTRAL_MODELS,
     "huggingface": HF_MODELS,
     "github_models": [GITHUB_MODEL],
@@ -698,7 +708,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (updated for new provider model lists) --------------------
+# -------------------- AI ROUTER (with per-model fallback) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -768,40 +778,61 @@ async def route_ai_request(
         if provider_name == "nrouter" and not NROUTER_API_KEY:
             continue
 
+        # Check provider-level circuit breaker
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
-            logger.warning(f"Skipping {provider_name} (circuit breaker)")
+            logger.warning(f"Skipping {provider_name} (provider circuit breaker)")
             continue
 
         models = PROVIDER_MODELS.get(provider_name, [])
         if not models:
             continue
 
+        # Try each model for this provider
+        provider_success = False
         for model in models:
+            model_key = (provider_name, model)
+            # Check model-level circuit breaker
+            if model_failures[model_key] >= 3 and time.time() - model_last_fail[model_key] < MODEL_COOLDOWN:
+                logger.warning(f"Skipping {provider_name}/{model} (model circuit breaker)")
+                continue
+
             for attempt in range(2):
                 try:
-                    # For local fallback we pass extra args, but local is not in this loop
                     resp_text = await func(full_prompt, max_tokens, temp, model)
                     if resp_text:
                         response_text = resp_text
                         provider_used = provider_name
                         model_used = model
+                        provider_success = True
+                        # Reset failures on success
                         provider_failures[provider_name] = 0
+                        model_failures[model_key] = 0
                         logger.info(f"Provider {provider_name} with model {model} succeeded.")
                         break
                 except Exception as e:
                     last_error = e
                     error_msg = str(e).lower()
                     if "quota" in error_msg or "429" in error_msg:
-                        logger.warning(f"{provider_name}/{model} quota exceeded, skipping")
-                        break
+                        logger.warning(f"{provider_name}/{model} quota exceeded, skipping model")
+                        # Mark model as failed
+                        model_failures[model_key] += 1
+                        model_last_fail[model_key] = time.time()
+                        break  # skip to next model
                     logger.warning(f"{provider_name}/{model} attempt {attempt+1} failed: {e}")
                     await asyncio.sleep(2 ** attempt)
-                    provider_failures[provider_name] += 1
-                    provider_last_fail[provider_name] = time.time()
-            if response_text:
-                break
-        if response_text:
-            break
+                    # Mark model failure
+                    model_failures[model_key] += 1
+                    model_last_fail[model_key] = time.time()
+            if provider_success:
+                break  # break out of model loop
+
+        if provider_success:
+            break  # break out of provider loop
+        else:
+            # All models for this provider failed; mark provider failure
+            provider_failures[provider_name] += 1
+            provider_last_fail[provider_name] = time.time()
+            logger.warning(f"All models for provider {provider_name} failed; marking provider cooldown")
 
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
@@ -995,7 +1026,7 @@ async def health():
 # -------------------- DIAGNOSTICS ROUTE --------------------
 @app.get("/api/v1/diagnose")
 async def diagnose_providers():
-    """Concurrently ping all providers to check real-time availability."""
+    """Concurrently ping all providers with their first model to check real-time availability."""
     results = {}
     test_prompt = "Say 'OK'"
     tasks = {}
@@ -1031,7 +1062,10 @@ async def diagnose_providers():
             continue
 
         models = PROVIDER_MODELS.get(provider_name, [])
-        model = models[0] if models else None
+        if not models:
+            results[provider_name] = {"status": "skipped", "reason": "No models configured"}
+            continue
+        model = models[0]
         tasks[provider_name] = asyncio.create_task(
             _probe_provider(provider_name, func, test_prompt, model)
         )
@@ -1048,7 +1082,6 @@ async def diagnose_providers():
 async def _probe_provider(name: str, func, prompt: str, model: Optional[str]) -> Dict:
     try:
         start = time.time()
-        # For providers that need extra args, we handle via func signature; most just need prompt, max_tokens, temp, model
         resp = await func(prompt, 5, 0.0, model)
         latency = (time.time() - start) * 1000
         if resp and "OK" in resp:
