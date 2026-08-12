@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - ELITE PRODUCTION v22.0
+AXELR AI - ELITE PRODUCTION v22.1
 Provider Chain (priority):
-  Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace → GitHub Models → Nrouter → DeepSeek → Replicate → DeepInfra
-  Tier 2 (Gateways): Pollinations.ai → Puter → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
-  Tier 3 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT
+  Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace → GitHub Models → Nrouter → Pollinations → Puter → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
+  Tier 2 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT
   Ultimate fallback: local
 
 Zero‑cost, permanent free tiers, automatic failover, 429 handling, circuit breakers.
-All HTTP calls use httpx with appropriate timeouts (8s default, longer for Replicate).
+All HTTP calls use httpx with appropriate timeouts (8s default, longer for Replicate removed).
 """
 import os, re, time, json, asyncio, hashlib, smtplib, logging, base64, ssl
 import urllib.request, urllib.error, urllib.parse
@@ -73,29 +72,68 @@ CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
 MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
 GITHUB_MODELS_TOKEN = (os.getenv("GITHUB_MODELS_TOKEN") or "").strip()
 NROUTER_API_KEY = (os.getenv("NROUTER_API_KEY") or "").strip()
-DEEPSEEK_API_KEY = (os.getenv("DEEPSEEK_API_KEY") or "").strip()
-REPLICATE_API_TOKEN = (os.getenv("REPLICATE_API_TOKEN") or "").strip()
-DEEPINFRA_API_KEY = (os.getenv("DEEPINFRA_API_KEY") or "").strip()
 # Optional keys for additional providers (may be empty)
 POLLINATIONS_KEY = (os.getenv("POLLINATIONS_KEY") or "").strip()
 
-# Model names
-OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "nvidia/nemotron-3.5-lightning:free")
-CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.1-8b")
-MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "open-mistral-7b")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.1-8b-instant")
-GITHUB_MODEL = os.getenv("GITHUB_MODEL", "gpt-4o mini")
-NROUTER_MODEL = os.getenv("NROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
-DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-chat")
-REPLICATE_MODEL = os.getenv("REPLICATE_MODEL", "meta/llama-2-70b-chat")
-DEEPINFRA_MODEL = os.getenv("DEEPINFRA_MODEL", "meta-llama/Llama-2-70b-chat-hf")
+# ---------- MODEL LISTS (read from env, with defaults) ----------
+# OpenRouter free models
+OPENROUTER_MODELS_STR = os.getenv(
+    "OPENROUTER_MODELS",
+    "nvidia/nemotron-3.5-lightning:free,"
+    "fish-audio/s2.1-pro-free:free,"
+    "inclusion/ling-3.0-tiny:free,"
+    "meta-llama/llama-3.1-8b-instruct:free,"
+    "google/gemma-2-9b-it:free,"
+    "microsoft/phi-3-mini-128k-instruct:free,"
+    "qwen/qwen-2.5-7b-instruct:free,"
+    "mistralai/mistral-7b-instruct:free"
+)
+OPENROUTER_MODELS = [m.strip() for m in OPENROUTER_MODELS_STR.split(",") if m.strip()]
 
+# HuggingFace free models
+HF_MODELS_STR = os.getenv(
+    "HUGGINGFACE_MODELS",
+    "google/gemma-2-9b-it,"
+    "meta-llama/Llama-3.2-3B-Instruct,"
+    "meta-llama/Llama-3.1-8B-Instruct,"
+    "microsoft/Phi-3-mini-4k-instruct"
+)
+HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
+
+# Groq free models
+GROQ_MODELS_STR = os.getenv("GROQ_MODELS", "llama-3.1-8b-instant,llama-3.1-70b-versatile")
+GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
+
+# Mistral free models
+MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b")
+MISTRAL_MODELS = [m.strip() for m in MISTRAL_MODELS_STR.split(",") if m.strip()]
+
+# Gemini (only one known free model)
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+
+# Cloudflare
+CLOUDFLARE_MODEL = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
+
+# GitHub Models
+GITHUB_MODEL = os.getenv("GITHUB_MODEL", "gpt-4o-mini")
+
+# Nrouter
+NROUTER_MODEL = os.getenv("NROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
+
+# Pollinations
+POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "openai")
+
+# Glama (if free, but we keep)
+GLAMA_MODEL = os.getenv("GLAMA_MODEL", "gpt-3.5-turbo")
+
+# Free tier token limit
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
+
 HTTP_CLIENT = httpx.AsyncClient(
     timeout=httpx.Timeout(8.0, connect=5.0, read=8.0, write=5.0),
     verify=False
 )
+
 # -------------------- STRIPE INIT --------------------
 if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
     stripe.api_key = STRIPE_SECRET_KEY
@@ -193,6 +231,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
         try:
             return resp.json()
         except json.JSONDecodeError:
+            # Return a fallback structure to avoid crashing
             return {"text": resp.text}
     except httpx.HTTPStatusError as e:
         if e.response.status_code == 429:
@@ -207,7 +246,7 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- PROVIDER FUNCTIONS --------------------
+# -------------------- PROVIDER FUNCTIONS (only those kept) --------------------
 
 # 1. GEMINI
 async def call_gemini(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
@@ -241,7 +280,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
         "Content-Type": "application/json"
     }
     payload = {
-        "model": model or GROQ_MODEL,
+        "model": model or GROQ_MODELS[0],  # use first as default
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -254,7 +293,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
 async def call_cloudflare(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID:
         raise Exception("Cloudflare credentials missing")
-    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or '@cf/meta/llama-3.1-8b-instruct'}"
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or CLOUDFLARE_MODEL}"
     headers = {"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}", "Content-Type": "application/json"}
     payload = {
         "messages": [{"role": "user", "content": prompt}],
@@ -275,7 +314,7 @@ async def call_openrouter(prompt: str, max_tokens: int, temp: float, model: Opti
         "HTTP-Referer": "https://axelr.in",
         "X-Title": "Axelr AI"
     }
-    effective_model = model or OPENROUTER_MODEL
+    effective_model = model or OPENROUTER_MODELS[0]
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -295,8 +334,10 @@ async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Option
         "Authorization": f"Bearer {CEREBRAS_API_KEY}",
         "Content-Type": "application/json"
     }
+    # Cerebras has a single known free model; we use the provided model or fallback
+    effective_model = model or "llama-3.1-8b"  # default
     payload = {
-        "model": model or CEREBRAS_MODEL,
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -314,8 +355,9 @@ async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optiona
         "Authorization": f"Bearer {MISTRAL_API_KEY}",
         "Content-Type": "application/json"
     }
+    effective_model = model or MISTRAL_MODELS[0]
     payload = {
-        "model": model or MISTRAL_MODEL,
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -352,8 +394,9 @@ async def call_github_models(prompt: str, max_tokens: int, temp: float, model: O
         "Authorization": f"Bearer {GITHUB_MODELS_TOKEN}",
         "Content-Type": "application/json"
     }
+    effective_model = model or GITHUB_MODEL
     payload = {
-        "model": model or GITHUB_MODEL,
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -371,8 +414,9 @@ async def call_nrouter(prompt: str, max_tokens: int, temp: float, model: Optiona
         "Authorization": f"Bearer {NROUTER_API_KEY}",
         "Content-Type": "application/json"
     }
+    effective_model = model or NROUTER_MODEL
     payload = {
-        "model": model or NROUTER_MODEL,
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -383,7 +427,8 @@ async def call_nrouter(prompt: str, max_tokens: int, temp: float, model: Optiona
 
 # 10. POLLINATIONS.AI (GET, no key required)
 async def call_pollinations(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = f"https://text.pollinations.ai/{prompt}?model={model or 'openai'}&temperature={temp}&max_tokens={max_tokens}"
+    encoded_prompt = urllib.parse.quote(prompt)
+    url = f"https://text.pollinations.ai/{encoded_prompt}?model={model or POLLINATIONS_MODEL}&temperature={temp}&max_tokens={max_tokens}"
     try:
         resp = await HTTP_CLIENT.get(url)
         resp.raise_for_status()
@@ -460,8 +505,9 @@ async def call_bazaarlink(prompt: str, max_tokens: int, temp: float, model: Opti
 async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.glama.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
+    effective_model = model or GLAMA_MODEL
     payload = {
-        "model": model or "gpt-3.5-turbo",
+        "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
@@ -563,7 +609,7 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
         return f"Debugging: \"{prompt_text[:120]}\".\nPlease share the full error, file name, and expected behaviour."
     return f"Request received: \"{prompt_text[:160]}\".\nI can help with a concise plan, code snippet, or structured answer – tell me more specifics."
 
-# -------------------- PROVIDER CHAIN (NEW PRIORITY) --------------------
+# -------------------- PROVIDER CHAIN (UPDATED, removed DeepSeek, Replicate, DeepInfra) --------------------
 PROVIDER_CHAIN = [
     ("gemini", call_gemini),
     ("groq", call_groq),
@@ -590,23 +636,24 @@ PROVIDER_CHAIN = [
     ("local", call_local_fallback),
 ]
 
+# PROVIDER_MODELS: map provider name to list of model names (read from env with defaults)
 PROVIDER_MODELS = {
     "gemini": [GEMINI_MODEL],
-    "groq": [GROQ_MODEL],
-    "cloudflare": ["@cf/meta/llama-3.1-8b-instruct"],
-    "openrouter": [OPENROUTER_MODEL],
-    "cerebras": [CEREBRAS_MODEL],
-    "mistral": [MISTRAL_MODEL],
-    "huggingface": ["google/gemma-2-9b-it", "meta-llama/Llama-3.2-3B-Instruct"],
+    "groq": GROQ_MODELS,
+    "cloudflare": [CLOUDFLARE_MODEL],
+    "openrouter": OPENROUTER_MODELS,
+    "cerebras": ["llama-3.1-8b"],   # Cerebras free model
+    "mistral": MISTRAL_MODELS,
+    "huggingface": HF_MODELS,
     "github_models": [GITHUB_MODEL],
     "nrouter": [NROUTER_MODEL],
-    "pollinations": ["openai"],
+    "pollinations": [POLLINATIONS_MODEL],
     "puter": ["gpt-3.5-turbo"],
     "freetheai": ["gpt-3.5-turbo"],
     "keylessai": ["gpt-3.5-turbo"],
     "freeflow": ["gpt-3.5-turbo"],
     "bazaarlink": ["gpt-3.5-turbo"],
-    "glama": ["gpt-3.5-turbo"],
+    "glama": [GLAMA_MODEL],
     "chubvenus": ["gpt-3.5-turbo"],
     "neets": ["gpt-3.5-turbo"],
     "voidai": ["gpt-3.5-turbo"],
@@ -651,7 +698,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- AI ROUTER (updated) --------------------
+# -------------------- AI ROUTER (updated for new provider model lists) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -701,6 +748,7 @@ async def route_ai_request(
     for provider_name, func in PROVIDER_CHAIN:
         if provider_name == "local":
             continue
+        # Skip if API key missing (for those that require keys)
         if provider_name == "gemini" and not GEMINI_API_KEY:
             continue
         if provider_name == "groq" and not GROQ_API_KEY:
@@ -726,23 +774,19 @@ async def route_ai_request(
 
         models = PROVIDER_MODELS.get(provider_name, [])
         if not models:
-            if provider_name == "huggingface":
-                models = ["google/gemma-2-9b-it"]
-            else:
-                continue
+            continue
 
         for model in models:
             for attempt in range(2):
                 try:
-                    if provider_name == "local":
-                        resp_text = await func(full_prompt, max_tokens, temp, model, workspace=workspace, task_type=task_type)
-                    else:
-                        resp_text = await func(full_prompt, max_tokens, temp, model)
+                    # For local fallback we pass extra args, but local is not in this loop
+                    resp_text = await func(full_prompt, max_tokens, temp, model)
                     if resp_text:
                         response_text = resp_text
                         provider_used = provider_name
                         model_used = model
                         provider_failures[provider_name] = 0
+                        logger.info(f"Provider {provider_name} with model {model} succeeded.")
                         break
                 except Exception as e:
                     last_error = e
@@ -905,7 +949,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="22.0", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="22.1", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1004,10 +1048,8 @@ async def diagnose_providers():
 async def _probe_provider(name: str, func, prompt: str, model: Optional[str]) -> Dict:
     try:
         start = time.time()
-        if name == "local":
-            resp = await func(prompt, 5, 0.0, model, workspace="general", task_type="general")
-        else:
-            resp = await func(prompt, 5, 0.0, model)
+        # For providers that need extra args, we handle via func signature; most just need prompt, max_tokens, temp, model
+        resp = await func(prompt, 5, 0.0, model)
         latency = (time.time() - start) * 1000
         if resp and "OK" in resp:
             return {"status": "healthy", "latency_ms": round(latency, 2)}
@@ -1496,8 +1538,7 @@ async def extract(
             task_type = "frontend"
         else:
             task_type = "structuring"
-    # MODEL_MATRIX not defined in original, but we use the same logic
-    supported_types = ["extraction", "frontend", "structuring", "touch_fix"]  # placeholder
+    supported_types = ["extraction", "frontend", "structuring", "touch_fix"]
     if task_type not in supported_types:
         task_type = "extraction" if workspace == "data" else "frontend"
 
@@ -1578,8 +1619,7 @@ async def extract(
             update_query["$inc"]["dailyGithubQuota"] = 1
         elif provider == "nrouter":
             update_query["$inc"]["dailyNrouterQuota"] = 1
-        # For gateways we don't have dedicated daily counters, but we can store in a generic field
-        # We'll just not track them for now.
+        # For other providers we don't track specifically
         await users_col.update_one({"_id": user["_id"]}, update_query)
     else:
         logger.info(f"Local fallback used for user {user['email']}")
@@ -2120,5 +2160,5 @@ async def not_found(request, exc):
 # ---------- MAIN ----------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI v22.0 ON PORT {port} ===")
+    logger.info(f"=== STARTING AXELR AI v22.1 ON PORT {port} ===")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
