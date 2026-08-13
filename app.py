@@ -106,8 +106,7 @@ HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
 
 # Groq free models (check current availability)
 GROQ_MODELS_STR = os.getenv("GROQ_MODELS",
-                            "llama-3.1-8b-instant",
-                            "openai/gpt-oss-120b")
+                            "llama-3.1-8b-instant",)
 GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
 
 # Mistral free models
