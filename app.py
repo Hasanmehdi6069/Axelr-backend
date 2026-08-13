@@ -89,9 +89,9 @@ OPENROUTER_MODELS_STR = os.getenv(
     "cohere/north-mini-code:free,"
     "openai/gpt-oss-20b:free,"
     "openrouter/free-gpt-3.5-turbo:free,"
-    "openrouter/free,"
     "nvidia/nemotron-3-embed-1b:free,"
     "nvidia/llama-nemotron-embed-vl-1b-v2:free"
+    "openrouter/free"    
 )
 OPENROUTER_MODELS = [m.strip() for m in OPENROUTER_MODELS_STR.split(",") if m.strip()]
 
@@ -106,7 +106,7 @@ HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
 
 # Groq free models (check current availability)
 GROQ_MODELS_STR = os.getenv("GROQ_MODELS",
-                            "llama-3.1-8b-instant",)
+                            "openai/gpt-oss-120b")
 GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
 
 # Mistral free models
@@ -752,7 +752,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
 
 # -------------------- WORKSPACE-SPECIFIC PRIORITY --------------------
 WORKSPACE_PRIORITY = {
-    "data": ["gemini", "groq", "cloudflare", "mistral", "openrouter"],
+    "data": ["gemini", "groq", "cloudflare", "openrouter", "mistral"],
     "design": ["cloudflare", "groq", "gemini", "openrouter", "mistral"],
     "general": ["gemini", "groq", "cloudflare", "openrouter", "mistral"],
     "prompt": ["gemini", "openrouter", "groq"],
