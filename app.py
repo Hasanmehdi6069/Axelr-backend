@@ -105,7 +105,13 @@ HF_MODELS_STR = os.getenv(
 HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
 
 # Groq free models (check current availability)
-GROQ_MODELS_STR = os.getenv("GROQ_MODELS", "llama-3.1-8b-instant,llama-3.1-70b-versatile,mixtral-8x7b-32768")
+GROQ_MODELS_STR = os.getenv("GROQ_MODELS",
+                            "llama-3.1-8b-instant",
+                            "canopylabs/orpheus-v1-english",
+                            "meta-llama/llama-prompt-guard-2-86m"
+                            "qwen/qwen3.6-27b"
+                            "openai/gpt-oss-120b"
+                            )
 GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
 
 # Mistral free models
@@ -113,7 +119,7 @@ MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b,mistral-small-
 MISTRAL_MODELS = [m.strip() for m in MISTRAL_MODELS_STR.split(",") if m.strip()]
 
 # Gemini (only one known free model)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemma-4-31b")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 
 # Cloudflare – single model (use environment or default)
 CLOUDFLARE_MODEL = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
@@ -131,10 +137,10 @@ POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "openai")
 GLAMA_MODEL = os.getenv("GLAMA_MODEL", "gpt-3.5-turbo")
 
 # Cerebras – use a valid free model (check docs)
-CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
+CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b""Gemma 4 31B")
 
 # Text Cortex models (you can add more)
-TEXT_CORTEX_MODELS = ["gpt-3.5-turbo", "llama-3-8b"]
+TEXT_CORTEX_MODELS = ["gpt-3.5-turbo",]
 
 # Free tier token limit
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
