@@ -4,7 +4,7 @@ AXELR AI - ELITE PRODUCTION v22.1
 Provider Chain (priority):
   Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace → GitHub Models → Nrouter
   Tier 2 (Gateways): Pollinations.ai → Puter → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
-  Tier 3 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT
+  Tier 3 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT → Text Cortex
   Ultimate fallback: local
 
 Zero‑cost, permanent free tiers, automatic failover, 429 handling, circuit breakers.
@@ -74,6 +74,7 @@ CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
 MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
 GITHUB_MODELS_TOKEN = (os.getenv("GITHUB_MODELS_TOKEN") or "").strip()
 NROUTER_API_KEY = (os.getenv("NROUTER_API_KEY") or "").strip()
+TEXT_CORTEX_API_KEY = (os.getenv("TEXT.CORTEX_API_KEY") or "").strip()   # <-- NEW
 # Optional keys for additional providers (may be empty)
 POLLINATIONS_KEY = (os.getenv("POLLINATIONS_KEY") or "").strip()
 
@@ -83,15 +84,14 @@ OPENROUTER_MODELS_STR = os.getenv(
     "OPENROUTER_MODELS",
     "nvidia/nemotron-3.5-lightning:free,"
     "fish-audio/s2.1-pro-free:free,"
-    "inclusion/ling-3.0-tiny:free,"
-    "meta-llama/llama-3.1-8b-instruct:free,"
-    "google/gemma-2-9b-it:free,"
-    "microsoft/phi-3-mini-128k-instruct:free,"
-    "qwen/qwen-2.5-7b-instruct:free,"
-    "mistralai/mistral-7b-instruct:free,"
-    "deepseek/deepseek-chat:free,"
-    "cognitivecomputations/dolphin-mixtral-8x7b:free,"
-    "perplexity/llama-3.1-sonar-small-128k-online:free"
+    "poolside/laguna-s-2.1:free,"
+    "nvidia/nemotron-3-ultra-550b-a55b:free,"
+    "cohere/north-mini-code:free,"
+    "openai/gpt-oss-20b:free,"
+    "openrouter/free-gpt-3.5-turbo:free,"
+    "openrouter/free,"
+    "nvidia/nemotron-3-embed-1b:free,"
+    "nvidia/llama-nemotron-embed-vl-1b-v2:free"
 )
 OPENROUTER_MODELS = [m.strip() for m in OPENROUTER_MODELS_STR.split(",") if m.strip()]
 
@@ -113,9 +113,9 @@ MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b,mistral-small-
 MISTRAL_MODELS = [m.strip() for m in MISTRAL_MODELS_STR.split(",") if m.strip()]
 
 # Gemini (only one known free model)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemma-4-31b")
 
-# Cloudflare
+# Cloudflare – single model (use environment or default)
 CLOUDFLARE_MODEL = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
 
 # GitHub Models
@@ -130,8 +130,11 @@ POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "openai")
 # Glama (if free, but we keep)
 GLAMA_MODEL = os.getenv("GLAMA_MODEL", "gpt-3.5-turbo")
 
-# Cerebras (only one free model if available)
-CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "llama-3.1-8b")
+# Cerebras – use a valid free model (check docs)
+CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
+
+# Text Cortex models (you can add more)
+TEXT_CORTEX_MODELS = ["gpt-3.5-turbo", "llama-3-8b"]
 
 # Free tier token limit
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
@@ -255,17 +258,19 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
         try:
             return resp.json()
         except json.JSONDecodeError:
-            # Return a fallback structure to avoid crashing
             return {"text": resp.text}
     except httpx.HTTPStatusError as e:
+        # Handle specific status codes
         if e.response.status_code == 429:
             raise Exception(f"Quota exceeded: {e.response.text}")
-        # Handle redirects (307) by following Location header
-        if e.response.status_code in (301, 302, 303, 307, 308):
+        elif e.response.status_code == 402:
+            raise Exception("Payment required – skipping provider")
+        elif e.response.status_code in (301, 302, 303, 307, 308):
             location = e.response.headers.get('Location')
             if location:
                 logger.info(f"Following redirect to {location}")
                 return await http_post_async(location, headers, json_data, timeout)
+        # Generic error
         raise Exception(f"HTTP error {e.response.status_code}: {e.response.text}")
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
@@ -412,7 +417,7 @@ async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str
 async def call_github_models(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GITHUB_MODELS_TOKEN:
         raise Exception("GITHUB_MODELS_TOKEN missing")
-    url = "https://models.inference.ai.azure.com/chat/completions"
+    url = "https://models.inference.ai.azure.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {GITHUB_MODELS_TOKEN}",
         "Content-Type": "application/json"
@@ -616,7 +621,28 @@ async def call_omnigpt(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 23. LOCAL FALLBACK
+# 23. TEXT CORTEX (NEW)
+async def call_text_cortex(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not TEXT_CORTEX_API_KEY:
+        raise Exception("TEXT_CORTEX_API_KEY missing")
+    # Using official endpoint (verify from docs)
+    url = "https://api.textcortex.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {TEXT_CORTEX_API_KEY}",
+        "Content-Type": "application/json"
+    }
+    effective_model = model or TEXT_CORTEX_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 24. LOCAL FALLBACK
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
@@ -656,6 +682,7 @@ PROVIDER_CHAIN = [
     ("qoder", call_qoder),
     ("freegpt4", call_freegpt4),
     ("omnigpt", call_omnigpt),
+    ("text_cortex", call_text_cortex),   # <-- NEW
     ("local", call_local_fallback),
 ]
 
@@ -683,6 +710,7 @@ PROVIDER_MODELS = {
     "qoder": ["gpt-3.5-turbo"],
     "freegpt4": ["gpt-4"],
     "omnigpt": ["gpt-3.5-turbo"],
+    "text_cortex": TEXT_CORTEX_MODELS,
     "local": [],
 }
 
@@ -811,7 +839,6 @@ async def route_ai_request(
 
     provider_names = [name for name, _ in PROVIDER_CHAIN if name != "local"]
     provider_order = get_provider_order(workspace)
-    # Build a dict for fast lookup
     provider_func_map = dict(PROVIDER_CHAIN)
 
     for provider_name in provider_order:
@@ -838,6 +865,8 @@ async def route_ai_request(
         if provider_name == "github_models" and not GITHUB_MODELS_TOKEN:
             continue
         if provider_name == "nrouter" and not NROUTER_API_KEY:
+            continue
+        if provider_name == "text_cortex" and not TEXT_CORTEX_API_KEY:
             continue
 
         # Check provider-level circuit breaker
@@ -876,13 +905,16 @@ async def route_ai_request(
                     error_msg = str(e).lower()
                     if "quota" in error_msg or "429" in error_msg:
                         logger.warning(f"{provider_name}/{model} quota exceeded, skipping model")
-                        # Mark model as failed
                         model_failures[model_key] += 1
                         model_last_fail[model_key] = time.time()
                         break  # skip to next model
+                    elif "payment required" in error_msg or "402" in error_msg:
+                        logger.warning(f"{provider_name}/{model} requires payment, skipping")
+                        model_failures[model_key] += 1
+                        model_last_fail[model_key] = time.time()
+                        break
                     logger.warning(f"{provider_name}/{model} attempt {attempt+1} failed: {e}")
                     await asyncio.sleep(2 ** attempt)
-                    # Mark model failure
                     model_failures[model_key] += 1
                     model_last_fail[model_key] = time.time()
             if provider_success:
@@ -891,7 +923,6 @@ async def route_ai_request(
         if provider_success:
             break  # break out of provider loop
         else:
-            # All models for this provider failed; mark provider failure
             provider_failures[provider_name] += 1
             provider_last_fail[provider_name] = time.time()
             logger.warning(f"All models for provider {provider_name} failed; marking provider cooldown")
@@ -970,6 +1001,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "dailyMistralQuota": 0,
                 "dailyGithubQuota": 0,
                 "dailyNrouterQuota": 0,
+                "dailyTextCortexQuota": 0,   # <-- NEW
                 "lastAiQuotaReset": datetime.utcnow()
             }
             result = await users_col.insert_one(new_user)
@@ -1006,6 +1038,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "dailyMistralQuota": 0,
                             "dailyGithubQuota": 0,
                             "dailyNrouterQuota": 0,
+                            "dailyTextCortexQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
                     )
@@ -1122,6 +1155,9 @@ async def diagnose_providers():
         if provider_name == "nrouter" and not NROUTER_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
+        if provider_name == "text_cortex" and not TEXT_CORTEX_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
 
         models = PROVIDER_MODELS.get(provider_name, [])
         if not models:
@@ -1153,10 +1189,7 @@ async def _probe_provider(name: str, func, prompt: str, model: Optional[str]) ->
     except Exception as e:
         return {"status": "error", "error": str(e)[:100]}
 
-# -------------------- ALL ORIGINAL ENDPOINTS (unchanged) --------------------
-# The following endpoints are identical to the original app.py.
-# They are included in their entirety to ensure full functionality.
-
+# -------------------- ALL ORIGINAL ENDPOINTS (with fixes) --------------------
 # 1. User profile
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
@@ -1188,6 +1221,7 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailyMistralQuota": user.get("dailyMistralQuota", 0),
         "dailyGithubQuota": user.get("dailyGithubQuota", 0),
         "dailyNrouterQuota": user.get("dailyNrouterQuota", 0),
+        "dailyTextCortexQuota": user.get("dailyTextCortexQuota", 0),
     }
 
 class InstructionsUpdate(BaseModel):
@@ -1601,11 +1635,7 @@ async def extract(
     logger.info(f"User {user.get('email')} tier={tier} workspace={workspace} usage={current_usage}/{limit}")
 
     if current_usage >= limit:
-        raise HTTPException(status_code=403, detail={
-            "code": "LIMIT_REACHED",
-            "usage": current_usage,
-            "limit": limit
-        })
+        raise HTTPException(status_code=403, detail={"code": "LIMIT_REACHED", "usage": current_usage, "limit": limit})
 
     storage_limit = 5 * 1024 * 1024
     if tier == "pro":
@@ -1714,7 +1744,9 @@ async def extract(
             update_query["$inc"]["dailyGithubQuota"] = 1
         elif provider == "nrouter":
             update_query["$inc"]["dailyNrouterQuota"] = 1
-        # For other providers we don't track specifically
+        elif provider == "text_cortex":
+            update_query["$inc"]["dailyTextCortexQuota"] = 1
+        # Other providers are not tracked individually
         await users_col.update_one({"_id": user["_id"]}, update_query)
     else:
         logger.info(f"Local fallback used for user {user['email']}")
@@ -1752,6 +1784,7 @@ async def extract(
                 "text": ai_text,
                 "variants": [ai_text],
                 "activeVariant": 0,
+                "canRegenerate": True,   # <-- ADDED: flag for frontend
                 "createdAt": datetime.utcnow()
             })
             current_session["structuredData"] = structured
@@ -1782,6 +1815,7 @@ async def extract(
                     "text": ai_text,
                     "variants": [ai_text],
                     "activeVariant": 0,
+                    "canRegenerate": True,   # <-- ADDED
                     "createdAt": datetime.utcnow()
                 }
             ],
@@ -1931,6 +1965,25 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
+# ---------- TEST EMAIL ENDPOINT ----------
+@app.get("/api/test-email")
+async def test_email(user: dict = Depends(get_current_user)):
+    if not user.get("isAdmin"):
+        raise HTTPException(status_code=403, detail="Admin only")
+    try:
+        server = get_email_transport()
+        if not server:
+            return {"success": False, "error": "SMTP not configured"}
+        msg = MIMEText("This is a test email from Axelr AI.")
+        msg["Subject"] = "Test Email"
+        msg["From"] = SMTP_USER
+        msg["To"] = ADMIN_EMAIL
+        server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
+        server.quit()
+        return {"success": True, "message": f"Test email sent to {ADMIN_EMAIL}"}
+    except Exception as e:
+        return {"success": False, "error": str(e)}
+
 # ---------- admin metrics ----------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
@@ -1968,13 +2021,14 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "totalCerebras": {"$sum": "$dailyCerebrasQuota"},
                     "totalMistral": {"$sum": "$dailyMistralQuota"},
                     "totalGithub": {"$sum": "$dailyGithubQuota"},
-                    "totalNrouter": {"$sum": "$dailyNrouterQuota"}}}
+                    "totalNrouter": {"$sum": "$dailyNrouterQuota"},
+                    "totalTextCortex": {"$sum": "$dailyTextCortexQuota"}}}
     ]
     provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
     provider_totals = provider_result[0] if provider_result else {
         "totalGroq":0, "totalOpenRouter":0, "totalGemini":0,
         "totalCloudflare":0, "totalHuggingFace":0, "totalCerebras":0, "totalMistral":0,
-        "totalGithub":0, "totalNrouter":0
+        "totalGithub":0, "totalNrouter":0, "totalTextCortex":0
     }
 
     pipeline_daily_provider = [
@@ -1988,13 +2042,14 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "dailyCerebras": {"$sum": "$dailyCerebrasQuota"},
                     "dailyMistral": {"$sum": "$dailyMistralQuota"},
                     "dailyGithub": {"$sum": "$dailyGithubQuota"},
-                    "dailyNrouter": {"$sum": "$dailyNrouterQuota"}}}
+                    "dailyNrouter": {"$sum": "$dailyNrouterQuota"},
+                    "dailyTextCortex": {"$sum": "$dailyTextCortexQuota"}}}
     ]
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {
         "dailyGroq":0, "dailyOpenRouter":0, "dailyGemini":0,
         "dailyCloudflare":0, "dailyHuggingFace":0, "dailyCerebras":0, "dailyMistral":0,
-        "dailyGithub":0, "dailyNrouter":0
+        "dailyGithub":0, "dailyNrouter":0, "dailyTextCortex":0
     }
 
     provider_status = {}
@@ -2022,6 +2077,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     mistral_limit = int(os.getenv("MISTRAL_DAILY_LIMIT", 1000000))
     github_limit = int(os.getenv("GITHUB_DAILY_LIMIT", 1000000))
     nrouter_limit = int(os.getenv("NROUTER_DAILY_LIMIT", 1000000))
+    text_cortex_limit = int(os.getenv("TEXT_CORTEX_DAILY_LIMIT", 100))
 
     daily_usage = {
         "groq": daily_provider["dailyGroq"],
@@ -2033,6 +2089,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "mistral": daily_provider["dailyMistral"],
         "github": daily_provider["dailyGithub"],
         "nrouter": daily_provider["dailyNrouter"],
+        "text_cortex": daily_provider["dailyTextCortex"],
     }
     active_provider = max(daily_usage, key=daily_usage.get) if any(daily_usage.values()) else "gemini"
 
@@ -2074,6 +2131,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "mistral": provider_totals["totalMistral"],
             "github": provider_totals["totalGithub"],
             "nrouter": provider_totals["totalNrouter"],
+            "textCortex": provider_totals["totalTextCortex"],
             "dailyGroq": daily_provider["dailyGroq"],
             "dailyOpenRouter": daily_provider["dailyOpenRouter"],
             "dailyGemini": daily_provider["dailyGemini"],
@@ -2083,6 +2141,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "dailyMistral": daily_provider["dailyMistral"],
             "dailyGithub": daily_provider["dailyGithub"],
             "dailyNrouter": daily_provider["dailyNrouter"],
+            "dailyTextCortex": daily_provider["dailyTextCortex"],
             "groqLimit": groq_limit,
             "openRouterLimit": openrouter_limit,
             "geminiLimit": gemini_limit,
@@ -2092,6 +2151,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "mistralLimit": mistral_limit,
             "githubLimit": github_limit,
             "nrouterLimit": nrouter_limit,
+            "textCortexLimit": text_cortex_limit,
             "activeProvider": active_provider,
         },
         "providerStatus": provider_status,
