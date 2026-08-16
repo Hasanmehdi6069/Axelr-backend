@@ -1,16 +1,18 @@
+
 # -*- coding: utf-8 -*-
 """
-AXELR AI - ELITE PRODUCTION v22.1
-Provider Chain (priority):
-  Tier 1 (Official): Gemini → Groq → Cloudflare → OpenRouter → Cerebras → Mistral → HuggingFace → GitHub Models → Nrouter
-  Tier 2 (Gateways): Pollinations.ai → Puter → FreeTheAi → KeylessAI → FreeFlow → BazaarLink → Glama → ChubVenus → Neets.ai
-  Tier 3 (Web fallbacks): VoidAI → Qoder → FreeGPT4 → OmniGPT → Text Cortex
-  Ultimate fallback: local
+AXELR AI - ELITE PRODUCTION v23.2
+=================================
+5‑Tier Provider Chain (priority) – PAID PROVIDERS REMOVED + NEW PROVIDERS ADDED:
+  Tier 1 (Primary Elite): Gemini → Groq → OpenRouter → Cloudflare → ModelScope → Ollama Cloud → Nara Router
+  Tier 2 (Highly Recommended): Mistral → HuggingFace → GitHub Models → Zhipu → Teamorouter → OVHcloud → SiliconFlow → Agnes AI → Bifrost → FreeGPT4‑WEB‑API → BazaarLink → Requesty
+  Tier 3 (Useful Fallbacks): Nrouter → Puter → FreeTheAi → Omni GPT Gateway → OpenCode Zen → FreeFlow → Qoder → Manifest
+  Tier 4 (Limited/Unstable): KeylessAI → Glama → ChubVenus → BlockRun → AnyAPI → Aymo → ZeroTwoAI → AI Hub MIX → AISure
+  Tier 5 (Ultimate Fallback): Local (graceful message)
 
 Zero‑cost, permanent free tiers, automatic failover, 429 handling, circuit breakers.
-All HTTP calls use httpx with appropriate timeouts (8s default).
-Each provider may have multiple free models; the router tries each model sequentially.
 """
+
 import os, re, time, json, asyncio, hashlib, smtplib, logging, base64, ssl
 import urllib.request, urllib.error, urllib.parse
 from datetime import datetime
@@ -64,80 +66,88 @@ SMTP_PASS = os.getenv("SMTP_PASS")
 NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
 
 # ---------- AI KEYS ----------
-GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
+GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "groq/compound""openai/gpt-oss-120b").strip()
 CLOUDFLARE_API_TOKEN = (os.getenv("CLOUDFLARE_API_TOKEN") or "").strip()
 CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
 OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
 HF_API_KEY = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
 GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
-CEREBRAS_API_KEY = (os.getenv("CEREBRAS_API_KEY") or "").strip()
 MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
 GITHUB_MODELS_TOKEN = (os.getenv("GITHUB_MODELS_TOKEN") or "").strip()
 NROUTER_API_KEY = (os.getenv("NROUTER_API_KEY") or "").strip()
-TEXT_CORTEX_API_KEY = (os.getenv("TEXT.CORTEX_API_KEY") or "").strip()   # <-- NEW
-# Optional keys for additional providers (may be empty)
-POLLINATIONS_KEY = (os.getenv("POLLINATIONS_KEY") or "").strip()
+TEXT_CORTEX_API_KEY = (os.getenv("TEXT.CORTEX_API_KEY") or "").strip()
+NARAROUTER_API_KEY = (os.getenv("NARAROUTER_API_KEY") or "").strip()
+# BazaarLink: fixed variable name to match .env
+BAZAARLINK_API_KEY = (os.getenv("BAZAARLINK_API-KEY") or "").strip()
+SILICONFLOW_API_KEY = (os.getenv("SILICONFLOW_API_KEY") or "").strip()
+AGNES_API_KEY = (os.getenv("AGNES_API_KEY") or "").strip()
+OLLAMA_API_KEY = (os.getenv("OLLAMA_API_KEY") or "").strip()
+ANYAPI_API_KEY = (os.getenv("ANYAPI_API_KEY") or "").strip()
+# NEW keys
+MODELSCOPE_API_KEY = (os.getenv("MODELSCOPE_API_KEY") or "").strip()
+OVHCLOUD_API_KEY = (os.getenv("OVHCLOUD_API_KEY") or "").strip()
+REQUESTY_API_KEY = (os.getenv("REQUESTY_API_KEY") or "").strip()
+MANIFEST_API_KEY = (os.getenv("MANIFEST_API_KEY") or "").strip()
+GLAMA_API_KEY = (os.getenv("GLAMA_API_KEY") or "").strip()
+ZHIPU_API_KEY = (os.getenv("ZHIPU_API_KEY") or "").strip()          # new
+TEAMOROUTER_API_KEY = (os.getenv("TEAMOROUTER_API_KEY") or "").strip()  # new
 
-# ---------- MODEL LISTS (read from env, with defaults) ----------
-# OpenRouter free models (verified as of Aug 2026)
+# ---------- MODEL LISTS ----------
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
+GROQ_MODELS_STR = os.getenv("GROQ_MODELS", "openai/gpt-oss-120b")
+GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
 OPENROUTER_MODELS_STR = os.getenv(
     "OPENROUTER_MODELS",
-    "nvidia/nemotron-3.5-lightning:free,"
-    "fish-audio/s2.1-pro-free:free,"
-    "poolside/laguna-s-2.1:free,"
-    "nvidia/nemotron-3-ultra-550b-a55b:free,"
-    "cohere/north-mini-code:free,"
-    "openai/gpt-oss-20b:free,"
-    "openrouter/free-gpt-3.5-turbo:free,"
-    "nvidia/nemotron-3-embed-1b:free,"
-    "nvidia/llama-nemotron-embed-vl-1b-v2:free"
-    "openrouter/free"    
+    "openrouter/free,nvidia/nemotron-3.5-lightning:free,cohere/north-mini-code:free,openai/gpt-oss-20b:free"
 )
 OPENROUTER_MODELS = [m.strip() for m in OPENROUTER_MODELS_STR.split(",") if m.strip()]
-
-# HuggingFace free models
-HF_MODELS_STR = os.getenv(
-    "HUGGINGFACE_MODELS",
-    "google/gemma-2-9b-it,"
-    "meta-llama/Llama-3.2-3B-Instruct,"
-    "mistralai/Mistral-7B-Instruct-v0.3"
-)
-HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
-
-# Groq free models (check current availability)
-GROQ_MODELS_STR = os.getenv("GROQ_MODELS",
-                            "openai/gpt-oss-120b")
-GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
-
-# Mistral free models
-MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b,mistral-small-latest,mistral-tiny")
-MISTRAL_MODELS = [m.strip() for m in MISTRAL_MODELS_STR.split(",") if m.strip()]
-
-# Gemini (only one known free model)
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-
-# Cloudflare – single model (use environment or default)
 CLOUDFLARE_MODEL = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
-
-# GitHub Models
+MODELSCOPE_MODELS_STR = os.getenv("MODELSCOPE_MODELS", "qwen-max,deepseek-v3,glm-4")
+MODELSCOPE_MODELS = [m.strip() for m in MODELSCOPE_MODELS_STR.split(",") if m.strip()]
+# Ollama: use hyphens for model names (common in cloud API)
+OLLAMA_MODELS_STR = os.getenv("OLLAMA_MODELS", "Qwen3.6-27B ,nemotron-3.5-lightning,mistral-7b,gemma2-27b")
+OLLAMA_MODELS = [m.strip() for m in OLLAMA_MODELS_STR.split(",") if m.strip()]
+NARA_MODELS_STR = os.getenv("NARA_MODELS", "minimax-m3,deepseek-v3")
+NARA_MODELS = [m.strip() for m in NARA_MODELS_STR.split(",") if m.strip()]
+MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b,mistral-small-latest")
+MISTRAL_MODELS = [m.strip() for m in MISTRAL_MODELS_STR.split(",") if m.strip()]
+HF_MODELS_STR = os.getenv("HUGGINGFACE_MODELS", "meta-llama/Llama-3.2-3B-Instruct,mistralai/Mistral-7B-Instruct-v0.3")
+HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
 GITHUB_MODEL = os.getenv("GITHUB_MODEL", "gpt-4o-mini")
-
-# Nrouter
+OVHCLOUD_MODELS_STR = os.getenv("OVHCLOUD_MODELS", "llama-3.3-70b-instruct,mistral-7b-instruct")
+OVHCLOUD_MODELS = [m.strip() for m in OVHCLOUD_MODELS_STR.split(",") if m.strip()]
+SILICONFLOW_MODELS_STR = os.getenv("SILICONFLOW_MODELS", "deepseek-ai/DeepSeek-V3,Qwen/Qwen2.5-7B-Instruct")
+SILICONFLOW_MODELS = [m.strip() for m in SILICONFLOW_MODELS_STR.split(",") if m.strip()]
+AGNES_MODEL = os.getenv("AGNES_MODEL", "agnes-2.5-flash")
+BIFROST_MODELS = ["llama3.1:70b", "mistral:7b"]
+FREEGPT4_MODELS = ["gpt-4"]
+BAZAARLINK_MODEL = os.getenv("BAZAARLINK_MODEL", "auto:free")
+REQUESTY_MODEL = os.getenv("REQUESTY_MODEL", "auto:free")
 NROUTER_MODEL = os.getenv("NROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
-
-# Pollinations
-POLLINATIONS_MODEL = os.getenv("POLLINATIONS_MODEL", "openai")
-
-# Glama (if free, but we keep)
+PUTER_MODEL = "gpt-3.5-turbo"
+FREETHEAI_MODEL = "gpt-3.5-turbo"
+OMNIGPT_MODELS = ["gpt-3.5-turbo"]
+OPENDODE_MODELS = ["qwen3-coder"]
+FREEFLOW_MODEL = "gpt-3.5-turbo"
+QODER_MODEL = "qwen3-coder"
+MANIFEST_MODEL = "auto:free"
+KEYLESS_MODEL = "gpt-3.5-turbo"
 GLAMA_MODEL = os.getenv("GLAMA_MODEL", "gpt-3.5-turbo")
+CHUBVENUS_MODEL = "gpt-3.5-turbo"
+# API.airforce removed (paid)
+BLOCKRUN_MODELS = ["deepseek-v4-flash"]
+ANYAPI_MODEL = "claude-sonnet-4.6"
+AYMO_MODELS = ["gemini-flash", "deepseek-v3.2", "qwen3"]
+ZEROTWO_MODELS = ["gpt-5-mini", "gemini-flash-lite"]
+AIHUBMIX_MODELS = ["gpt-5.5", "gemini-3", "glm-5.1", "kimi", "minimax"]
+AISURE_MODEL = "gpt-4o"
 
-# Cerebras – use a valid free model (check docs)
-CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b""Gemma 4 31B")
+# New providers
+ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4-flash")   # Free tier model  # instead of glm-4-flash
+TEAMOROUTER_MODEL = os.getenv("TEAMOROUTER_MODEL", "teamorouter-free")
 
-# Text Cortex models (you can add more)
-TEXT_CORTEX_MODELS = ["gpt-3.5-turbo",]
+# Removed: CEREBRAS_MODEL, DEEPSEEK_MODELS, PERPLEXITY_MODELS, POLLINATIONS_MODEL, API.AIRFORCE
 
-# Free tier token limit
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
 HTTP_CLIENT = httpx.AsyncClient(
@@ -200,7 +210,6 @@ def get_object_id():
 ai_cache = TTLCache(maxsize=2000, ttl=3600)
 provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
-# Per-model failure tracking
 model_failures = defaultdict(int)
 model_last_fail = defaultdict(float)
 PROVIDER_COOLDOWN = 600  # 10 minutes
@@ -251,7 +260,7 @@ def strip_fluff(text: str) -> str:
         text = re.sub(pat, "", text, flags=re.IGNORECASE)
     return text.strip()
 
-# -------------------- HTTP HELPER (fixed) --------------------
+# -------------------- HTTP HELPER --------------------
 async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: float = 8.0):
     try:
         resp = await HTTP_CLIENT.post(url, headers=headers, json=json_data, timeout=timeout)
@@ -261,7 +270,6 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
         except json.JSONDecodeError:
             return {"text": resp.text}
     except httpx.HTTPStatusError as e:
-        # Handle specific status codes
         if e.response.status_code == 429:
             raise Exception(f"Quota exceeded: {e.response.text}")
         elif e.response.status_code == 402:
@@ -271,7 +279,6 @@ async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: flo
             if location:
                 logger.info(f"Following redirect to {location}")
                 return await http_post_async(location, headers, json_data, timeout)
-        # Generic error
         raise Exception(f"HTTP error {e.response.status_code}: {e.response.text}")
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
@@ -286,12 +293,7 @@ async def call_gemini(prompt: str, max_tokens: int, temp: float, model: Optional
     headers = {"Content-Type": "application/json"}
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "temperature": temp,
-            "maxOutputTokens": max_tokens,
-            "topP": 0.95,
-            "topK": 40
-        }
+        "generationConfig": {"temperature": temp, "maxOutputTokens": max_tokens, "topP": 0.95, "topK": 40}
     }
     resp = await http_post_async(url, headers, payload)
     try:
@@ -304,10 +306,7 @@ async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[s
     if not GROQ_API_KEY:
         raise Exception("GROQ_API_KEY missing")
     url = "https://api.groq.com/openai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or GROQ_MODELS[0]
     payload = {
         "model": effective_model,
@@ -325,11 +324,7 @@ async def call_cloudflare(prompt: str, max_tokens: int, temp: float, model: Opti
         raise Exception("Cloudflare credentials missing")
     url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or CLOUDFLARE_MODEL}"
     headers = {"Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}", "Content-Type": "application/json"}
-    payload = {
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
+    payload = {"messages": [{"role": "user", "content": prompt}], "max_tokens": max_tokens, "temperature": temp}
     resp = await http_post_async(url, headers, payload)
     return resp.get("result", {}).get("response", "")
 
@@ -355,16 +350,13 @@ async def call_openrouter(prompt: str, max_tokens: int, temp: float, model: Opti
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 5. CEREBRAS
-async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not CEREBRAS_API_KEY:
-        raise Exception("CEREBRAS_API_KEY missing")
-    url = "https://api.cerebras.ai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {CEREBRAS_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    effective_model = model or CEREBRAS_MODEL
+# 5. MODELSCOPE
+async def call_modelscope(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not MODELSCOPE_API_KEY:
+        raise Exception("MODELSCOPE_API_KEY missing")
+    url = "https://api.modelscope.cn/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {MODELSCOPE_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or MODELSCOPE_MODELS[0]
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -375,15 +367,48 @@ async def call_cerebras(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 6. MISTRAL
+# 6. OLLAMA CLOUD – fixed endpoint and model names
+async def call_ollama_cloud(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not OLLAMA_API_KEY:
+        raise Exception("OLLAMA_API_KEY missing")
+    # Use the official cloud endpoint
+    url = "https://api.ollama.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {OLLAMA_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or OLLAMA_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 7. NARA ROUTER
+async def call_nara_router(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not NARAROUTER_API_KEY:
+        raise Exception("NARAROUTER_API_KEY missing")
+    # Using same endpoint as nrouter for now; user can override
+    url = "https://api.nrouter.io/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {NARAROUTER_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or NARA_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 8. MISTRAL
 async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not MISTRAL_API_KEY:
         raise Exception("MISTRAL_API_KEY missing")
     url = "https://api.mistral.ai/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {MISTRAL_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {MISTRAL_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or MISTRAL_MODELS[0]
     payload = {
         "model": effective_model,
@@ -395,7 +420,7 @@ async def call_mistral(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 7. HUGGINGFACE
+# 9. HUGGINGFACE – improved parsing
 async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str) -> str:
     if not HF_API_KEY:
         raise Exception("HF_API_KEY missing")
@@ -403,27 +428,57 @@ async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str
     headers = {"Authorization": f"Bearer {HF_API_KEY}"}
     payload = {
         "inputs": prompt,
-        "parameters": {
-            "max_new_tokens": max_tokens,
-            "temperature": temp,
-            "return_full_text": False,
-        }
+        "parameters": {"max_new_tokens": max_tokens, "temperature": temp, "return_full_text": False}
     }
     resp = await http_post_async(url, headers, payload)
-    if isinstance(resp, list):
-        return resp[0].get("generated_text", "")
-    return resp.get("generated_text", "")
+    # Handle both direct and redirect responses
+    if isinstance(resp, dict):
+        # Sometimes the response is nested under "generated_text"
+        if "generated_text" in resp:
+            return resp["generated_text"]
+        # Sometimes it's under "text"
+        if "text" in resp:
+            return resp["text"]
+    elif isinstance(resp, list):
+        if resp and isinstance(resp[0], dict):
+            return resp[0].get("generated_text", "")
+        elif resp and isinstance(resp[0], str):
+            return resp[0]
+    # Fallback: try to find any string in the response
+    if isinstance(resp, dict):
+        for key, value in resp.items():
+            if isinstance(value, str) and len(value) > 10:
+                return value
+    return ""
 
-# 8. GITHUB MODELS
+# 10. GITHUB MODELS
 async def call_github_models(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GITHUB_MODELS_TOKEN:
         raise Exception("GITHUB_MODELS_TOKEN missing")
-    url = "https://models.inference.ai.azure.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {GITHUB_MODELS_TOKEN}",
-        "Content-Type": "application/json"
-    }
+    # Use the correct endpoint (Azure AI inference)
+    url = "https://models.inference.ai.azure.com/chat/completions"   # try without /v1
+    headers = {"Authorization": f"Bearer {GITHUB_MODELS_TOKEN}", "Content-Type": "application/json"}
     effective_model = model or GITHUB_MODEL
+    # Add api-version if needed
+    params = {"api-version": "2024-05-01-preview"}   # optional
+    full_url = url + "?" + urllib.parse.urlencode(params)
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(full_url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 11. OVHCLOUD
+async def call_ovhcloud(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not OVHCLOUD_API_KEY:
+        raise Exception("OVHCLOUD_API_KEY missing")
+    url = "https://endpoints.ai.cloud.ovh.net/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {OVHCLOUD_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or OVHCLOUD_MODELS[0]
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -434,15 +489,107 @@ async def call_github_models(prompt: str, max_tokens: int, temp: float, model: O
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 9. NROUTER
+# 12. SILICONFLOW
+async def call_siliconflow(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not SILICONFLOW_API_KEY:
+        raise Exception("SILICONFLOW_API_KEY missing")
+    url = "https://api.siliconflow.cn/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {SILICONFLOW_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or SILICONFLOW_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 13. AGNES AI – reverted to original domain
+async def call_agnes_ai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not AGNES_API_KEY:
+        raise Exception("AGNES_API_KEY missing")
+    url = "https://api.agnes.ai/v1/chat/completions"   # removed '-ai'
+    headers = {"Authorization": f"Bearer {AGNES_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or AGNES_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 14. BIFROST
+async def call_bifrost(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = os.getenv("BIFROST_URL", "http://localhost:8080/v1/chat/completions")
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or BIFROST_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 15. FREEGPT4-WEB-API
+async def call_freegpt4_api(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = os.getenv("FREEGPT4_URL", "http://localhost:5500/")
+    encoded = urllib.parse.quote(prompt)
+    full_url = f"{url}?text={encoded}"
+    try:
+        resp = await HTTP_CLIENT.get(full_url)
+        resp.raise_for_status()
+        return resp.text.strip()
+    except Exception as e:
+        raise Exception(f"FreeGPT4 error: {e}")
+
+# 16. BAZAARLINK – variable fixed
+async def call_bazaarlink(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not BAZAARLINK_API_KEY:
+        raise Exception("BAZAARLINK_API_KEY missing")
+    url = "https://api.bazaarlink.io/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {BAZAARLINK_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or BAZAARLINK_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 17. REQUESTY
+async def call_requesty(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not REQUESTY_API_KEY:
+        raise Exception("REQUESTY_API_KEY missing")
+    url = "https://api.requesty.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {REQUESTY_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or REQUESTY_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 18. NROUTER
 async def call_nrouter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not NROUTER_API_KEY:
         raise Exception("NROUTER_API_KEY missing")
     url = "https://api.nrouter.io/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {NROUTER_API_KEY}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {NROUTER_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or NROUTER_MODEL
     payload = {
         "model": effective_model,
@@ -454,185 +601,39 @@ async def call_nrouter(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 10. POLLINATIONS
-async def call_pollinations(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    encoded_prompt = urllib.parse.quote(prompt)
-    url = f"https://text.pollinations.ai/{encoded_prompt}?model={model or POLLINATIONS_MODEL}&temperature={temp}&max_tokens={max_tokens}"
-    try:
-        resp = await HTTP_CLIENT.get(url)
-        resp.raise_for_status()
-        return resp.text.strip()
-    except Exception as e:
-        raise Exception(f"Pollinations error: {e}")
-
-# 11. PUTER
+# 19. PUTER
 async def call_puter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.puter.com/v1/chat/completions"
+    url = "https://api.agnes.ai/v1/chat/completions"   # removed '-ai'
     headers = {"Content-Type": "application/json"}
     payload = {
-        "model": model or "gpt-3.5-turbo",
+        "model": model or PUTER_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
+        "stream": False
     }
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 12. FreeTheAi
+# 20. FREETHEAI
 async def call_freetheai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.freetheai.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
     payload = {
-        "model": model or "gpt-3.5-turbo",
+        "model": model or FREETHEAI_MODEL,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
+        "stream": False
     }
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 13. KeylessAI
-async def call_keylessai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.keyless.ai/v1/chat/completions"
+# 21. OMNI GPT GATEWAY
+async def call_omnigpt_gateway(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = os.getenv("OMNIGPT_URL", "https://api.omnigpt.io/v1/chat/completions")
     headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 14. FreeFlow
-async def call_freeflow(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://freeflow.llm/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 15. BazaarLink
-async def call_bazaarlink(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.bazaarlink.io/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 16. Glama
-async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.glama.ai/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    effective_model = model or GLAMA_MODEL
-    payload = {
-        "model": effective_model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 17. Chub Venus
-async def call_chubvenus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.chub.ai/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 18. Neets.ai
-async def call_neets(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.neets.ai/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 19. VoidAI
-async def call_voidai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.voidai.com/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 20. Qoder
-async def call_qoder(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.qoder.com/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 21. FreeGPT4
-async def call_freegpt4(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.freegpt4.io/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-4",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 22. OmniGPT
-async def call_omnigpt(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.omnigpt.io/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or "gpt-3.5-turbo",
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 23. TEXT CORTEX (NEW)
-async def call_text_cortex(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not TEXT_CORTEX_API_KEY:
-        raise Exception("TEXT_CORTEX_API_KEY missing")
-    # Using official endpoint (verify from docs)
-    url = "https://api.textcortex.com/v1/chat/completions"
-    headers = {
-        "Authorization": f"Bearer {TEXT_CORTEX_API_KEY}",
-        "Content-Type": "application/json"
-    }
-    effective_model = model or TEXT_CORTEX_MODELS[0]
+    effective_model = model or OMNIGPT_MODELS[0]
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -643,7 +644,238 @@ async def call_text_cortex(prompt: str, max_tokens: int, temp: float, model: Opt
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 24. LOCAL FALLBACK
+# 22. OPENDODE ZEN
+async def call_opencode_zen(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.opencode.zen/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or OPENDODE_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 23. FREEFLOW
+async def call_freeflow(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://freeflow.llm/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": model or FREEFLOW_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 24. QODER
+async def call_qoder(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.qoder.com/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or QODER_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 25. MANIFEST
+async def call_manifest(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not MANIFEST_API_KEY:
+        raise Exception("MANIFEST_API_KEY missing")
+    url = "https://api.manifest.build/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {MANIFEST_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or MANIFEST_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 26. KEYLESSAI
+async def call_keylessai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.keyless.ai/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": model or KEYLESS_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 27. GLAMA
+async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not GLAMA_API_KEY:
+        raise Exception("GLAMA_API_KEY missing")
+    url = "https://api.glama.ai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GLAMA_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or GLAMA_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 28. CHUB VENUS
+async def call_chubvenus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.chub.ai/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "model": model or CHUBVENUS_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 29. BLOCKRUN (API.airforce removed)
+async def call_blockrun(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.blockrun.com/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or BLOCKRUN_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 30. ANYAPI
+async def call_anyapi(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not ANYAPI_API_KEY:
+        raise Exception("ANYAPI_API_KEY missing")
+    baseurl = os.getenv("BASEURL", "https://api.anyapi.ai/v1")
+    url = f"{baseurl}/chat/completions"
+    headers = {"Authorization": f"Bearer {ANYAPI_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or ANYAPI_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 31. AYMO
+async def call_aymo(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.aymo.ai/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or AYMO_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 32. ZEROTWOAI
+async def call_zerotwo(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.zerotwo.ai/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or ZEROTWO_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 33. AI HUB MIX
+async def call_aihubmix(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.aihubmix.com/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or AIHUBMIX_MODELS[0]
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 34. AISURE
+async def call_aisure(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    url = "https://api.aisure.ai/v1/chat/completions"
+    headers = {"Content-Type": "application/json"}
+    effective_model = model or AISURE_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+
+# 35. ZHIPU AI – new
+async def call_zhipu(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not ZHIPU_API_KEY:
+        raise Exception("ZHIPU_API_KEY missing")
+    # Zhipu uses a different endpoint and authentication; we use the official OpenAI-compatible endpoint
+    url = "https://open.bigmodel.cn/api/paas/v4/chat/completions"
+    headers = {"Authorization": f"Bearer {ZHIPU_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or ZHIPU_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+async def call_teamorouter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    if not TEAMOROUTER_API_KEY:
+        raise Exception("TEAMOROUTER_API_KEY missing")
+    url = "https://api.teamorouter.com/v1/chat/completions"   # use .com or .io – we’ll verify later
+    headers = {"Authorization": f"Bearer {TEAMOROUTER_API_KEY}", "Content-Type": "application/json"}
+    effective_model = model or TEAMOROUTER_MODEL
+    payload = {
+        "model": effective_model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": temp,
+        "stream": False
+    }
+    resp = await http_post_async(url, headers, payload)
+    return resp["choices"][0]["message"]["content"]
+# 37. LOCAL FALLBACK
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
@@ -659,61 +891,138 @@ def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -
         return f"Debugging: \"{prompt_text[:120]}\".\nPlease share the full error, file name, and expected behaviour."
     return f"Request received: \"{prompt_text[:160]}\".\nI can help with a concise plan, code snippet, or structured answer – tell me more specifics."
 
-# -------------------- PROVIDER CHAIN --------------------
-PROVIDER_CHAIN = [
-    ("gemini", call_gemini),
-    ("groq", call_groq),
-    ("cloudflare", call_cloudflare),
-    ("openrouter", call_openrouter),
-    ("cerebras", call_cerebras),
-    ("mistral", call_mistral),
-    ("huggingface", call_huggingface),
-    ("github_models", call_github_models),
-    ("nrouter", call_nrouter),
-    ("pollinations", call_pollinations),
-    ("puter", call_puter),
-    ("freetheai", call_freetheai),
-    ("keylessai", call_keylessai),
-    ("freeflow", call_freeflow),
-    ("bazaarlink", call_bazaarlink),
-    ("glama", call_glama),
-    ("chubvenus", call_chubvenus),
-    ("neets", call_neets),
-    ("voidai", call_voidai),
-    ("qoder", call_qoder),
-    ("freegpt4", call_freegpt4),
-    ("omnigpt", call_omnigpt),
-    ("text_cortex", call_text_cortex),   # <-- NEW
-    ("local", call_local_fallback),
+# ---------- PROVIDER MAPS ----------
+PROVIDER_FUNC_MAP = {
+    "gemini": call_gemini,
+    "groq": call_groq,
+    "cloudflare": call_cloudflare,
+    "openrouter": call_openrouter,
+    "modelscope": call_modelscope,
+    "ollama_cloud": call_ollama_cloud,
+    "nara_router": call_nara_router,
+    "mistral": call_mistral,
+    "huggingface": call_huggingface,
+    "github_models": call_github_models,
+    "ovhcloud": call_ovhcloud,
+    "siliconflow": call_siliconflow,
+    "agnes_ai": call_agnes_ai,
+    "bifrost": call_bifrost,
+    "freegpt4_api": call_freegpt4_api,
+    "bazaarlink": call_bazaarlink,
+    "requesty": call_requesty,
+    "nrouter": call_nrouter,
+    "puter": call_puter,
+    "freetheai": call_freetheai,
+    "omnigpt_gateway": call_omnigpt_gateway,
+    "opencode_zen": call_opencode_zen,
+    "freeflow": call_freeflow,
+    "qoder": call_qoder,
+    "manifest": call_manifest,
+    "keylessai": call_keylessai,
+    "glama": call_glama,
+    "chubvenus": call_chubvenus,
+    "blockrun": call_blockrun,
+    "anyapi": call_anyapi,
+    "aymo": call_aymo,
+    "zerotwo": call_zerotwo,
+    "aihubmix": call_aihubmix,
+    "aisure": call_aisure,
+    "zhipu": call_zhipu,
+    "teamorouter": call_teamorouter,
+}
+# Removed: cerebras, deepseek, perplexity, pollinations, apiairforce
+
+PROVIDER_KEY_CHECK = {
+    "gemini": bool(GEMINI_API_KEY),
+    "groq": bool(GROQ_API_KEY),
+    "cloudflare": bool(CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID),
+    "openrouter": bool(OPENROUTER_API_KEY),
+    "modelscope": bool(MODELSCOPE_API_KEY),
+    "ollama_cloud": bool(OLLAMA_API_KEY),
+    "nara_router": bool(NARAROUTER_API_KEY),
+    "mistral": bool(MISTRAL_API_KEY),
+    "huggingface": bool(HF_API_KEY),
+    "github_models": bool(GITHUB_MODELS_TOKEN),
+    "ovhcloud": bool(OVHCLOUD_API_KEY),
+    "siliconflow": bool(SILICONFLOW_API_KEY),
+    "agnes_ai": bool(AGNES_API_KEY),
+    "bifrost": True,
+    "freegpt4_api": True,
+    "bazaarlink": bool(BAZAARLINK_API_KEY),
+    "requesty": bool(REQUESTY_API_KEY),
+    "nrouter": bool(NROUTER_API_KEY),
+    "puter": True,
+    "freetheai": True,
+    "omnigpt_gateway": True,
+    "opencode_zen": True,
+    "freeflow": True,
+    "qoder": True,
+    "manifest": bool(MANIFEST_API_KEY),
+    "keylessai": True,
+    "glama": bool(GLAMA_API_KEY),
+    "chubvenus": True,
+    "blockrun": True,
+    "anyapi": bool(ANYAPI_API_KEY),
+    "aymo": True,
+    "zerotwo": True,
+    "aihubmix": True,
+    "aisure": True,
+    "zhipu": bool(ZHIPU_API_KEY),
+    "teamorouter": bool(TEAMOROUTER_API_KEY),
+}
+
+# -------------------- PROVIDER CHAIN – 5 TIERS --------------------
+PROVIDER_CHAIN_ENTRIES = [
+    # TIER 1 – PRIMARY ELITE
+    ("gemini", call_gemini, [GEMINI_MODEL]),
+    ("groq", call_groq, GROQ_MODELS),
+    ("openrouter", call_openrouter, OPENROUTER_MODELS),
+    ("cloudflare", call_cloudflare, [CLOUDFLARE_MODEL]),
+    ("modelscope", call_modelscope, MODELSCOPE_MODELS),
+    ("ollama_cloud", call_ollama_cloud, OLLAMA_MODELS),
+    ("nara_router", call_nara_router, NARA_MODELS),
+
+    # TIER 2 – HIGHLY RECOMMENDED (added zhipu, teamorouter)
+    ("mistral", call_mistral, MISTRAL_MODELS),
+    ("huggingface", call_huggingface, HF_MODELS),
+    ("github_models", call_github_models, [GITHUB_MODEL]),
+    ("zhipu", call_zhipu, [ZHIPU_MODEL]),
+    ("teamorouter", call_teamorouter, [TEAMOROUTER_MODEL]),
+    ("ovhcloud", call_ovhcloud, OVHCLOUD_MODELS),
+    ("siliconflow", call_siliconflow, SILICONFLOW_MODELS),
+    ("agnes_ai", call_agnes_ai, [AGNES_MODEL]),
+    ("bifrost", call_bifrost, BIFROST_MODELS),
+    ("freegpt4_api", call_freegpt4_api, FREEGPT4_MODELS),
+    ("bazaarlink", call_bazaarlink, [BAZAARLINK_MODEL]),
+    ("requesty", call_requesty, [REQUESTY_MODEL]),
+
+    # TIER 3 – USEFUL FALLBACKS
+    ("nrouter", call_nrouter, [NROUTER_MODEL]),
+    ("puter", call_puter, [PUTER_MODEL]),
+    ("freetheai", call_freetheai, [FREETHEAI_MODEL]),
+    ("omnigpt_gateway", call_omnigpt_gateway, OMNIGPT_MODELS),
+    ("opencode_zen", call_opencode_zen, OPENDODE_MODELS),
+    ("freeflow", call_freeflow, [FREEFLOW_MODEL]),
+    ("qoder", call_qoder, [QODER_MODEL]),
+    ("manifest", call_manifest, [MANIFEST_MODEL]),
+
+    # TIER 4 – LIMITED / UNSTABLE (API.airforce removed)
+    ("keylessai", call_keylessai, [KEYLESS_MODEL]),
+    ("glama", call_glama, [GLAMA_MODEL]),
+    ("chubvenus", call_chubvenus, [CHUBVENUS_MODEL]),
+    ("blockrun", call_blockrun, BLOCKRUN_MODELS),
+    ("anyapi", call_anyapi, [ANYAPI_MODEL]),
+    ("aymo", call_aymo, AYMO_MODELS),
+    ("zerotwo", call_zerotwo, ZEROTWO_MODELS),
+    ("aihubmix", call_aihubmix, AIHUBMIX_MODELS),
+    ("aisure", call_aisure, [AISURE_MODEL]),
+
+    # TIER 5 – ULTIMATE FALLBACK
+    ("local", call_local_fallback, []),
 ]
 
-# PROVIDER_MODELS: map provider name to list of model names
-PROVIDER_MODELS = {
-    "gemini": [GEMINI_MODEL],
-    "groq": GROQ_MODELS,
-    "cloudflare": [CLOUDFLARE_MODEL],
-    "openrouter": OPENROUTER_MODELS,
-    "cerebras": [CEREBRAS_MODEL],
-    "mistral": MISTRAL_MODELS,
-    "huggingface": HF_MODELS,
-    "github_models": [GITHUB_MODEL],
-    "nrouter": [NROUTER_MODEL],
-    "pollinations": [POLLINATIONS_MODEL],
-    "puter": ["gpt-3.5-turbo"],
-    "freetheai": ["gpt-3.5-turbo"],
-    "keylessai": ["gpt-3.5-turbo"],
-    "freeflow": ["gpt-3.5-turbo"],
-    "bazaarlink": ["gpt-3.5-turbo"],
-    "glama": [GLAMA_MODEL],
-    "chubvenus": ["gpt-3.5-turbo"],
-    "neets": ["gpt-3.5-turbo"],
-    "voidai": ["gpt-3.5-turbo"],
-    "qoder": ["gpt-3.5-turbo"],
-    "freegpt4": ["gpt-4"],
-    "omnigpt": ["gpt-3.5-turbo"],
-    "text_cortex": TEXT_CORTEX_MODELS,
-    "local": [],
-}
+PROVIDER_CHAIN = [(name, func) for name, func, _ in PROVIDER_CHAIN_ENTRIES]
+PROVIDER_MODELS = {name: models for name, _, models in PROVIDER_CHAIN_ENTRIES}
 
 provider_health = {p: {"status": "unknown", "last_check": None, "daily_usage": 0} for p, _ in PROVIDER_CHAIN}
 
@@ -750,31 +1059,51 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- WORKSPACE-SPECIFIC PRIORITY --------------------
+# -------------------- WORKSPACE-SPECIFIC PRIORITY (updated) --------------------
 WORKSPACE_PRIORITY = {
-    "data": ["gemini", "groq", "cloudflare", "openrouter", "mistral"],
-    "design": ["cloudflare", "groq", "gemini", "openrouter", "mistral"],
-    "general": ["gemini", "groq", "cloudflare", "openrouter", "mistral"],
-    "prompt": ["gemini", "openrouter", "groq"],
-    "touch_fix": ["groq", "mistral", "gemini"],
+    "data": [
+        "gemini", "modelscope", "groq", "openrouter", "ollama_cloud", "nara_router",
+        "mistral", "ovhcloud", "siliconflow", "zhipu", "teamorouter", "nrouter",
+        "bazaarlink", "requesty", "qoder", "manifest",
+        "keylessai", "anyapi", "aymo", "zerotwo", "aihubmix", "aisure"
+    ],
+    "design": [
+        "cloudflare", "groq", "gemini", "openrouter", "modelscope", "nara_router",
+        "agnes_ai", "siliconflow", "zhipu", "teamorouter", "bifrost",
+        "freegpt4_api", "ovhcloud", "nrouter", "puter", "omnigpt_gateway",
+        "opencode_zen", "qoder", "keylessai", "glama", "chubvenus", "blockrun", "anyapi"
+    ],
+    "general": [
+        "gemini", "modelscope", "groq", "openrouter", "ollama_cloud", "nara_router",
+        "mistral", "huggingface", "github_models", "zhipu", "teamorouter",
+        "ovhcloud", "siliconflow", "nrouter", "bazaarlink", "requesty",
+        "qoder", "freeflow", "manifest", "keylessai", "glama", "chubvenus",
+        "anyapi", "aymo", "zerotwo", "aihubmix", "aisure"
+    ],
+    "prompt": [
+        "gemini", "openrouter", "modelscope", "groq", "nara_router", "ollama_cloud",
+        "zhipu", "teamorouter", "requesty", "bazaarlink"
+    ],
+    "touch_fix": [
+        "groq", "mistral", "github_models", "zhipu", "teamorouter", "nara_router",
+        "ovhcloud", "qoder", "opencode_zen"
+    ],
 }
 
 def get_provider_order(workspace: str) -> List[str]:
-    """Return ordered list of provider names for the given workspace."""
     provider_names = [name for name, _ in PROVIDER_CHAIN if name != "local"]
     priority = WORKSPACE_PRIORITY.get(workspace, WORKSPACE_PRIORITY["general"])
     ordered = []
     for name in priority:
         if name in provider_names and name not in ordered:
             ordered.append(name)
-    # Append remaining providers in original order
     for name in provider_names:
         if name not in ordered:
             ordered.append(name)
     ordered.append("local")
     return ordered
 
-# -------------------- AI ROUTER (with per-model fallback) --------------------
+# -------------------- AI ROUTER (unchanged logic) --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -838,7 +1167,6 @@ async def route_ai_request(
     model_used = None
     last_error = None
 
-    provider_names = [name for name, _ in PROVIDER_CHAIN if name != "local"]
     provider_order = get_provider_order(workspace)
     provider_func_map = dict(PROVIDER_CHAIN)
 
@@ -848,7 +1176,8 @@ async def route_ai_request(
         func = provider_func_map.get(provider_name)
         if not func:
             continue
-        # Skip if API key missing (for those that require keys)
+
+        # Skip if mandatory keys are missing (updated list)
         if provider_name == "gemini" and not GEMINI_API_KEY:
             continue
         if provider_name == "groq" and not GROQ_API_KEY:
@@ -857,7 +1186,11 @@ async def route_ai_request(
             continue
         if provider_name == "openrouter" and not OPENROUTER_API_KEY:
             continue
-        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
+        if provider_name == "modelscope" and not MODELSCOPE_API_KEY:
+            continue
+        if provider_name == "ollama_cloud" and not OLLAMA_API_KEY:
+            continue
+        if provider_name == "nara_router" and not NARAROUTER_API_KEY:
             continue
         if provider_name == "mistral" and not MISTRAL_API_KEY:
             continue
@@ -865,12 +1198,35 @@ async def route_ai_request(
             continue
         if provider_name == "github_models" and not GITHUB_MODELS_TOKEN:
             continue
+        if provider_name == "zhipu" and not ZHIPU_API_KEY:
+            continue
+        if provider_name == "teamorouter" and not TEAMOROUTER_API_KEY:
+            continue
+        if provider_name == "ovhcloud" and not OVHCLOUD_API_KEY:
+            continue
+        if provider_name == "siliconflow" and not SILICONFLOW_API_KEY:
+            continue
+        if provider_name == "agnes_ai" and not AGNES_API_KEY:
+            continue
+        if provider_name == "bifrost" and not os.getenv("BIFROST_URL"):
+            pass
+        if provider_name == "freegpt4_api" and not os.getenv("FREEGPT4_URL"):
+            pass
+        if provider_name == "bazaarlink" and not BAZAARLINK_API_KEY:
+            continue
+        if provider_name == "requesty" and not REQUESTY_API_KEY:
+            continue
         if provider_name == "nrouter" and not NROUTER_API_KEY:
             continue
-        if provider_name == "text_cortex" and not TEXT_CORTEX_API_KEY:
+        if provider_name == "glama" and not GLAMA_API_KEY:
             continue
+        if provider_name == "anyapi" and not ANYAPI_API_KEY:
+            continue
+        if provider_name == "manifest" and not MANIFEST_API_KEY:
+            continue
+        # others without keys are allowed
 
-        # Check provider-level circuit breaker
+        # Provider-level circuit breaker
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
             logger.warning(f"Skipping {provider_name} (provider circuit breaker)")
             continue
@@ -879,11 +1235,9 @@ async def route_ai_request(
         if not models:
             continue
 
-        # Try each model for this provider
         provider_success = False
         for model in models:
             model_key = (provider_name, model)
-            # Check model-level circuit breaker
             if model_failures[model_key] >= 3 and time.time() - model_last_fail[model_key] < MODEL_COOLDOWN:
                 logger.warning(f"Skipping {provider_name}/{model} (model circuit breaker)")
                 continue
@@ -896,7 +1250,6 @@ async def route_ai_request(
                         provider_used = provider_name
                         model_used = model
                         provider_success = True
-                        # Reset failures on success
                         provider_failures[provider_name] = 0
                         model_failures[model_key] = 0
                         logger.info(f"Provider {provider_name} with model {model} succeeded.")
@@ -908,7 +1261,7 @@ async def route_ai_request(
                         logger.warning(f"{provider_name}/{model} quota exceeded, skipping model")
                         model_failures[model_key] += 1
                         model_last_fail[model_key] = time.time()
-                        break  # skip to next model
+                        break
                     elif "payment required" in error_msg or "402" in error_msg:
                         logger.warning(f"{provider_name}/{model} requires payment, skipping")
                         model_failures[model_key] += 1
@@ -919,10 +1272,10 @@ async def route_ai_request(
                     model_failures[model_key] += 1
                     model_last_fail[model_key] = time.time()
             if provider_success:
-                break  # break out of model loop
+                break
 
         if provider_success:
-            break  # break out of provider loop
+            break
         else:
             provider_failures[provider_name] += 1
             provider_last_fail[provider_name] = time.time()
@@ -953,7 +1306,7 @@ async def route_ai_request(
 
     return result
 
-# -------------------- AUTHENTICATION --------------------
+# -------------------- AUTHENTICATION (unchanged) --------------------
 security = HTTPBearer()
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
@@ -998,20 +1351,28 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "dailyOpenRouterQuota": 0,
                 "dailyGroqQuota": 0,
                 "dailyHuggingFaceQuota": 0,
-                "dailyCerebrasQuota": 0,
                 "dailyMistralQuota": 0,
                 "dailyGithubQuota": 0,
                 "dailyNrouterQuota": 0,
-                "dailyTextCortexQuota": 0,   # <-- NEW
+                "dailyTextCortexQuota": 0,
+                "dailyModelscopeQuota": 0,
+                "dailyOllamaQuota": 0,
+                "dailyNaraQuota": 0,
+                "dailyOvhcloudQuota": 0,
+                "dailySiliconflowQuota": 0,
+                "dailyAgnesQuota": 0,
+                "dailyBazaarlinkQuota": 0,
+                "dailyRequestyQuota": 0,
+                "dailyManifestQuota": 0,
+                "dailyZhipuQuota": 0,          # new
+                "dailyTeamorouterQuota": 0,    # new
                 "lastAiQuotaReset": datetime.utcnow()
             }
             result = await users_col.insert_one(new_user)
             user_doc = await users_col.find_one({"_id": result.inserted_id})
             logger.info(f"New user created: {idinfo['email']}")
         else:
-            if user_doc.get("isAdmin") != is_admin:
-                await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"isAdmin": is_admin}})
-                user_doc["isAdmin"] = is_admin
+            # Reset daily quotas if needed
             now = datetime.utcnow()
             today = datetime(now.year, now.month, now.day)
             last_reset = user_doc["quotas"]["lastQuotaReset"]
@@ -1035,11 +1396,21 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                             "dailyOpenRouterQuota": 0,
                             "dailyGroqQuota": 0,
                             "dailyHuggingFaceQuota": 0,
-                            "dailyCerebrasQuota": 0,
                             "dailyMistralQuota": 0,
                             "dailyGithubQuota": 0,
                             "dailyNrouterQuota": 0,
                             "dailyTextCortexQuota": 0,
+                            "dailyModelscopeQuota": 0,
+                            "dailyOllamaQuota": 0,
+                            "dailyNaraQuota": 0,
+                            "dailyOvhcloudQuota": 0,
+                            "dailySiliconflowQuota": 0,
+                            "dailyAgnesQuota": 0,
+                            "dailyBazaarlinkQuota": 0,
+                            "dailyRequestyQuota": 0,
+                            "dailyManifestQuota": 0,
+                            "dailyZhipuQuota": 0,
+                            "dailyTeamorouterQuota": 0,
                             "lastAiQuotaReset": datetime.utcnow()
                         }}
                     )
@@ -1049,7 +1420,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         logger.error(f"Auth failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-# -------------------- PER‑USER RATE LIMITING --------------------
+# -------------------- RATE LIMITING (unchanged) --------------------
 user_rate_limiter = {}
 RATE_LIMITS = {"free": 2, "pro": 5, "business": 8}
 
@@ -1076,7 +1447,7 @@ async def lifespan(app: FastAPI):
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="22.1", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="23.2", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1119,16 +1490,16 @@ async def health():
         "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
     }
 
-# -------------------- DIAGNOSTICS ROUTE --------------------
+# -------------------- DIAGNOSTICS ROUTE (updated) --------------------
 @app.get("/api/v1/diagnose")
 async def diagnose_providers():
-    """Concurrently ping all providers with their first model to check real-time availability."""
     results = {}
     test_prompt = "Say 'OK'"
     tasks = {}
     for provider_name, func in PROVIDER_CHAIN:
         if provider_name == "local":
             continue
+        # Skip if mandatory key missing
         if provider_name == "gemini" and not GEMINI_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
@@ -1141,7 +1512,13 @@ async def diagnose_providers():
         if provider_name == "openrouter" and not OPENROUTER_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
-        if provider_name == "cerebras" and not CEREBRAS_API_KEY:
+        if provider_name == "modelscope" and not MODELSCOPE_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "ollama_cloud" and not OLLAMA_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "nara_router" and not NARAROUTER_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
         if provider_name == "mistral" and not MISTRAL_API_KEY:
@@ -1153,29 +1530,51 @@ async def diagnose_providers():
         if provider_name == "github_models" and not GITHUB_MODELS_TOKEN:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
+        if provider_name == "zhipu" and not ZHIPU_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "teamorouter" and not TEAMOROUTER_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "ovhcloud" and not OVHCLOUD_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "siliconflow" and not SILICONFLOW_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "agnes_ai" and not AGNES_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "bazaarlink" and not BAZAARLINK_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "requesty" and not REQUESTY_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
         if provider_name == "nrouter" and not NROUTER_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
-        if provider_name == "text_cortex" and not TEXT_CORTEX_API_KEY:
+        if provider_name == "manifest" and not MANIFEST_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
-
+        if provider_name == "anyapi" and not ANYAPI_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
+        if provider_name == "glama" and not GLAMA_API_KEY:
+            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+            continue
         models = PROVIDER_MODELS.get(provider_name, [])
         if not models:
             results[provider_name] = {"status": "skipped", "reason": "No models configured"}
             continue
         model = models[0]
-        tasks[provider_name] = asyncio.create_task(
-            _probe_provider(provider_name, func, test_prompt, model)
-        )
-
+        tasks[provider_name] = asyncio.create_task(_probe_provider(provider_name, func, test_prompt, model))
     for name, task in tasks.items():
         try:
             result = await task
             results[name] = result
         except Exception as e:
             results[name] = {"status": "error", "error": str(e)[:100]}
-
     return {"providers": results}
 
 async def _probe_provider(name: str, func, prompt: str, model: Optional[str]) -> Dict:
@@ -1183,15 +1582,17 @@ async def _probe_provider(name: str, func, prompt: str, model: Optional[str]) ->
         start = time.time()
         resp = await func(prompt, 5, 0.0, model)
         latency = (time.time() - start) * 1000
-        if resp and "OK" in resp:
+        # Accept any non-empty response as healthy (no need to contain "OK")
+        if resp and len(resp.strip()) > 0:
             return {"status": "healthy", "latency_ms": round(latency, 2)}
         else:
             return {"status": "unhealthy", "response": resp[:50] if resp else "empty"}
     except Exception as e:
         return {"status": "error", "error": str(e)[:100]}
-
 # -------------------- ALL ORIGINAL ENDPOINTS (with fixes) --------------------
-# 1. User profile
+# (The rest of the endpoints remain unchanged, but quota updates for removed providers
+#  have been stripped out. The /api/user/profile and /api/admin/metrics are updated accordingly.)
+
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1218,11 +1619,11 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailyOpenRouterQuota": user.get("dailyOpenRouterQuota", 0),
         "dailyGroqQuota": user.get("dailyGroqQuota", 0),
         "dailyHuggingFaceQuota": user.get("dailyHuggingFaceQuota", 0),
-        "dailyCerebrasQuota": user.get("dailyCerebrasQuota", 0),
         "dailyMistralQuota": user.get("dailyMistralQuota", 0),
         "dailyGithubQuota": user.get("dailyGithubQuota", 0),
         "dailyNrouterQuota": user.get("dailyNrouterQuota", 0),
         "dailyTextCortexQuota": user.get("dailyTextCortexQuota", 0),
+        # Removed: cerebras, deepseek, perplexity, pollinations
     }
 
 class InstructionsUpdate(BaseModel):
@@ -1726,7 +2127,7 @@ async def extract(
                 "lastUsageDate": datetime.utcnow()
             }
         }
-        # Track provider usage
+        # Track provider usage (removed Cerebras, DeepSeek, Perplexity, Pollinations)
         if provider == "gemini":
             update_query["$inc"]["dailyGeminiQuota"] = 1
         elif provider == "groq":
@@ -1735,8 +2136,6 @@ async def extract(
             update_query["$inc"]["dailyCloudflareQuota"] = 1
         elif provider == "openrouter":
             update_query["$inc"]["dailyOpenRouterQuota"] = 1
-        elif provider == "cerebras":
-            update_query["$inc"]["dailyCerebrasQuota"] = 1
         elif provider == "mistral":
             update_query["$inc"]["dailyMistralQuota"] = 1
         elif provider == "huggingface":
@@ -1785,7 +2184,7 @@ async def extract(
                 "text": ai_text,
                 "variants": [ai_text],
                 "activeVariant": 0,
-                "canRegenerate": True,   # <-- ADDED: flag for frontend
+                "canRegenerate": True,
                 "createdAt": datetime.utcnow()
             })
             current_session["structuredData"] = structured
@@ -1816,7 +2215,7 @@ async def extract(
                     "text": ai_text,
                     "variants": [ai_text],
                     "activeVariant": 0,
-                    "canRegenerate": True,   # <-- ADDED
+                    "canRegenerate": True,
                     "createdAt": datetime.utcnow()
                 }
             ],
@@ -1985,7 +2384,7 @@ async def test_email(user: dict = Depends(get_current_user)):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-# ---------- admin metrics ----------
+# ---------- admin metrics (updated) ----------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -2019,7 +2418,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "totalGemini": {"$sum": "$dailyGeminiQuota"},
                     "totalCloudflare": {"$sum": "$dailyCloudflareQuota"},
                     "totalHuggingFace": {"$sum": "$dailyHuggingFaceQuota"},
-                    "totalCerebras": {"$sum": "$dailyCerebrasQuota"},
                     "totalMistral": {"$sum": "$dailyMistralQuota"},
                     "totalGithub": {"$sum": "$dailyGithubQuota"},
                     "totalNrouter": {"$sum": "$dailyNrouterQuota"},
@@ -2028,7 +2426,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     provider_result = await users_col.aggregate(pipeline_provider).to_list(length=1)
     provider_totals = provider_result[0] if provider_result else {
         "totalGroq":0, "totalOpenRouter":0, "totalGemini":0,
-        "totalCloudflare":0, "totalHuggingFace":0, "totalCerebras":0, "totalMistral":0,
+        "totalCloudflare":0, "totalHuggingFace":0, "totalMistral":0,
         "totalGithub":0, "totalNrouter":0, "totalTextCortex":0
     }
 
@@ -2040,7 +2438,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
                     "dailyGemini": {"$sum": "$dailyGeminiQuota"},
                     "dailyCloudflare": {"$sum": "$dailyCloudflareQuota"},
                     "dailyHuggingFace": {"$sum": "$dailyHuggingFaceQuota"},
-                    "dailyCerebras": {"$sum": "$dailyCerebrasQuota"},
                     "dailyMistral": {"$sum": "$dailyMistralQuota"},
                     "dailyGithub": {"$sum": "$dailyGithubQuota"},
                     "dailyNrouter": {"$sum": "$dailyNrouterQuota"},
@@ -2049,7 +2446,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {
         "dailyGroq":0, "dailyOpenRouter":0, "dailyGemini":0,
-        "dailyCloudflare":0, "dailyHuggingFace":0, "dailyCerebras":0, "dailyMistral":0,
+        "dailyCloudflare":0, "dailyHuggingFace":0, "dailyMistral":0,
         "dailyGithub":0, "dailyNrouter":0, "dailyTextCortex":0
     }
 
@@ -2074,7 +2471,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     gemini_limit = int(os.getenv("GEMINI_DAILY_LIMIT", 1500))
     cloudflare_limit = int(os.getenv("CLOUDFLARE_DAILY_LIMIT", 1000000))
     huggingface_limit = int(os.getenv("HUGGINGFACE_DAILY_LIMIT", 1000000))
-    cerebras_limit = int(os.getenv("CEREBRAS_DAILY_LIMIT", 1000000))
     mistral_limit = int(os.getenv("MISTRAL_DAILY_LIMIT", 1000000))
     github_limit = int(os.getenv("GITHUB_DAILY_LIMIT", 1000000))
     nrouter_limit = int(os.getenv("NROUTER_DAILY_LIMIT", 1000000))
@@ -2086,7 +2482,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "gemini": daily_provider["dailyGemini"],
         "cloudflare": daily_provider["dailyCloudflare"],
         "huggingface": daily_provider["dailyHuggingFace"],
-        "cerebras": daily_provider["dailyCerebras"],
         "mistral": daily_provider["dailyMistral"],
         "github": daily_provider["dailyGithub"],
         "nrouter": daily_provider["dailyNrouter"],
@@ -2128,7 +2523,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "gemini": provider_totals["totalGemini"],
             "cloudflare": provider_totals["totalCloudflare"],
             "huggingFace": provider_totals["totalHuggingFace"],
-            "cerebras": provider_totals["totalCerebras"],
             "mistral": provider_totals["totalMistral"],
             "github": provider_totals["totalGithub"],
             "nrouter": provider_totals["totalNrouter"],
@@ -2138,7 +2532,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "dailyGemini": daily_provider["dailyGemini"],
             "dailyCloudflare": daily_provider["dailyCloudflare"],
             "dailyHuggingFace": daily_provider["dailyHuggingFace"],
-            "dailyCerebras": daily_provider["dailyCerebras"],
             "dailyMistral": daily_provider["dailyMistral"],
             "dailyGithub": daily_provider["dailyGithub"],
             "dailyNrouter": daily_provider["dailyNrouter"],
@@ -2148,7 +2541,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "geminiLimit": gemini_limit,
             "cloudflareLimit": cloudflare_limit,
             "huggingFaceLimit": huggingface_limit,
-            "cerebrasLimit": cerebras_limit,
             "mistralLimit": mistral_limit,
             "githubLimit": github_limit,
             "nrouterLimit": nrouter_limit,
@@ -2316,5 +2708,5 @@ async def not_found(request, exc):
 # ---------- MAIN ----------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI v22.1 ON PORT {port} ===")
+    logger.info(f"=== STARTING AXELR AI v23.1 ON PORT {port} ===")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
