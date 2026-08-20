@@ -55,6 +55,10 @@ logger = logging.getLogger("axelr-unified")
 # ---------- ENV VARS ----------
 MONGO_URI = (os.getenv("MONGO_URI") or "").strip()
 GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
+if not GOOGLE_CLIENT_ID:
+    # Fallback to the frontend's ID (only for development)
+    GOOGLE_CLIENT_ID = "474929925590-kfpurq4aou35pkscf6gbr963vf4hfa7g.apps.googleusercontent.com"
+    logger.warning("GOOGLE_CLIENT_ID not set in environment. Using default (same as frontend).")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
@@ -848,7 +852,7 @@ async def call_zhipu(prompt: str, max_tokens: int, temp: float, model: Optional[
 async def call_teamorouter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not TEAMOROUTER_API_KEY:
         raise Exception("TEAMOROUTER_API_KEY missing")
-    url = "https://api.teamorouter.io/v1/chat/completions"   # .io is correct
+    url = "https://api.teamorouter.io/v1/chat/completions"
     headers = {"Authorization": f"Bearer {TEAMOROUTER_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or TEAMOROUTER_MODEL
     payload = {
