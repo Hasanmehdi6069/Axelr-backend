@@ -5,7 +5,7 @@ AXELR AI - ELITE PRODUCTION v23.4
 5‑Tier Provider Chain (priority) – all free/community tiers:
   Tier 1 (Primary Elite): Gemini → Groq → OpenRouter → Cloudflare → ModelScope → Ollama Cloud → Nara Router
   Tier 2 (Highly Recommended): Mistral → HuggingFace → GitHub Models → Zhipu → Teamorouter → OVHcloud → SiliconFlow → Agnes AI → Bifrost → FreeGPT4‑WEB‑API → Bazaarlink → Requesty
-  Tier 3 (Useful Fallbacks): Nrouter → Puter → FreeTheAi → Omni GPT Gateway → OpenCode Zen → FreeFlow → Qoder → Manifest
+  Tier 3 (Useful Fallbacks): Nrouter → FreeTheAi → Omni GPT Gateway → OpenCode Zen → FreeFlow → Qoder → Manifest
   Tier 4 (Limited/Unstable): KeylessAI → Glama → ChubVenus → BlockRun → AnyAPI → Aymo → ZeroTwoAI → AI Hub MIX → AISure
   Tier 5 (Ultimate Fallback): Local (graceful message)
 
@@ -56,7 +56,6 @@ logger = logging.getLogger("axelr-unified")
 MONGO_URI = (os.getenv("MONGO_URI") or "").strip()
 GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
 if not GOOGLE_CLIENT_ID:
-    # Fallback to the frontend's ID (only for development)
     GOOGLE_CLIENT_ID = "474929925590-kfpurq4aou35pkscf6gbr963vf4hfa7g.apps.googleusercontent.com"
     logger.warning("GOOGLE_CLIENT_ID not set in environment. Using default (same as frontend).")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
@@ -124,7 +123,6 @@ FREEGPT4_MODELS = ["gpt-4"]
 BAZAARLINK_MODEL = os.getenv("BAZAARLINK_MODEL", "auto:free")
 REQUESTY_MODEL = os.getenv("REQUESTY_MODEL", "auto:free")
 NROUTER_MODEL = os.getenv("NROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
-PUTER_MODEL = "gpt-3.5-turbo"
 FREETHEAI_MODEL = "gpt-3.5-turbo"
 OMNIGPT_MODELS = ["gpt-3.5-turbo"]
 OPENDODE_MODELS = ["qwen3-coder"]
@@ -141,7 +139,7 @@ ZEROTWO_MODELS = ["gpt-5-mini", "gemini-flash-lite"]
 AIHUBMIX_MODELS = ["gpt-5.5", "gemini-3", "glm-5.1", "kimi", "minimax"]
 AISURE_MODEL = "gpt-4o"
 
-ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4")                 # Free tier flagship
+ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4")
 TEAMOROUTER_MODEL = os.getenv("TEAMOROUTER_MODEL", "teamorouter-free")
 
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
@@ -208,8 +206,8 @@ provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
 model_failures = defaultdict(int)
 model_last_fail = defaultdict(float)
-PROVIDER_COOLDOWN = 600  # 10 minutes
-MODEL_COOLDOWN = 120     # 2 minutes per model
+PROVIDER_COOLDOWN = 600
+MODEL_COOLDOWN = 120
 
 # -------------------- SECURITY --------------------
 MANIPULATION_PATTERNS = [
@@ -589,21 +587,7 @@ async def call_nrouter(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 19. PUTER
-async def call_puter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = "https://api.puter.com/v1/chat/completions"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "model": model or PUTER_MODEL,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens,
-        "temperature": temp,
-        "stream": False
-    }
-    resp = await http_post_async(url, headers, payload)
-    return resp["choices"][0]["message"]["content"]
-
-# 20. FREETHEAI
+# 19. FREETHEAI
 async def call_freetheai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.freetheai.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -617,7 +601,7 @@ async def call_freetheai(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 21. OMNI GPT GATEWAY
+# 20. OMNI GPT GATEWAY
 async def call_omnigpt_gateway(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = os.getenv("OMNIGPT_URL", "https://api.omnigpt.io/v1/chat/completions")
     headers = {"Content-Type": "application/json"}
@@ -632,7 +616,7 @@ async def call_omnigpt_gateway(prompt: str, max_tokens: int, temp: float, model:
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 22. OPENDODE ZEN
+# 21. OPENDODE ZEN
 async def call_opencode_zen(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.opencode.zen/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -647,7 +631,7 @@ async def call_opencode_zen(prompt: str, max_tokens: int, temp: float, model: Op
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 23. FREEFLOW
+# 22. FREEFLOW
 async def call_freeflow(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://freeflow.llm/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -661,7 +645,7 @@ async def call_freeflow(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 24. QODER
+# 23. QODER
 async def call_qoder(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.qoder.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -676,7 +660,7 @@ async def call_qoder(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 25. MANIFEST
+# 24. MANIFEST
 async def call_manifest(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not MANIFEST_API_KEY:
         raise Exception("MANIFEST_API_KEY missing")
@@ -693,7 +677,7 @@ async def call_manifest(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 26. KEYLESSAI
+# 25. KEYLESSAI
 async def call_keylessai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.keyless.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -707,7 +691,7 @@ async def call_keylessai(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 27. GLAMA
+# 26. GLAMA
 async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GLAMA_API_KEY:
         raise Exception("GLAMA_API_KEY missing")
@@ -724,7 +708,7 @@ async def call_glama(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 28. CHUB VENUS
+# 27. CHUB VENUS
 async def call_chubvenus(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.chub.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -738,7 +722,7 @@ async def call_chubvenus(prompt: str, max_tokens: int, temp: float, model: Optio
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 29. BLOCKRUN
+# 28. BLOCKRUN
 async def call_blockrun(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.blockrun.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -753,7 +737,7 @@ async def call_blockrun(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 30. ANYAPI
+# 29. ANYAPI
 async def call_anyapi(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not ANYAPI_API_KEY:
         raise Exception("ANYAPI_API_KEY missing")
@@ -771,7 +755,7 @@ async def call_anyapi(prompt: str, max_tokens: int, temp: float, model: Optional
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 31. AYMO
+# 30. AYMO
 async def call_aymo(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.aymo.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -786,7 +770,7 @@ async def call_aymo(prompt: str, max_tokens: int, temp: float, model: Optional[s
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 32. ZEROTWOAI
+# 31. ZEROTWOAI
 async def call_zerotwo(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.zerotwo.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -801,7 +785,7 @@ async def call_zerotwo(prompt: str, max_tokens: int, temp: float, model: Optiona
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 33. AI HUB MIX
+# 32. AI HUB MIX
 async def call_aihubmix(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.aihubmix.com/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -816,7 +800,7 @@ async def call_aihubmix(prompt: str, max_tokens: int, temp: float, model: Option
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 34. AISURE
+# 33. AISURE
 async def call_aisure(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     url = "https://api.aisure.ai/v1/chat/completions"
     headers = {"Content-Type": "application/json"}
@@ -831,7 +815,7 @@ async def call_aisure(prompt: str, max_tokens: int, temp: float, model: Optional
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 35. ZHIPU AI
+# 34. ZHIPU AI
 async def call_zhipu(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not ZHIPU_API_KEY:
         raise Exception("ZHIPU_API_KEY missing")
@@ -848,7 +832,7 @@ async def call_zhipu(prompt: str, max_tokens: int, temp: float, model: Optional[
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 36. TEAMOROUTER
+# 35. TEAMOROUTER
 async def call_teamorouter(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not TEAMOROUTER_API_KEY:
         raise Exception("TEAMOROUTER_API_KEY missing")
@@ -865,7 +849,7 @@ async def call_teamorouter(prompt: str, max_tokens: int, temp: float, model: Opt
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 37. LOCAL FALLBACK
+# 36. LOCAL FALLBACK
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None, workspace: str = "general", task_type: str = "general") -> str:
     return build_local_fallback_response(workspace, task_type, prompt)
 
@@ -901,7 +885,6 @@ PROVIDER_FUNC_MAP = {
     "bazaarlink": call_bazaarlink,
     "requesty": call_requesty,
     "nrouter": call_nrouter,
-    "puter": call_puter,
     "freetheai": call_freetheai,
     "omnigpt_gateway": call_omnigpt_gateway,
     "opencode_zen": call_opencode_zen,
@@ -940,7 +923,6 @@ PROVIDER_KEY_CHECK = {
     "bazaarlink": bool(BAZAARLINK_API_KEY),
     "requesty": bool(REQUESTY_API_KEY),
     "nrouter": bool(NROUTER_API_KEY),
-    "puter": True,
     "freetheai": True,
     "omnigpt_gateway": True,
     "opencode_zen": True,
@@ -1058,8 +1040,9 @@ WORKSPACE_PRIORITY = {
     "design": [
         "cloudflare", "groq", "gemini", "openrouter", "modelscope", "nara_router",
         "agnes_ai", "siliconflow", "zhipu", "teamorouter", "bifrost",
-        "freegpt4_api", "ovhcloud", "nrouter", "puter", "omnigpt_gateway",
-        "opencode_zen", "qoder", "keylessai", "glama", "chubvenus", "blockrun", "anyapi"
+        "freegpt4_api", "ovhcloud", "nrouter",
+        "omnigpt_gateway", "opencode_zen", "qoder",
+        "keylessai", "glama", "chubvenus", "blockrun", "anyapi"
     ],
     "general": [
         "gemini", "modelscope", "groq", "openrouter", "ollama_cloud", "nara_router",
@@ -1091,7 +1074,7 @@ def get_provider_order(workspace: str) -> List[str]:
     ordered.append("local")
     return ordered
 
-# -------------------- AI ROUTER (with user parameter for Puter toggle) --------------------
+# -------------------- AI ROUTER --------------------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -1101,11 +1084,10 @@ async def route_ai_request(
     max_tokens: int,
     temp: float,
     tier: str,
-    user: Optional[Dict] = None   # <-- added for puter_enabled check
+    user: Optional[Dict] = None
 ) -> Dict[str, Any]:
     start = time.time()
 
-    # Security checks
     if detect_manipulation(prompt):
         return {
             "success": False,
@@ -1125,7 +1107,6 @@ async def route_ai_request(
             "latency_ms": 0
         }
 
-    # Build history text
     history_text = ""
     if history:
         recent = []
@@ -1147,7 +1128,6 @@ async def route_ai_request(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
-    # --- Cache with normalization ---
     normalized_prompt = ' '.join(prompt.lower().split())
     cache_key = hashlib.sha256(f"{workspace}:{task_type}:{normalized_prompt}:{history_text}".encode()).hexdigest()
     if cache_key in ai_cache:
@@ -1169,7 +1149,6 @@ async def route_ai_request(
         if not func:
             continue
 
-        # Skip if mandatory keys are missing
         if provider_name == "gemini" and not GEMINI_API_KEY:
             continue
         if provider_name == "groq" and not GROQ_API_KEY:
@@ -1201,7 +1180,6 @@ async def route_ai_request(
         if provider_name == "agnes_ai" and not AGNES_API_KEY:
             continue
         if provider_name == "bifrost" and not os.getenv("BIFROST_URL"):
-            # pass through
             pass
         if provider_name == "freegpt4_api" and not os.getenv("FREEGPT4_URL"):
             pass
@@ -1217,13 +1195,7 @@ async def route_ai_request(
             continue
         if provider_name == "manifest" and not MANIFEST_API_KEY:
             continue
-        # Puter: skip if user has not enabled it
-        if provider_name == "puter" and (user is None or not user.get("puter_enabled", False)):
-            logger.info(f"Skipping Puter – user has not enabled it.")
-            continue
-        # others without keys are allowed
 
-        # Provider-level circuit breaker
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
             logger.warning(f"Skipping {provider_name} (provider circuit breaker)")
             continue
@@ -1364,16 +1336,14 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
                 "dailyZhipuQuota": 0,
                 "dailyTeamorouterQuota": 0,
                 "lastAiQuotaReset": datetime.utcnow(),
-                "puter_enabled": False,   # <-- default off
                 "preferences": {
-                    "defaultWorkspace": "data"   # default
+                    "defaultWorkspace": "data"
                 }
             }
             result = await users_col.insert_one(new_user)
             user_doc = await users_col.find_one({"_id": result.inserted_id})
             logger.info(f"New user created: {idinfo['email']}")
         else:
-            # Reset daily quotas if needed
             now = datetime.utcnow()
             today = datetime(now.year, now.month, now.day)
             last_reset = user_doc["quotas"]["lastQuotaReset"]
@@ -1421,20 +1391,9 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         logger.error(f"Auth failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-# ---------- Puter Toggle Endpoint ----------
-class PuterToggle(BaseModel):
-    enabled: bool
-
-@app.post("/api/user/puter-toggle")
-async def toggle_puter(data: PuterToggle, user: dict = Depends(get_current_user)):
-    if not db_available:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    await users_col.update_one({"_id": user["_id"]}, {"$set": {"puter_enabled": data.enabled}})
-    return {"success": True, "puter_enabled": data.enabled}
-
 # ---------- User Preferences Endpoints ----------
 class PreferencesUpdate(BaseModel):
-    defaultWorkspace: str  # "data" or "design" or "general"
+    defaultWorkspace: str
 
 @app.get("/api/user/preferences")
 async def get_preferences(user: dict = Depends(get_current_user)):
@@ -1458,7 +1417,6 @@ async def update_preferences(data: PreferencesUpdate, user: dict = Depends(get_c
 # ---------- Smart Prompt Suggestions Endpoint ----------
 @app.get("/api/suggestions")
 async def get_suggestions(workspace: str = "data", user: dict = Depends(get_current_user)):
-    # Return static suggestions per workspace
     suggestions = {
         "data": [
             "Extract key metrics from this invoice",
@@ -1563,7 +1521,6 @@ async def diagnose_providers():
     for provider_name, func in PROVIDER_CHAIN:
         if provider_name == "local":
             continue
-        # Skip if mandatory key missing
         if provider_name == "gemini" and not GEMINI_API_KEY:
             results[provider_name] = {"status": "skipped", "reason": "No API key"}
             continue
@@ -1684,7 +1641,6 @@ async def get_profile(user: dict = Depends(get_current_user)):
         "dailyGithubQuota": user.get("dailyGithubQuota", 0),
         "dailyNrouterQuota": user.get("dailyNrouterQuota", 0),
         "dailyTextCortexQuota": user.get("dailyTextCortexQuota", 0),
-        "puter_enabled": user.get("puter_enabled", False),
         "preferences": user.get("preferences", {}),
     }
 
@@ -2245,7 +2201,6 @@ async def extract(
                 "lastUsageDate": datetime.utcnow()
             }
         }
-        # Track provider usage
         if provider == "gemini":
             update_query["$inc"]["dailyGeminiQuota"] = 1
         elif provider == "groq":
@@ -2264,7 +2219,6 @@ async def extract(
             update_query["$inc"]["dailyNrouterQuota"] = 1
         elif provider == "text_cortex":
             update_query["$inc"]["dailyTextCortexQuota"] = 1
-        # Other providers are not tracked individually
         await users_col.update_one({"_id": user["_id"]}, update_query)
     else:
         logger.info(f"Local fallback used for user {user['email']}")
@@ -2511,26 +2465,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     tokens = tokens_result[0] if tokens_result else {"totalPrompt": 0, "totalCompletion": 0}
     total_tokens = tokens["totalPrompt"] + tokens["totalCompletion"]
 
-    # Build provider usage from all providers in chain
-    provider_totals = {}
-    daily_provider = {}
-    for p, _ in PROVIDER_CHAIN:
-        if p == "local":
-            continue
-        # We'll accumulate from the user quotas
-        # Use dynamic field names: daily{p}Quota (e.g., dailyGeminiQuota)
-        field = f"daily{p.capitalize()}Quota"
-        # Some providers have different capitalization, e.g., "openrouter" -> "OpenRouter"
-        # We'll map a few, but better to use the actual field names stored in DB
-        # For simplicity, we'll gather all daily*Quota fields from users
-        # Instead, we'll use aggregation to sum all provider quota fields
-        # But since we already have a limited set, we'll use the existing fields for known providers
-        pass
-
-    # For simplicity, we'll keep the existing logic for known providers
-    # but we can also add new ones if needed.
-    # The admin UI will show all providers in provider_status.
-    # We'll just compute provider_status from provider_health.
     provider_status = {}
     for p, health in provider_health.items():
         status = health.get("status", "unknown")
@@ -2547,8 +2481,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "last_check": health.get("last_check")
         }
 
-    # For daily usage, we need to sum from user quotas, but we'll just provide a generic list
-    # We'll use the existing pipeline for known providers.
     pipeline_provider = [
         {"$group": {"_id": None,
                     "totalGroq": {"$sum": "$dailyGroqQuota"},
@@ -2580,7 +2512,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {}
 
-    # Build daily_usage dict for active provider detection
     daily_usage = {
         "groq": daily_provider.get("dailyGroq", 0),
         "openrouter": daily_provider.get("dailyOpenRouter", 0),
@@ -2652,7 +2583,7 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "textCortexLimit": int(os.getenv("TEXT_CORTEX_DAILY_LIMIT", 100)),
             "activeProvider": active_provider,
         },
-        "providerStatus": provider_status,  # <-- dynamic list of all providers
+        "providerStatus": provider_status,
         "dailyQueries": daily_queries,
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
