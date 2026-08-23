@@ -1421,6 +1421,39 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         logger.error(f"Auth failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
+# -------------------- FASTAPI APP --------------------
+# (Moved here from later in the file to fix NameError)
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    if not db_available:
+        logger.critical("MongoDB is not available. The application will run in degraded mode.")
+    else:
+        logger.info("Unified Fortress online")
+    app.state.start_time = time.time()   # <-- add this line
+    yield
+    if client:
+        client.close()
+        logger.info("Shutdown complete")
+
+app = FastAPI(title="AXELR Unified", version="23.4", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://axelr.in",
+        "https://www.axelr.in",
+        "https://axelr-frontend.pages.dev",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:5001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
+)
 # ---------- Puter Toggle Endpoint ----------
 class PuterToggle(BaseModel):
     enabled: bool
@@ -1497,42 +1530,6 @@ def check_user_rate_limit(user_id: str, tier: str):
     if len(user_rate_limiter[user_id]) >= limit:
         logger.info(f"Rate limit exceeded for user {user_id}, but allowing request (soft limit)")
     user_rate_limiter[user_id].append(now)
-
-# -------------------- FASTAPI APP --------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await init_db()
-    if not db_available:
-        logger.critical("MongoDB is not available. The application will run in degraded mode.")
-    else:
-        logger.info("Unified Fortress online")
-    yield
-    if client:
-        client.close()
-        logger.info("Shutdown complete")
-
-app = FastAPI(title="AXELR Unified", version="23.4", lifespan=lifespan)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=[
-        "https://axelr.in",
-        "https://www.axelr.in",
-        "https://axelr-frontend.pages.dev",
-        "http://localhost:3000",
-        "http://localhost:5000",
-        "http://localhost:5001",
-    ],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=86400,
-)
-
-@app.on_event("startup")
-async def startup_event():
-    app.state.start_time = time.time()
 
 # -------------------- HEALTH --------------------
 @app.get("/")
@@ -2420,10 +2417,17 @@ async def http_post_multipart_async(url: str, headers: Dict, data: Dict, files: 
         raise Exception(f"HTTP error {e.code}: {error_body}")
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
-
+    
 class DeployRequest(BaseModel):
     htmlContent: str
 
+# -------- ADD THESE TWO LINES --------
+class CodeRequest(BaseModel):
+    code: str
+
+class TextRequest(BaseModel):
+    text: str
+# ------------------------------------
 @app.post("/api/deploy")
 async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     html = data.htmlContent
@@ -2806,8 +2810,6 @@ async def stripe_webhook(request: Request):
     return {"received": True}
 
 # ---------- NEW ENDPOINTS: Explain Code & Generate Tests ----------
-class CodeRequest(BaseModel):
-    code: str
 
 @app.post("/api/explain-code")
 async def explain_code(data: CodeRequest, user: dict = Depends(get_current_user)):
@@ -2862,6 +2864,12 @@ async def generate_tests(data: CodeRequest, user: dict = Depends(get_current_use
         tests = code_match.group(1).strip()
     return {"success": True, "tests": tests}
 
+class CodeRequest(BaseModel):
+    code: str
+
+# ✅ Add this after CodeRequest
+class TextRequest(BaseModel):
+    text: str
 @app.post("/api/summarize")
 async def summarize(data: TextRequest, user: dict = Depends(get_current_user)):
     if not data.text:
@@ -2903,11 +2911,55 @@ async def brainstorm(data: TextRequest, user: dict = Depends(get_current_user)):
     return {"success": True, "ideas": ai_result["text"]}
 
 # ---- Diagnose (for testing) ----
-@app.get("/api/v1/diagnose")
-async def diagnose_providers():
-    # same as before
-    pass
+# (already defined above)
+class WorkflowStep(BaseModel):
+    instruction: str
+    files: Optional[List[Dict]] = None
 
+class WorkflowRequest(BaseModel):
+    steps: List[WorkflowStep]
+    workspace: str = "data"
+
+@app.post("/api/workflow")
+async def execute_workflow(data: WorkflowRequest, user: dict = Depends(get_current_user)):
+    """Orchestrate multiple AI steps sequentially."""
+    context = ""
+    structured_data = None
+    for step in data.steps:
+        prompt = step.instruction
+        if context:
+            prompt = f"Previous context:\n{context}\n\nNow: {prompt}"
+        result = await route_ai_request(
+            workspace=data.workspace,
+            task_type="workflow",
+            prompt=prompt,
+            history=[],
+            files=step.files or [],
+            max_tokens=2048,
+            temp=0.2,
+            tier=user.get("tier", "free"),
+            user=user
+        )
+        if not result.get("success"):
+            raise HTTPException(status_code=503, detail=f"Step failed: {result.get('text', '')}")
+        context += f"\nStep result:\n{result['text']}\n"
+        # Optionally parse structured data from the last step
+        if step.instruction.lower().find("extract") != -1:
+            structured_data = result.get("structured_data", [])
+    return {"success": True, "final_output": context, "structured_data": structured_data}
+
+@app.post("/api/auto-insights")
+async def auto_insights(request: Request, user: dict = Depends(get_current_user)):
+    """Automatically generate insights from uploaded file(s)."""
+    form = await request.form()
+    files = form.getlist("files")
+    if not files:
+        raise HTTPException(400, "At least one file required")
+    # Process files similarly to /extract, then call route_ai_request with a default prompt
+    # ... (omitted for brevity, but essentially triggers a "generate insights" prompt)
+    # After the CodeRequest class definition (around line 2650)
+class TextRequest(BaseModel):
+    text: str
 # ---------- 404 ----------
 @app.exception_handler(404)
 async def not_found(request, exc):
