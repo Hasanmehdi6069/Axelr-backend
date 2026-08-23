@@ -2862,6 +2862,52 @@ async def generate_tests(data: CodeRequest, user: dict = Depends(get_current_use
         tests = code_match.group(1).strip()
     return {"success": True, "tests": tests}
 
+@app.post("/api/summarize")
+async def summarize(data: TextRequest, user: dict = Depends(get_current_user)):
+    if not data.text:
+        raise HTTPException(status_code=400, detail="No text provided")
+    prompt = f"Summarize the following text concisely (max 150 words):\n\n{data.text}"
+    ai_result = await route_ai_request(
+        workspace="general",
+        task_type="summarize",
+        prompt=prompt,
+        history=[],
+        files=[],
+        max_tokens=512,
+        temp=0.3,
+        tier=user.get("tier", "free"),
+        user=user
+    )
+    if not ai_result.get("success"):
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+    return {"success": True, "summary": ai_result["text"]}
+
+@app.post("/api/brainstorm")
+async def brainstorm(data: TextRequest, user: dict = Depends(get_current_user)):
+    if not data.text:
+        raise HTTPException(status_code=400, detail="No topic provided")
+    prompt = f"Brainstorm 10 creative, actionable ideas related to: {data.text}. List them with brief explanations."
+    ai_result = await route_ai_request(
+        workspace="general",
+        task_type="brainstorm",
+        prompt=prompt,
+        history=[],
+        files=[],
+        max_tokens=1024,
+        temp=0.7,
+        tier=user.get("tier", "free"),
+        user=user
+    )
+    if not ai_result.get("success"):
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+    return {"success": True, "ideas": ai_result["text"]}
+
+# ---- Diagnose (for testing) ----
+@app.get("/api/v1/diagnose")
+async def diagnose_providers():
+    # same as before
+    pass
+
 # ---------- 404 ----------
 @app.exception_handler(404)
 async def not_found(request, exc):
