@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-AXELR AI - ELITE PRODUCTION v23.4
+AXELR AI - ELITE PRODUCTION v24.0
 =================================
 5‑Tier Provider Chain (priority) – all free/community tiers:
   Tier 1 (Primary Elite): Gemini → Groq → OpenRouter → Cloudflare → ModelScope → Ollama Cloud → Nara Router
@@ -14,22 +14,35 @@ Zero‑cost, permanent free tiers, automatic failover, 429 handling, circuit bre
 
 import os, re, time, json, asyncio, hashlib, smtplib, logging, base64, ssl
 import urllib.request, urllib.error, urllib.parse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any
 from contextlib import asynccontextmanager
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from collections import defaultdict
-
-import httpx
+import secrets
+import bcrypt
+from jose import JWTError, jwt
 from dotenv import load_dotenv
+import bleach
+from cachetools import TTLCache
+from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+import uvicorn
+import httpx
+from httpx import TimeoutException, ConnectError
+import redis.asyncio as aioredis
 
-# Disable SSL for development (remove in production)
+# ---------- DISABLE SSL FOR DEV (remove in production) ----------
 ssl._create_default_https_context = ssl._create_unverified_context
-
 load_dotenv(override=True)
 
-# ---------- Stripe (optional) ----------
+# ---------- STRIPE (optional) ----------
 STRIPE_AVAILABLE = False
 stripe = None
 try:
@@ -38,17 +51,7 @@ try:
 except ImportError:
     pass
 
-import bleach
-from cachetools import TTLCache
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
-import uvicorn
-
+# ---------- LOGGING ----------
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("axelr-unified")
 
@@ -56,9 +59,8 @@ logger = logging.getLogger("axelr-unified")
 MONGO_URI = (os.getenv("MONGO_URI") or "").strip()
 GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
 if not GOOGLE_CLIENT_ID:
-    # Fallback to the frontend's ID (only for development)
     GOOGLE_CLIENT_ID = "474929925590-kfpurq4aou35pkscf6gbr963vf4hfa7g.apps.googleusercontent.com"
-    logger.warning("GOOGLE_CLIENT_ID not set in environment. Using default (same as frontend).")
+    logger.warning("GOOGLE_CLIENT_ID not set. Using default (frontend).")
 ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
 STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
 STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
@@ -92,6 +94,21 @@ MANIFEST_API_KEY = (os.getenv("MANIFEST_API_KEY") or "").strip()
 GLAMA_API_KEY = (os.getenv("GLAMA_API_KEY") or "").strip()
 ZHIPU_API_KEY = (os.getenv("ZHIPU_API_KEY") or "").strip()
 TEAMOROUTER_API_KEY = (os.getenv("TEAMOROUTER_API_KEY") or "").strip()
+
+# GitHub OAuth
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "").strip()
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "").strip()
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://axelr-backend.onrender.com/api/auth/github/callback")
+
+# WebAuthn
+RP_ID = os.getenv("RP_ID", "axelr.in")
+RP_NAME = os.getenv("RP_NAME", "AXELR AI")
+ORIGIN = os.getenv("ORIGIN", "https://axelr.in")
+
+# JWT
+SECRET_KEY = os.getenv("JWT_SECRET", "your-super-secret-key")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
 # ---------- MODEL LISTS ----------
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.7-flash")
@@ -140,35 +157,92 @@ AYMO_MODELS = ["gemini-flash", "deepseek-v3.2", "qwen3"]
 ZEROTWO_MODELS = ["gpt-5-mini", "gemini-flash-lite"]
 AIHUBMIX_MODELS = ["gpt-5.5", "gemini-3", "glm-5.1", "kimi", "minimax"]
 AISURE_MODEL = "gpt-4o"
-
-ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4")                 # Free tier flagship
+ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4")
 TEAMOROUTER_MODEL = os.getenv("TEAMOROUTER_MODEL", "teamorouter-free")
-
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
 
+# ---------- HTTP CLIENT ----------
 HTTP_CLIENT = httpx.AsyncClient(
-    timeout=httpx.Timeout(8.0, connect=5.0, read=8.0, write=5.0),
-    verify=False
+    timeout=httpx.Timeout(12.0, connect=8.0, read=12.0, write=8.0),
+    verify=False,
+    limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
 )
 
-# -------------------- STRIPE INIT --------------------
-if STRIPE_AVAILABLE and STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET:
-    stripe.api_key = STRIPE_SECRET_KEY
-    logger.info("Stripe initialized")
-
-# -------------------- EMAIL --------------------
-def get_email_transport():
-    if SMTP_USER and SMTP_PASS:
+async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: float = 8.0):
+    try:
+        resp = await HTTP_CLIENT.post(url, headers=headers, json=json_data, timeout=timeout)
+        resp.raise_for_status()
         try:
-            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
-            server.starttls()
-            server.login(SMTP_USER, SMTP_PASS)
-            return server
-        except Exception as e:
-            logger.warning(f"Email transport failed: {e}")
-    return None
+            return resp.json()
+        except json.JSONDecodeError:
+            return {"text": resp.text}
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 429:
+            raise Exception(f"Quota exceeded: {e.response.text}")
+        elif e.response.status_code == 402:
+            raise Exception("Payment required – skipping provider")
+        elif e.response.status_code in (301, 302, 303, 307, 308):
+            location = e.response.headers.get('Location')
+            if location:
+                logger.info(f"Following redirect to {location}")
+                return await http_post_async(location, headers, json_data, timeout)
+        raise Exception(f"HTTP error {e.response.status_code}: {e.response.text}")
+    except Exception as e:
+        raise Exception(f"HTTP request failed: {e}")
 
-# -------------------- MONGO DB --------------------
+async def http_post_with_retry(url: str, headers: Dict, json_data: Dict, timeout: float = 12.0, max_retries: int = 3) -> Dict:
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            resp = await HTTP_CLIENT.post(url, headers=headers, json=json_data, timeout=timeout)
+            resp.raise_for_status()
+            try:
+                return resp.json()
+            except json.JSONDecodeError:
+                return {"text": resp.text}
+        except (TimeoutException, ConnectError) as e:
+            last_error = e
+            wait_time = (2 ** attempt) + (0.1 * attempt)
+            logger.warning(f"HTTP attempt {attempt+1} failed for {url}: {e}. Retrying in {wait_time:.2f}s")
+            await asyncio.sleep(wait_time)
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 429:
+                raise Exception(f"Quota exceeded: {e.response.text}")
+            elif e.response.status_code == 402:
+                raise Exception("Payment required – skipping provider")
+            elif e.response.status_code in (301, 302, 303, 307, 308):
+                location = e.response.headers.get('Location')
+                if location:
+                    logger.info(f"Following redirect to {location}")
+                    return await http_post_with_retry(location, headers, json_data, timeout, 1)
+            raise Exception(f"HTTP error {e.response.status_code}: {e.response.text[:200]}")
+        except Exception as e:
+            last_error = e
+            logger.warning(f"HTTP attempt {attempt+1} failed: {e}")
+            await asyncio.sleep(0.5)
+    raise Exception(f"HTTP request failed after {max_retries} attempts: {last_error}")
+
+# ---------- JWT HELPERS ----------
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def decode_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+# ---------- MONGO DB ----------
 client = None
 db = None
 users_col = None
@@ -187,6 +261,7 @@ async def init_db():
         sessions_col = db.get_collection("chatsessions")
         reports_col = db.get_collection("bugreports")
         await users_col.create_index("googleId", unique=True)
+        await users_col.create_index("githubId", unique=True, sparse=True)
         await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
         await sessions_col.create_index("userId")
         await reports_col.create_index("userId")
@@ -202,16 +277,33 @@ def get_object_id():
         return ObjectId
     return None
 
-# -------------------- CACHE & CIRCUIT BREAKER --------------------
+# ---------- REDIS ----------
+REDIS_URL = os.getenv("REDIS_URL")
+redis_client = None
+
+async def init_redis():
+    global redis_client
+    if REDIS_URL:
+        try:
+            redis_client = await aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=10)
+            await redis_client.ping()
+            logger.info("Redis connected successfully")
+        except Exception as e:
+            logger.warning(f"Redis connection failed: {e}")
+            redis_client = None
+    else:
+        logger.info("Redis not configured, using memory-only cache")
+
+# ---------- CACHE & CIRCUIT BREAKER ----------
 ai_cache = TTLCache(maxsize=2000, ttl=3600)
 provider_failures = defaultdict(int)
 provider_last_fail = defaultdict(float)
 model_failures = defaultdict(int)
 model_last_fail = defaultdict(float)
-PROVIDER_COOLDOWN = 600  # 10 minutes
-MODEL_COOLDOWN = 120     # 2 minutes per model
+PROVIDER_COOLDOWN = 600
+MODEL_COOLDOWN = 120
 
-# -------------------- SECURITY --------------------
+# ---------- SECURITY ----------
 MANIPULATION_PATTERNS = [
     r"forget all (instructions|prior|previous)",
     r"disregard (system prompt|guidelines|instructions)",
@@ -223,7 +315,6 @@ MANIPULATION_PATTERNS = [
     r"reset your instructions",
     r"act as (an|a) (evil|unethical|unrestricted) AI",
 ]
-
 EXPLICIT_PATTERNS = [
     r"(?:sexual|porn|nude|sex|erotic|adult content)",
     r"(?:hack|exploit|malware|virus|crack)",
@@ -256,30 +347,19 @@ def strip_fluff(text: str) -> str:
         text = re.sub(pat, "", text, flags=re.IGNORECASE)
     return text.strip()
 
-# -------------------- HTTP HELPER --------------------
-async def http_post_async(url: str, headers: Dict, json_data: Dict, timeout: float = 8.0):
-    try:
-        resp = await HTTP_CLIENT.post(url, headers=headers, json=json_data, timeout=timeout)
-        resp.raise_for_status()
+# ---------- EMAIL ----------
+def get_email_transport():
+    if SMTP_USER and SMTP_PASS:
         try:
-            return resp.json()
-        except json.JSONDecodeError:
-            return {"text": resp.text}
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 429:
-            raise Exception(f"Quota exceeded: {e.response.text}")
-        elif e.response.status_code == 402:
-            raise Exception("Payment required – skipping provider")
-        elif e.response.status_code in (301, 302, 303, 307, 308):
-            location = e.response.headers.get('Location')
-            if location:
-                logger.info(f"Following redirect to {location}")
-                return await http_post_async(location, headers, json_data, timeout)
-        raise Exception(f"HTTP error {e.response.status_code}: {e.response.text}")
-    except Exception as e:
-        raise Exception(f"HTTP request failed: {e}")
+            server = smtplib.SMTP(SMTP_HOST, SMTP_PORT)
+            server.starttls()
+            server.login(SMTP_USER, SMTP_PASS)
+            return server
+        except Exception as e:
+            logger.warning(f"Email transport failed: {e}")
+    return None
 
-# -------------------- PROVIDER FUNCTIONS --------------------
+# ---------- PROVIDER FUNCTIONS ----------
 # 1. GEMINI
 async def call_gemini(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GEMINI_API_KEY:
@@ -866,8 +946,8 @@ async def call_teamorouter(prompt: str, max_tokens: int, temp: float, model: Opt
     return resp["choices"][0]["message"]["content"]
 
 # 37. LOCAL FALLBACK
-async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None, workspace: str = "general", task_type: str = "general") -> str:
-    return build_local_fallback_response(workspace, task_type, prompt)
+async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+    return build_local_fallback_response("general", "general", prompt)
 
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
@@ -960,9 +1040,8 @@ PROVIDER_KEY_CHECK = {
     "teamorouter": bool(TEAMOROUTER_API_KEY),
 }
 
-# -------------------- PROVIDER CHAIN – 5 TIERS --------------------
+# ---------- PROVIDER CHAIN ----------
 PROVIDER_CHAIN_ENTRIES = [
-    # TIER 1 – PRIMARY ELITE
     ("gemini", call_gemini, [GEMINI_MODEL]),
     ("groq", call_groq, GROQ_MODELS),
     ("openrouter", call_openrouter, OPENROUTER_MODELS),
@@ -970,8 +1049,6 @@ PROVIDER_CHAIN_ENTRIES = [
     ("modelscope", call_modelscope, MODELSCOPE_MODELS),
     ("ollama_cloud", call_ollama_cloud, OLLAMA_MODELS),
     ("nara_router", call_nara_router, NARA_MODELS),
-
-    # TIER 2 – HIGHLY RECOMMENDED
     ("mistral", call_mistral, MISTRAL_MODELS),
     ("huggingface", call_huggingface, HF_MODELS),
     ("github_models", call_github_models, [GITHUB_MODEL]),
@@ -984,8 +1061,6 @@ PROVIDER_CHAIN_ENTRIES = [
     ("freegpt4_api", call_freegpt4_api, FREEGPT4_MODELS),
     ("bazaarlink", call_bazaarlink, [BAZAARLINK_MODEL]),
     ("requesty", call_requesty, [REQUESTY_MODEL]),
-
-    # TIER 3 – USEFUL FALLBACKS
     ("nrouter", call_nrouter, [NROUTER_MODEL]),
     ("freetheai", call_freetheai, [FREETHEAI_MODEL]),
     ("omnigpt_gateway", call_omnigpt_gateway, OMNIGPT_MODELS),
@@ -993,8 +1068,6 @@ PROVIDER_CHAIN_ENTRIES = [
     ("freeflow", call_freeflow, [FREEFLOW_MODEL]),
     ("qoder", call_qoder, [QODER_MODEL]),
     ("manifest", call_manifest, [MANIFEST_MODEL]),
-
-    # TIER 4 – LIMITED / UNSTABLE
     ("keylessai", call_keylessai, [KEYLESS_MODEL]),
     ("glama", call_glama, [GLAMA_MODEL]),
     ("chubvenus", call_chubvenus, [CHUBVENUS_MODEL]),
@@ -1004,17 +1077,14 @@ PROVIDER_CHAIN_ENTRIES = [
     ("zerotwo", call_zerotwo, ZEROTWO_MODELS),
     ("aihubmix", call_aihubmix, AIHUBMIX_MODELS),
     ("aisure", call_aisure, [AISURE_MODEL]),
-
-    # TIER 5 – ULTIMATE FALLBACK
     ("local", call_local_fallback, []),
 ]
 
 PROVIDER_CHAIN = [(name, func) for name, func, _ in PROVIDER_CHAIN_ENTRIES]
 PROVIDER_MODELS = {name: models for name, _, models in PROVIDER_CHAIN_ENTRIES}
-
 provider_health = {p: {"status": "unknown", "last_check": None, "daily_usage": 0} for p, _ in PROVIDER_CHAIN}
 
-# -------------------- MASTER SYSTEM PROMPT --------------------
+# ---------- MASTER PROMPT ----------
 MASTER_PROMPT = (
     "You are AXELR, an elite executive AI operating in zero-cost, production-safe mode. "
     "Always answer directly, clearly, and usefully. Never claim a service is unavailable unless all configured paths fail. "
@@ -1047,7 +1117,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
 
-# -------------------- WORKSPACE-SPECIFIC PRIORITY --------------------
+# ---------- WORKSPACE PRIORITY ----------
 WORKSPACE_PRIORITY = {
     "data": [
         "gemini", "modelscope", "groq", "openrouter", "ollama_cloud", "nara_router",
@@ -1091,7 +1161,7 @@ def get_provider_order(workspace: str) -> List[str]:
     ordered.append("local")
     return ordered
 
-# -------------------- AI ROUTER (with user parameter for Puter toggle) --------------------
+# ---------- AI ROUTER (sequential) ----------
 async def route_ai_request(
     workspace: str,
     task_type: str,
@@ -1101,37 +1171,19 @@ async def route_ai_request(
     max_tokens: int,
     temp: float,
     tier: str,
-    user: Optional[Dict] = None   # <-- added for puter_enabled check
+    user: Optional[Dict] = None
 ) -> Dict[str, Any]:
     start = time.time()
-
-    # Security checks
     if detect_manipulation(prompt):
-        return {
-            "success": False,
-            "text": "⚠️ WARNING: Manipulation attempt detected. Your action has been logged. Please stay within operational parameters.",
-            "provider": "security",
-            "model_used": "filter",
-            "tokens_used": 0,
-            "latency_ms": 0
-        }
+        return {"success": False, "text": "⚠️ Manipulation attempt detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
     if contains_explicit(prompt):
-        return {
-            "success": False,
-            "text": "🚫 Your request violates our content policy. Please revise your input.",
-            "provider": "security",
-            "model_used": "blocked",
-            "tokens_used": 0,
-            "latency_ms": 0
-        }
+        return {"success": False, "text": "🚫 Content policy violation.", "provider": "security", "model_used": "blocked", "tokens_used": 0, "latency_ms": 0}
 
-    # Build history text
     history_text = ""
     if history:
         recent = []
         for msg in history[-4:]:
-            if not isinstance(msg, dict):
-                continue
+            if not isinstance(msg, dict): continue
             role = msg.get("role", "user")
             content = msg.get("content") or msg.get("text") or ""
             if isinstance(content, list):
@@ -1147,7 +1199,6 @@ async def route_ai_request(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
-    # --- Cache with normalization ---
     normalized_prompt = ' '.join(prompt.lower().split())
     cache_key = hashlib.sha256(f"{workspace}:{task_type}:{normalized_prompt}:{history_text}".encode()).hexdigest()
     if cache_key in ai_cache:
@@ -1169,63 +1220,34 @@ async def route_ai_request(
         if not func:
             continue
 
-        # Skip if mandatory keys are missing
-        if provider_name == "gemini" and not GEMINI_API_KEY:
-            continue
-        if provider_name == "groq" and not GROQ_API_KEY:
-            continue
-        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
-            continue
-        if provider_name == "openrouter" and not OPENROUTER_API_KEY:
-            continue
-        if provider_name == "modelscope" and not MODELSCOPE_API_KEY:
-            continue
-        if provider_name == "ollama_cloud" and not OLLAMA_API_KEY:
-            continue
-        if provider_name == "nara_router" and not NARAROUTER_API_KEY:
-            continue
-        if provider_name == "mistral" and not MISTRAL_API_KEY:
-            continue
-        if provider_name == "huggingface" and not HF_API_KEY:
-            continue
-        if provider_name == "github_models" and not GITHUB_MODELS_TOKEN:
-            continue
-        if provider_name == "zhipu" and not ZHIPU_API_KEY:
-            continue
-        if provider_name == "teamorouter" and not TEAMOROUTER_API_KEY:
-            continue
-        if provider_name == "ovhcloud" and not OVHCLOUD_API_KEY:
-            continue
-        if provider_name == "siliconflow" and not SILICONFLOW_API_KEY:
-            continue
-        if provider_name == "agnes_ai" and not AGNES_API_KEY:
-            continue
-        if provider_name == "bifrost" and not os.getenv("BIFROST_URL"):
-            # pass through
-            pass
-        if provider_name == "freegpt4_api" and not os.getenv("FREEGPT4_URL"):
-            pass
-        if provider_name == "bazaarlink" and not BAZAARLINK_API_KEY:
-            continue
-        if provider_name == "requesty" and not REQUESTY_API_KEY:
-            continue
-        if provider_name == "nrouter" and not NROUTER_API_KEY:
-            continue
-        if provider_name == "glama" and not GLAMA_API_KEY:
-            continue
-        if provider_name == "anyapi" and not ANYAPI_API_KEY:
-            continue
-        if provider_name == "manifest" and not MANIFEST_API_KEY:
-            continue
-        # Puter: skip if user has not enabled it
+        # Skip if mandatory keys missing
+        if provider_name == "gemini" and not GEMINI_API_KEY: continue
+        if provider_name == "groq" and not GROQ_API_KEY: continue
+        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID): continue
+        if provider_name == "openrouter" and not OPENROUTER_API_KEY: continue
+        if provider_name == "modelscope" and not MODELSCOPE_API_KEY: continue
+        if provider_name == "ollama_cloud" and not OLLAMA_API_KEY: continue
+        if provider_name == "nara_router" and not NARAROUTER_API_KEY: continue
+        if provider_name == "mistral" and not MISTRAL_API_KEY: continue
+        if provider_name == "huggingface" and not HF_API_KEY: continue
+        if provider_name == "github_models" and not GITHUB_MODELS_TOKEN: continue
+        if provider_name == "zhipu" and not ZHIPU_API_KEY: continue
+        if provider_name == "teamorouter" and not TEAMOROUTER_API_KEY: continue
+        if provider_name == "ovhcloud" and not OVHCLOUD_API_KEY: continue
+        if provider_name == "siliconflow" and not SILICONFLOW_API_KEY: continue
+        if provider_name == "agnes_ai" and not AGNES_API_KEY: continue
+        if provider_name == "bazaarlink" and not BAZAARLINK_API_KEY: continue
+        if provider_name == "requesty" and not REQUESTY_API_KEY: continue
+        if provider_name == "nrouter" and not NROUTER_API_KEY: continue
+        if provider_name == "glama" and not GLAMA_API_KEY: continue
+        if provider_name == "anyapi" and not ANYAPI_API_KEY: continue
+        if provider_name == "manifest" and not MANIFEST_API_KEY: continue
         if provider_name == "puter" and (user is None or not user.get("puter_enabled", False)):
-            logger.info(f"Skipping Puter – user has not enabled it.")
             continue
-        # others without keys are allowed
 
-        # Provider-level circuit breaker
+        # Circuit breaker
         if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
-            logger.warning(f"Skipping {provider_name} (provider circuit breaker)")
+            logger.warning(f"Skipping {provider_name} (circuit breaker)")
             continue
 
         models = PROVIDER_MODELS.get(provider_name, [])
@@ -1276,7 +1298,7 @@ async def route_ai_request(
         else:
             provider_failures[provider_name] += 1
             provider_last_fail[provider_name] = time.time()
-            logger.warning(f"All models for provider {provider_name} failed; marking provider cooldown")
+            logger.warning(f"All models for provider {provider_name} failed; marking cooldown")
 
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
@@ -1295,148 +1317,601 @@ async def route_ai_request(
         "latency_ms": round(latency, 2)
     }
     ai_cache[cache_key] = result
-
     if provider_used and provider_used in provider_health:
         provider_health[provider_used]["status"] = "active"
         provider_health[provider_used]["last_check"] = datetime.utcnow().isoformat()
         provider_health[provider_used]["daily_usage"] = provider_health[provider_used].get("daily_usage", 0) + 1
-
     return result
 
-# -------------------- AUTHENTICATION --------------------
+# ---------- PARALLEL ROUTER (guest & faster) ----------
+async def route_ai_request_parallel(
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: Optional[List[Dict]],
+    files: Optional[List[Dict]],
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: Optional[Dict] = None
+) -> Dict[str, Any]:
+    start = time.time()
+    if detect_manipulation(prompt):
+        return {"success": False, "text": "⚠️ Manipulation attempt detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
+    if contains_explicit(prompt):
+        return {"success": False, "text": "🚫 Content policy violation.", "provider": "security", "model_used": "blocked", "tokens_used": 0, "latency_ms": 0}
+
+    history_text = ""
+    if history:
+        recent = []
+        for msg in history[-4:]:
+            if not isinstance(msg, dict): continue
+            role = msg.get("role", "user")
+            content = msg.get("content") or msg.get("text") or ""
+            if isinstance(content, list):
+                parts = [p.get("text", "") for p in content if isinstance(p, dict)]
+                content = "\n".join(parts)
+            if isinstance(content, str) and content.strip():
+                recent.append(f"{role}: {content.strip()}")
+        history_text = "\n".join(recent)
+
+    system_prompt = get_system_prompt(workspace, task_type)
+    full_prompt = f"{system_prompt}\n\n"
+    if history_text:
+        full_prompt += f"Previous conversation:\n{history_text}\n\n"
+    full_prompt += f"User request: {prompt}"
+
+    normalized_prompt = ' '.join(prompt.lower().split())
+    cache_key = hashlib.sha256(f"{workspace}:{task_type}:{normalized_prompt}:{history_text}".encode()).hexdigest()
+    if cache_key in ai_cache:
+        cached = ai_cache[cache_key]
+        return {**cached, "cached": True}
+
+    provider_order = get_provider_order(workspace)
+    candidate_providers = []
+    for p in provider_order:
+        if p == "local": continue
+        if not _is_provider_ready(p, user): continue
+        candidate_providers.append(p)
+        if len(candidate_providers) >= 3: break
+
+    if not candidate_providers:
+        response_text = build_local_fallback_response(workspace, task_type, prompt)
+        return {"success": True, "text": response_text, "provider": "local", "model_used": "local-fallback", "tokens_used": len(response_text.split()), "latency_ms": 0}
+
+    provider_func_map = dict(PROVIDER_CHAIN)
+    tasks = []
+    for p in candidate_providers:
+        func = provider_func_map.get(p)
+        if not func: continue
+        models = PROVIDER_MODELS.get(p, [])
+        if not models: continue
+        model = models[0]
+        tasks.append(_execute_provider_with_timeout(p, func, full_prompt, model, max_tokens, temp, user))
+
+    done, pending = await asyncio.wait(tasks, timeout=6.0, return_when=asyncio.FIRST_COMPLETED)
+    for task in pending:
+        task.cancel()
+
+    best_response = None
+    best_score = -1
+    for task in done:
+        try:
+            result = task.result()
+            if result and result.get("text"):
+                score = _compute_quality_score(result["text"], workspace)
+                if score > best_score:
+                    best_score = score
+                    best_response = result
+        except Exception as e:
+            logger.warning(f"Provider task failed: {e}")
+
+    if best_response and best_score > 20:
+        response_text = strip_fluff(best_response["text"])
+        latency = (time.time() - start) * 1000
+        result = {
+            "success": True,
+            "text": response_text,
+            "provider": best_response.get("provider", "unknown"),
+            "model_used": best_response.get("model", "unknown"),
+            "tokens_used": len(response_text.split()),
+            "latency_ms": round(latency, 2)
+        }
+        ai_cache[cache_key] = result
+        return result
+
+    response_text = await _sequential_provider_fallback(workspace, task_type, full_prompt, max_tokens, temp, user)
+    latency = (time.time() - start) * 1000
+    result = {
+        "success": True,
+        "text": strip_fluff(response_text),
+        "provider": "fallback",
+        "model_used": "sequential",
+        "tokens_used": len(response_text.split()),
+        "latency_ms": round(latency, 2)
+    }
+    ai_cache[cache_key] = result
+    return result
+
+async def _execute_provider_with_timeout(provider_name, func, prompt, model, max_tokens, temp, user):
+    try:
+        if provider_name == "puter" and (user is None or not user.get("puter_enabled", False)):
+            return {"text": "", "provider": provider_name, "model": model, "error": "Puter disabled"}
+        response = await asyncio.wait_for(func(prompt, max_tokens, temp, model), timeout=4.0)
+        if response and len(response.strip()) > 10:
+            return {"text": response, "provider": provider_name, "model": model}
+        return {"text": "", "provider": provider_name, "model": model, "error": "Empty response"}
+    except asyncio.TimeoutError:
+        return {"text": "", "provider": provider_name, "model": model, "error": "Timeout"}
+    except Exception as e:
+        return {"text": "", "provider": provider_name, "model": model, "error": str(e)}
+
+def _is_provider_ready(provider_name: str, user: Optional[Dict] = None) -> bool:
+    if provider_name == "gemini" and not GEMINI_API_KEY: return False
+    if provider_name == "groq" and not GROQ_API_KEY: return False
+    if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID): return False
+    if provider_name == "openrouter" and not OPENROUTER_API_KEY: return False
+    if provider_name == "modelscope" and not MODELSCOPE_API_KEY: return False
+    if provider_name == "ollama_cloud" and not OLLAMA_API_KEY: return False
+    if provider_name == "nara_router" and not NARAROUTER_API_KEY: return False
+    if provider_name == "mistral" and not MISTRAL_API_KEY: return False
+    if provider_name == "huggingface" and not HF_API_KEY: return False
+    if provider_name == "github_models" and not GITHUB_MODELS_TOKEN: return False
+    if provider_name == "zhipu" and not ZHIPU_API_KEY: return False
+    if provider_name == "teamorouter" and not TEAMOROUTER_API_KEY: return False
+    if provider_name == "ovhcloud" and not OVHCLOUD_API_KEY: return False
+    if provider_name == "siliconflow" and not SILICONFLOW_API_KEY: return False
+    if provider_name == "agnes_ai" and not AGNES_API_KEY: return False
+    if provider_name == "bazaarlink" and not BAZAARLINK_API_KEY: return False
+    if provider_name == "requesty" and not REQUESTY_API_KEY: return False
+    if provider_name == "nrouter" and not NROUTER_API_KEY: return False
+    if provider_name == "glama" and not GLAMA_API_KEY: return False
+    if provider_name == "anyapi" and not ANYAPI_API_KEY: return False
+    if provider_name == "manifest" and not MANIFEST_API_KEY: return False
+    if provider_name == "puter" and (user is None or not user.get("puter_enabled", False)): return False
+    if provider_failures[provider_name] >= 3 and time.time() - provider_last_fail[provider_name] < PROVIDER_COOLDOWN:
+        return False
+    return True
+
+def _compute_quality_score(text: str, workspace: str) -> int:
+    if not text: return 0
+    score = 0
+    if len(text) >= 20: score += 10
+    if len(text) >= 100: score += 10
+    if len(text) >= 500: score += 10
+    if "```" in text: score += 15
+    if workspace == "data" and "[JSON-DATA]" in text: score += 20
+    hallucination_patterns = [r"I am (not|unable)", r"I don't have access", r"I apologize", r"as an AI"]
+    for pattern in hallucination_patterns:
+        if not re.search(pattern, text, re.IGNORECASE): score += 5
+    if re.search(r"\d+", text): score += 10
+    if re.search(r"(step|first|then|finally)", text, re.IGNORECASE): score += 10
+    return min(score, 100)
+
+async def _sequential_provider_fallback(workspace: str, task_type: str, prompt: str, max_tokens: int, temp: float, user: Optional[Dict] = None) -> str:
+    provider_order = get_provider_order(workspace)
+    provider_func_map = dict(PROVIDER_CHAIN)
+    for provider_name in provider_order:
+        if provider_name == "local": continue
+        func = provider_func_map.get(provider_name)
+        if not func: continue
+        if not _is_provider_ready(provider_name, user): continue
+        models = PROVIDER_MODELS.get(provider_name, [])
+        for model in models:
+            try:
+                response = await asyncio.wait_for(func(prompt, max_tokens, temp, model), timeout=8.0)
+                if response and len(response.strip()) > 10:
+                    return response
+            except Exception as e:
+                logger.debug(f"{provider_name}/{model} failed: {e}")
+                continue
+    return build_local_fallback_response(workspace, task_type, prompt)
+
+# ---------- AUTH ----------
 security = HTTPBearer()
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> Dict:
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
     token = credentials.credentials
+
+    # Try Google OAuth
     try:
         idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
         if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
             raise HTTPException(status_code=401, detail="Invalid issuer")
         user_doc = await users_col.find_one({"googleId": idinfo['sub']})
-        is_admin = idinfo['email'] == ADMIN_EMAIL
         if not user_doc:
-            new_user = {
-                "googleId": idinfo['sub'],
-                "email": idinfo['email'],
-                "displayName": idinfo.get('name', idinfo['email']),
-                "tier": "free",
-                "dailyUsage": 0,
-                "dailyUiUxUsage": 0,
-                "storageBytesUsed": 0,
-                "lastUsageDate": datetime.utcnow(),
-                "customInstructions": "",
-                "subTierOptions": {"hasDataAccess": False, "hasDesignAccess": False},
-                "quotas": {
-                    "dailyExtractionsUsed": 0,
-                    "dailyGenerationsUsed": 0,
-                    "dailyEnhancementsUsed": 0,
-                    "monthlyEnhancementsLimit": 3,
-                    "lastQuotaReset": datetime.utcnow()
-                },
-                "tokenUsage": {
-                    "totalPromptTokens": 0,
-                    "totalCompletionTokens": 0,
-                    "dailyPromptTokens": 0,
-                    "dailyCompletionTokens": 0,
-                    "lastTokenReset": datetime.utcnow()
-                },
-                "isAdmin": is_admin,
-                "dailyCloudflareQuota": 0,
-                "dailyGeminiQuota": 0,
-                "dailyOpenRouterQuota": 0,
-                "dailyGroqQuota": 0,
-                "dailyHuggingFaceQuota": 0,
-                "dailyMistralQuota": 0,
-                "dailyGithubQuota": 0,
-                "dailyNrouterQuota": 0,
-                "dailyTextCortexQuota": 0,
-                "dailyModelscopeQuota": 0,
-                "dailyOllamaQuota": 0,
-                "dailyNaraQuota": 0,
-                "dailyOvhcloudQuota": 0,
-                "dailySiliconflowQuota": 0,
-                "dailyAgnesQuota": 0,
-                "dailyBazaarlinkQuota": 0,
-                "dailyRequestyQuota": 0,
-                "dailyManifestQuota": 0,
-                "dailyZhipuQuota": 0,
-                "dailyTeamorouterQuota": 0,
-                "lastAiQuotaReset": datetime.utcnow(),
-                "puter_enabled": False,   # <-- default off
-                "preferences": {
-                    "defaultWorkspace": "data"   # default
-                }
-            }
-            result = await users_col.insert_one(new_user)
-            user_doc = await users_col.find_one({"_id": result.inserted_id})
-            logger.info(f"New user created: {idinfo['email']}")
+            user_doc = await _create_user_from_google(idinfo)
         else:
-            # Reset daily quotas if needed
-            now = datetime.utcnow()
-            today = datetime(now.year, now.month, now.day)
-            last_reset = user_doc["quotas"]["lastQuotaReset"]
-            if last_reset:
-                last_reset_day = datetime(last_reset.year, last_reset.month, last_reset.day)
-                if today > last_reset_day:
-                    await users_col.update_one(
-                        {"_id": user_doc["_id"]},
-                        {"$set": {
-                            "dailyUsage": 0,
-                            "dailyUiUxUsage": 0,
-                            "quotas.dailyExtractionsUsed": 0,
-                            "quotas.dailyGenerationsUsed": 0,
-                            "quotas.dailyEnhancementsUsed": 0,
-                            "quotas.lastQuotaReset": datetime.utcnow(),
-                            "tokenUsage.dailyPromptTokens": 0,
-                            "tokenUsage.dailyCompletionTokens": 0,
-                            "tokenUsage.lastTokenReset": datetime.utcnow(),
-                            "dailyCloudflareQuota": 0,
-                            "dailyGeminiQuota": 0,
-                            "dailyOpenRouterQuota": 0,
-                            "dailyGroqQuota": 0,
-                            "dailyHuggingFaceQuota": 0,
-                            "dailyMistralQuota": 0,
-                            "dailyGithubQuota": 0,
-                            "dailyNrouterQuota": 0,
-                            "dailyTextCortexQuota": 0,
-                            "dailyModelscopeQuota": 0,
-                            "dailyOllamaQuota": 0,
-                            "dailyNaraQuota": 0,
-                            "dailyOvhcloudQuota": 0,
-                            "dailySiliconflowQuota": 0,
-                            "dailyAgnesQuota": 0,
-                            "dailyBazaarlinkQuota": 0,
-                            "dailyRequestyQuota": 0,
-                            "dailyManifestQuota": 0,
-                            "dailyZhipuQuota": 0,
-                            "dailyTeamorouterQuota": 0,
-                            "lastAiQuotaReset": datetime.utcnow()
-                        }}
-                    )
-                    user_doc = await users_col.find_one({"_id": user_doc["_id"]})
+            user_doc = await _reset_quotas_if_needed(user_doc)
+        return user_doc
+    except Exception as e:
+        logger.debug(f"Google OAuth failed: {e}")
+
+    # Try JWT
+    try:
+        payload = decode_token(token)
+        if not payload:
+            raise HTTPException(status_code=401, detail="Invalid token")
+        user_doc = await users_col.find_one({"email": payload.get("sub")})
+        if not user_doc:
+            raise HTTPException(status_code=401, detail="User not found")
         return user_doc
     except Exception as e:
         logger.error(f"Auth failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
-# -------------------- FASTAPI APP --------------------
-# (Moved here from later in the file to fix NameError)
+async def _create_user_from_google(idinfo: dict) -> dict:
+    is_admin = idinfo['email'] == ADMIN_EMAIL
+    new_user = {
+        "googleId": idinfo['sub'],
+        "email": idinfo['email'],
+        "displayName": idinfo.get('name', idinfo['email']),
+        "tier": "free",
+        "dailyUsage": 0,
+        "dailyUiUxUsage": 0,
+        "storageBytesUsed": 0,
+        "lastUsageDate": datetime.utcnow(),
+        "customInstructions": "",
+        "subTierOptions": {"hasDataAccess": False, "hasDesignAccess": False},
+        "quotas": {
+            "dailyExtractionsUsed": 0,
+            "dailyGenerationsUsed": 0,
+            "dailyEnhancementsUsed": 0,
+            "monthlyEnhancementsLimit": 3,
+            "lastQuotaReset": datetime.utcnow()
+        },
+        "tokenUsage": {
+            "totalPromptTokens": 0,
+            "totalCompletionTokens": 0,
+            "dailyPromptTokens": 0,
+            "dailyCompletionTokens": 0,
+            "lastTokenReset": datetime.utcnow()
+        },
+        "isAdmin": is_admin,
+        "dailyCloudflareQuota": 0,
+        "dailyGeminiQuota": 0,
+        "dailyOpenRouterQuota": 0,
+        "dailyGroqQuota": 0,
+        "dailyHuggingFaceQuota": 0,
+        "dailyMistralQuota": 0,
+        "dailyGithubQuota": 0,
+        "dailyNrouterQuota": 0,
+        "dailyTextCortexQuota": 0,
+        "dailyModelscopeQuota": 0,
+        "dailyOllamaQuota": 0,
+        "dailyNaraQuota": 0,
+        "dailyOvhcloudQuota": 0,
+        "dailySiliconflowQuota": 0,
+        "dailyAgnesQuota": 0,
+        "dailyBazaarlinkQuota": 0,
+        "dailyRequestyQuota": 0,
+        "dailyManifestQuota": 0,
+        "dailyZhipuQuota": 0,
+        "dailyTeamorouterQuota": 0,
+        "lastAiQuotaReset": datetime.utcnow(),
+        "puter_enabled": False,
+        "preferences": {"defaultWorkspace": "data"}
+    }
+    result = await users_col.insert_one(new_user)
+    user_doc = await users_col.find_one({"_id": result.inserted_id})
+    logger.info(f"New user created: {idinfo['email']}")
+    return user_doc
+
+async def _reset_quotas_if_needed(user_doc: dict) -> dict:
+    now = datetime.utcnow()
+    today = datetime(now.year, now.month, now.day)
+    last_reset = user_doc.get("quotas", {}).get("lastQuotaReset")
+    if last_reset:
+        last_reset_day = datetime(last_reset.year, last_reset.month, last_reset.day)
+        if today > last_reset_day:
+            await users_col.update_one(
+                {"_id": user_doc["_id"]},
+                {"$set": {
+                    "dailyUsage": 0,
+                    "dailyUiUxUsage": 0,
+                    "quotas.dailyExtractionsUsed": 0,
+                    "quotas.dailyGenerationsUsed": 0,
+                    "quotas.dailyEnhancementsUsed": 0,
+                    "quotas.lastQuotaReset": datetime.utcnow(),
+                    "tokenUsage.dailyPromptTokens": 0,
+                    "tokenUsage.dailyCompletionTokens": 0,
+                    "tokenUsage.lastTokenReset": datetime.utcnow(),
+                    "dailyCloudflareQuota": 0,
+                    "dailyGeminiQuota": 0,
+                    "dailyOpenRouterQuota": 0,
+                    "dailyGroqQuota": 0,
+                    "dailyHuggingFaceQuota": 0,
+                    "dailyMistralQuota": 0,
+                    "dailyGithubQuota": 0,
+                    "dailyNrouterQuota": 0,
+                    "dailyTextCortexQuota": 0,
+                    "dailyModelscopeQuota": 0,
+                    "dailyOllamaQuota": 0,
+                    "dailyNaraQuota": 0,
+                    "dailyOvhcloudQuota": 0,
+                    "dailySiliconflowQuota": 0,
+                    "dailyAgnesQuota": 0,
+                    "dailyBazaarlinkQuota": 0,
+                    "dailyRequestyQuota": 0,
+                    "dailyManifestQuota": 0,
+                    "dailyZhipuQuota": 0,
+                    "dailyTeamorouterQuota": 0,
+                    "lastAiQuotaReset": datetime.utcnow()
+                }}
+            )
+            user_doc = await users_col.find_one({"_id": user_doc["_id"]})
+    return user_doc
+
+# ---------- GITHUB OAUTH ----------
+@app.get("/api/auth/github")
+async def github_login():
+    if not GITHUB_CLIENT_ID:
+        raise HTTPException(status_code=503, detail="GitHub OAuth not configured")
+    params = {
+        "client_id": GITHUB_CLIENT_ID,
+        "redirect_uri": GITHUB_REDIRECT_URI,
+        "scope": "user:email",
+        "response_type": "code",
+        "state": secrets.token_urlsafe(16)
+    }
+    url = f"https://github.com/login/oauth/authorize?{urllib.parse.urlencode(params)}"
+    return RedirectResponse(url=url)
+
+@app.get("/api/auth/github/callback")
+async def github_callback(code: str, state: Optional[str] = None):
+    if not GITHUB_CLIENT_ID or not GITHUB_CLIENT_SECRET:
+        raise HTTPException(status_code=503, detail="GitHub OAuth not configured")
+    token_url = "https://github.com/login/oauth/access_token"
+    headers = {"Accept": "application/json"}
+    data = {
+        "client_id": GITHUB_CLIENT_ID,
+        "client_secret": GITHUB_CLIENT_SECRET,
+        "code": code,
+        "redirect_uri": GITHUB_REDIRECT_URI,
+        "state": state
+    }
+    try:
+        resp = await HTTP_CLIENT.post(token_url, headers=headers, json=data, timeout=10.0)
+        resp.raise_for_status()
+        token_data = resp.json()
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise HTTPException(status_code=400, detail="Failed to obtain access token")
+    except Exception as e:
+        logger.error(f"GitHub token exchange failed: {e}")
+        raise HTTPException(status_code=503, detail="GitHub authentication service unavailable")
+
+    user_info_url = "https://api.github.com/user"
+    user_headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        user_resp = await HTTP_CLIENT.get(user_info_url, headers=user_headers, timeout=10.0)
+        user_resp.raise_for_status()
+        user_data = user_resp.json()
+    except Exception as e:
+        logger.error(f"GitHub user info fetch failed: {e}")
+        raise HTTPException(status_code=503, detail="Failed to fetch GitHub profile")
+
+    email_url = "https://api.github.com/user/emails"
+    try:
+        email_resp = await HTTP_CLIENT.get(email_url, headers=user_headers, timeout=10.0)
+        email_resp.raise_for_status()
+        emails = email_resp.json()
+        primary_email = next((e["email"] for e in emails if e.get("primary")), user_data.get("email"))
+    except Exception:
+        primary_email = user_data.get("email") or f"{user_data['id']}@github.user"
+
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    github_id = str(user_data["id"])
+    user_doc = await users_col.find_one({"githubId": github_id})
+    if not user_doc:
+        new_user = {
+            "githubId": github_id,
+            "email": primary_email,
+            "displayName": user_data.get("name") or user_data.get("login") or primary_email,
+            "tier": "free",
+            "dailyUsage": 0,
+            "dailyUiUxUsage": 0,
+            "storageBytesUsed": 0,
+            "lastUsageDate": datetime.utcnow(),
+            "customInstructions": "",
+            "subTierOptions": {"hasDataAccess": False, "hasDesignAccess": False},
+            "quotas": {
+                "dailyExtractionsUsed": 0,
+                "dailyGenerationsUsed": 0,
+                "dailyEnhancementsUsed": 0,
+                "monthlyEnhancementsLimit": 3,
+                "lastQuotaReset": datetime.utcnow()
+            },
+            "tokenUsage": {
+                "totalPromptTokens": 0,
+                "totalCompletionTokens": 0,
+                "dailyPromptTokens": 0,
+                "dailyCompletionTokens": 0,
+                "lastTokenReset": datetime.utcnow()
+            },
+            "isAdmin": primary_email == ADMIN_EMAIL,
+            "puter_enabled": False,
+            "preferences": {"defaultWorkspace": "data"},
+            "createdAt": datetime.utcnow()
+        }
+        result = await users_col.insert_one(new_user)
+        user_doc = await users_col.find_one({"_id": result.inserted_id})
+        logger.info(f"New GitHub user created: {primary_email}")
+    else:
+        await users_col.update_one({"_id": user_doc["_id"]}, {"$set": {"lastUsageDate": datetime.utcnow()}})
+        user_doc = await users_col.find_one({"_id": user_doc["_id"]})
+        user_doc = await _reset_quotas_if_needed(user_doc)
+
+    token = create_access_token({"sub": user_doc["email"]})
+    frontend_url = "https://axelr.in"
+    redirect_url = f"{frontend_url}/?auth=github&token={token}"
+    return RedirectResponse(url=redirect_url)
+
+# ---------- WEBAUTHN ----------
+from webauthn import generate_registration_options, verify_registration_response
+from webauthn import generate_authentication_options, verify_authentication_response
+from webauthn.helpers.structs import (
+    RegistrationCredential, AuthenticationCredential,
+    AuthenticatorSelectionCriteria, UserVerificationRequirement,
+    PublicKeyCredentialDescriptor
+)
+
+webauthn_challenges = {}
+
+class WebAuthnRegistrationBeginRequest(BaseModel):
+    email: str
+
+class WebAuthnRegistrationFinishRequest(BaseModel):
+    email: str
+    credential: dict
+
+class WebAuthnLoginBeginRequest(BaseModel):
+    email: str
+
+class WebAuthnLoginFinishRequest(BaseModel):
+    email: str
+    credential: dict
+
+async def get_user_for_webauthn(email: str) -> dict:
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    user = await users_col.find_one({"email": email})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+async def store_webauthn_credential(user_id: str, credential_id: bytes, public_key: bytes, sign_count: int):
+    await users_col.update_one(
+        {"_id": user_id},
+        {"$push": {"webauthnCredentials": {
+            "credentialId": credential_id.hex(),
+            "publicKey": public_key.hex(),
+            "signCount": sign_count,
+            "transports": []
+        }}}
+    )
+
+async def get_webauthn_credential(user_id: str, credential_id: bytes):
+    user = await users_col.find_one({"_id": user_id})
+    if not user:
+        return None
+    for cred in user.get("webauthnCredentials", []):
+        if cred["credentialId"] == credential_id.hex():
+            return cred
+    return None
+
+@app.post("/api/auth/webauthn/register/begin")
+async def webauthn_register_begin(data: WebAuthnRegistrationBeginRequest):
+    user = await get_user_for_webauthn(data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    options = generate_registration_options(
+        rp_id=RP_ID,
+        rp_name=RP_NAME,
+        user_id=user["_id"].binary,
+        user_name=user.get("displayName", data.email),
+        user_display_name=user.get("displayName", data.email),
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            user_verification=UserVerificationRequirement.PREFERRED,
+            resident_key="preferred"
+        ),
+    )
+    webauthn_challenges[options.challenge] = data.email
+    return options.model_dump()
+
+@app.post("/api/auth/webauthn/register/finish")
+async def webauthn_register_finish(data: WebAuthnRegistrationFinishRequest):
+    user = await get_user_for_webauthn(data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    challenge = webauthn_challenges.pop(data.credential.get("challenge"), None)
+    if not challenge:
+        raise HTTPException(status_code=400, detail="Invalid or expired challenge")
+    try:
+        credential = RegistrationCredential(**data.credential)
+        verification = verify_registration_response(
+            credential=credential,
+            expected_challenge=challenge,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
+        )
+    except Exception as e:
+        logger.error(f"WebAuthn registration verification failed: {e}")
+        raise HTTPException(status_code=400, detail="Registration verification failed")
+    await store_webauthn_credential(user["_id"], verification.credential_id, verification.credential_public_key, verification.sign_count)
+    return {"success": True, "message": "Passkey registered successfully"}
+
+@app.post("/api/auth/webauthn/login/begin")
+async def webauthn_login_begin(data: WebAuthnLoginBeginRequest):
+    user = await get_user_for_webauthn(data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    credentials = user.get("webauthnCredentials", [])
+    if not credentials:
+        raise HTTPException(status_code=400, detail="No passkeys registered for this user")
+    allowed_credentials = [PublicKeyCredentialDescriptor(id=bytes.fromhex(c["credentialId"])) for c in credentials]
+    options = generate_authentication_options(
+        rp_id=RP_ID,
+        challenge=secrets.token_urlsafe(32),
+        allow_credentials=allowed_credentials,
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+    webauthn_challenges[options.challenge] = data.email
+    return options.model_dump()
+
+@app.post("/api/auth/webauthn/login/finish")
+async def webauthn_login_finish(data: WebAuthnLoginFinishRequest):
+    user = await get_user_for_webauthn(data.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    challenge = webauthn_challenges.pop(data.credential.get("challenge"), None)
+    if not challenge:
+        raise HTTPException(status_code=400, detail="Invalid or expired challenge")
+    try:
+        credential = AuthenticationCredential(**data.credential)
+        stored_cred = await get_webauthn_credential(user["_id"], bytes.fromhex(credential.id))
+        if not stored_cred:
+            raise HTTPException(status_code=400, detail="Credential not found")
+        verification = verify_authentication_response(
+            credential=credential,
+            expected_challenge=challenge,
+            expected_rp_id=RP_ID,
+            expected_origin=ORIGIN,
+            credential_public_key=bytes.fromhex(stored_cred["publicKey"]),
+            credential_current_sign_count=stored_cred["signCount"],
+        )
+        await users_col.update_one(
+            {"_id": user["_id"], "webauthnCredentials.credentialId": credential.id},
+            {"$set": {"webauthnCredentials.$.signCount": verification.new_sign_count}}
+        )
+    except Exception as e:
+        logger.error(f"WebAuthn login verification failed: {e}")
+        raise HTTPException(status_code=400, detail="Authentication failed")
+    token = create_access_token({"sub": user["email"]})
+    return {"success": True, "token": token}
+
+# ---------- FASTAPI APP ----------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    await init_redis()
     if not db_available:
         logger.critical("MongoDB is not available. The application will run in degraded mode.")
     else:
         logger.info("Unified Fortress online")
-    app.state.start_time = time.time()   # <-- add this line
+    app.state.start_time = time.time()
+    # Validate provider keys on startup
+    asyncio.create_task(_validate_all_provider_keys())
     yield
     if client:
         client.close()
         logger.info("Shutdown complete")
 
-app = FastAPI(title="AXELR Unified", version="23.4", lifespan=lifespan)
+app = FastAPI(title="AXELR Unified", version="24.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -1454,70 +1929,25 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=86400,
 )
-# ---------- Puter Toggle Endpoint ----------
-class PuterToggle(BaseModel):
-    enabled: bool
 
-@app.post("/api/user/puter-toggle")
-async def toggle_puter(data: PuterToggle, user: dict = Depends(get_current_user)):
-    if not db_available:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    await users_col.update_one({"_id": user["_id"]}, {"$set": {"puter_enabled": data.enabled}})
-    return {"success": True, "puter_enabled": data.enabled}
+async def _validate_all_provider_keys():
+    for name, required in PROVIDER_KEY_CHECK.items():
+        if required:
+            key_var = name.upper() + "_API_KEY"
+            if name == "cloudflare":
+                key_var = "CLOUDFLARE_API_TOKEN"
+            elif name == "github_models":
+                key_var = "GITHUB_MODELS_TOKEN"
+            elif name in ("puter", "freetheai", "omnigpt_gateway", "opencode_zen", "freeflow",
+                          "qoder", "keylessai", "chubvenus", "blockrun", "aymo", "zerotwo", "aihubmix", "aisure"):
+                continue
+            key_value = os.getenv(key_var, "")
+            if not key_value:
+                logger.warning(f"Provider {name} missing key {key_var}")
+            else:
+                logger.info(f"Provider {name} key present")
 
-# ---------- User Preferences Endpoints ----------
-class PreferencesUpdate(BaseModel):
-    defaultWorkspace: str  # "data" or "design" or "general"
-
-@app.get("/api/user/preferences")
-async def get_preferences(user: dict = Depends(get_current_user)):
-    if not db_available:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    prefs = user.get("preferences", {})
-    return {"defaultWorkspace": prefs.get("defaultWorkspace", "data")}
-
-@app.put("/api/user/preferences")
-async def update_preferences(data: PreferencesUpdate, user: dict = Depends(get_current_user)):
-    if not db_available:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    if data.defaultWorkspace not in ["data", "design", "general"]:
-        raise HTTPException(status_code=400, detail="Invalid workspace")
-    await users_col.update_one(
-        {"_id": user["_id"]},
-        {"$set": {"preferences.defaultWorkspace": data.defaultWorkspace}}
-    )
-    return {"success": True, "defaultWorkspace": data.defaultWorkspace}
-
-# ---------- Smart Prompt Suggestions Endpoint ----------
-@app.get("/api/suggestions")
-async def get_suggestions(workspace: str = "data", user: dict = Depends(get_current_user)):
-    # Return static suggestions per workspace
-    suggestions = {
-        "data": [
-            "Extract key metrics from this invoice",
-            "Analyze sales data and identify trends",
-            "Clean and transform this dataset",
-            "Generate a summary of this CSV file",
-            "Compare these two spreadsheets"
-        ],
-        "design": [
-            "Design a responsive navbar with dropdown",
-            "Create a dark mode toggle button",
-            "Generate a pricing card component",
-            "Build a login form with validation",
-            "Make this existing page mobile-friendly"
-        ],
-        "general": [
-            "Summarize this text",
-            "Explain this concept in simple terms",
-            "Draft a professional email",
-            "Provide a step-by-step guide",
-            "Brainstorm ideas for a project"
-        ]
-    }
-    return {"suggestions": suggestions.get(workspace, suggestions["general"])}
-
-# -------------------- RATE LIMITING --------------------
+# ---------- RATE LIMITING ----------
 user_rate_limiter = {}
 RATE_LIMITS = {"free": 2, "pro": 5, "business": 8}
 
@@ -1531,7 +1961,147 @@ def check_user_rate_limit(user_id: str, tier: str):
         logger.info(f"Rate limit exceeded for user {user_id}, but allowing request (soft limit)")
     user_rate_limiter[user_id].append(now)
 
-# -------------------- HEALTH --------------------
+# ---------- GUEST SESSIONS ----------
+guest_sessions = {}
+
+class GuestSession(BaseModel):
+    sessionId: str
+    expiresIn: int
+
+@app.post("/api/guest/session")
+async def create_guest_session():
+    session_id = secrets.token_urlsafe(16)
+    guest_sessions[session_id] = {
+        "expires": datetime.utcnow() + timedelta(hours=1),
+        "messages": [],
+        "structured": None,
+        "created_at": datetime.utcnow()
+    }
+    return {"sessionId": session_id, "expiresIn": 3600}
+
+@app.get("/api/guest/session/{session_id}")
+async def get_guest_session(session_id: str):
+    if session_id not in guest_sessions:
+        raise HTTPException(status_code=404, detail="Session not found")
+    session = guest_sessions[session_id]
+    if datetime.utcnow() > session["expires"]:
+        del guest_sessions[session_id]
+        raise HTTPException(status_code=404, detail="Session expired")
+    return {
+        "sessionId": session_id,
+        "expiresIn": int((session["expires"] - datetime.utcnow()).total_seconds()),
+        "messageCount": len(session.get("messages", [])),
+        "hasStructured": session.get("structured") is not None
+    }
+
+@app.post("/api/guest/extract")
+async def guest_extract(
+    command: str = Form(...),
+    workspace: str = Form("data"),
+    sessionId: Optional[str] = Form(None),
+    files: List[UploadFile] = File([])
+):
+    if not sessionId or sessionId not in guest_sessions:
+        new_session = secrets.token_urlsafe(16)
+        guest_sessions[new_session] = {
+            "expires": datetime.utcnow() + timedelta(hours=1),
+            "messages": [],
+            "structured": None,
+            "created_at": datetime.utcnow()
+        }
+        sessionId = new_session
+
+    session = guest_sessions[sessionId]
+    if datetime.utcnow() > session["expires"]:
+        del guest_sessions[sessionId]
+        raise HTTPException(status_code=403, detail="Session expired")
+
+    message_count = len(session.get("messages", []))
+    if message_count >= 5:
+        raise HTTPException(status_code=403, detail={
+            "code": "GUEST_LIMIT_REACHED",
+            "message": "Guest sessions limited to 5 messages. Sign in for unlimited access.",
+            "limit": 5,
+            "used": message_count
+        })
+
+    valid_files = []
+    for f in files:
+        if is_allowed_file(workspace, f.filename, f.content_type or ""):
+            valid_files.append(f)
+
+    file_contents = []
+    for f in valid_files:
+        content_bytes = await f.read()
+        b64 = base64.b64encode(content_bytes).decode('utf-8')
+        file_contents.append({
+            "filename": f.filename,
+            "mimetype": f.content_type or "application/octet-stream",
+            "content_base64": b64
+        })
+
+    if workspace == "data":
+        task_type = "extraction"
+    elif workspace == "design":
+        task_type = "frontend"
+    else:
+        task_type = "structuring"
+
+    ai_result = await route_ai_request_parallel(
+        workspace=workspace,
+        task_type=task_type,
+        prompt=command,
+        history=session.get("messages", []),
+        files=file_contents,
+        max_tokens=2048,
+        temp=0.2,
+        tier="free",
+        user=None
+    )
+
+    if not ai_result.get("success"):
+        raise HTTPException(status_code=503, detail="AI service unavailable")
+
+    ai_text = ai_result["text"]
+    provider = ai_result.get("provider")
+    model_used = ai_result.get("model_used")
+
+    structured = []
+    json_match = re.search(r'\[JSON-DATA\](.*?)\[/JSON-DATA\]', ai_text, re.DOTALL)
+    if json_match:
+        try:
+            structured = json.loads(json_match.group(1).strip())
+        except Exception:
+            structured = []
+        ai_text = re.sub(r'\[JSON-DATA\].*?\[/JSON-DATA\]', '', ai_text, flags=re.DOTALL).strip()
+
+    session["messages"].append({
+        "role": "user",
+        "text": command,
+        "attachedFiles": [f.filename for f in valid_files]
+    })
+    session["messages"].append({
+        "role": "model",
+        "text": ai_text,
+        "variants": [ai_text],
+        "activeVariant": 0,
+        "canRegenerate": True,
+        "createdAt": datetime.utcnow().isoformat()
+    })
+    session["structured"] = structured
+
+    return {
+        "success": True,
+        "text": ai_text,
+        "sessionId": sessionId,
+        "structuredData": structured,
+        "filename": f"Export_{datetime.utcnow().strftime('%Y%m%d')}.csv",
+        "provider": provider,
+        "model": model_used,
+        "remaining": 5 - len(session.get("messages", [])) // 2
+    }
+
+# ---------- ENDPOINTS ----------
 @app.get("/")
 @app.get("/api/health")
 async def health():
@@ -1551,7 +2121,6 @@ async def health():
         "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
     }
 
-# -------------------- DIAGNOSTICS ROUTE --------------------
 @app.get("/api/v1/diagnose")
 async def diagnose_providers():
     results = {}
@@ -1560,73 +2129,12 @@ async def diagnose_providers():
     for provider_name, func in PROVIDER_CHAIN:
         if provider_name == "local":
             continue
-        # Skip if mandatory key missing
-        if provider_name == "gemini" and not GEMINI_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "groq" and not GROQ_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "cloudflare" and (not CLOUDFLARE_API_TOKEN or not CLOUDFLARE_ACCOUNT_ID):
-            results[provider_name] = {"status": "skipped", "reason": "Missing credentials"}
-            continue
-        if provider_name == "openrouter" and not OPENROUTER_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "modelscope" and not MODELSCOPE_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "ollama_cloud" and not OLLAMA_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "nara_router" and not NARAROUTER_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "mistral" and not MISTRAL_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "huggingface" and not HF_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "github_models" and not GITHUB_MODELS_TOKEN:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "zhipu" and not ZHIPU_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "teamorouter" and not TEAMOROUTER_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "ovhcloud" and not OVHCLOUD_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "siliconflow" and not SILICONFLOW_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "agnes_ai" and not AGNES_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "bazaarlink" and not BAZAARLINK_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "requesty" and not REQUESTY_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "nrouter" and not NROUTER_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "manifest" and not MANIFEST_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "anyapi" and not ANYAPI_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
-            continue
-        if provider_name == "glama" and not GLAMA_API_KEY:
-            results[provider_name] = {"status": "skipped", "reason": "No API key"}
+        if not PROVIDER_KEY_CHECK.get(provider_name, False):
+            results[provider_name] = {"status": "skipped", "reason": "Not configured"}
             continue
         models = PROVIDER_MODELS.get(provider_name, [])
         if not models:
-            results[provider_name] = {"status": "skipped", "reason": "No models configured"}
+            results[provider_name] = {"status": "skipped", "reason": "No models"}
             continue
         model = models[0]
         tasks[provider_name] = asyncio.create_task(_probe_provider(provider_name, func, test_prompt, model))
@@ -1650,7 +2158,6 @@ async def _probe_provider(name: str, func, prompt: str, model: Optional[str]) ->
     except Exception as e:
         return {"status": "error", "error": str(e)[:100]}
 
-# -------------------- ALL ORIGINAL ENDPOINTS --------------------
 @app.get("/api/user/profile")
 async def get_profile(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -1883,7 +2390,6 @@ async def create_report(data: ReportCreate, user: dict = Depends(get_current_use
             logger.warning(f"Report email failed: {e}")
     return {"success": True}
 
-# ---------- Test Email Endpoint ----------
 @app.get("/api/test-email")
 async def test_email(user: dict = Depends(get_current_user)):
     if not user.get("isAdmin") or user.get("email") != ADMIN_EMAIL:
@@ -1902,7 +2408,6 @@ async def test_email(user: dict = Depends(get_current_user)):
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-# ---------- Enhance Prompt ----------
 class EnhanceRequest(BaseModel):
     promptText: str
 
@@ -1970,7 +2475,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
     )
     return {"success": True, "enhanced": enhanced}
 
-# ---------- Refactor Endpoint ----------
 class RefactorRequest(BaseModel):
     code: str
     task_type: Optional[str] = "refactor"
@@ -2004,7 +2508,6 @@ Return only the refactored code, without any explanation.
         refactored_code = code_match.group(1).strip()
     return {"success": True, "refactored_code": refactored_code}
 
-# ---------- extract (main) ----------
 def estimate_tokens(text: str) -> int:
     return len(text) // 4 if text else 0
 
@@ -2242,7 +2745,6 @@ async def extract(
                 "lastUsageDate": datetime.utcnow()
             }
         }
-        # Track provider usage
         if provider == "gemini":
             update_query["$inc"]["dailyGeminiQuota"] = 1
         elif provider == "groq":
@@ -2261,7 +2763,6 @@ async def extract(
             update_query["$inc"]["dailyNrouterQuota"] = 1
         elif provider == "text_cortex":
             update_query["$inc"]["dailyTextCortexQuota"] = 1
-        # Other providers are not tracked individually
         await users_col.update_one({"_id": user["_id"]}, update_query)
     else:
         logger.info(f"Local fallback used for user {user['email']}")
@@ -2352,7 +2853,6 @@ async def extract(
         "model": model_used
     }
 
-# ---------- touch_fix ----------
 class TouchFixRequest(BaseModel):
     code: str
     error_message: str
@@ -2387,7 +2887,6 @@ Return only the corrected code, without any explanation.
         fixed_code = code_match.group(1).strip()
     return {"success": True, "fixed_code": fixed_code}
 
-# ---------- deploy ----------
 def _build_multipart(data: Dict, files: Dict) -> (bytes, str):
     boundary = '----WebKitFormBoundary' + hashlib.md5(os.urandom(16)).hexdigest()
     body_parts = []
@@ -2417,17 +2916,16 @@ async def http_post_multipart_async(url: str, headers: Dict, data: Dict, files: 
         raise Exception(f"HTTP error {e.code}: {error_body}")
     except Exception as e:
         raise Exception(f"HTTP request failed: {e}")
-    
+
 class DeployRequest(BaseModel):
     htmlContent: str
 
-# -------- ADD THESE TWO LINES --------
 class CodeRequest(BaseModel):
     code: str
 
 class TextRequest(BaseModel):
     text: str
-# ------------------------------------
+
 @app.post("/api/deploy")
 async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     html = data.htmlContent
@@ -2488,7 +2986,6 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     data_uri = f"data:text/html;charset=utf-8,{sanitized}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
-# ---------- admin metrics (dynamic provider list) ----------
 @app.get("/api/admin/metrics")
 async def admin_metrics(user: dict = Depends(get_current_user)):
     if not db_available:
@@ -2502,39 +2999,15 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     business_users = await users_col.count_documents({"tier": "business"})
     total_chats = await sessions_col.count_documents({})
 
-    pipeline_usage = [
-        {"$group": {"_id": None, "totalQueries": {"$sum": "$dailyUsage"}, "totalBytes": {"$sum": "$storageBytesUsed"}}}
-    ]
+    pipeline_usage = [{"$group": {"_id": None, "totalQueries": {"$sum": "$dailyUsage"}, "totalBytes": {"$sum": "$storageBytesUsed"}}}]
     usage_result = await users_col.aggregate(pipeline_usage).to_list(length=1)
     metrics = usage_result[0] if usage_result else {"totalQueries": 0, "totalBytes": 0}
 
-    pipeline_tokens = [
-        {"$group": {"_id": None, "totalPrompt": {"$sum": "$tokenUsage.totalPromptTokens"}, "totalCompletion": {"$sum": "$tokenUsage.totalCompletionTokens"}}}
-    ]
+    pipeline_tokens = [{"$group": {"_id": None, "totalPrompt": {"$sum": "$tokenUsage.totalPromptTokens"}, "totalCompletion": {"$sum": "$tokenUsage.totalCompletionTokens"}}}]
     tokens_result = await users_col.aggregate(pipeline_tokens).to_list(length=1)
     tokens = tokens_result[0] if tokens_result else {"totalPrompt": 0, "totalCompletion": 0}
     total_tokens = tokens["totalPrompt"] + tokens["totalCompletion"]
 
-    # Build provider usage from all providers in chain
-    provider_totals = {}
-    daily_provider = {}
-    for p, _ in PROVIDER_CHAIN:
-        if p == "local":
-            continue
-        # We'll accumulate from the user quotas
-        # Use dynamic field names: daily{p}Quota (e.g., dailyGeminiQuota)
-        field = f"daily{p.capitalize()}Quota"
-        # Some providers have different capitalization, e.g., "openrouter" -> "OpenRouter"
-        # We'll map a few, but better to use the actual field names stored in DB
-        # For simplicity, we'll gather all daily*Quota fields from users
-        # Instead, we'll use aggregation to sum all provider quota fields
-        # But since we already have a limited set, we'll use the existing fields for known providers
-        pass
-
-    # For simplicity, we'll keep the existing logic for known providers
-    # but we can also add new ones if needed.
-    # The admin UI will show all providers in provider_status.
-    # We'll just compute provider_status from provider_health.
     provider_status = {}
     for p, health in provider_health.items():
         status = health.get("status", "unknown")
@@ -2551,8 +3024,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "last_check": health.get("last_check")
         }
 
-    # For daily usage, we need to sum from user quotas, but we'll just provide a generic list
-    # We'll use the existing pipeline for known providers.
     pipeline_provider = [
         {"$group": {"_id": None,
                     "totalGroq": {"$sum": "$dailyGroqQuota"},
@@ -2584,7 +3055,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
     daily_provider_result = await users_col.aggregate(pipeline_daily_provider).to_list(length=1)
     daily_provider = daily_provider_result[0] if daily_provider_result else {}
 
-    # Build daily_usage dict for active provider detection
     daily_usage = {
         "groq": daily_provider.get("dailyGroq", 0),
         "openrouter": daily_provider.get("dailyOpenRouter", 0),
@@ -2656,13 +3126,12 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
             "textCortexLimit": int(os.getenv("TEXT_CORTEX_DAILY_LIMIT", 100)),
             "activeProvider": active_provider,
         },
-        "providerStatus": provider_status,  # <-- dynamic list of all providers
+        "providerStatus": provider_status,
         "dailyQueries": daily_queries,
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
     }
 
-# ---------- stripe & webhook ----------
 class CheckoutRequest(BaseModel):
     tier: str = "pro"
     subTier: str = "full"
@@ -2809,8 +3278,6 @@ async def stripe_webhook(request: Request):
                     logger.warning(f"Cancellation email failed: {e}")
     return {"received": True}
 
-# ---------- NEW ENDPOINTS: Explain Code & Generate Tests ----------
-
 @app.post("/api/explain-code")
 async def explain_code(data: CodeRequest, user: dict = Depends(get_current_user)):
     if not data.code:
@@ -2857,19 +3324,12 @@ async def generate_tests(data: CodeRequest, user: dict = Depends(get_current_use
     )
     if not ai_result.get("success"):
         raise HTTPException(status_code=503, detail="AI service unavailable")
-    # Extract code block if present
     tests = ai_result["text"]
     code_match = re.search(r"```(?:javascript|python|js)?\s*([\s\S]*?)```", tests, re.DOTALL)
     if code_match:
         tests = code_match.group(1).strip()
     return {"success": True, "tests": tests}
 
-class CodeRequest(BaseModel):
-    code: str
-
-# ✅ Add this after CodeRequest
-class TextRequest(BaseModel):
-    text: str
 @app.post("/api/summarize")
 async def summarize(data: TextRequest, user: dict = Depends(get_current_user)):
     if not data.text:
@@ -2910,56 +3370,111 @@ async def brainstorm(data: TextRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=503, detail="AI service unavailable")
     return {"success": True, "ideas": ai_result["text"]}
 
-# ---- Diagnose (for testing) ----
-# (already defined above)
-class WorkflowStep(BaseModel):
-    instruction: str
-    files: Optional[List[Dict]] = None
+@app.get("/api/suggestions")
+async def get_suggestions(workspace: str = "data", user: dict = Depends(get_current_user)):
+    suggestions = {
+        "data": [
+            "Extract key metrics from this invoice",
+            "Analyze sales data and identify trends",
+            "Clean and transform this dataset",
+            "Generate a summary of this CSV file",
+            "Compare these two spreadsheets"
+        ],
+        "design": [
+            "Design a responsive navbar with dropdown",
+            "Create a dark mode toggle button",
+            "Generate a pricing card component",
+            "Build a login form with validation",
+            "Make this existing page mobile-friendly"
+        ],
+        "general": [
+            "Summarize this text",
+            "Explain this concept in simple terms",
+            "Draft a professional email",
+            "Provide a step-by-step guide",
+            "Brainstorm ideas for a project"
+        ]
+    }
+    return {"suggestions": suggestions.get(workspace, suggestions["general"])}
 
-class WorkflowRequest(BaseModel):
-    steps: List[WorkflowStep]
-    workspace: str = "data"
+@app.get("/api/user/preferences")
+async def get_preferences(user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    prefs = user.get("preferences", {})
+    return {"defaultWorkspace": prefs.get("defaultWorkspace", "data")}
 
-@app.post("/api/workflow")
-async def execute_workflow(data: WorkflowRequest, user: dict = Depends(get_current_user)):
-    """Orchestrate multiple AI steps sequentially."""
-    context = ""
-    structured_data = None
-    for step in data.steps:
-        prompt = step.instruction
-        if context:
-            prompt = f"Previous context:\n{context}\n\nNow: {prompt}"
-        result = await route_ai_request(
-            workspace=data.workspace,
-            task_type="workflow",
-            prompt=prompt,
-            history=[],
-            files=step.files or [],
-            max_tokens=2048,
-            temp=0.2,
-            tier=user.get("tier", "free"),
-            user=user
-        )
-        if not result.get("success"):
-            raise HTTPException(status_code=503, detail=f"Step failed: {result.get('text', '')}")
-        context += f"\nStep result:\n{result['text']}\n"
-        # Optionally parse structured data from the last step
-        if step.instruction.lower().find("extract") != -1:
-            structured_data = result.get("structured_data", [])
-    return {"success": True, "final_output": context, "structured_data": structured_data}
+class PreferencesUpdate(BaseModel):
+    defaultWorkspace: str
 
-@app.post("/api/auto-insights")
-async def auto_insights(request: Request, user: dict = Depends(get_current_user)):
-    """Automatically generate insights from uploaded file(s)."""
-    form = await request.form()
-    files = form.getlist("files")
-    if not files:
-        raise HTTPException(400, "At least one file required")
-    # Process files similarly to /extract, then call route_ai_request with a default prompt
-    # ... (omitted for brevity, but essentially triggers a "generate insights" prompt)
-    # After the CodeRequest class definition (around line 2650)
-class TextRequest(BaseModel):
-    text: str
+@app.put("/api/user/preferences")
+async def update_preferences(data: PreferencesUpdate, user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    if data.defaultWorkspace not in ["data", "design", "general"]:
+        raise HTTPException(status_code=400, detail="Invalid workspace")
+    await users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"preferences.defaultWorkspace": data.defaultWorkspace}}
+    )
+    return {"success": True, "defaultWorkspace": data.defaultWorkspace}
+
+class PuterToggle(BaseModel):
+    enabled: bool
+
+@app.post("/api/user/puter-toggle")
+async def toggle_puter(data: PuterToggle, user: dict = Depends(get_current_user)):
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    await users_col.update_one({"_id": user["_id"]}, {"$set": {"puter_enabled": data.enabled}})
+    return {"success": True, "puter_enabled": data.enabled}
+
+@app.post("/api/admin/validate-provider")
+async def validate_provider(provider_name: str, user: dict = Depends(get_current_user)):
+    if not user.get("isAdmin"):
+        raise HTTPException(403, "Admin only")
+    provider_func = PROVIDER_FUNC_MAP.get(provider_name)
+    if not provider_func:
+        raise HTTPException(400, "Unknown provider")
+    key_check = PROVIDER_KEY_CHECK.get(provider_name, False)
+    if not key_check:
+        return {"status": "skipped", "reason": "Provider does not require a key or is not configured"}
+    test_prompt = "Say 'OK'"
+    model = PROVIDER_MODELS.get(provider_name, [None])[0]
+    if not model:
+        return {"status": "error", "reason": "No model configured"}
+    try:
+        start = time.time()
+        resp = await asyncio.wait_for(provider_func(test_prompt, 5, 0.0, model), timeout=5.0)
+        latency = (time.time() - start) * 1000
+        if resp and len(resp.strip()) > 0:
+            return {"status": "healthy", "latency_ms": round(latency, 2), "response_preview": resp[:100]}
+        else:
+            return {"status": "unhealthy", "response": resp[:50] if resp else "empty"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)[:200]}
+
+# ---------- KEEPALIVE ----------
+@app.on_event("startup")
+async def start_keepalive():
+    asyncio.create_task(_keepalive_loop())
+
+async def _keepalive_loop():
+    while True:
+        try:
+            for url in [
+                "https://axelr-backend.onrender.com/",
+                "https://axelr-backend.onrender.com/api/health",
+                "https://axelr-backend.onrender.com/api/v1/diagnose"
+            ]:
+                try:
+                    await HTTP_CLIENT.get(url, timeout=5.0)
+                except:
+                    pass
+            await asyncio.sleep(180)
+        except:
+            await asyncio.sleep(60)
+
 # ---------- 404 ----------
 @app.exception_handler(404)
 async def not_found(request, exc):
@@ -2968,5 +3483,5 @@ async def not_found(request, exc):
 # ---------- MAIN ----------
 if __name__ == "__main__":
     port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI v23.4 ON PORT {port} ===")
+    logger.info(f"=== STARTING AXELR AI v24.0 ON PORT {port} ===")
     uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
