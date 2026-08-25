@@ -42,6 +42,42 @@ import redis.asyncio as aioredis
 ssl._create_default_https_context = ssl._create_unverified_context
 load_dotenv(override=True)
 
+# ---------- FASTAPI APP ----------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_db()
+    await init_redis()
+    if not db_available:
+        logger.critical("MongoDB is not available. The application will run in degraded mode.")
+    else:
+        logger.info("Unified Fortress online")
+    app.state.start_time = time.time()
+    # Validate all providers on startup (async task)
+    asyncio.create_task(validate_all_providers())
+    yield
+    if client:
+        client.close()
+        logger.info("Shutdown complete")
+
+app = FastAPI(title="AXELR Unified", version="24.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "https://axelr.in",
+        "https://www.axelr.in",
+        "https://axelr-frontend.pages.dev",
+        "http://localhost:3000",
+        "http://localhost:5000",
+        "http://localhost:5001",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,
+)
+
 # ---------- STRIPE (optional) ----------
 STRIPE_AVAILABLE = False
 stripe = None
@@ -360,6 +396,7 @@ def get_email_transport():
     return None
 
 # ---------- PROVIDER FUNCTIONS ----------
+# (All provider functions remain unchanged – they are correct as given)
 # 1. GEMINI
 async def call_gemini(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GEMINI_API_KEY:
@@ -1507,6 +1544,34 @@ async def _sequential_provider_fallback(workspace: str, task_type: str, prompt: 
                 continue
     return build_local_fallback_response(workspace, task_type, prompt)
 
+# ---------- PROVIDER VALIDATION (startup) ----------
+async def validate_all_providers():
+    """Test each provider with a simple prompt and log health status."""
+    test_prompt = "Say OK"
+    results = {}
+    for name, func in PROVIDER_CHAIN:
+        if name == "local":
+            continue
+        if not PROVIDER_KEY_CHECK.get(name, False):
+            results[name] = "skipped (no key or not configured)"
+            continue
+        models = PROVIDER_MODELS.get(name, [])
+        if not models:
+            results[name] = "skipped (no models)"
+            continue
+        try:
+            start = time.time()
+            resp = await asyncio.wait_for(func(test_prompt, 5, 0.0, models[0]), timeout=5.0)
+            latency = (time.time() - start) * 1000
+            if resp and len(resp.strip()) > 0:
+                results[name] = f"healthy ({latency:.0f}ms)"
+            else:
+                results[name] = "unhealthy (empty response)"
+        except Exception as e:
+            results[name] = f"error: {str(e)[:80]}"
+    logger.info("Provider validation results: " + json.dumps(results, indent=2))
+    return results
+
 # ---------- AUTH ----------
 security = HTTPBearer()
 
@@ -1644,6 +1709,10 @@ async def _reset_quotas_if_needed(user_doc: dict) -> dict:
             user_doc = await users_col.find_one({"_id": user_doc["_id"]})
     return user_doc
 
+# ============================================================
+# AUTH ROUTES (Google, GitHub, Email, Passkey)
+# ============================================================
+
 # ---------- GITHUB OAUTH ----------
 @app.get("/api/auth/github")
 async def github_login():
@@ -1751,147 +1820,223 @@ async def github_callback(code: str, state: Optional[str] = None):
     redirect_url = f"{frontend_url}/?auth=github&token={token}"
     return RedirectResponse(url=redirect_url)
 
-# ---------- WEBAUTHN ----------
-from webauthn import generate_registration_options, verify_registration_response
-from webauthn import generate_authentication_options, verify_authentication_response
-from webauthn.helpers.structs import (
-    RegistrationCredential, AuthenticationCredential,
-    AuthenticatorSelectionCriteria, UserVerificationRequirement,
-    PublicKeyCredentialDescriptor
-)
-
+# ---------- WEBAUTHN (optional) ----------
+WEBAUTHN_AVAILABLE = False
 webauthn_challenges = {}
 
-class WebAuthnRegistrationBeginRequest(BaseModel):
-    email: str
-
-class WebAuthnRegistrationFinishRequest(BaseModel):
-    email: str
-    credential: dict
-
-class WebAuthnLoginBeginRequest(BaseModel):
-    email: str
-
-class WebAuthnLoginFinishRequest(BaseModel):
-    email: str
-    credential: dict
-
-async def get_user_for_webauthn(email: str) -> dict:
-    if not db_available:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    user = await users_col.find_one({"email": email})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    return user
-
-async def store_webauthn_credential(user_id: str, credential_id: bytes, public_key: bytes, sign_count: int):
-    await users_col.update_one(
-        {"_id": user_id},
-        {"$push": {"webauthnCredentials": {
-            "credentialId": credential_id.hex(),
-            "publicKey": public_key.hex(),
-            "signCount": sign_count,
-            "transports": []
-        }}}
+try:
+    from webauthn import generate_registration_options, verify_registration_response
+    from webauthn import generate_authentication_options, verify_authentication_response
+    from webauthn.helpers.structs import (
+        RegistrationCredential, AuthenticationCredential,
+        AuthenticatorSelectionCriteria, UserVerificationRequirement,
+        PublicKeyCredentialDescriptor
     )
+    WEBAUTHN_AVAILABLE = True
+    logger.info("WebAuthn loaded successfully – passkey features enabled")
+except ImportError as e:
+    logger.warning(f"WebAuthn module not available – passkey features disabled: {e}")
+except Exception as e:
+    logger.warning(f"WebAuthn initialization failed – passkey features disabled: {e}")
 
-async def get_webauthn_credential(user_id: str, credential_id: bytes):
-    user = await users_col.find_one({"_id": user_id})
-    if not user:
-        return None
-    for cred in user.get("webauthnCredentials", []):
-        if cred["credentialId"] == credential_id.hex():
-            return cred
-    return None
+if WEBAUTHN_AVAILABLE:
+    class WebAuthnRegistrationBeginRequest(BaseModel):
+        email: str
 
-@app.post("/api/auth/webauthn/register/begin")
-async def webauthn_register_begin(data: WebAuthnRegistrationBeginRequest):
-    user = await get_user_for_webauthn(data.email)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    options = generate_registration_options(
-        rp_id=RP_ID,
-        rp_name=RP_NAME,
-        user_id=user["_id"].binary,
-        user_name=user.get("displayName", data.email),
-        user_display_name=user.get("displayName", data.email),
-        authenticator_selection=AuthenticatorSelectionCriteria(
-            user_verification=UserVerificationRequirement.PREFERRED,
-            resident_key="preferred"
-        ),
-    )
-    webauthn_challenges[options.challenge] = data.email
-    return options.model_dump()
+    class WebAuthnRegistrationFinishRequest(BaseModel):
+        email: str
+        credential: dict
 
-@app.post("/api/auth/webauthn/register/finish")
-async def webauthn_register_finish(data: WebAuthnRegistrationFinishRequest):
-    user = await get_user_for_webauthn(data.email)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    challenge = webauthn_challenges.pop(data.credential.get("challenge"), None)
-    if not challenge:
-        raise HTTPException(status_code=400, detail="Invalid or expired challenge")
-    try:
-        credential = RegistrationCredential(**data.credential)
-        verification = verify_registration_response(
-            credential=credential,
-            expected_challenge=challenge,
-            expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
-        )
-    except Exception as e:
-        logger.error(f"WebAuthn registration verification failed: {e}")
-        raise HTTPException(status_code=400, detail="Registration verification failed")
-    await store_webauthn_credential(user["_id"], verification.credential_id, verification.credential_public_key, verification.sign_count)
-    return {"success": True, "message": "Passkey registered successfully"}
+    class WebAuthnLoginBeginRequest(BaseModel):
+        email: str
 
-@app.post("/api/auth/webauthn/login/begin")
-async def webauthn_login_begin(data: WebAuthnLoginBeginRequest):
-    user = await get_user_for_webauthn(data.email)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    credentials = user.get("webauthnCredentials", [])
-    if not credentials:
-        raise HTTPException(status_code=400, detail="No passkeys registered for this user")
-    allowed_credentials = [PublicKeyCredentialDescriptor(id=bytes.fromhex(c["credentialId"])) for c in credentials]
-    options = generate_authentication_options(
-        rp_id=RP_ID,
-        challenge=secrets.token_urlsafe(32),
-        allow_credentials=allowed_credentials,
-        user_verification=UserVerificationRequirement.PREFERRED,
-    )
-    webauthn_challenges[options.challenge] = data.email
-    return options.model_dump()
+    class WebAuthnLoginFinishRequest(BaseModel):
+        email: str
+        credential: dict
 
-@app.post("/api/auth/webauthn/login/finish")
-async def webauthn_login_finish(data: WebAuthnLoginFinishRequest):
-    user = await get_user_for_webauthn(data.email)
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    challenge = webauthn_challenges.pop(data.credential.get("challenge"), None)
-    if not challenge:
-        raise HTTPException(status_code=400, detail="Invalid or expired challenge")
-    try:
-        credential = AuthenticationCredential(**data.credential)
-        stored_cred = await get_webauthn_credential(user["_id"], bytes.fromhex(credential.id))
-        if not stored_cred:
-            raise HTTPException(status_code=400, detail="Credential not found")
-        verification = verify_authentication_response(
-            credential=credential,
-            expected_challenge=challenge,
-            expected_rp_id=RP_ID,
-            expected_origin=ORIGIN,
-            credential_public_key=bytes.fromhex(stored_cred["publicKey"]),
-            credential_current_sign_count=stored_cred["signCount"],
-        )
+    async def get_user_for_webauthn(email: str) -> dict:
+        if not db_available:
+            raise HTTPException(status_code=503, detail="Database unavailable")
+        user = await users_col.find_one({"email": email})
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        return user
+
+    async def store_webauthn_credential(user_id: str, credential_id: bytes, public_key: bytes, sign_count: int):
         await users_col.update_one(
-            {"_id": user["_id"], "webauthnCredentials.credentialId": credential.id},
-            {"$set": {"webauthnCredentials.$.signCount": verification.new_sign_count}}
+            {"_id": user_id},
+            {"$push": {"webauthnCredentials": {
+                "credentialId": credential_id.hex(),
+                "publicKey": public_key.hex(),
+                "signCount": sign_count,
+                "transports": []
+            }}}
         )
-    except Exception as e:
-        logger.error(f"WebAuthn login verification failed: {e}")
-        raise HTTPException(status_code=400, detail="Authentication failed")
+
+    async def get_webauthn_credential(user_id: str, credential_id: bytes):
+        user = await users_col.find_one({"_id": user_id})
+        if not user:
+            return None
+        for cred in user.get("webauthnCredentials", []):
+            if cred["credentialId"] == credential_id.hex():
+                return cred
+        return None
+
+    @app.post("/api/auth/webauthn/register/begin")
+    async def webauthn_register_begin(data: WebAuthnRegistrationBeginRequest):
+        user = await get_user_for_webauthn(data.email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        options = generate_registration_options(
+            rp_id=RP_ID,
+            rp_name=RP_NAME,
+            user_id=user["_id"].binary,
+            user_name=user.get("displayName", data.email),
+            user_display_name=user.get("displayName", data.email),
+            authenticator_selection=AuthenticatorSelectionCriteria(
+                user_verification=UserVerificationRequirement.PREFERRED,
+                resident_key="preferred"
+            ),
+        )
+        webauthn_challenges[options.challenge] = data.email
+        return options.model_dump()
+
+    @app.post("/api/auth/webauthn/register/finish")
+    async def webauthn_register_finish(data: WebAuthnRegistrationFinishRequest):
+        user = await get_user_for_webauthn(data.email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        challenge = webauthn_challenges.pop(data.credential.get("challenge"), None)
+        if not challenge:
+            raise HTTPException(status_code=400, detail="Invalid or expired challenge")
+        try:
+            credential = RegistrationCredential(**data.credential)
+            verification = verify_registration_response(
+                credential=credential,
+                expected_challenge=challenge,
+                expected_rp_id=RP_ID,
+                expected_origin=ORIGIN,
+            )
+        except Exception as e:
+            logger.error(f"WebAuthn registration verification failed: {e}")
+            raise HTTPException(status_code=400, detail="Registration verification failed")
+        await store_webauthn_credential(user["_id"], verification.credential_id, verification.credential_public_key, verification.sign_count)
+        return {"success": True, "message": "Passkey registered successfully"}
+
+    @app.post("/api/auth/webauthn/login/begin")
+    async def webauthn_login_begin(data: WebAuthnLoginBeginRequest):
+        user = await get_user_for_webauthn(data.email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        credentials = user.get("webauthnCredentials", [])
+        if not credentials:
+            raise HTTPException(status_code=400, detail="No passkeys registered for this user")
+        allowed_credentials = [PublicKeyCredentialDescriptor(id=bytes.fromhex(c["credentialId"])) for c in credentials]
+        options = generate_authentication_options(
+            rp_id=RP_ID,
+            challenge=secrets.token_urlsafe(32),
+            allow_credentials=allowed_credentials,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        )
+        webauthn_challenges[options.challenge] = data.email
+        return options.model_dump()
+
+@app.get("/api/ready")
+async def readiness():
+    if not db_available:
+        raise HTTPException(503, "Database unavailable")
+    # Check if any provider is healthy (optional)
+    if not any(h["status"] == "healthy" for h in provider_health.values()):
+        raise HTTPException(503, "No AI provider available")
+    return {"status": "ready"}
+    @app.post("/api/auth/webauthn/login/finish")
+    async def webauthn_login_finish(data: WebAuthnLoginFinishRequest):
+        user = await get_user_for_webauthn(data.email)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        challenge = webauthn_challenges.pop(data.credential.get("challenge"), None)
+        if not challenge:
+            raise HTTPException(status_code=400, detail="Invalid or expired challenge")
+        try:
+            credential = AuthenticationCredential(**data.credential)
+            stored_cred = await get_webauthn_credential(user["_id"], bytes.fromhex(credential.id))
+            if not stored_cred:
+                raise HTTPException(status_code=400, detail="Credential not found")
+            verification = verify_authentication_response(
+                credential=credential,
+                expected_challenge=challenge,
+                expected_rp_id=RP_ID,
+                expected_origin=ORIGIN,
+                credential_public_key=bytes.fromhex(stored_cred["publicKey"]),
+                credential_current_sign_count=stored_cred["signCount"],
+            )
+            await users_col.update_one(
+                {"_id": user["_id"], "webauthnCredentials.credentialId": credential.id},
+                {"$set": {"webauthnCredentials.$.signCount": verification.new_sign_count}}
+            )
+        except Exception as e:
+            logger.error(f"WebAuthn login verification failed: {e}")
+            raise HTTPException(status_code=400, detail="Authentication failed")
+        token = create_access_token({"sub": user["email"]})
+        return {"success": True, "token": token}
+# ---------- EMAIL / PASSWORD AUTH ----------
+class EmailLoginRequest(BaseModel):
+    email: str
+    password: str
+
+@app.post("/api/auth/email")
+async def email_login(data: EmailLoginRequest):
+    if not db_available:
+        raise HTTPException(503, "Database unavailable")
+    user = await users_col.find_one({"email": data.email})
+    if not user:
+        raise HTTPException(401, "User not found")
+    if not verify_password(data.password, user.get("password_hash", "")):
+        raise HTTPException(401, "Invalid password")
     token = create_access_token({"sub": user["email"]})
+    return {"success": True, "token": token}
+
+@app.post("/api/auth/email/register")
+async def email_register(data: EmailLoginRequest):
+    if not db_available:
+        raise HTTPException(503, "Database unavailable")
+    existing = await users_col.find_one({"email": data.email})
+    if existing:
+        raise HTTPException(400, "Email already registered")
+    hashed = hash_password(data.password)
+    new_user = {
+        "email": data.email,
+        "displayName": data.email.split('@')[0],
+        "password_hash": hashed,
+        "tier": "free",
+        "dailyUsage": 0,
+        "dailyUiUxUsage": 0,
+        "storageBytesUsed": 0,
+        "lastUsageDate": datetime.utcnow(),
+        "customInstructions": "",
+        "subTierOptions": {"hasDataAccess": False, "hasDesignAccess": False},
+        "quotas": {
+            "dailyExtractionsUsed": 0,
+            "dailyGenerationsUsed": 0,
+            "dailyEnhancementsUsed": 0,
+            "monthlyEnhancementsLimit": 3,
+            "lastQuotaReset": datetime.utcnow()
+        },
+        "tokenUsage": {
+            "totalPromptTokens": 0,
+            "totalCompletionTokens": 0,
+            "dailyPromptTokens": 0,
+            "dailyCompletionTokens": 0,
+            "lastTokenReset": datetime.utcnow()
+        },
+        "isAdmin": data.email == ADMIN_EMAIL,
+        "puter_enabled": False,
+        "preferences": {"defaultWorkspace": "data"},
+        "createdAt": datetime.utcnow()
+    }
+    result = await users_col.insert_one(new_user)
+    user_doc = await users_col.find_one({"_id": result.inserted_id})
+    token = create_access_token({"sub": user_doc["email"]})
     return {"success": True, "token": token}
 
 # ---------- FASTAPI APP ----------
@@ -1904,8 +2049,8 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("Unified Fortress online")
     app.state.start_time = time.time()
-    # Validate provider keys on startup
-    asyncio.create_task(_validate_all_provider_keys())
+    # Validate all providers on startup (async task)
+    asyncio.create_task(validate_all_providers())
     yield
     if client:
         client.close()
@@ -1929,23 +2074,6 @@ app.add_middleware(
     expose_headers=["*"],
     max_age=86400,
 )
-
-async def _validate_all_provider_keys():
-    for name, required in PROVIDER_KEY_CHECK.items():
-        if required:
-            key_var = name.upper() + "_API_KEY"
-            if name == "cloudflare":
-                key_var = "CLOUDFLARE_API_TOKEN"
-            elif name == "github_models":
-                key_var = "GITHUB_MODELS_TOKEN"
-            elif name in ("puter", "freetheai", "omnigpt_gateway", "opencode_zen", "freeflow",
-                          "qoder", "keylessai", "chubvenus", "blockrun", "aymo", "zerotwo", "aihubmix", "aisure"):
-                continue
-            key_value = os.getenv(key_var, "")
-            if not key_value:
-                logger.warning(f"Provider {name} missing key {key_var}")
-            else:
-                logger.info(f"Provider {name} key present")
 
 # ---------- RATE LIMITING ----------
 user_rate_limiter = {}
