@@ -562,7 +562,7 @@ async def call_huggingface(prompt: str, max_tokens: int, temp: float, model: str
 async def call_github_models(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not GITHUB_MODELS_TOKEN:
         raise Exception("GITHUB_MODELS_TOKEN missing")
-    url = "https://models.inference.ai.azure.com/v1/chat/completions"
+    url = "https://models.inference.ai.azure.com"
     params = {"api-version": "2024-05-01-preview"}
     full_url = url + "?" + urllib.parse.urlencode(params)
     headers = {"Authorization": f"Bearer {GITHUB_MODELS_TOKEN}", "Content-Type": "application/json"}
@@ -615,7 +615,7 @@ async def call_siliconflow(prompt: str, max_tokens: int, temp: float, model: Opt
 async def call_agnes_ai(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not AGNES_API_KEY:
         raise Exception("AGNES_API_KEY missing")
-    url = "https://api.agnes.ai/v1/chat/completions"
+    url = "https://api.agnes-ai.com/v1/chat/completions"
     headers = {"Authorization": f"Bearer {AGNES_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or AGNES_MODEL
     payload = {
