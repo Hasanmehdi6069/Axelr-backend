@@ -5834,10 +5834,9 @@ class AgentRequest(BaseModel):
     task: str
     agents: List[Dict[str, str]]  # [{"name": "Researcher", "role": "research"}, ...]
     workspace: Optional[str] = "general"
-
 @app.post("/api/agents/chat")
 @limiter.limit("10/minute")
-async def agent_chat(data: AgentRequest, user: dict = Depends(get_current_user)):
+async def agent_chat(request: Request, data: AgentRequest, user: dict = Depends(get_current_user)):
     if not data.agents:
         raise HTTPException(400, "At least one agent required")
     # Validate each agent has a role
