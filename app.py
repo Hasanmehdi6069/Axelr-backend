@@ -107,9 +107,63 @@ AI_REQUESTS = Counter(
 logger = structlog.get_logger("axelr")
 CLOUDFLARE_API_KEY = (os.getenv("CLOUDFLARE_API_KEY") or "").strip()
 CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
-GEMINI_MODELS_STR = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
+GEMINI_MODELS_STR = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 GEMINI_MODELS = [m.strip() for m in GEMINI_MODELS_STR.split(",") if m.strip()]
-GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-1.5-flash"
+GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-3.5-flash"
+# ============================================================
+# SAFE HTML SANITIZATION (for deploy endpoint)
+# ============================================================
+ALLOWED_TAGS = [
+    'html', 'head', 'title', 'body', 'div', 'span', 'p', 'a', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+    'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'form', 'input', 'button', 'select',
+    'option', 'textarea', 'label', 'fieldset', 'legend', 'style', 'script', 'link', 'meta', 'header',
+    'footer', 'nav', 'section', 'article', 'aside', 'main', 'figure', 'figcaption', 'canvas', 'svg',
+    'path', 'circle', 'rect', 'line', 'polygon', 'g', 'defs', 'use', 'clipPath', 'pattern', 'image',
+    'iframe', 'audio', 'video', 'source', 'track', 'embed', 'object', 'param', 'blockquote', 'pre',
+    'code', 'br', 'hr', 'strong', 'em', 'b', 'i', 'u', 's', 'sub', 'sup', 'mark', 'small', 'del', 'ins',
+    'details', 'summary', 'dialog', 'menu', 'menuitem', 'command'
+]
+ALLOWED_ATTRS = {
+    '*': ['class', 'id', 'style', 'title', 'lang', 'dir', 'hidden', 'tabindex', 'role', 'aria-*', 'data-*'],
+    'a': ['href', 'target', 'rel', 'download', 'ping', 'hreflang', 'type'],
+    'img': ['src', 'alt', 'width', 'height', 'loading', 'decoding', 'crossorigin', 'srcset', 'sizes'],
+    'iframe': ['src', 'width', 'height', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy', 'sandbox'],
+    'input': ['type', 'name', 'value', 'placeholder', 'checked', 'disabled', 'readonly', 'required', 'min', 'max', 'step', 'pattern', 'autocomplete', 'autofocus', 'multiple'],
+    'button': ['type', 'name', 'value', 'disabled'],
+    'select': ['name', 'multiple', 'disabled', 'required', 'size'],
+    'option': ['value', 'selected', 'disabled'],
+    'textarea': ['name', 'rows', 'cols', 'disabled', 'readonly', 'required', 'placeholder', 'wrap'],
+    'form': ['action', 'method', 'enctype', 'target', 'novalidate', 'autocomplete'],
+    'style': ['type', 'media', 'scoped'],
+    'script': ['type', 'src', 'async', 'defer', 'integrity', 'crossorigin'],
+    'link': ['href', 'rel', 'type', 'media', 'crossorigin', 'integrity'],
+    'meta': ['name', 'content', 'charset', 'http-equiv'],
+}
+# ... imports ...
+import os
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+# Feature flags (moved here)
+ENABLE_INTENT_CLASSIFIER = os.getenv("ENABLE_INTENT_CLASSIFIER", "true").lower() == "true"
+ENABLE_CONTEXT_REGISTRY = os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
+ENABLE_CRITIC = os.getenv("ENABLE_CRITIC", "true").lower() == "true"
+ENABLE_SELF_HEAL = os.getenv("ENABLE_SELF_HEAL", "true").lower() == "true"
+ENABLE_BLAST_RADIUS = os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true"
+ENABLE_PR_DEFENSE = os.getenv("ENABLE_PR_DEFENSE", "true").lower() == "true"
+WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "")
+if 'ENABLE_INTENT_CLASSIFIER' not in globals():
+    ENABLE_INTENT_CLASSIFIER = os.getenv("ENABLE_INTENT_CLASSIFIER", "true").lower() == "true"
+if 'ENABLE_CONTEXT_REGISTRY' not in globals():
+    ENABLE_CONTEXT_REGISTRY = os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
+if 'ENABLE_CRITIC' not in globals():
+    ENABLE_CRITIC = os.getenv("ENABLE_CRITIC", "true").lower() == "true"
+if 'ENABLE_SELF_HEAL' not in globals():
+    ENABLE_SELF_HEAL = os.getenv("ENABLE_SELF_HEAL", "true").lower() == "true"
+if 'ENABLE_BLAST_RADIUS' not in globals():
+    ENABLE_BLAST_RADIUS = os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true"
+if 'ENABLE_PR_DEFENSE' not in globals():
+    ENABLE_PR_DEFENSE = os.getenv("ENABLE_PR_DEFENSE", "true").lower() == "true"
 # ---------- STRIPE (optional) ----------
 STRIPE_AVAILABLE = False
 stripe = None
@@ -143,22 +197,48 @@ ENABLE_BLAST_RADIUS = os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true
 ENABLE_PR_DEFENSE = os.getenv("ENABLE_PR_DEFENSE", "true").lower() == "true"
 WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "")
 
+
 # ---------------------------- FASTAPI APP ----------------------------
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
     await init_redis()
+    # --- Startup check logic (moved here) ---
+    logger.info("=== AXELR AI STARTUP CHECK ===")
+    logger.info(f"Origin: {ORIGIN}")
+    logger.info(f"MongoDB URI: {'[SET]' if MONGO_URI else '[MISSING]'}")
+    # Instantiate core features after Redis and DB are ready
+    global intent_classifier, context_registry, dependency_graph, critic_agent, self_healer, pr_defense
+    if ENABLE_INTENT_CLASSIFIER:
+        intent_classifier = IntentClassifier()
+    if ENABLE_CONTEXT_REGISTRY and redis_client is not None and db is not None:
+        context_registry = ContextRegistry(redis_client, users_col)
+    if ENABLE_BLAST_RADIUS and WORKSPACE_ROOT:
+        dependency_graph = DependencyGraph(WORKSPACE_ROOT, ".github/workflows/ci.yml")
+    if ENABLE_CRITIC:
+        critic_agent = CriticAgent()
+    if ENABLE_SELF_HEAL:
+        self_healer = SelfHealingEngine(route_ai_request, max_retries=3)
+    if ENABLE_PR_DEFENSE:
+        pr_defense = PRDefenseGenerator()
     if not db_available:
         logger.critical("MongoDB is not available. The application will run in degraded mode.")
     else:
-        logger.info("Unified Fortress online")
-    app.state.start_time = time.time()
-
-    global self_healer
-    if ENABLE_SELF_HEAL:
-        self_healer = SelfHealingEngine(route_ai_request, max_retries=3)
+        try:
+            await db.command("ping")
+            logger.info("MongoDB: Connected")
+        except Exception as e:
+            logger.error(f"MongoDB: Connection failed - {e}")
+    if redis_client:
+        try:
+            await redis_client.ping()
+            logger.info("Redis: Connected")
+        except Exception as e:
+            logger.error(f"Redis: Connection failed - {e}")
     else:
-        self_healer = None
+        logger.warning("Redis: Not configured")
+    logger.info("=== STARTUP CHECK COMPLETE ===")
+    app.state.start_time = time.time()
 
     asyncio.create_task(validate_all_providers())
     asyncio.create_task(background_health_check())
@@ -169,23 +249,46 @@ async def lifespan(app: FastAPI):
     if client:
         client.close()
         logger.info("Shutdown complete")
-
 app = FastAPI(title="AXELR Unified", version="24.3", lifespan=lifespan)
-
+# ============================================================
+# DYNAMIC ORIGINS & STARTUP VALIDATION
+# ============================================================
 configured_origin = os.getenv("ORIGIN", "https://axelr.in").strip().rstrip("/")
 allowed_origins = list(dict.fromkeys([
     configured_origin,
     "https://axelr.in",
     "http://localhost:5500",
     "http://127.0.0.1:5500",
+    "https://axelr-backend.onrender.com",
 ]))
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
-)
+@app.on_event("startup")
+async def startup_check():
+    logger.info("=== AXELR AI STARTUP CHECK ===")
+    logger.info(f"Origin: {ORIGIN}")  # <-- Fixed indentation (4 spaces)
+    logger.info(f"MongoDB URI: {'[SET]' if MONGO_URI else '[MISSING]'}")
+    logger.info(f"Google Client ID: {'[SET]' if GOOGLE_CLIENT_ID else '[MISSING]'}")
+    logger.info(f"GROQ API Key: {'[SET]' if GROQ_API_KEY else '[MISSING]'}")
+    logger.info(f"Gemini API Key: {'[SET]' if GEMINI_API_KEY else '[MISSING]'}")
+    logger.info(f"OpenRouter API Key: {'[SET]' if OPENROUTER_API_KEY else '[MISSING]'}")
+    # Check database
+    if db_available:
+        try:
+            await db.command("ping")
+            logger.info("MongoDB: Connected")
+        except Exception as e:
+            logger.error(f"MongoDB: Connection failed - {e}")
+    else:
+        logger.error("MongoDB: Not available")
+    # Check Redis
+    if redis_client:
+        try:
+            await redis_client.ping()
+            logger.info("Redis: Connected")
+        except Exception as e:
+            logger.error(f"Redis: Connection failed - {e}")
+    else:
+        logger.warning("Redis: Not configured")
+    logger.info("=== STARTUP CHECK COMPLETE ===")
 
 @app.middleware("http")
 async def logging_middleware(request: Request, call_next):
@@ -205,7 +308,26 @@ async def logging_middleware(request: Request, call_next):
         },
     )
     return response
-
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://accounts.google.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' https://axelr-backend.onrender.com https://api.puter.com; "
+        "frame-src 'self' https://accounts.google.com; "
+        "object-src 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'; "
+        "upgrade-insecure-requests"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
 # ---------------------------- RATE LIMITER (REDIS BACKED) ----------------------------
 limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
 app.state.limiter = limiter
@@ -284,7 +406,7 @@ class ConnectionManager:
 REDIS_URL = os.getenv("REDIS_URL")
 redis_client = None
 
-async def init_redis():
+async def init_redis() -> None:
     global redis_client
     if REDIS_URL:
         try:
@@ -361,25 +483,6 @@ async def check_rate_limit(user_id: str, tier: str, endpoint: str) -> Tuple[bool
         logger.warning(f"Rate limit check failed: {e}")
         return True, 0
 
-# ---------------------------- JWT HELPERS ----------------------------
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode(), hashed.encode())
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def decode_token(token: str):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError:
-        return None
 
 # ---------- AUTH DEPENDENCY ----------
 security = HTTPBearer()
@@ -413,6 +516,23 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except Exception as e:
         logger.error(f"Auth failed: {e}")
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+# Also add a debug endpoint
+@app.get("/api/debug/env")
+async def debug_env(user: dict = Depends(get_current_user)):
+    if not user.get("isAdmin"):
+        raise HTTPException(403, "Admin only")
+    return {
+        "MONGO_URI": bool(MONGO_URI),
+        "GOOGLE_CLIENT_ID": bool(GOOGLE_CLIENT_ID),
+        "GROQ_API_KEY": bool(GROQ_API_KEY),
+        "GEMINI_API_KEY": bool(GEMINI_API_KEY),
+        "OPENROUTER_API_KEY": bool(OPENROUTER_API_KEY),
+        "db_available": db_available,
+        "redis_available": bool(redis_client),
+        "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
+    }
 
 # ---------------------------- ENV VARS (repeated for clarity) ----------------------------
 MONGO_URI = (os.getenv("MONGO_URI") or "").strip()
@@ -513,6 +633,56 @@ AISURE_MODEL = "gpt-4o"
 ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4.5-flash")
 TEAMOROUTER_MODEL = os.getenv("TEAMOROUTER_MODEL", "teamorouter-free")
 FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
+
+
+# ---------------------------- JWT HELPERS ----------------------------
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode(), hashed.encode())
+
+def create_access_token(data: dict):
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+def decode_token(token: str):
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+security = HTTPBearer()
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+    if not db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    token = credentials.credentials
+    try:
+        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
+        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+            raise HTTPException(status_code=401, detail="Invalid issuer")
+        user_doc = await users_col.find_one({"googleId": idinfo['sub']})
+        if not user_doc:
+            user_doc = await _create_user_from_google(idinfo)
+        else:
+            user_doc = await _reset_quotas_if_needed(user_doc)
+        return user_doc
+    except Exception:
+        # Fallback to JWT
+        try:
+            payload = decode_token(token)
+            if not payload:
+                raise HTTPException(status_code=401, detail="Invalid token")
+            user_doc = await users_col.find_one({"email": payload.get("sub")})
+            if not user_doc:
+                raise HTTPException(status_code=401, detail="User not found")
+            return user_doc
+        except Exception as e:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
 # ============================================================
 # LITELLM ROUTER CONFIGURATION
 # ============================================================
@@ -1559,6 +1729,7 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
         "Do not add pleasantries, introductions, or conclusions. "
         "Provide exactly what is asked, nothing more."
     )
+
     if workspace == "design":
         return base + (
             " You are AXELR ARCHITECT – a world-class UI/UX engineer. "
@@ -1574,6 +1745,29 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
         )
     else:
         return base + " Rewrite the user prompt into a detailed, professional system prompt."
+
+def strip_system_prompt(text: str) -> str:
+    patterns = [
+        r"You are AXELR, an elite executive AI.*?\. ",
+        r"RESPONSE MUST BE SHORT, CONCISE.*?\. ",
+        r"Keep replies under 200 words.*?\. ",
+        r"Do not add pleasantries.*?\. ",
+        r"Provide exactly what is asked.*?\. ",
+        r"You are AXELR ARCHITECT.*?\. ",
+        r"You are AXELR DATA.*?\. ",
+        r"Rewrite the user prompt.*?\. ",
+        r"Always answer directly.*?\. ",
+        r"Never claim a service is unavailable.*?\. ",
+        r"Do not mention subscriptions.*?\. ",
+        r"Prefer concise, high-quality responses.*?\. ",
+        r"For coding tasks, provide working code.*?\. ",
+        r"For analysis tasks, provide a concise summary.*?\. ",
+        r"Provide clear, concise, and accurate responses.*?\. ",
+        r"If asked about your capabilities.*?\. "
+    ]
+    for pat in patterns:
+        text = re.sub(pat, "", text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
 
 # ---------- WORKSPACE PRIORITY ----------
 WORKSPACE_PRIORITY = {
@@ -1886,6 +2080,29 @@ async def route_ai_request(
 
     return await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
 # ---------- SEQUENTIAL ROUTER ----------
+def strip_system_prompt_sequential(text: str) -> str:
+    patterns = [
+        r"You are AXELR, an elite executive AI.*?\. ",
+        r"RESPONSE MUST BE SHORT, CONCISE.*?\. ",
+        r"Keep replies under 200 words.*?\. ",
+        r"Do not add pleasantries.*?\. ",
+        r"Provide exactly what is asked.*?\. ",
+        r"You are AXELR ARCHITECT.*?\. ",
+        r"You are AXELR DATA.*?\. ",
+        r"Rewrite the user prompt.*?\. ",
+        r"Always answer directly.*?\. ",
+        r"Never claim a service is unavailable.*?\. ",
+        r"Do not mention subscriptions.*?\. ",
+        r"Prefer concise, high-quality responses.*?\. ",
+        r"For coding tasks, provide working code.*?\. ",
+        r"For analysis tasks, provide a concise summary.*?\. ",
+        r"Provide clear, concise, and accurate responses.*?\. ",
+        r"If asked about your capabilities.*?\. "
+    ]
+    for pat in patterns:
+        text = re.sub(pat, "", text, flags=re.DOTALL | re.IGNORECASE)
+    return text.strip()
+
 async def route_ai_request_sequential(
     workspace: str,
     task_type: str,
@@ -2035,6 +2252,7 @@ async def route_ai_request_sequential(
         model_used = "local-fallback"
         logger.error(f"All providers failed. Last error: {last_error}")
 
+    response_text = strip_system_prompt_sequential(response_text)
     response_text = strip_fluff(response_text)
     elapsed = time.time() - start
     response_text += f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
@@ -2053,6 +2271,18 @@ async def route_ai_request_sequential(
         provider_health[provider_used]["daily_usage"] = provider_health[provider_used].get("daily_usage", 0) + 1
     return result
 
+async def get_cached(key: str) -> Optional[Dict]:
+    if redis_client:
+        data = await redis_client.get(f"ai_cache:{key}")
+        if data:
+            return json.loads(data)
+    return None
+
+async def set_cached(key: str, value: Dict, ttl: int = 3600):
+    if redis_client:
+        await redis_client.setex(f"ai_cache:{key}", ttl, json.dumps(value))
+    else:
+        ai_cache[key] = value
 # ---------- STREAMING ROUTE (SSE) ----------
 async def stream_ai_response(
     workspace: str,
@@ -2391,21 +2621,6 @@ async def _execute_provider_with_timeout(provider_name, func, prompt, model, max
         return {"text": "", "provider": provider_name, "model": model, "error": "Timeout"}
     except Exception as e:
         return {"text": "", "provider": provider_name, "model": model, "error": str(e)}
-def strip_system_prompt(text: str) -> str:
-    """Remove any text that resembles the system prompt from the AI response."""
-    patterns = [
-        r"You are AXELR, an elite executive AI.*?\. ",
-        r"RESPONSE MUST BE SHORT, CONCISE.*?\. ",
-        r"Keep replies under 200 words.*?\. ",
-        r"Do not add pleasantries.*?\. ",
-        r"Provide exactly what is asked.*?\. ",
-        r" You are AXELR ARCHITECT.*?\. ",
-        r" You are AXELR DATA.*?\. ",
-        r" Rewrite the user prompt.*?\. "
-    ]
-    for pat in patterns:
-        text = re.sub(pat, "", text, flags=re.DOTALL | re.IGNORECASE)
-    return text.strip()
 def _compute_quality_score(text: str, workspace: str) -> int:
     if not text:
         return 0
@@ -3557,7 +3772,6 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
             return " ".join(picked)[:60]
         return " ".join(words[:3])[:60]
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
     if workspace == "data":
         allowed_data_types = [
@@ -3568,21 +3782,21 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
         allowed_data_exts = ('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt', '.doc', '.docx')
         return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(allowed_data_exts)
     elif workspace == "design":
+        # Broad support for any code/text/image file
         allowed_design_types = [
-            "image/", "text/html", "text/css", "text/javascript", "text/x-python", "text/x-python-script",
-            "application/javascript", "application/json", "text/x-js", "text/x-python", "text/x-c", "text/x-c++",
-            "text/x-java", "text/x-php", "text/x-rs", "text/x-go", "text/x-ruby", "text/x-swift", "text/x-kotlin",
-            "text/x-scala", "text/x-haskell", "text/x-lua", "text/x-perl", "text/x-r", "text/x-sh"
+            "image/", "text/", "application/javascript", "application/json",
+            "application/xhtml+xml", "application/xml", "text/x-"
         ]
-        allowed_design_exts = ('.html', '.css', '.js', '.ts', '.jsx', '.tsx', '.vue', '.svelte',
-                               '.py', '.ipynb', '.java', '.c', '.cpp', '.h', '.hpp', '.go', '.rs',
-                               '.rb', '.php', '.swift', '.kt', '.scala', '.hs', '.lua', '.pl', '.r',
-                               '.sh', '.bash', '.zsh', '.json', '.yaml', '.yml', '.toml', '.ini',
-                               '.md', '.markdown', '.txt', '.xml', '.svg', '.wasm', '.dockerfile',
-                               '.dockerignore', '.gitignore')
+        allowed_design_exts = (
+            '.html', '.htm', '.css', '.js', '.ts', '.jsx', '.tsx', '.vue', '.svelte',
+            '.py', '.ipynb', '.java', '.c', '.cpp', '.h', '.hpp', '.go', '.rs',
+            '.rb', '.php', '.swift', '.kt', '.scala', '.hs', '.lua', '.pl', '.r',
+            '.sh', '.bash', '.zsh', '.json', '.yaml', '.yml', '.toml', '.ini',
+            '.md', '.markdown', '.txt', '.xml', '.svg', '.wasm', '.dockerfile',
+            '.dockerignore', '.gitignore', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'
+        )
         return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(allowed_design_exts)
-    return True
-
+    return True  # General workspace accepts everything
 # ---------- MAIN EXTRACT ENDPOINT ----------
 @app.post("/api/extract")
 @limiter.limit("100/minute")
@@ -3804,6 +4018,8 @@ async def extract(
         ai_text = ai_result["text"]
         provider = ai_result.get("provider")
         model_used = ai_result.get("model_used")
+        prompt_tokens = len(command.split())
+        completion_tokens = ai_result.get("tokens_used", len(ai_text.split()))
 
         # Post-processing: Critic + Self-Heal
         critic_result = None
@@ -3864,12 +4080,13 @@ async def extract(
             except Exception:
                 structured = []
             ai_text = re.sub(r'\[JSON-DATA\].*?\[/JSON-DATA\]', '', ai_text, flags=re.DOTALL).strip()
+                    # ... after ai_result is processed and ai_text is set
         if not ai_text:
             ai_text = "I am Axelr AI. How can I help you?"
 
+        # ---- Quota & token updates (must be inside the function) ----
         if provider != "local":
-            prompt_tokens = estimate_tokens(command) + sum(estimate_tokens(f["filename"]) + len(f["content_base64"]) // 4 for f in file_contents)
-            completion_tokens = estimate_tokens(ai_text)
+            quota_field = "quotas.dailyGenerationsUsed" if is_design else "quotas.dailyExtractionsUsed"
             update_query = {
                 "$inc": {
                     "tokenUsage.totalPromptTokens": prompt_tokens,
@@ -3882,24 +4099,20 @@ async def extract(
                 },
                 "$set": {"lastUsageDate": datetime.utcnow()}
             }
-            if provider == "gemini":
-                update_query["$inc"]["dailyGeminiQuota"] = 1
-            elif provider == "groq":
-                update_query["$inc"]["dailyGroqQuota"] = 1
-            elif provider == "cloudflare":
-                update_query["$inc"]["dailyCloudflareQuota"] = 1
-            elif provider == "openrouter":
-                update_query["$inc"]["dailyOpenRouterQuota"] = 1
-            elif provider == "mistral":
-                update_query["$inc"]["dailyMistralQuota"] = 1
-            elif provider == "huggingface":
-                update_query["$inc"]["dailyHuggingFaceQuota"] = 1
-            elif provider == "github_models":
-                update_query["$inc"]["dailyGithubQuota"] = 1
-            elif provider == "nrouter":
-                update_query["$inc"]["dailyNrouterQuota"] = 1
-            elif provider == "text_cortex":
-                update_query["$inc"]["dailyTextCortexQuota"] = 1
+            # Add provider-specific increments
+            provider_map = {
+                "gemini": "dailyGeminiQuota",
+                "groq": "dailyGroqQuota",
+                "cloudflare": "dailyCloudflareQuota",
+                "openrouter": "dailyOpenRouterQuota",
+                "mistral": "dailyMistralQuota",
+                "huggingface": "dailyHuggingFaceQuota",
+                "github_models": "dailyGithubQuota",
+                "nrouter": "dailyNrouterQuota",
+                "text_cortex": "dailyTextCortexQuota"
+            }
+            if provider in provider_map:
+                update_query["$inc"][provider_map[provider]] = 1
             await users_col.update_one({"_id": user["_id"]}, update_query)
         else:
             logger.info(f"Local fallback used for user {user['email']}")
@@ -4332,7 +4545,6 @@ class DeployRequest(BaseModel):
 
 class CodeRequest(BaseModel):
     code: str
-
 class TextRequest(BaseModel):
     text: str
 
@@ -4343,57 +4555,37 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Missing HTML content")
     if "<html" not in html or "</html>" not in html:
         raise HTTPException(status_code=400, detail="Generated HTML is incomplete.")
-    allowed_tags = [
-        'html', 'head', 'body', 'div', 'span', 'p', 'a', 'img', 'button', 'input', 'form', 'table',
-        'tr', 'td', 'th', 'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'strong', 'em', 'u',
-        'br', 'hr', 'section', 'article', 'header', 'footer', 'nav', 'main', 'aside', 'figure',
-        'figcaption', 'mark', 'small', 'sub', 'sup', 'code', 'pre', 'blockquote', 'cite', 'label',
-        'select', 'option', 'textarea', 'style', 'link', 'meta', 'title'
-    ]
-    allowed_attrs = {
-        '*': ['class', 'id', 'style'],
-        'a': ['href', 'title'],
-        'img': ['src', 'alt', 'width', 'height'],
-        'link': ['rel', 'type', 'href', 'media'],
-        'meta': ['name', 'content'],
-        'source': ['src', 'type'],
-    }
-    sanitized = bleach.clean(html, tags=allowed_tags, attributes=allowed_attrs, strip=True)
+    
+    sanitized = bleach.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+    
     if NETLIFY_ACCESS_TOKEN:
         try:
-            create_headers = {
-                "Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}",
-                "Content-Type": "application/json"
-            }
-            site_name = f"axelr-deploy-{int(time.time())}"
-            create_payload = {"name": site_name}
-            create_resp = await http_post_async(
-                "https://api.netlify.com/api/v1/sites",
-                create_headers,
-                create_payload,
-                timeout=30.0
-            )
-            if create_resp.get("id"):
-                site_id = create_resp["id"]
-                deploy_headers = {
-                    "Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"
-                }
-                data_payload = {}
-                files_payload = {
-                    "file": ("index.html", sanitized.encode('utf-8'), "text/html")
-                }
-                deploy_resp, status = await http_post_multipart_async(
-                    f"https://api.netlify.com/api/v1/sites/{site_id}/deploys",
-                    deploy_headers,
-                    data_payload,
-                    files_payload,
-                    timeout=30.0
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                create_resp = await client.post(
+                    "https://api.netlify.com/api/v1/sites",
+                    headers={"Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}", "Content-Type": "application/json"},
+                    json={"name": f"axelr-deploy-{int(time.time())}"}
                 )
-                if status == 200 and deploy_resp.get("deploy_url"):
-                    return {"success": True, "liveUrl": deploy_resp["deploy_url"]}
+                create_data = create_resp.json()
+                if create_resp.status_code == 200 and create_data.get("id"):
+                    site_id = create_data["id"]
+                    files = {"file": ("index.html", sanitized.encode('utf-8'), "text/html")}
+                    deploy_resp = await client.post(
+                        f"https://api.netlify.com/api/v1/sites/{site_id}/deploys",
+                        headers={"Authorization": f"Bearer {NETLIFY_ACCESS_TOKEN}"},
+                        files=files
+                    )
+                    deploy_data = deploy_resp.json()
+                    if deploy_resp.status_code == 200 and deploy_data.get("deploy_url"):
+                        return {"success": True, "liveUrl": deploy_data["deploy_url"]}
+                    else:
+                        logger.warning(f"Netlify deploy failed: {deploy_data}")
+                else:
+                    logger.warning(f"Netlify site creation failed: {create_data}")
         except Exception as e:
             logger.warning(f"Netlify deploy failed: {e}")
-    data_uri = f"data:text/html;charset=utf-8,{sanitized}"
+    
+    data_uri = f"data:text/html;charset=utf-8,{urllib.parse.quote(sanitized)}"
     return {"success": True, "liveUrl": data_uri, "message": "Preview available via data URI."}
 
 @app.get("/api/admin/metrics")
@@ -5269,7 +5461,7 @@ async def delete_item(item_id: int):
             items.pop(idx)
             return {"message": "Deleted"}
     raise HTTPException(status_code=404, detail="Item not found")
-
+# Ensure all required environment variables are checked at startup
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
 """,
@@ -6244,6 +6436,8 @@ async def delete_knowledge(knowledge_id: str, user: dict = Depends(get_current_u
     if result.deleted_count == 0:
         raise HTTPException(404, "Knowledge not found")
     return {"success": True}
+
+    
 # ---------- 404 ----------
 @app.exception_handler(404)
 async def not_found(request, exc):
