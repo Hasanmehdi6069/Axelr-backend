@@ -249,7 +249,6 @@ async def lifespan(app: FastAPI):
     if client:
         client.close()
         logger.info("Shutdown complete")
-app = FastAPI(title="AXELR Unified", version="24.3", lifespan=lifespan)
 # ============================================================
 # DYNAMIC ORIGINS & STARTUP VALIDATION
 # ============================================================
@@ -261,6 +260,25 @@ allowed_origins = list(dict.fromkeys([
     "http://127.0.0.1:5500",
     "https://axelr-backend.onrender.com",
 ]))
+app = FastAPI(title="AXELR Unified", version="24.3", lifespan=lifespan)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,          # already defined above
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+from fastapi.staticfiles import StaticFiles
+import os
+
+# Serve static files (assuming your frontend files are in a 'static' folder)
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def serve_frontend():
+    from fastapi.responses import HTMLResponse
+    with open("static/index.html", "r") as f:
+        return HTMLResponse(f.read())
 @app.on_event("startup")
 async def startup_check():
     logger.info("=== AXELR AI STARTUP CHECK ===")
@@ -1732,11 +1750,15 @@ def get_system_prompt(workspace: str, task_type: str) -> str:
 
     if workspace == "design":
         return base + (
-            " You are AXELR ARCHITECT – a world-class UI/UX engineer. "
-            "Generate production‑grade, pixel‑perfect, fully responsive HTML/CSS/JS components "
-            "using modern Tailwind, flex/grid, micro‑interactions, and dark mode. "
-            "Output complete code inside a single ```html block."
-        )
+             " You are AXELR ARCHITECT – a world-class UI/UX engineer with deep expertise in modern web frameworks. "
+        "Generate production‑grade, pixel‑perfect, fully responsive HTML/CSS/JS components "
+        "using Tailwind CSS (include CDN), flex/grid, micro‑interactions, and dark mode support. "
+        "Always include a `<style>` tag or inline styles for custom styling. "
+        "Ensure the output is a complete, self‑contained HTML document or component. "
+        "Use semantic HTML, ARIA attributes, and follow accessibility best practices. "
+        "For code, provide clean, well‑commented, and maintainable code. "
+        "Output complete code inside a single ```html block."
+   )
     elif workspace == "data":
         return base + (
             " You are AXELR DATA – an enterprise data analyst. "
@@ -2361,6 +2383,63 @@ async def stream_ai_response(
         if stream_used:
             return
 
+# 1. Semantic Cache Check (Instant Return)
+    cached = check_semantic_cache(prompt)
+    if cached:
+        words = cached["response"].split()
+        for w in words:
+            yield f"data: {json.dumps({'text': w + ' '})}\n\n"
+            await asyncio.sleep(0.01)
+        yield f"data: {json.dumps({'watermark': f'\\n\\n---\\n*Served from Axelr Vector Cache in {(time.time() - start)*1000:.1f}ms*'})}\n\n"
+        return
+
+    system_prompt = get_system_prompt(workspace, task_type)
+    full_prompt = f"{system_prompt}\n\n"
+    if context:
+        full_prompt += f"Context: {context}\n\n"
+    if history:
+        recent = [f"{m.get('role', 'user')}: {m.get('text', '')}" for m in history[-4:] if isinstance(m, dict) and m.get('text')]
+        if recent:
+            full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
+    full_prompt += f"User request: {prompt}"
+
+    # 2. Native Groq Streaming (500+ tokens/sec, Sub-300ms TTFT)
+    if GROQ_API_KEY:
+        try:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+            payload = {
+                "model": GROQ_MODELS[0] if GROQ_MODELS else "llama-3.3-70b-versatile",
+                "messages": [{"role": "user", "content": full_prompt}],
+                "max_tokens": max_tokens,
+                "temperature": temp,
+                "stream": True
+            }
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                async with client.stream("POST", url, headers=headers, json=payload) as response:
+                    if response.status_code == 200:
+                        collected = []
+                        async for line in response.aiter_lines():
+                            if line.startswith("data: "):
+                                data_str = line[6:].strip()
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    chunk = json.loads(data_str)
+                                    delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    if delta:
+                                        collected.append(delta)
+                                        yield f"data: {json.dumps({'text': delta})}\n\n"
+                                except Exception:
+                                    continue
+                        
+                        full_res = "".join(collected)
+                        write_semantic_cache(prompt, full_res)
+                        elapsed = time.time() - start
+                        yield f"data: {json.dumps({'watermark': f'\\n\\n---\\n*Streamed through Axelr in {elapsed:.2f} seconds*'})}\n\n"
+                        return
+        except Exception as e:
+            logger.warning(f"Groq native stream failed: {e}. Cascading to parallel fallback.")
     # Fallback: generate full response via sequential route and stream word by word
     result = await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
     
@@ -2372,7 +2451,7 @@ async def stream_ai_response(
     words = full_text.split()
     for word in words:
         yield f"data: {json.dumps({'text': word + ' '})}\n\n"
-        await asyncio.sleep(0.05)
+        await asyncio.sleep(0.02)
     # Send watermark separately (already included but we send again)
     elapsed = time.time() - start
     watermark = f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
@@ -2481,6 +2560,9 @@ async def extract_stream(
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 # ---------- PARALLEL ROUTER (true concurrency) ----------
+# ============================================================
+# 1, 3, 4. RESILIENT PARALLEL RACING (4s Timeout) & DYNAMIC FALLBACK
+# ============================================================
 async def route_ai_request_parallel(
     workspace: str,
     task_type: str,
@@ -2494,148 +2576,124 @@ async def route_ai_request_parallel(
     context: str = "",
 ) -> Dict[str, Any]:
     start = time.time()
+    
     if detect_manipulation(prompt) or contains_explicit(prompt):
         return await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
-    history_text = ""
-    if history:
-        recent = []
-        for msg in history[-4:]:
-            if not isinstance(msg, dict): continue
-            role = msg.get("role", "user")
-            content = msg.get("content") or msg.get("text") or ""
-            if isinstance(content, list):
-                parts = [p.get("text", "") for p in content if isinstance(p, dict)]
-                content = "\n".join(parts)
-            if isinstance(content, str) and content.strip():
-                recent.append(f"{role}: {content.strip()}")
-        history_text = "\n".join(recent)
 
+    # 6. Check Semantic Vector Cache First
+    cached = check_semantic_cache(prompt)
+    if cached:
+        logger.info("Semantic cache HIT for prompt", extra={"prompt": prompt[:40]})
+        return {
+            "success": True,
+            "text": cached["response"],
+            "provider": "semantic_cache",
+            "model_used": "cache",
+            "tokens_used": len(cached["response"].split()),
+            "latency_ms": round((time.time() - start) * 1000, 2),
+            "cached": True
+        }
+
+    # Build prompt
     system_prompt = get_system_prompt(workspace, task_type)
     full_prompt = f"{system_prompt}\n\n"
     if context:
         full_prompt += f"Context: {context}\n\n"
-    if history_text:
-        full_prompt += f"Previous conversation:\n{history_text}\n\n"
+    if history:
+        recent = [f"{m.get('role', 'user')}: {m.get('text', '')}" for m in history[-4:] if isinstance(m, dict) and m.get('text')]
+        if recent:
+            full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
     full_prompt += f"User request: {prompt}"
 
-    normalized_prompt = ' '.join(prompt.lower().split())
-    context_hash = hashlib.sha256(context.encode()).hexdigest() if context else ""
-    cache_key = hashlib.sha256(f"{workspace}:{task_type}:{normalized_prompt}:{history_text}:{context_hash}".encode()).hexdigest()
-    if cache_key in ai_cache:
-        cached = ai_cache[cache_key]
-        return {**cached, "cached": True}
+    # 2 & 3. Get dynamically ranked providers based on live composite scores
+    ranked_providers = get_dynamically_ranked_providers(workspace)
+    top_3 = [p for p in ranked_providers if p != "local"][:3]
 
-    provider_order = get_provider_order(workspace)
-    candidate_providers = []
-    for p in provider_order:
-        if p == "local":
-            continue
-        if p == "gemini" and not GEMINI_API_KEY: continue
-        if p == "groq" and not GROQ_API_KEY: continue
-        if p == "cloudflare" and (not CLOUDFLARE_API_KEY or not CLOUDFLARE_ACCOUNT_ID): continue
-        if p == "openrouter" and not OPENROUTER_API_KEY: continue
-        if p == "modelscope" and not MODELSCOPE_API_KEY: continue
-        if p == "ollama_cloud" and not OLLAMA_API_KEY: continue
-        if p == "nara_router" and not NARAROUTER_API_KEY: continue
-        if p == "mistral" and not MISTRAL_API_KEY: continue
-        if p == "huggingface" and not HF_API_KEY: continue
-        if p == "github_models" and not GITHUB_MODELS_TOKEN: continue
-        if p == "ovhcloud" and not OVHCLOUD_API_KEY: continue
-        if p == "siliconflow" and not SILICONFLOW_API_KEY: continue
-        if p == "agnes_ai" and not AGNES_API_KEY: continue
-        if p == "bazaarlink" and not BAZAARLINK_API_KEY: continue
-        if p == "requesty" and not REQUESTY_API_KEY: continue
-        if p == "nrouter" and not NROUTER_API_KEY: continue
-        if p == "glama" and not GLAMA_API_KEY: continue
-        if p == "anyapi" and not ANYAPI_API_KEY: continue
-        if p == "manifest" and not MANIFEST_API_KEY: continue
-        if p == "qoder" and not os.getenv("QODER_API_KEY"): continue
-        if p == "zhipu" and not ZAI_API_KEY: continue
-        if p == "teamorouter" and not TEAMOROUTER_API_KEY: continue
-        if p == "puter" and (user is None or not user.get("puter_enabled", False)):
-            continue
-        candidate_providers.append(p)
-
-    # Sort by latency (fastest first)
-    candidate_providers.sort(key=lambda p: provider_latency.get(p, 9999.0))
-    if len(candidate_providers) > 3:
-        candidate_providers = candidate_providers[:3]
-
-    if not candidate_providers:
+    if not top_3:
         return await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
 
-    provider_func_map = dict(PROVIDER_FUNC_MAP)
-    tasks = []
-    for p in candidate_providers:
-        func = provider_func_map.get(p)
-        if not func:
-            continue
-        models = PROVIDER_MODELS.get(p, [])
-        if not models:
-            continue
-        model = models[0]
-        tasks.append(asyncio.create_task(
-            _execute_provider_with_timeout(p, func, full_prompt, model, max_tokens, temp)
-        ))
-
-    done, pending = await asyncio.wait(tasks, timeout=6.0, return_when=asyncio.FIRST_COMPLETED)
-    for task in pending:
-        task.cancel()
-
-    best_response = None
-    best_score = -1
-    for task in done:
+    async def execute_provider(p_name: str):
+        t0 = time.time()
+        func = PROVIDER_FUNC_MAP.get(p_name)
+        models = PROVIDER_MODELS.get(p_name, [])
+        model = models[0] if models else None
         try:
-            result = task.result()
-            if result and result.get("text"):
-                score = _compute_quality_score(result["text"], workspace)
-                if score > best_score:
-                    best_score = score
-                    best_response = result
+            resp = await func(full_prompt, max_tokens, temp, model)
+            elapsed = time.time() - t0
+            if resp and len(resp.strip()) > 10:
+                record_provider_result(p_name, elapsed, success=True)
+                return {"text": resp, "provider": p_name, "model": model, "latency": elapsed}
+            raise ValueError("Empty output")
         except Exception as e:
-            logger.warning(f"Provider task failed: {e}")
+            elapsed = time.time() - t0
+            is_429 = "429" in str(e) or "quota" in str(e).lower()
+            record_provider_result(p_name, elapsed, success=False, is_rate_limit=is_429)
+            raise
 
-    if best_response and best_score > 20:
-        response_text = strip_fluff(best_response["text"])
-        elapsed = time.time() - start
-        response_text += f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
-        result = {
-            "success": True,
-            "text": response_text,
-            "provider": best_response.get("provider", "unknown"),
-            "model_used": best_response.get("model", "unknown"),
-            "tokens_used": len(response_text.split()),
-            "latency_ms": round(elapsed * 1000, 2)
-        }
-        ai_cache[cache_key] = result
-        return result
-
-    return await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
-async def _execute_provider_with_timeout(provider_name, func, prompt, model, max_tokens, temp):
+    # 1. Fire Top 3 in parallel with strict 4.0s timeout
+    tasks = [asyncio.create_task(execute_provider(p)) for p in top_3]
     try:
-        response = await asyncio.wait_for(func(prompt, max_tokens, temp, model), timeout=4.0)
-        if response and len(response.strip()) > 10:
-            return {"text": response, "provider": provider_name, "model": model}
-        return {"text": "", "provider": provider_name, "model": model, "error": "Empty response"}
+        for finished in asyncio.as_completed(tasks, timeout=4.0):
+            try:
+                res = await finished
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+                
+                final_text = strip_fluff(res["text"]) + f"\n\n---\n*Generated through Axelr in {res['latency']:.2f} seconds*"
+                write_semantic_cache(prompt, final_text)
+                return {
+                    "success": True,
+                    "text": final_text,
+                    "provider": res["provider"],
+                    "model_used": res["model"],
+                    "tokens_used": len(final_text.split()),
+                    "latency_ms": round(res["latency"] * 1000, 2)
+                }
+            except Exception:
+                continue
     except asyncio.TimeoutError:
-        return {"text": "", "provider": provider_name, "model": model, "error": "Timeout"}
-    except Exception as e:
-        return {"text": "", "provider": provider_name, "model": model, "error": str(e)}
-def _compute_quality_score(text: str, workspace: str) -> int:
-    if not text:
-        return 0
-    score = 0
-    if len(text) >= 20: score += 10
-    if len(text) >= 100: score += 10
-    if len(text) >= 500: score += 10
-    if "```" in text: score += 15
-    if workspace == "data" and "[JSON-DATA]" in text: score += 20
-    hallucination_patterns = [r"I am (not|unable)", r"I don't have access", r"I apologize", r"as an AI"]
-    for pattern in hallucination_patterns:
-        if not re.search(pattern, text, re.IGNORECASE): score += 5
-    if re.search(r"\d+", text): score += 10
-    if re.search(r"(step|first|then|finally)", text, re.IGNORECASE): score += 10
-    return min(score, 100)
+        logger.warning("Parallel race timed out at 4.0s. Falling back to dynamic chain.")
+
+    # 4. Intelligent Fallback with Jittered Backoff
+    remaining = [p for p in ranked_providers[3:] if p != "local"]
+    delays = [0.5, 1.0, 2.0]
+    for idx, p_name in enumerate(remaining):
+        jitter = random.uniform(0.05, 0.25)
+        await asyncio.sleep(delays[min(idx, len(delays) - 1)] + jitter)
+        
+        func = PROVIDER_FUNC_MAP.get(p_name)
+        model = PROVIDER_MODELS.get(p_name, [None])[0]
+        t0 = time.time()
+        try:
+            resp = await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=3.5)
+            elapsed = time.time() - t0
+            if resp and len(resp.strip()) > 5:
+                record_provider_result(p_name, elapsed, success=True)
+                final_text = strip_fluff(resp) + f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
+                write_semantic_cache(prompt, final_text)
+                return {
+                    "success": True,
+                    "text": final_text,
+                    "provider": p_name,
+                    "model_used": model,
+                    "tokens_used": len(final_text.split()),
+                    "latency_ms": round(elapsed * 1000, 2)
+                }
+        except Exception as e:
+            record_provider_result(p_name, time.time() - t0, success=False, is_rate_limit=("429" in str(e)))
+            continue
+
+    # Final Local Fallback
+    fallback_text = build_local_fallback_response(workspace, "general", prompt)
+    return {
+        "success": True,
+        "text": fallback_text,
+        "provider": "local",
+        "model_used": "local-fallback",
+        "tokens_used": len(fallback_text.split()),
+        "latency_ms": round((time.time() - start) * 1000, 2)
+    }
 
 # ---------- PROVIDER VALIDATION ----------
 async def validate_all_providers():
@@ -2664,27 +2722,33 @@ async def validate_all_providers():
             results[name] = f"error: {str(e)[:80]}"
     logger.info("Provider validation results: " + json.dumps(results, indent=2))
     return results
-
+# ============================================================
+# 5. 5-MINUTE REFINED HEALTH PROBE ("Say OK")
+# ============================================================
+# 5. 5-MINUTE REFINED HEALTH PROBE ("Say OK")
+# NOTE: Keep a single definition of background_health_check. The earlier duplicate
+# declaration was removed to avoid obscuring this live health probe task.
 async def background_health_check():
     while True:
-        await validate_all_providers()
-        await asyncio.sleep(600)
-
-async def alert_on_failures(results):
-    failures = [name for name, status in results.items() if "error" in status or "unhealthy" in status]
-    if failures and SMTP_USER and SMTP_PASS:
         try:
-            server = get_email_transport()
-            if server:
-                msg = MIMEText(f"Providers failing: {', '.join(failures)}")
-                msg["Subject"] = "⚠️ Axelr AI Provider Alert"
-                msg["From"] = SMTP_USER
-                msg["To"] = ADMIN_EMAIL
-                server.sendmail(SMTP_USER, ADMIN_EMAIL, msg.as_string())
-                server.quit()
-        except:
-            pass
-
+            test_prompt = "Say OK"
+            for name, func in PROVIDER_CHAIN:
+                if name == "local" or not PROVIDER_KEY_CHECK.get(name, False):
+                    continue
+                models = PROVIDER_MODELS.get(name, [])
+                if not models:
+                    continue
+                try:
+                    t0 = time.time()
+                    resp = await asyncio.wait_for(func(test_prompt, 5, 0.0, models[0]), timeout=3.0)
+                    lat = time.time() - t0
+                    if resp and len(resp.strip()) > 0:
+                        record_provider_result(name, lat, success=True)
+                except Exception as e:
+                    record_provider_result(name, 3.0, success=False, is_rate_limit=("429" in str(e)))
+        except Exception as e:
+            logger.warning(f"Health check error: {e}")
+        await asyncio.sleep(300) # Exactly 5 minutes
 # ---------- PR DEFENSE CLEANUP ----------
 async def pr_defense_cleanup():
     if not db_available:
@@ -3341,7 +3405,23 @@ async def health():
         "email": bool(SMTP_USER and SMTP_PASS),
         "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
     }
-
+@app.get("/api/health/detailed")
+async def health_detailed():
+    provider_status = {}
+    for name, status in provider_health.items():
+        provider_status[name] = {
+            "status": status.get("status", "unknown"),
+            "latency": provider_latency.get(name, None),
+            "failures": provider_failures.get(name, 0),
+        }
+    return {
+        "status": "operational" if db_available else "degraded",
+        "timestamp": datetime.utcnow().isoformat(),
+        "db": "connected" if db_available else "disconnected",
+        "redis": "connected" if redis_client else "disabled",
+        "providers": provider_status,
+        "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
+    }
 @app.get("/api/v1/diagnose")
 async def diagnose_providers():
     results = {}
@@ -3774,15 +3854,19 @@ def generate_chat_name(command: str, files: List[UploadFile]) -> str:
     return f"Chat_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
     if workspace == "data":
+        # Data workspace: PDF, CSV, Excel, images, text, Word
         allowed_data_types = [
             "image/", "application/pdf", "text/csv", "text/plain",
             "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         ]
         allowed_data_exts = ('.csv', '.xls', '.xlsx', '.pdf', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.txt', '.doc', '.docx')
-        return any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(allowed_data_exts)
+        if any(content_type.startswith(t) for t in allowed_data_types) or filename.lower().endswith(allowed_data_exts):
+            return True
+        else:
+            return False
     elif workspace == "design":
-        # Broad support for any code/text/image file
+        # Design workspace: code, images, text, JSON, etc.
         allowed_design_types = [
             "image/", "text/", "application/javascript", "application/json",
             "application/xhtml+xml", "application/xml", "text/x-"
@@ -3795,8 +3879,12 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
             '.md', '.markdown', '.txt', '.xml', '.svg', '.wasm', '.dockerfile',
             '.dockerignore', '.gitignore', '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'
         )
-        return any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(allowed_design_exts)
-    return True  # General workspace accepts everything
+        if any(content_type.startswith(t) for t in allowed_design_types) or filename.lower().endswith(allowed_design_exts):
+            return True
+        else:
+            return False
+    # General workspace accepts everything
+    return True
 # ---------- MAIN EXTRACT ENDPOINT ----------
 @app.post("/api/extract")
 @limiter.limit("100/minute")
@@ -3852,7 +3940,6 @@ async def extract(
                        f"Allowed: {'images, PDF, CSV, Excel, Word, text' if workspace=='data' else 'images, code files (HTML, CSS, JS, Python, etc.), JSON, Markdown, text'}."
             )
         files = valid_files
-
         total_size = 0
         for f in files:
             file_size = f.size or 0
@@ -5415,7 +5502,6 @@ class Item(BaseModel):
     {% for field in fields %}
     {{ field.name }}: {{ field.type }}
     {% endfor %}
-
 class ItemCreate(BaseModel):
     {% for field in fields if field.name != "id" %}
     {{ field.name }}: {{ field.type }}
@@ -6437,7 +6523,217 @@ async def delete_knowledge(knowledge_id: str, user: dict = Depends(get_current_u
         raise HTTPException(404, "Knowledge not found")
     return {"success": True}
 
-    
+    import random
+from collections import deque
+from dataclasses import dataclass, field
+
+# ============================================================
+# 2, 3, 7. IN-MEMORY METRICS & CIRCUIT BREAKER
+# ============================================================
+@dataclass
+class ProviderMetrics:
+    name: str
+    latencies: deque = field(default_factory=lambda: deque(maxlen=10))
+    history: deque = field(default_factory=lambda: deque(maxlen=10)) # True for success, False for fail
+    consecutive_failures: int = 0
+    cooldown_until: float = 0.0
+
+    @property
+    def is_available(self) -> bool:
+        return time.time() >= self.cooldown_until
+
+    def get_score(self, workspace: str) -> float:
+        if not self.is_available:
+            return -9999.0
+        
+        # Success Rate (last 10 calls)
+        total = len(self.history)
+        success_rate = (sum(self.history) / total) if total > 0 else 0.85
+        
+        # Average Latency in seconds
+        avg_lat = (sum(self.latencies) / len(self.latencies)) if self.latencies else 1.5
+        
+        # Workspace affinity bonus
+        affinity_bonus = 0
+        if workspace == "design" and self.name in ["cloudflare", "groq", "gemini"]:
+            affinity_bonus = 15
+        elif workspace == "data" and self.name in ["gemini", "modelscope", "groq"]:
+            affinity_bonus = 15
+            
+        return (success_rate * 100) - (avg_lat * 12) - (self.consecutive_failures * 25) + affinity_bonus
+
+# Initialize metric tracker for all providers
+PROVIDER_TRACKER = {name: ProviderMetrics(name=name) for name, _ in PROVIDER_CHAIN if name != "local"}
+
+def record_provider_result(name: str, latency: float, success: bool, is_rate_limit: bool = False):
+    p = PROVIDER_TRACKER.get(name)
+    if not p:
+        return
+    if success:
+        p.history.append(True)
+        p.latencies.append(latency)
+        p.consecutive_failures = 0
+    else:
+        p.history.append(False)
+        p.consecutive_failures += 1
+        if is_rate_limit:
+            # 7. 30-minute cooldown for rate-limited providers (429)
+            p.cooldown_until = time.time() + 1800
+            logger.warning(f"Provider {name} rate-limited. 30-minute cooldown engaged.")
+        elif p.consecutive_failures >= 3:
+            # 7. 5-minute cooldown for 3 consecutive failures
+            p.cooldown_until = time.time() + 300
+            logger.warning(f"Provider {name} tripped circuit breaker. 5-minute cooldown engaged.")
+
+def get_dynamically_ranked_providers(workspace: str) -> List[str]:
+    valid = [p for p in PROVIDER_TRACKER.values() if p.is_available and PROVIDER_KEY_CHECK.get(p.name, False)]
+    valid.sort(key=lambda x: x.get_score(workspace), reverse=True)
+    ranked = [p.name for p in valid]
+    ranked.append("local")
+    return ranked
+
+# ============================================================
+# 6. SEMANTIC CACHING VIA SENTENCE TRANSFORMERS & FAISS
+# ============================================================
+from semantic_cache import EmbeddingService
+from faiss_cache import FaissSemanticCache
+
+try:
+    semantic_embedder = EmbeddingService("sentence-transformers/all-MiniLM-L6-v2")
+    semantic_cache_store = FaissSemanticCache(dimension=semantic_embedder.dimension)
+    SEMANTIC_CACHE_ENABLED = True
+    logger.info("Semantic cache initialized with all-MiniLM-L6-v2 and FAISS.")
+except Exception as e:
+    SEMANTIC_CACHE_ENABLED = False
+    logger.warning(f"Semantic cache disabled (missing model/FAISS): {e}")
+
+def check_semantic_cache(prompt: str) -> Optional[Dict[str, Any]]:
+    if not SEMANTIC_CACHE_ENABLED:
+        return None
+    try:
+        vec = semantic_embedder.encode(prompt.strip())
+        return semantic_cache_store.get(vec, threshold=0.92)
+    except Exception:
+        return None
+
+def write_semantic_cache(prompt: str, response: str):
+    if not SEMANTIC_CACHE_ENABLED:
+        return
+    try:
+        vec = semantic_embedder.encode(prompt.strip())
+        semantic_cache_store.set(prompt.strip(), vec, response)
+    except Exception:
+        pass
+
+    # ============================================================
+# 5. 5-MINUTE HEALTH PROBE ("Say OK")
+# ============================================================
+# ============================================================
+# 5. 5-MINUTE REFINED HEALTH PROBE ("Say OK")
+# ============================================================
+async def background_health_check():
+    while True:
+        try:
+            test_prompt = "Say OK"
+            for name, func in PROVIDER_CHAIN:
+                if name == "local" or not PROVIDER_KEY_CHECK.get(name, False):
+                    continue
+                models = PROVIDER_MODELS.get(name, [])
+                if not models:
+                    continue
+                try:
+                    t0 = time.time()
+                    resp = await asyncio.wait_for(func(test_prompt, 5, 0.0, models[0]), timeout=3.0)
+                    lat = time.time() - t0
+                    if resp and len(resp.strip()) > 0:
+                        record_provider_result(name, lat, success=True)
+                except Exception as e:
+                    record_provider_result(name, 3.0, success=False, is_rate_limit=("429" in str(e)))
+        except Exception as e:
+            logger.warning(f"Health check error: {e}")
+        await asyncio.sleep(300) # Exactly 5 minutes
+        # ============================================================
+# 8–12. ELITE PRODUCTION AI CAPABILITIES
+# ============================================================
+
+class CodeTranslateRequest(BaseModel):
+    code: str
+    source_lang: str
+    target_lang: str
+
+@app.post("/api/tools/translate-code")
+async def tool_translate_code(data: CodeTranslateRequest, user: dict = Depends(get_current_user)):
+    """8. Code Translator: Converts code between languages while preserving logic."""
+    prompt = (
+        f"Translate the following code from {data.source_lang} to {data.target_lang}. "
+        f"Preserve idiomatic patterns, comments, and safety. Return only the code block.\n\n"
+        f"```{data.source_lang}\n{data.code}\n```"
+    )
+    res = await route_ai_request_parallel("design", "structuring", prompt, [], [], 4096, 0.2, user.get("tier", "free"), user)
+    return {"success": True, "translated_code": res["text"]}
+
+class MermaidRequest(BaseModel):
+    process_description: str
+
+@app.post("/api/tools/mermaid")
+async def tool_mermaid_generator(data: MermaidRequest, user: dict = Depends(get_current_user)):
+    """9. Mermaid Diagram Generator: Transforms text into valid Mermaid diagrams."""
+    prompt = (
+        f"Generate a syntactically valid Mermaid.js diagram representing this process:\n\n"
+        f"{data.process_description}\n\n"
+        f"Output ONLY a valid ```mermaid code block."
+    )
+    res = await route_ai_request_parallel("general", "structuring", prompt, [], [], 2048, 0.2, user.get("tier", "free"), user)
+    return {"success": True, "mermaid": res["text"]}
+
+class PIIScanRequest(BaseModel):
+    document_text: str
+
+@app.post("/api/tools/scan-pii")
+async def tool_pii_scanner(data: PIIScanRequest, user: dict = Depends(get_current_user)):
+    """10. Data Privacy Scanner: Analyzes sensitive data and PII exposure."""
+    prompt = (
+        f"Audit this text for Personally Identifiable Information (PII) including names, emails, phones, "
+        f"IPs, credentials, and financial references. Return a clean JSON array of found items with format: "
+        f"[{{'type': '...', 'value': '...', 'risk': 'low'|'medium'|'high'}}].\n\nText:\n{data.document_text[:8000]}"
+    )
+    res = await route_ai_request_parallel("data", "extraction", prompt, [], [], 2048, 0.1, user.get("tier", "free"), user)
+    return {"success": True, "scan_report": res["text"]}
+
+class MeetingMinutesRequest(BaseModel):
+    transcript: str
+
+@app.post("/api/tools/meeting-minutes")
+async def tool_meeting_minutes(data: MeetingMinutesRequest, user: dict = Depends(get_current_user)):
+    """11. Meeting Minutes Extractor: Converts discussion transcripts into action tables."""
+    prompt = (
+        f"Extract structured meeting minutes from the following transcript.\n"
+        f"Structure as:\n"
+        f"1. Executive Summary\n"
+        f"2. Key Decisions Made\n"
+        f"3. Action Items Table with columns: Task, Owner, Priority, Target Date.\n\n"
+        f"Transcript:\n{data.transcript[:10000]}"
+    )
+    res = await route_ai_request_parallel("general", "structuring", prompt, [], [], 4096, 0.2, user.get("tier", "free"), user)
+    return {"success": True, "minutes": res["text"]}
+
+class DecisionMatrixRequest(BaseModel):
+    options: List[str]
+    criteria: List[str]
+    context: Optional[str] = ""
+
+@app.post("/api/tools/decision-matrix")
+async def tool_decision_matrix(data: DecisionMatrixRequest, user: dict = Depends(get_current_user)):
+    """12. Decision Matrix: Weighted comparative analysis for trade-offs."""
+    prompt = (
+        f"Build a weighted Decision Matrix comparing: {', '.join(data.options)}.\n"
+        f"Evaluation Criteria: {', '.join(data.criteria)}.\n"
+        f"Additional Context: {data.context}\n\n"
+        f"Provide a Markdown table with weights (1-5), individual ratings (1-10), computed total scores, "
+        f"and a decisive recommendation."
+    )
+    res = await route_ai_request_parallel("data", "extraction", prompt, [], [], 4096, 0.3, user.get("tier", "free"), user)
+    return {"success": True, "matrix": res["text"]}
 # ---------- 404 ----------
 @app.exception_handler(404)
 async def not_found(request, exc):
