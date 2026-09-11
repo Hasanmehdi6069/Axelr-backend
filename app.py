@@ -2420,7 +2420,7 @@ async def stream_ai_response(
     full_prompt += f"User request: {prompt}"
 
     # 2. Native Groq Streaming (500+ tokens/sec, Sub-300ms TTFT)
-    if GROQ_API_KEY:
+     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
@@ -2442,13 +2442,19 @@ async def stream_ai_response(
                                     break
                                 try:
                                     chunk = json.loads(data_str)
-                                    delta = chunk.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    delta = (
+                                        chunk.get("choices", [{}])[0]
+                                        .get("delta", {})
+                                        .get("content", "")
+                                    )
                                     if delta:
                                         collected.append(delta)
                                         yield f"data: {json.dumps({'text': delta})}\n\n"
                                 except Exception:
                                     continue
-                                                full_res = "".join(collected)
+
+                        # ---- after the stream loop ends ----
+                        full_res = "".join(collected)
                         write_semantic_cache(prompt, full_res)
                         elapsed = time.time() - start
                         watermark_text = (
