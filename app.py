@@ -269,16 +269,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 import os
-
-# Serve static files (assuming your frontend files are in a 'static' folder)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
+STATIC_DIR = "." 
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+    # Also serve root static assets so /style.css, /script.js work:
+    app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
+else:
+    logging.getLogger("axelr-unified").warning(
+        "Static directory '%s' not found — /static routes disabled.", STATIC_DIR
+    )
 @app.get("/")
 async def serve_frontend():
-    from fastapi.responses import HTMLResponse
-    with open("static/index.html", "r") as f:
+    with open("index.html", "r", encoding="utf-8") as f:
         return HTMLResponse(f.read())
+    if os.path.isfile(index_path):
+        with open(index_path, "r", encoding="utf-8") as f:
+            return HTMLResponse(f.read())
+    return HTMLResponse(
+        "<h1>AXELR AI backend is running</h1>"
+        "<p>No <code>static/index.html</code> found.</p>",
+        status_code=200,
+    )
 @app.on_event("startup")
 async def startup_check():
     logger.info("=== AXELR AI STARTUP CHECK ===")
@@ -316,14 +329,12 @@ async def logging_middleware(request: Request, call_next):
     response = await call_next(request)
     duration = time.time() - start
     logger.info(
-        "http_request",
-        extra={
-            "request_id": request_id,
-            "method": request.method,
-            "path": request.url.path,
-            "status": response.status_code,
-            "duration_ms": round(duration * 1000, 2),
-        },
+    "http_request",
+    request_id=request_id,
+    method=request.method,
+    path=request.url.path,
+    status=response.status_code,
+    duration_ms=round(duration * 1000, 2),
     )
     return response
 @app.middleware("http")
@@ -2382,15 +2393,20 @@ async def stream_ai_response(
                 continue
         if stream_used:
             return
-
-# 1. Semantic Cache Check (Instant Return)
+    # 1. Semantic Cache Check (Instant Return)
     cached = check_semantic_cache(prompt)
     if cached:
         words = cached["response"].split()
         for w in words:
             yield f"data: {json.dumps({'text': w + ' '})}\n\n"
             await asyncio.sleep(0.01)
-        yield f"data: {json.dumps({'watermark': f'\\n\\n---\\n*Served from Axelr Vector Cache in {(time.time() - start)*1000:.1f}ms*'})}\n\n"
+        cache_ms = (time.time() - start) * 1000
+        watermark_text = (
+            "\n\n---\n"
+            f"*Served from Axelr Vector Cache in {cache_ms:.1f}ms*"
+        )
+        payload = {"watermark": watermark_text}
+        yield f"data: {json.dumps(payload)}\n\n"
         return
 
     system_prompt = get_system_prompt(workspace, task_type)
@@ -2432,11 +2448,15 @@ async def stream_ai_response(
                                         yield f"data: {json.dumps({'text': delta})}\n\n"
                                 except Exception:
                                     continue
-                        
-                        full_res = "".join(collected)
+                                                full_res = "".join(collected)
                         write_semantic_cache(prompt, full_res)
                         elapsed = time.time() - start
-                        yield f"data: {json.dumps({'watermark': f'\\n\\n---\\n*Streamed through Axelr in {elapsed:.2f} seconds*'})}\n\n"
+                        watermark_text = (
+                            "\n\n---\n"
+                            f"*Streamed through Axelr in {elapsed:.2f} seconds*"
+                        )
+                        payload = {"watermark": watermark_text}
+                        yield f"data: {json.dumps(payload)}\n\n"
                         return
         except Exception as e:
             logger.warning(f"Groq native stream failed: {e}. Cascading to parallel fallback.")
@@ -6595,17 +6615,29 @@ def get_dynamically_ranked_providers(workspace: str) -> List[str]:
 # ============================================================
 # 6. SEMANTIC CACHING VIA SENTENCE TRANSFORMERS & FAISS
 # ============================================================
-from semantic_cache import EmbeddingService
-from faiss_cache import FaissSemanticCache
+# ============================================================
+# 6. SEMANTIC CACHING (optional — gracefully degrades if missing)
+# ============================================================
+SEMANTIC_CACHE_ENABLED = False
+semantic_embedder = None
+semantic_cache_store = None
 
 try:
-    semantic_embedder = EmbeddingService("sentence-transformers/all-MiniLM-L6-v2")
-    semantic_cache_store = FaissSemanticCache(dimension=semantic_embedder.dimension)
-    SEMANTIC_CACHE_ENABLED = True
-    logger.info("Semantic cache initialized with all-MiniLM-L6-v2 and FAISS.")
-except Exception as e:
-    SEMANTIC_CACHE_ENABLED = False
-    logger.warning(f"Semantic cache disabled (missing model/FAISS): {e}")
+    from semantic_cache import EmbeddingService          # type: ignore
+    from faiss_cache import FaissSemanticCache           # type: ignore
+    try:
+        semantic_embedder = EmbeddingService("sentence-transformers/all-MiniLM-L6-v2")
+        semantic_cache_store = FaissSemanticCache(dimension=semantic_embedder.dimension)
+        SEMANTIC_CACHE_ENABLED = True
+        logger.info("Semantic cache initialized with all-MiniLM-L6-v2 and FAISS.")
+    except Exception as e:
+        SEMANTIC_CACHE_ENABLED = False
+        logger.warning(f"Semantic cache disabled (model/FAISS init failed): {e}")
+except ImportError as e:
+    logger.warning(
+        f"Semantic cache modules not installed ({e}). "
+        "Continuing without semantic cache — the app will still work."
+    )
 
 def check_semantic_cache(prompt: str) -> Optional[Dict[str, Any]]:
     if not SEMANTIC_CACHE_ENABLED:
