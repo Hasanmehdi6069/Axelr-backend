@@ -1783,12 +1783,12 @@ function switchSidebarTab(tab) {
     if (tabBtn) tabBtn.classList.add('active');
     loadArchiveLogs();
 }
-
 function openSettingsModal() {
     closeModals();
     const modal = getEl('settings-modal');
     if (modal) modal.classList.add('active');
     updateSettingsQuota();
+    renderInlineWorkspaceCards();       // ← populate immediately
     document.querySelectorAll('.theme-option').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.theme === currentThemePreference);
     });
@@ -1872,13 +1872,36 @@ if (searchBox) {
 // WORKSPACE FUNCTIONS
 // ============================================================
 function showWorkspaceSelector() {
+    // If the settings modal is open, dismiss it first so the workspace
+    // selector isn't trapped behind it in the stacking order.
+    const settingsModal = getEl('settings-modal');
+    if (settingsModal) settingsModal.classList.remove('active');
+
+    // Also hide the account / model dropdowns so nothing competes for focus
+    if (accountDropdownCard) accountDropdownCard.style.display = 'none';
+    if (modelDropdownCard)   modelDropdownCard.style.display = 'none';
+
     const ws = getEl('workspace-selector');
-    if (ws) ws.style.display = 'flex';
+    if (!ws) return;
+
+    // Force a stacking-context reset and bring it to the top
+    ws.style.display  = 'flex';
+    ws.style.zIndex   = '100000';   // higher than any modal
+    ws.style.position = 'fixed';
+    ws.classList.add('active');
+
+    // Nudge the browser so any entry animation (opacity / scale) plays
+    // immediately instead of waiting for the next repaint.
+    void ws.offsetWidth;
 }
 function selectWorkspace(type) {
     localStorage.setItem('Axelr_workspace', type);
     const ws = getEl('workspace-selector');
-    if (ws) ws.style.display = 'none';
+    if (ws) {
+        ws.classList.remove('active');
+        ws.style.display = 'none';
+        ws.style.zIndex  = '';
+    }
     activateWorkspace(type);
 }
 function activateWorkspace(type, isBoot = false) {
@@ -4674,7 +4697,36 @@ if (typeof DOMPurify === 'undefined') {
     console.warn('DOMPurify not loaded, using raw text fallback');
 }
 
+function renderInlineWorkspaceCards() {
+    const host = getEl('workspace-cards-inline');   // add this <div> in your settings HTML
+    if (!host) return;
 
+    const current = getWorkspace();
+    const workspaces = [
+        { id: 'data',    icon: 'database',       title: 'Data',    desc: 'Extract, analyse & transform' },
+        { id: 'design',  icon: 'palette',        title: 'Design',  desc: 'UI/UX generation & deployment' },
+        { id: 'general', icon: 'auto_awesome',   title: 'General', desc: 'Everyday AI assistance' },
+    ];
+
+    host.innerHTML = workspaces.map(w => `
+        <div class="ws-card ${w.id === current ? 'active' : ''}"
+             onclick="pickInlineWorkspace('${w.id}')">
+            <span class="material-symbols-rounded">${w.icon}</span>
+            <div>
+                <div class="ws-card-title">${w.title}</div>
+                <div class="ws-card-desc">${w.desc}</div>
+            </div>
+            ${w.id === current ? '<span class="material-symbols-rounded ws-check">check_circle</span>' : ''}
+        </div>
+    `).join('');
+}
+
+function pickInlineWorkspace(type) {
+    localStorage.setItem('Axelr_workspace', type);
+    renderInlineWorkspaceCards();       // re-paint instantly, in place
+    activateWorkspace(type, true);
+    showToast(`Switched to ${type} workspace`, 'success');
+}
 // ============================================================
 // FINAL INIT
 // ============================================================
