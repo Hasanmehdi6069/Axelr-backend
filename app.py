@@ -1028,7 +1028,7 @@ async def call_modelscope(prompt: str, max_tokens: int, temp: float, model: Opti
 async def call_ollama_cloud(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not OLLAMA_API_KEY:
         raise Exception("OLLAMA_API_KEY missing")
-    url = os.getenv("OLLAMA_API_URL", "https://ollama.com/api/v1/chat/completions")
+    url = os.getenv("OLLAMA_API_URL", "https://api.ollama.ai/v1/chat/completions")
     headers = {"Authorization": f"Bearer {OLLAMA_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or OLLAMA_MODELS[0]
     payload = {
@@ -1424,7 +1424,7 @@ async def call_blockrun(prompt: str, max_tokens: int, temp: float, model: Option
 async def call_anyapi(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not ANYAPI_API_KEY:
         raise Exception("ANYAPI_API_KEY missing")
-    baseurl = os.getenv("BASEURL", "https://api.anyapi.ai/v1")
+    baseurl = os.getenv("BASEURL", "https://api.anyapi.ai/v1/chat/completions")
     url = f"{baseurl}/chat/completions"
     headers = {"Authorization": f"Bearer {ANYAPI_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or ANYAPI_MODEL
@@ -1470,7 +1470,7 @@ async def call_zerotwo(prompt: str, max_tokens: int, temp: float, model: Optiona
 
 # 33. AI HUB MIX
 async def call_aihubmix(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = os.getenv("AIHUBMIX_URL", "https://api.aihubmix.com/v1/chat/completions")
+    url = os.getenv("AIHUBMIX_URL", "https://api.inferera.com/chat/completions")
     headers = {"Content-Type": "application/json"}
     effective_model = model or AIHUBMIX_MODELS[0]
     payload = {
@@ -2192,6 +2192,11 @@ async def route_ai_request_sequential(
 
     for provider_name in provider_order:
         if provider_name == "local":
+            continue
+                # Tier-based provider gating
+        _tier_cfg = TIER_CONFIG.get(tier, TIER_CONFIG["free"])
+        _allowed = _tier_cfg.get("providers", "*")
+        if _allowed != "*" and provider_name not in _allowed:
             continue
         func = provider_func_map.get(provider_name)
         if not func:
@@ -3779,33 +3784,6 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
             "usage": used,
             "limit": limit
         })
-
-        TIER_CONFIG = {
-    "free": {
-        "rpm": 5, "tpm": 10000, "rpd": 5,          # per day
-        "token_limit_per_day": 100000,
-        "enhancements_per_workspace": 3,            # per workspace per day
-        "provider_tier": "flash",
-        "max_models": 1,
-        "providers": ["groq"]                       # only one provider
-    },
-    "pro": {
-        "rpm": 15, "tpm": 50000, "rpd": 15,
-        "token_limit_per_day": 500000,
-        "enhancements_per_workspace": 5,
-        "provider_tier": "hyper",
-        "max_models": 4,
-        "providers": ["groq", "gemini"]             # two providers
-    },
-    "business": {
-        "rpm": 30, "tpm": 150000, "rpd": 30,
-        "token_limit_per_day": 2000000,
-        "enhancements_per_workspace": 10,
-        "provider_tier": "omni",
-        "max_models": 8,
-        "providers": ["groq", "gemini", "openrouter", "mistral"]  # four providers
-    }
-}
     ai_result = await route_ai_request(
         workspace="prompt",
         task_type="structuring",
@@ -4846,67 +4824,6 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
     }
-
-class CheckoutRequest(BaseModel):
-    tier: str = "pro"
-    subTier: str = "full"
-
-@app.post("/api/billing/checkout")
-async def create_checkout(data: CheckoutRequest, user: dict = Depends(get_current_user)):
-    if not STRIPE_SECRET_KEY:
-        raise HTTPException(status_code=503, detail="Payment service unavailable")
-    tier = data.tier
-    subTier = data.subTier
-    pricing = {
-        "pro": {
-            "full": {"price": 1500, "name": "Pro Full Stack", "features": "20 Data + 15 UI + 7 Enhancements"},
-            "data": {"price": 800, "name": "Pro Data", "features": "19 Data + 0 UI + 5 Enhancements"},
-            "design": {"price": 900, "name": "Pro Design", "features": "0 Data + 13 UI + 5 Enhancements"}
-        },
-        "business": {
-            "full": {"price": 2900, "name": "Business Full", "features": "30 Data + 25 UI + 15 Enhancements"},
-            "data": {"price": 1600, "name": "Business Data", "features": "28 Data + 0 UI + 10 Enhancements"},
-            "design": {"price": 1600, "name": "Business Design", "features": "0 Data + 20 UI + 10 Enhancements"}
-        }
-    }
-    plan = pricing.get(tier, {}).get(subTier)
-    if not plan:
-        raise HTTPException(status_code=400, detail="Invalid plan selection")
-    origin = "https://axelr.in"
-    try:
-        session = stripe.checkout.Session.create(
-            payment_method_types=["card"],
-            mode="subscription",
-            client_reference_id=user["googleId"],
-            customer_email=user["email"],
-            metadata={
-                "tier": tier,
-                "subTier": subTier,
-                "userId": str(user["_id"])
-            },
-            line_items=[{
-                "price_data": {
-                    "currency": "usd",
-                    "product_data": {
-                        "name": plan["name"],
-                        "description": plan["features"]
-                    },
-                    "unit_amount": plan["price"],
-                    "recurring": {"interval": "month"}
-                },
-                "quantity": 1
-            }],
-            success_url=f"{origin}/?billing=success&session_id={{CHECKOUT_SESSION_ID}}",
-            cancel_url=f"{origin}/?billing=cancelled",
-            allow_promotion_codes=True,
-        )
-        if not session.url:
-            raise Exception("No checkout URL returned")
-        return {"success": True, "url": session.url}
-    except Exception as e:
-        logger.error(f"Checkout error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
     if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
@@ -6772,6 +6689,49 @@ async def tool_decision_matrix(data: DecisionMatrixRequest, user: dict = Depends
     )
     res = await route_ai_request_parallel("data", "extraction", prompt, [], [], 4096, 0.3, user.get("tier", "free"), user)
     return {"success": True, "matrix": res["text"]}
+# ============================================================
+# PRODUCTION TIER & SUB-TIER BILLING ENGINE
+# ============================================================
+
+TIER_CONFIG = {
+    "free": {
+        "rpm": 5,
+        "tpm": 10000,
+        "rpd": 7,                  # Strict 7 queries/day limit across all workspaces
+        "enhancements_per_month": 3,
+        "max_models_per_ws": 1,
+        "token_limit_per_day": 100000,
+        "providers": ["groq", "cloudflare", "gemini"]
+    },
+    "pro": {
+        "rpm": 20,
+        "tpm": 60000,
+        "rpd": 50,                 # 15 Data + 15 Design + 20 Core
+        "enhancements_per_month": 7,
+        "max_models_per_ws": 2,
+        "token_limit_per_day": 500000,
+        "providers": ["groq", "gemini", "cloudflare", "openrouter"]
+    },
+    "business": {
+        "rpm": 45,
+        "tpm": 180000,
+        "rpd": 150,                # 50 Data + 40 Design + 60 Core
+        "enhancements_per_month": 25,
+        "max_models_per_ws": 3,
+        "token_limit_per_day": 2000000,
+        "providers": ["groq", "gemini", "cloudflare", "openrouter", "mistral"]
+    },
+    "enterprise": {
+        "rpm": 120,
+        "tpm": 500000,
+        "rpd": 1000,
+        "enhancements_per_month": 9999,
+        "max_models_per_ws": 5,
+        "token_limit_per_day": 10000000,
+        "providers": "*"
+    }
+}
+
 # ---------- 404 ----------
 @app.exception_handler(404)
 async def not_found(request, exc):
