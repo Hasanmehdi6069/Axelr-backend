@@ -2420,7 +2420,7 @@ async def stream_ai_response(
     full_prompt += f"User request: {prompt}"
 
     # 2. Native Groq Streaming (500+ tokens/sec, Sub-300ms TTFT)
-     if GROQ_API_KEY:
+    if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
             headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
