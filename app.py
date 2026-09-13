@@ -1,65 +1,107 @@
-
-
-    # -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
-AXELR AI - ELITE PRODUCTION v24.3 (FINAL) - FULLY INTEGRATED
-=============================================================
-All features: watermark, token limits, streaming, self‑heal,
-visual debugger, dependency resolver, rate limits, unified general theme,
-branding, and parallel router with latency‑aware routing.
+AXELR AI — ELITE PRODUCTION v24.4
+==================================
+FastAPI backend tuned for Render Free Tier (512 MB / 0.1 CPU).
+
+All heavy logic lives in core/ — this module orchestrates HTTP only.
 """
 
+# ---------------------------------------------------------------------------
+# Standard library
+# ---------------------------------------------------------------------------
+import logging
+import random
+logging.basicConfig(level=logging.INFO)
+logging.info("Starting up...")
+
+import asyncio
+import base64
+import csv
+import difflib
+import hashlib
+import io
+import json
 import os
 import re
-import time
-import json
-import asyncio
-import hashlib
+import secrets
+import shutil
 import smtplib
-import logging
-import base64
-import ssl
-import urllib.request
-import urllib.error
-import urllib.parse
-import csv
-import io
 import subprocess
 import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+import uuid
 import zipfile
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any, Union, Tuple, AsyncGenerator
+try:
+    import resource
+except ImportError:
+    resource = None  # Windows or other unsupported platforms
+from collections import defaultdict, deque
 from contextlib import asynccontextmanager
-from email.mime.text import MIMEText
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from email.mime.multipart import MIMEMultipart
-from collections import defaultdict
-import secrets
+from email.mime.text import MIMEText
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
+# ---------------------------------------------------------------------------
+# Third-party
+# ---------------------------------------------------------------------------
 import bcrypt
-from jose import JWTError, jwt
-from dotenv import load_dotenv
 import bleach
-from cachetools import TTLCache
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form, BackgroundTasks
-from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse, FileResponse, Response
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel
-from google.oauth2 import id_token
-from google.auth.transport import requests as google_requests
-import uvicorn
+import certifi
 import httpx
-from httpx import TimeoutException, ConnectError
 import importlib
+import jinja2
+import structlog
+import uvicorn
+from bson import ObjectId
+from cachetools import TTLCache
+from dotenv import load_dotenv
+from fastapi import (
+    Depends, FastAPI, File, Form, HTTPException, Request, UploadFile,
+)
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import (
+    HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse,
+)
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from google.auth.transport import requests as google_requests
+from google.oauth2 import id_token
+from httpx import ConnectError, TimeoutException
+from jose import JWTError, jwt
+from prometheus_client import (
+    CONTENT_TYPE_LATEST, Counter, Histogram, REGISTRY, generate_latest,
+)
+from pydantic import BaseModel
 import redis.asyncio as aioredis
-LITELLM_AVAILABLE = os.getenv("ENABLE_LITELLM", "false").lower() == "true"
-Router = None
-if LITELLM_AVAILABLE:
-    try:
-        from litellm.router import Router
-    except Exception as exc:
-        LITELLM_AVAILABLE = False
-        logging.getLogger("axelr-startup").warning("LiteLLM disabled: %s", exc)
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from unidiff.patch import PatchSet
+# Feature-service holders — populated in lifespan()
+intent_classifier:   Optional[Any] = None
+context_registry:    Optional[Any] = None
+dependency_tracker:  Optional[Any] = None
+critic_agent:        Optional[Any] = None
+self_healer:         Optional[Any] = None
+pr_defense:          Optional[Any] = None
+
+# ---------------------------------------------------------------------------
+# Optional deps (guarded)
+# ---------------------------------------------------------------------------
+try:
+    import stripe
+    STRIPE_LIB_AVAILABLE = True
+except ImportError:
+    stripe = None
+    STRIPE_LIB_AVAILABLE = False
+try:
+    import openpyxl  # noqa: F401
+    PANDAS_AVAILABLE = True
+except ImportError:
+    openpyxl = None
+    PANDAS_AVAILABLE = False
+
 try:
     slowapi = importlib.import_module("slowapi")
     Limiter = slowapi.Limiter
@@ -67,301 +109,329 @@ try:
     RateLimitExceeded = importlib.import_module("slowapi.errors").RateLimitExceeded
 except ImportError:
     class Limiter:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def limit(self, *args, **kwargs):
-            return lambda function: function
-
-    class RateLimitExceeded(Exception):
-        pass
-
+        def __init__(self, *a, **kw): pass
+        def limit(self, *a, **kw): return lambda f: f
+    class RateLimitExceeded(Exception): pass
     def _rate_limit_exceeded_handler(request, exc):
         return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
-from unidiff.patch import PatchSet
-try:
-    import pandas as pd
-    openpyxl = importlib.import_module("openpyxl")
-except ImportError:
-    pd = None
-    openpyxl = None
-import jinja2
-import difflib
-import shutil
-from bson import ObjectId
-from prometheus_client import Counter, Histogram, generate_latest, REGISTRY, CONTENT_TYPE_LATEST
-import structlog
-import uuid
 
-def get_remote_address(request: Request) -> str:
-    """Return the client host for rate-limiting."""
-    return request.client.host if request.client else "unknown"
 
-# Prometheus counter used by the AI request routing paths.
-AI_REQUESTS = Counter(
-    "ai_requests_total",
-    "AI requests by provider, workspace, and status",
-    ["provider", "workspace", "status"],
+# ---------------------------------------------------------------------------
+# Core elite modules — the single source of truth
+# ---------------------------------------------------------------------------
+from core import (
+    CodeGuard,
+    ContextRegistry,
+    DependencyTracker,
+    IntentRouter,
+    PRShield,
+    PRShieldInput,
+    SelfHealer,
+    get_router,
+    get_semantic_cache,
 )
 
-logger = structlog.get_logger("axelr")
-CLOUDFLARE_API_KEY = (os.getenv("CLOUDFLARE_API_KEY") or "").strip()
-CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
-GEMINI_MODELS_STR = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
-GEMINI_MODELS = [m.strip() for m in GEMINI_MODELS_STR.split(",") if m.strip()]
-GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-3.5-flash"
-# ============================================================
-# SAFE HTML SANITIZATION (for deploy endpoint)
-# ============================================================
-ALLOWED_TAGS = [
-    'html', 'head', 'title', 'body', 'div', 'span', 'p', 'a', 'img', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'ul', 'ol', 'li', 'table', 'thead', 'tbody', 'tr', 'th', 'td', 'form', 'input', 'button', 'select',
-    'option', 'textarea', 'label', 'fieldset', 'legend', 'style', 'script', 'link', 'meta', 'header',
-    'footer', 'nav', 'section', 'article', 'aside', 'main', 'figure', 'figcaption', 'canvas', 'svg',
-    'path', 'circle', 'rect', 'line', 'polygon', 'g', 'defs', 'use', 'clipPath', 'pattern', 'image',
-    'iframe', 'audio', 'video', 'source', 'track', 'embed', 'object', 'param', 'blockquote', 'pre',
-    'code', 'br', 'hr', 'strong', 'em', 'b', 'i', 'u', 's', 'sub', 'sup', 'mark', 'small', 'del', 'ins',
-    'details', 'summary', 'dialog', 'menu', 'menuitem', 'command'
-]
-ALLOWED_ATTRS = {
-    '*': ['class', 'id', 'style', 'title', 'lang', 'dir', 'hidden', 'tabindex', 'role', 'aria-*', 'data-*'],
-    'a': ['href', 'target', 'rel', 'download', 'ping', 'hreflang', 'type'],
-    'img': ['src', 'alt', 'width', 'height', 'loading', 'decoding', 'crossorigin', 'srcset', 'sizes'],
-    'iframe': ['src', 'width', 'height', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy', 'sandbox'],
-    'input': ['type', 'name', 'value', 'placeholder', 'checked', 'disabled', 'readonly', 'required', 'min', 'max', 'step', 'pattern', 'autocomplete', 'autofocus', 'multiple'],
-    'button': ['type', 'name', 'value', 'disabled'],
-    'select': ['name', 'multiple', 'disabled', 'required', 'size'],
-    'option': ['value', 'selected', 'disabled'],
-    'textarea': ['name', 'rows', 'cols', 'disabled', 'readonly', 'required', 'placeholder', 'wrap'],
-    'form': ['action', 'method', 'enctype', 'target', 'novalidate', 'autocomplete'],
-    'style': ['type', 'media', 'scoped'],
-    'script': ['type', 'src', 'async', 'defer', 'integrity', 'crossorigin'],
-    'link': ['href', 'rel', 'type', 'media', 'crossorigin', 'integrity'],
-    'meta': ['name', 'content', 'charset', 'http-equiv'],
-}
-# ... imports ...
-import os
-from dotenv import load_dotenv
+# Process-wide singletons — constructed exactly once
+_code_guard = CodeGuard()
+_intent_router = get_router()
+_semantic_cache = get_semantic_cache()
+
+# ---------------------------------------------------------------------------
+# Environment loading
+# ---------------------------------------------------------------------------
 load_dotenv(override=True)
 
-# Feature flags (moved here)
-ENABLE_INTENT_CLASSIFIER = os.getenv("ENABLE_INTENT_CLASSIFIER", "true").lower() == "true"
-ENABLE_CONTEXT_REGISTRY = os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
-ENABLE_CRITIC = os.getenv("ENABLE_CRITIC", "true").lower() == "true"
-ENABLE_SELF_HEAL = os.getenv("ENABLE_SELF_HEAL", "true").lower() == "true"
-ENABLE_BLAST_RADIUS = os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true"
-ENABLE_PR_DEFENSE = os.getenv("ENABLE_PR_DEFENSE", "true").lower() == "true"
-WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "")
-if 'ENABLE_INTENT_CLASSIFIER' not in globals():
-    ENABLE_INTENT_CLASSIFIER = os.getenv("ENABLE_INTENT_CLASSIFIER", "true").lower() == "true"
-if 'ENABLE_CONTEXT_REGISTRY' not in globals():
-    ENABLE_CONTEXT_REGISTRY = os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
-if 'ENABLE_CRITIC' not in globals():
-    ENABLE_CRITIC = os.getenv("ENABLE_CRITIC", "true").lower() == "true"
-if 'ENABLE_SELF_HEAL' not in globals():
-    ENABLE_SELF_HEAL = os.getenv("ENABLE_SELF_HEAL", "true").lower() == "true"
-if 'ENABLE_BLAST_RADIUS' not in globals():
-    ENABLE_BLAST_RADIUS = os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true"
-if 'ENABLE_PR_DEFENSE' not in globals():
-    ENABLE_PR_DEFENSE = os.getenv("ENABLE_PR_DEFENSE", "true").lower() == "true"
-# ---------- STRIPE (optional) ----------
-STRIPE_AVAILABLE = False
-stripe = None
-try:
-    import stripe
-    STRIPE_AVAILABLE = True
-except ImportError:
-    pass
-# ---------------------------- LOGGER ----------------------------
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("axelr-unified")
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer()
+        structlog.processors.JSONRenderer(),
     ],
     context_class=dict,
     logger_factory=structlog.PrintLoggerFactory(),
 )
 logger = structlog.get_logger("axelr")
-# ---------------------------- ENV / CONFIG ----------------------------
-load_dotenv(override=True)
 
-# Feature flags
-ENABLE_INTENT_CLASSIFIER = os.getenv("ENABLE_INTENT_CLASSIFIER", "true").lower() == "true"
-ENABLE_CONTEXT_REGISTRY = os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
-ENABLE_CRITIC = os.getenv("ENABLE_CRITIC", "true").lower() == "true"
-ENABLE_SELF_HEAL = os.getenv("ENABLE_SELF_HEAL", "true").lower() == "true"
-ENABLE_BLAST_RADIUS = os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true"
-ENABLE_PR_DEFENSE = os.getenv("ENABLE_PR_DEFENSE", "true").lower() == "true"
-WORKSPACE_ROOT = os.getenv("WORKSPACE_ROOT", "")
-
-
-# ---------------------------- FASTAPI APP ----------------------------
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await init_db()
-    await init_redis()
-    # --- Startup check logic (moved here) ---
-    logger.info("=== AXELR AI STARTUP CHECK ===")
-    logger.info(f"Origin: {ORIGIN}")
-    logger.info(f"MongoDB URI: {'[SET]' if MONGO_URI else '[MISSING]'}")
-    # Instantiate core features after Redis and DB are ready
-    global intent_classifier, context_registry, dependency_graph, critic_agent, self_healer, pr_defense
-    if ENABLE_INTENT_CLASSIFIER:
-        intent_classifier = IntentClassifier()
-    if ENABLE_CONTEXT_REGISTRY and redis_client is not None and db is not None:
-        context_registry = ContextRegistry(redis_client, users_col)
-    if ENABLE_BLAST_RADIUS and WORKSPACE_ROOT:
-        dependency_graph = DependencyGraph(WORKSPACE_ROOT, ".github/workflows/ci.yml")
-    if ENABLE_CRITIC:
-        critic_agent = CriticAgent()
-    if ENABLE_SELF_HEAL:
-        self_healer = SelfHealingEngine(route_ai_request, max_retries=3)
-    if ENABLE_PR_DEFENSE:
-        pr_defense = PRDefenseGenerator()
-    if not db_available:
-        logger.critical("MongoDB is not available. The application will run in degraded mode.")
-    else:
-        try:
-            await db.command("ping")
-            logger.info("MongoDB: Connected")
-        except Exception as e:
-            logger.error(f"MongoDB: Connection failed - {e}")
-    if redis_client:
-        try:
-            await redis_client.ping()
-            logger.info("Redis: Connected")
-        except Exception as e:
-            logger.error(f"Redis: Connection failed - {e}")
-    else:
-        logger.warning("Redis: Not configured")
-    logger.info("=== STARTUP CHECK COMPLETE ===")
-    app.state.start_time = time.time()
-
-    asyncio.create_task(validate_all_providers())
-    asyncio.create_task(background_health_check())
-    if ENABLE_PR_DEFENSE:
-        asyncio.create_task(pr_defense_cleanup())
-
-    yield
-    if client:
-        client.close()
-        logger.info("Shutdown complete")
-# ============================================================
-# DYNAMIC ORIGINS & STARTUP VALIDATION
-# ============================================================
-configured_origin = os.getenv("ORIGIN", "https://axelr.in").strip().rstrip("/")
-allowed_origins = list(dict.fromkeys([
-    configured_origin,
-    "https://axelr.in",
-    "http://localhost:5500",
-    "http://127.0.0.1:5500",
-    "https://axelr-backend.onrender.com",
-]))
-app = FastAPI(title="AXELR Unified", version="24.3", lifespan=lifespan)
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,          # already defined above
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+# ---------------------------------------------------------------------------
+# Prometheus metrics
+# ---------------------------------------------------------------------------
+AI_REQUESTS = Counter(
+    "ai_requests_total",
+    "AI requests by provider, workspace, and status",
+    ["provider", "workspace", "status"],
 )
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse
-import os
-STATIC_DIR = "." 
-if os.path.isdir(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
-    # Also serve root static assets so /style.css, /script.js work:
-    app.mount("/assets", StaticFiles(directory=STATIC_DIR), name="assets")
-else:
-    logging.getLogger("axelr-unified").warning(
-        "Static directory '%s' not found — /static routes disabled.", STATIC_DIR
-    )
-@app.get("/")
-async def serve_frontend():
-    with open("index.html", "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
-    if os.path.isfile(index_path):
-        with open(index_path, "r", encoding="utf-8") as f:
-            return HTMLResponse(f.read())
-    return HTMLResponse(
-        "<h1>AXELR AI backend is running</h1>"
-        "<p>No <code>static/index.html</code> found.</p>",
-        status_code=200,
-    )
-@app.on_event("startup")
-async def startup_check():
-    logger.info("=== AXELR AI STARTUP CHECK ===")
-    logger.info(f"Origin: {ORIGIN}")  # <-- Fixed indentation (4 spaces)
-    logger.info(f"MongoDB URI: {'[SET]' if MONGO_URI else '[MISSING]'}")
-    logger.info(f"Google Client ID: {'[SET]' if GOOGLE_CLIENT_ID else '[MISSING]'}")
-    logger.info(f"GROQ API Key: {'[SET]' if GROQ_API_KEY else '[MISSING]'}")
-    logger.info(f"Gemini API Key: {'[SET]' if GEMINI_API_KEY else '[MISSING]'}")
-    logger.info(f"OpenRouter API Key: {'[SET]' if OPENROUTER_API_KEY else '[MISSING]'}")
-    # Check database
-    if db_available:
-        try:
-            await db.command("ping")
-            logger.info("MongoDB: Connected")
-        except Exception as e:
-            logger.error(f"MongoDB: Connection failed - {e}")
-    else:
-        logger.error("MongoDB: Not available")
-    # Check Redis
-    if redis_client:
-        try:
-            await redis_client.ping()
-            logger.info("Redis: Connected")
-        except Exception as e:
-            logger.error(f"Redis: Connection failed - {e}")
-    else:
-        logger.warning("Redis: Not configured")
-    logger.info("=== STARTUP CHECK COMPLETE ===")
+REQUESTS = Counter(
+    "http_requests_total", "Total HTTP requests",
+    ["method", "endpoint", "status"],
+)
+AI_LATENCY = Histogram(
+    "ai_latency_seconds", "AI provider latency", ["provider"],
+)
 
-@app.middleware("http")
-async def logging_middleware(request: Request, call_next):
-    request_id = str(uuid.uuid4())[:8]
-    request.state.request_id = request_id
-    start = time.time()
-    response = await call_next(request)
-    duration = time.time() - start
-    logger.info(
-    "http_request",
-    request_id=request_id,
-    method=request.method,
-    path=request.url.path,
-    status=response.status_code,
-    duration_ms=round(duration * 1000, 2),
-    )
-    return response
-@app.middleware("http")
-async def security_headers_middleware(request: Request, call_next):
-    response = await call_next(request)
-    response.headers["Content-Security-Policy"] = (
-        "default-src 'self'; "
-        "script-src 'self' https://accounts.google.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
-        "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
-        "font-src 'self' https://fonts.gstatic.com; "
-        "img-src 'self' data:; "
-        "connect-src 'self' https://axelr-backend.onrender.com https://api.puter.com; "
-        "frame-src 'self' https://accounts.google.com; "
-        "object-src 'none'; "
-        "base-uri 'self'; "
-        "form-action 'self'; "
-        "upgrade-insecure-requests"
-    )
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["X-XSS-Protection"] = "1; mode=block"
-    return response
-# ---------------------------- RATE LIMITER (REDIS BACKED) ----------------------------
-limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
-app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-# ---------------------------- MONGO DB ----------------------------
+# ---------------------------------------------------------------------------
+# Feature flags
+# ---------------------------------------------------------------------------
+ENABLE_INTENT_CLASSIFIER  = os.getenv("ENABLE_INTENT_CLASSIFIER",  "true").lower() == "true"
+ENABLE_CONTEXT_REGISTRY   = os.getenv("ENABLE_CONTEXT_REGISTRY",   "true").lower() == "true"
+ENABLE_CRITIC             = os.getenv("ENABLE_CRITIC",             "true").lower() == "true"
+ENABLE_SELF_HEAL          = os.getenv("ENABLE_SELF_HEAL",          "true").lower() == "true"
+ENABLE_BLAST_RADIUS       = os.getenv("ENABLE_BLAST_RADIUS",       "false").lower() == "true"
+ENABLE_PR_DEFENSE         = os.getenv("ENABLE_PR_DEFENSE",         "true").lower() == "true"
+WORKSPACE_ROOT            = os.getenv("WORKSPACE_ROOT", "")
+
+# ---------------------------------------------------------------------------
+# Core config
+# ---------------------------------------------------------------------------
+MONGO_URI        = (os.getenv("MONGO_URI") or "").strip()
+GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or
+                    "474929925590-kfpurq4aou35pkscf6gbr963vf4hfa7g.apps.googleusercontent.com").strip()
+ADMIN_EMAIL      = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
+SMTP_HOST        = os.getenv("SMTP_HOST", "smtp.gmail.com")
+SMTP_PORT        = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER        = os.getenv("SMTP_USER")
+SMTP_PASS        = os.getenv("SMTP_PASS")
+NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
+REDIS_URL        = os.getenv("REDIS_URL")
+
+# ---------------------------------------------------------------------------
+# AI provider keys
+# ---------------------------------------------------------------------------
+GROQ_API_KEY          = (os.getenv("GROQ_API_KEY") or "").strip()
+CLOUDFLARE_API_KEY    = (os.getenv("CLOUDFLARE_API_KEY") or "").strip()
+CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
+OPENROUTER_API_KEY    = (os.getenv("OPENROUTER_API_KEY") or "").strip()
+HF_API_KEY            = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
+GEMINI_API_KEY        = (os.getenv("GEMINI_API_KEY") or "").strip()
+MISTRAL_API_KEY       = (os.getenv("MISTRAL_API_KEY") or "").strip()
+GITHUB_MODELS_TOKEN   = (os.getenv("GITHUB_MODELS_TOKEN") or "").strip()
+NROUTER_API_KEY       = (os.getenv("NROUTER_API_KEY") or "").strip()
+TEXT_CORTEX_API_KEY   = (os.getenv("TEXT_CORTEX_API_KEY") or "").strip()
+NARAROUTER_API_KEY    = (os.getenv("NARAROUTER_API_KEY") or "").strip()
+BAZAARLINK_API_KEY    = (os.getenv("BAZAARLINK_API_KEY") or "").strip()
+SILICONFLOW_API_KEY   = (os.getenv("SILICONFLOW_API_KEY") or "").strip()
+AGNES_API_KEY         = (os.getenv("AGNES_API_KEY") or "").strip()
+OLLAMA_API_KEY        = (os.getenv("OLLAMA_API_KEY") or "").strip()
+ANYAPI_API_KEY        = (os.getenv("ANYAPI_API_KEY") or "").strip()
+MODELSCOPE_API_KEY    = (os.getenv("MODELSCOPE_API_KEY") or "").strip()
+OVHCLOUD_API_KEY      = (os.getenv("OVHCLOUD_API_KEY") or "").strip()
+REQUESTY_API_KEY      = (os.getenv("REQUESTY_API_KEY") or "").strip()
+MANIFEST_API_KEY      = (os.getenv("MANIFEST_API_KEY") or "").strip()
+GLAMA_API_KEY         = (os.getenv("GLAMA_API_KEY") or "").strip()
+ZAI_API_KEY           = (os.getenv("ZAI_API_KEY") or "").strip()
+TEAMOROUTER_API_KEY   = (os.getenv("TEAMOROUTER_API_KEY") or "").strip()
+
+# ---------------------------------------------------------------------------
+# OAuth / passkeys
+# ---------------------------------------------------------------------------
+GITHUB_CLIENT_ID     = os.getenv("GITHUB_CLIENT_ID", "").strip()
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "").strip()
+GITHUB_REDIRECT_URI  = os.getenv("GITHUB_REDIRECT_URI",
+                                 "https://axelr-backend.onrender.com/api/auth/github/callback")
+RP_ID   = os.getenv("RP_ID", "axelr.in")
+RP_NAME = os.getenv("RP_NAME", "AXELR AI")
+ORIGIN  = os.getenv("ORIGIN", "https://axelr.in").rstrip("/")
+
+# JWT
+SECRET_KEY = os.getenv("JWT_SECRET", "change-me-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
+
+# ---------------------------------------------------------------------------
+# Model catalog
+# ---------------------------------------------------------------------------
+def _csv_env(key: str, default: str) -> List[str]:
+    return [m.strip() for m in os.getenv(key, default).split(",") if m.strip()]
+
+GEMINI_MODELS       = _csv_env("GEMINI_MODEL",       "gemini-1.5-flash")
+GEMINI_MODEL        = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-1.5-flash"
+GROQ_MODELS         = _csv_env("GROQ_MODELS",         "llama3-70b-8192,mixtral-8x7b-32768,gemma2-9b-it")
+OPENROUTER_MODELS   = _csv_env("OPENROUTER_MODELS",   "openrouter/auto,mistralai/mistral-7b-instruct:free,deepseek/deepseek-chat:free")
+CLOUDFLARE_MODEL    = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
+MODELSCOPE_MODELS   = _csv_env("MODELSCOPE_MODELS",   "qwen-max,deepseek-v3")
+OLLAMA_MODELS       = _csv_env("OLLAMA_MODELS",       "mistral-large-3:675b-cloud,kimi-k2.6,glm-5.3,glm-5.3-flash,deepseek-v4-flash,deepseek-v4-pro,gpt-oss:120b-cloud,qwen-3.5")
+NARA_MODELS         = _csv_env("NARA_MODELS",         "minimax-m3,deepseek-v3")
+MISTRAL_MODELS      = _csv_env("MISTRAL_MODELS",      "open-mistral-7b,mistral-small-latest")
+HF_MODELS           = _csv_env("HUGGINGFACE_MODELS",  "meta-llama/Llama-3.2-3B-Instruct,mistralai/Mistral-7B-Instruct-v0.3")
+GITHUB_MODEL        = os.getenv("GITHUB_MODEL", "gpt-4o-mini")
+OVHCLOUD_MODELS     = _csv_env("OVHCLOUD_MODELS",     "llama-3.3-70b-instruct,mistral-7b-instruct")
+SILICONFLOW_MODELS  = _csv_env("SILICONFLOW_MODELS",  "deepseek-ai/DeepSeek-V3,Qwen/Qwen2.5-7B-Instruct")
+AGNES_MODEL         = os.getenv("AGNES_MODEL", "agnes-2.0-flash")
+ZHIPU_MODEL         = os.getenv("ZHIPU_MODEL", "glm-4.5-flash")
+TEAMOROUTER_MODEL   = os.getenv("TEAMOROUTER_MODEL", "teamorouter-free")
+BAZAARLINK_MODEL    = os.getenv("BAZAARLINK_MODEL", "auto:free")
+REQUESTY_MODEL      = os.getenv("REQUESTY_MODEL", "auto:free")
+NROUTER_MODEL       = os.getenv("NROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
+GLAMA_MODEL         = os.getenv("GLAMA_MODEL", "gpt-3.5-turbo")
+
+# Static model lists
+BIFROST_MODELS      = ["llama3.1:70b", "mistral:7b"]
+FREEGPT4_MODELS     = ["gpt-4"]
+PUTER_MODEL         = "gpt-3.5-turbo"
+FREETHEAI_MODEL     = "gpt-3.5-turbo"
+OMNIGPT_MODELS      = ["gpt-3.5-turbo"]
+OPENDODE_MODELS     = ["qwen3-coder"]
+FREEFLOW_MODEL      = "gpt-3.5-turbo"
+QODER_MODEL         = "qwen3-coder"
+MANIFEST_MODEL      = "auto:free"
+KEYLESS_MODEL       = "gpt-3.5-turbo"
+CHUBVENUS_MODEL     = "gpt-3.5-turbo"
+BLOCKRUN_MODELS     = ["deepseek-v4-flash"]
+ANYAPI_MODEL        = "poolside/laguna-xs.2:free"
+AYMO_MODELS         = ["gemini-flash", "deepseek-v3.2", "qwen3"]
+ZEROTWO_MODELS      = ["gpt-5-mini", "gemini-flash-lite"]
+AIHUBMIX_MODELS     = ["gpt-5.5", "gemini-3", "glm-5.1", "kimi", "minimax"]
+AISURE_MODEL        = "gpt-4o"
+FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1_000_000))
+
+# ---------------------------------------------------------------------------
+# Stripe
+# ---------------------------------------------------------------------------
+STRIPE_AVAILABLE = False
+if STRIPE_LIB_AVAILABLE:
+    STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY", "").strip()
+    if STRIPE_SECRET_KEY:
+        stripe.api_key = STRIPE_SECRET_KEY
+        stripe.max_network_retries = 2
+        stripe.app_info = {"name": "Axelr AI", "version": "24.4"}
+        STRIPE_AVAILABLE = True
+    else:
+        logger.warning("STRIPE_SECRET_KEY missing — billing disabled")
+
+STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET", "").strip()
+STRIPE_SUCCESS_URL    = os.getenv("STRIPE_SUCCESS_URL",   "https://axelr.in/?billing=success")
+STRIPE_CANCEL_URL     = os.getenv("STRIPE_CANCEL_URL",    "https://axelr.in/?billing=cancelled")
+STRIPE_PORTAL_RETURN  = os.getenv("STRIPE_PORTAL_RETURN_URL", "https://axelr.in/?billing=portal_return")
+STRIPE_TRIAL_DAYS     = int(os.getenv("STRIPE_TRIAL_DAYS", "0"))
+
+STRIPE_PRICE_CATALOG = {
+    "pro": {
+        "full":   {"monthly": os.getenv("STRIPE_PRICE_PRO_FULL_MONTHLY"),
+                   "annual":  os.getenv("STRIPE_PRICE_PRO_FULL_ANNUAL")},
+        "data":   {"monthly": os.getenv("STRIPE_PRICE_PRO_DATA_MONTHLY"),
+                   "annual":  os.getenv("STRIPE_PRICE_PRO_DATA_ANNUAL")},
+        "design": {"monthly": os.getenv("STRIPE_PRICE_PRO_DESIGN_MONTHLY"),
+                   "annual":  os.getenv("STRIPE_PRICE_PRO_DESIGN_ANNUAL")},
+    },
+    "business": {
+        "full":   {"monthly": os.getenv("STRIPE_PRICE_BIZ_FULL_MONTHLY"),
+                   "annual":  os.getenv("STRIPE_PRICE_BIZ_FULL_ANNUAL")},
+        "data":   {"monthly": os.getenv("STRIPE_PRICE_BIZ_DATA_MONTHLY"),
+                   "annual":  os.getenv("STRIPE_PRICE_BIZ_DATA_ANNUAL")},
+        "design": {"monthly": os.getenv("STRIPE_PRICE_BIZ_DESIGN_MONTHLY"),
+                   "annual":  os.getenv("STRIPE_PRICE_BIZ_DESIGN_ANNUAL")},
+    },
+}
+STRIPE_PRICE_AMOUNTS = {
+    "pro": {
+        "full":   {"monthly": 1500, "annual": 14400},
+        "data":   {"monthly": 900,  "annual": 8400},
+        "design": {"monthly": 1000, "annual": 9600},
+    },
+    "business": {
+        "full":   {"monthly": 3500, "annual": 33600},
+        "data":   {"monthly": 2200, "annual": 21600},
+        "design": {"monthly": 2400, "annual": 22800},
+    },
+}
+TIER_LABELS = {
+    ("pro", "full"):    "Axelr Pro Architect (Full)",
+    ("pro", "data"):    "Axelr Pro Architect (Data)",
+    ("pro", "design"):  "Axelr Pro Architect (Design)",
+    ("business", "full"):   "Axelr Business Collective (Full)",
+    ("business", "data"):   "Axelr Business Collective (Data)",
+    ("business", "design"): "Axelr Business Collective (Design)",
+}
+VALID_TIERS    = {"pro", "business"}
+VALID_SUBTIERS = {"full", "data", "design"}
+VALID_PERIODS  = {"monthly", "annual"}
+
+# ---------------------------------------------------------------------------
+# HTTP client — shared, TLS-verified
+# ---------------------------------------------------------------------------
+HTTP_CLIENT = httpx.AsyncClient(
+    timeout=httpx.Timeout(12.0, connect=8.0, read=12.0, write=8.0),
+    verify=certifi.where(),
+    limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
+)
+
+# ---------------------------------------------------------------------------
+# LiteLLM router (optional)
+# ---------------------------------------------------------------------------
+LITELLM_AVAILABLE = os.getenv("ENABLE_LITELLM", "false").lower() == "true"
+Router = None
+if LITELLM_AVAILABLE:
+    try:
+        from litellm.router import Router
+    except Exception as exc:
+        LITELLM_AVAILABLE = False
+        logger.warning("LiteLLM disabled", error=str(exc))
+
+LITELLM_SUPPORTED = {
+    "gemini":       lambda: f"gemini/{GEMINI_MODEL}",
+    "groq":         lambda: f"groq/{GROQ_MODELS[0]}" if GROQ_MODELS else None,
+    "cloudflare":   lambda: f"cloudflare/{CLOUDFLARE_MODEL}",
+    "openrouter":   lambda: f"openrouter/{OPENROUTER_MODELS[0]}" if OPENROUTER_MODELS else None,
+    "mistral":      lambda: f"mistral/{MISTRAL_MODELS[0]}" if MISTRAL_MODELS else None,
+    "huggingface":  lambda: f"huggingface/{HF_MODELS[0]}" if HF_MODELS else None,
+    "modelscope":   lambda: f"modelscope/{MODELSCOPE_MODELS[0]}" if MODELSCOPE_MODELS else None,
+    "zhipuai":      lambda: f"zai/{ZHIPU_MODEL}",
+}
+
+class _DisabledLiteLLMRouter:
+    async def acompletion(self, **kwargs):
+        raise RuntimeError("LiteLLM router is disabled")
+
+router = _DisabledLiteLLMRouter()
+if Router is not None:
+    _router_models = []
+    for _name, _fn in LITELLM_SUPPORTED.items():
+        _model_str = _fn()
+        if not _model_str:
+            continue
+        _entry = {
+            "model_name": _name,
+            "litellm_params": {
+                "model": _model_str,
+                "api_key": os.getenv(f"{_name.upper()}_API_KEY", None),
+            },
+        }
+        if _name == "cloudflare" and CLOUDFLARE_ACCOUNT_ID:
+            _entry["litellm_params"]["api_base"] = (
+                f"https://api.cloudflare.com/client/v4/accounts/"
+                f"{CLOUDFLARE_ACCOUNT_ID}/ai/run/"
+            )
+        _router_models.append(_entry)
+
+    if _router_models:
+        try:
+            router = Router(
+                model_list=_router_models,
+                routing_strategy="usage-based-routing",
+                num_retries=3,
+                fallbacks=[
+                    {"gemini":     ["groq", "openrouter"]},
+                    {"groq":       ["cloudflare", "mistral"]},
+                    {"cloudflare": ["openrouter", "huggingface"]},
+                    {"openrouter": ["modelscope", "zhipuai"]},
+                    {"mistral":    ["huggingface", "modelscope"]},
+                ],
+                allowed_fails=3,
+                cooldown_time=60,
+            )
+            logger.info("LiteLLM router initialized", models=len(_router_models))
+        except Exception as exc:
+            logger.warning("LiteLLM router init failed", error=str(exc))
+            router = _DisabledLiteLLMRouter()
+    else:
+        logger.info("LiteLLM router has no configured models; disabled")
+
+# ---------------------------------------------------------------------------
+# Database / Redis holders
+# ---------------------------------------------------------------------------
 client = None
 db = None
 users_col = None
@@ -370,20 +440,48 @@ reports_col = None
 pr_reports_col = None
 projects_col = None
 db_available = False
+redis_client: Optional[aioredis.Redis] = None
 
-async def init_db():
+# ---------------------------------------------------------------------------
+# In-memory caches & circuit breaker state
+# ---------------------------------------------------------------------------
+ai_cache = TTLCache(maxsize=2000, ttl=3600)
+provider_failures  = defaultdict(int)
+provider_last_fail = defaultdict(float)
+model_failures     = defaultdict(int)
+model_last_fail    = defaultdict(float)
+provider_latency   = defaultdict(lambda: 9999.0)
+PROVIDER_COOLDOWN = 600
+MODEL_COOLDOWN    = 120
+
+# Feature service holders (populated by lifespan)
+intent_classifier: Optional[Any] = None
+context_registry:  Optional[Any] = None
+dependency_tracker: Optional[Any] = None
+critic_agent:      Optional[Any] = None
+self_healer:       Optional[Any] = None
+pr_defense:        Optional[Any] = None
+
+# ---------------------------------------------------------------------------
+# DB / Redis initialisation
+# ---------------------------------------------------------------------------
+async def init_db() -> None:
     global client, db, users_col, sessions_col, reports_col, pr_reports_col, projects_col, db_available
+    if not MONGO_URI:
+        logger.error("MONGO_URI missing — running without DB")
+        db_available = False
+        return
     try:
         from motor.motor_asyncio import AsyncIOMotorClient
-        from bson import ObjectId
-        client = AsyncIOMotorClient(MONGO_URI)
+        client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=8000)
         db = client.get_default_database()
-        users_col = db.get_collection("users")
-        sessions_col = db.get_collection("chatsessions")
-        reports_col = db.get_collection("bugreports")
+        users_col      = db.get_collection("users")
+        sessions_col   = db.get_collection("chatsessions")
+        reports_col    = db.get_collection("bugreports")
         pr_reports_col = db.get_collection("pr_reports")
-        projects_col = db.get_collection("projects")
-        await users_col.create_index("googleId", unique=True)
+        projects_col   = db.get_collection("projects")
+
+        await users_col.create_index("googleId", unique=True, sparse=True)
         await users_col.create_index("githubId", unique=True, sparse=True)
         await sessions_col.create_index([("userId", 1), ("status", 1), ("workspace", 1)])
         await sessions_col.create_index("userId")
@@ -392,159 +490,324 @@ async def init_db():
         await pr_reports_col.create_index("sessionId")
         await projects_col.create_index("userId")
         db_available = True
-        logger.info("MongoDB connection established.")
+        logger.info("MongoDB connected")
     except Exception as e:
-        logger.error(f"MongoDB initialization failed: {e}")
+        logger.error("MongoDB init failed", error=str(e))
         db_available = False
 
-def get_object_id():
-    if db_available:
-        from bson import ObjectId
-        return ObjectId
-    return None
-
-from fastapi import WebSocket, WebSocketDisconnect
-from typing import Dict, Set
-
-# WebSocket connection manager
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: Dict[str, Set[str]] = {}  # session_id -> set of user_ids
-
-    async def connect(self, session_id: str, user_id: str, websocket: WebSocket):
-        await websocket.accept()
-        if session_id not in self.active_connections:
-            self.active_connections[session_id] = set()
-        self.active_connections[session_id].add(user_id)
-
-    def disconnect(self, session_id: str, user_id: str):
-        if session_id in self.active_connections:
-            self.active_connections[session_id].discard(user_id)
-            if not self.active_connections[session_id]:
-                del self.active_connections[session_id]
-
-    async def broadcast(self, session_id: str, message: dict):
-        # In a real implementation, you'd need to store websocket per user.
-        # For simplicity, we store them in a dict keyed by (session_id, user_id)
-        pass  # We'll rely on polling for now, but this is the structure.
-
-# Simplified: we keep the existing SSE but add a WebSocket alternative for future.
-# For production, replace the SSE endpoint with WebSocket.
-# However, the code is already functional and acceptable for MVP.
-# ---------------------------- REDIS ----------------------------
-REDIS_URL = os.getenv("REDIS_URL")
-redis_client = None
 
 async def init_redis() -> None:
     global redis_client
-    if REDIS_URL:
-        try:
-            redis_client = await aioredis.from_url(REDIS_URL, decode_responses=True, max_connections=10)
-            await redis_client.ping()
-            logger.info("Redis connected successfully")
-        except Exception as e:
-            logger.warning(f"Redis connection failed: {e}")
-            redis_client = None
-    else:
-        logger.info("Redis not configured, using memory-only cache")
-
-# ---------------------------- CACHE & CIRCUIT BREAKER ----------------------------
-ai_cache = TTLCache(maxsize=2000, ttl=3600)
-provider_failures = defaultdict(int)
-provider_last_fail = defaultdict(float)
-model_failures = defaultdict(int)
-model_last_fail = defaultdict(float)
-provider_latency = defaultdict(lambda: 9999.0)  # average latency in ms
-PROVIDER_COOLDOWN = 600
-MODEL_COOLDOWN = 120
-
-# ---------------------------- RATE LIMITING PER USER (Redis) ----------------------------
-async def check_rate_limit(user_id: str, tier: str, endpoint: str) -> Tuple[bool, int]:
-    if not redis_client:
-        return True, 0
+    if not REDIS_URL:
+        logger.info("Redis not configured")
+        return
     try:
-        now = int(time.time())
-        limits = {
-            "free": {"rpm": 5, "tpm": 10000, "rpd": 5, "rpm_hard": 8, "tpm_hard": 15000, "rpd_hard": 8},
-            "pro": {"rpm": 15, "tpm": 50000, "rpd": 15, "rpm_hard": 20, "tpm_hard": 75000, "rpd_hard": 20},
-            "business": {"rpm": 30, "tpm": 150000, "rpd": 30, "rpm_hard": 45, "tpm_hard": 225000, "rpd_hard": 45},
-        }
-        tier = tier if tier in limits else "free"
-        lim = limits[tier]
-        key_rpm = f"rate:{user_id}:rpm:{endpoint}"
-        key_tpm = f"rate:{user_id}:tpm:{endpoint}"
-        key_rpd = f"rate:{user_id}:rpd:{endpoint}"
-
-        minute_ago = now - 60
-        day_ago = now - 86400
-        pipe = redis_client.pipeline()
-        pipe.zremrangebyscore(key_rpm, 0, minute_ago)
-        pipe.zremrangebyscore(key_tpm, 0, minute_ago)
-        pipe.zremrangebyscore(key_rpd, 0, day_ago)
-        await pipe.execute()
-
-        rpm_count = await redis_client.zcard(key_rpm)
-        tpm_count = await redis_client.zcard(key_tpm)
-        rpd_count = await redis_client.zcard(key_rpd)
-
-        if rpm_count >= lim["rpm_hard"] or tpm_count >= lim["tpm_hard"] or rpd_count >= lim["rpd_hard"]:
-            # Hard limit exceeded
-            if rpm_count >= lim["rpm_hard"]:
-                oldest = await redis_client.zrange(key_rpm, 0, 0, withscores=True)
-                reset_ts = int(oldest[0][1]) + 60 if oldest else now + 60
-                return False, max(0, reset_ts - now)
-            return False, 60
-
-        if rpm_count >= lim["rpm"] or tpm_count >= lim["tpm"] or rpd_count >= lim["rpd"]:
-            logger.warning(f"User {user_id} exceeded soft rate limit for {endpoint}")
-            # Soft limit – still allow but warn
-        # Add current request
-        pipe = redis_client.pipeline()
-        pipe.zadd(key_rpm, {str(now): now})
-        pipe.zadd(key_tpm, {str(now): now})
-        pipe.zadd(key_rpd, {str(now): now})
-        pipe.expire(key_rpm, 120)
-        pipe.expire(key_tpm, 120)
-        pipe.expire(key_rpd, 86400 * 2)
-        await pipe.execute()
-        return True, 0
+        redis_client = await aioredis.from_url(
+            REDIS_URL, decode_responses=True, max_connections=10,
+        )
+        await redis_client.ping()
+        logger.info("Redis connected")
     except Exception as e:
-        logger.warning(f"Rate limit check failed: {e}")
-        return True, 0
+        logger.warning("Redis connection failed", error=str(e))
+        redis_client = None
 
 
-# ---------- AUTH DEPENDENCY ----------
+def get_object_id():
+    return ObjectId if db_available else None
+
+# ---------------------------------------------------------------------------
+# FastAPI app + lifespan
+# ---------------------------------------------------------------------------
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ---- boot: DB + Redis ----
+    await init_db()
+    await init_redis()
+
+    # ---- Stripe idempotency TTL index ----
+    try:
+        if db is not None:
+            await db.get_collection("stripe_events").create_index(
+                "receivedAt", expireAfterSeconds=60 * 60 * 24 * 30,
+            )
+    except Exception as e:
+        logger.warning("stripe_events_index_failed", error=str(e))
+
+    logger.info(
+        "axelr_startup",
+        origin=ORIGIN,
+        mongo="SET" if MONGO_URI else "MISSING",
+        gemini="SET" if GEMINI_API_KEY else "MISSING",
+        groq="SET" if GROQ_API_KEY else "MISSING",
+        openrouter="SET" if OPENROUTER_API_KEY else "MISSING",
+    )
+
+    # ---- feature-service instantiation ----
+    global intent_classifier, context_registry, dependency_tracker
+    global critic_agent, self_healer, pr_defense
+
+    # IntentRouter (elite — keyword + optional ONNX)
+    intent_classifier = _intent_router if ENABLE_INTENT_CLASSIFIER else None
+
+    # External context (Jira/Linear/OpenAPI)
+    context_registry = None
+    if ENABLE_CONTEXT_REGISTRY and redis_client is not None and db is not None:
+        try:
+            context_registry = ContextRegistry(redis_client, users_col)
+        except Exception as e:
+            logger.warning("context_registry_init_failed", error=str(e))
+
+    # Dependency tracker (build in a thread — could be slow on big repos)
+    dependency_tracker = None
+    if ENABLE_BLAST_RADIUS and WORKSPACE_ROOT:
+        try:
+            dependency_tracker = DependencyTracker(WORKSPACE_ROOT)
+            await asyncio.to_thread(dependency_tracker.build, max_files=3000)
+            logger.info(
+                "dependency_graph_built",
+                files=len(dependency_tracker.to_dict()["graph"]),
+            )
+        except Exception as e:
+            logger.warning("dependency_tracker_build_failed", error=str(e))
+            dependency_tracker = None
+
+    # Critic → CodeGuard (elite)
+    critic_agent = _code_guard if ENABLE_CRITIC else None
+
+    # Self-healer — bound to route_ai_request
+    self_healer = SelfHealer(route_ai_request, max_retries=2) if ENABLE_SELF_HEAL else None
+
+    # PR shield (pure stateless Markdown renderer)
+    pr_defense = PRShield() if ENABLE_PR_DEFENSE else None
+
+    # ---- connectivity probes ----
+    if not db_available:
+        logger.critical("mongo_unavailable_degraded_mode")
+    else:
+        try:
+            await db.command("ping")
+            logger.info("mongo_ping_ok")
+        except Exception as e:
+            logger.error("mongo_ping_failed", error=str(e))
+
+    if redis_client:
+        try:
+            await redis_client.ping()
+            logger.info("redis_ping_ok")
+        except Exception as e:
+            logger.error("redis_ping_failed", error=str(e))
+
+    # ---- semantic cache warm-up (correct place, correct timing) ----
+    try:
+        await _semantic_cache._ensure_model()
+        logger.info("semantic_cache_warmed")
+    except Exception as e:
+        logger.warning("semantic_cache_warmup_failed", error=str(e))
+
+    app.state.start_time = time.time()
+
+    # ---- background tasks ----
+    asyncio.create_task(validate_all_providers())
+    asyncio.create_task(background_health_check())
+    if ENABLE_PR_DEFENSE:
+        asyncio.create_task(pr_defense_cleanup())
+    asyncio.create_task(_keepalive_loop())
+
+    yield
+
+    # ---- graceful shutdown ----
+    logger.info("shutdown_initiated")
+    try:
+        if context_registry is not None:
+            await context_registry.close()
+    except Exception:
+        pass
+    try:
+        await _semantic_cache.clear()
+    except Exception:
+        pass
+    try:
+        await HTTP_CLIENT.aclose()
+    except Exception:
+        pass
+    if client:
+        client.close()
+    logger.info("shutdown_complete")
+
+# ---------------------------------------------------------------------------
+# CORS + middleware
+# ---------------------------------------------------------------------------
+_configured_origin = os.getenv("ORIGIN", "https://axelr.in").strip().rstrip("/")
+allowed_origins = list(dict.fromkeys([
+    _configured_origin,
+    "https://axelr.in",
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "https://axelr-backend.onrender.com",
+]))
+
+app = FastAPI(title="AXELR Unified", version="24.4", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+from fastapi.exceptions import RequestValidationError
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={
+            "success": False,
+            "code": "VALIDATION_ERROR",
+            "message": "Request body failed validation.",
+            "errors": exc.errors(),
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    logger.exception("unhandled_exception", path=request.url.path, error=str(exc))
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "code": "INTERNAL_ERROR", "message": "Internal server error."},
+    )
+# Rate limiter
+def get_remote_address(request: Request) -> str:
+    return request.client.host if request.client else "unknown"
+
+limiter = Limiter(key_func=get_remote_address, default_limits=["100/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    request_id = request.headers.get("x-request-id") or str(uuid.uuid4())[:8]
+    request.state.request_id = request_id
+    start = time.time()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = request_id
+    logger.info(
+        "http_request",
+        request_id=request_id,
+        method=request.method,
+        path=request.url.path,
+        status=response.status_code,
+        duration_ms=round((time.time() - start) * 1000, 2),
+    )
+    return response
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    response = await call_next(request)
+    REQUESTS.labels(
+        method=request.method,
+        endpoint=request.url.path,
+        status=response.status_code,
+    ).inc()
+    return response
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' https://accounts.google.com https://cdn.jsdelivr.net "
+        "https://cdnjs.cloudflare.com 'unsafe-inline' 'unsafe-eval'; "
+        "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
+        "font-src 'self' https://fonts.gstatic.com; "
+        "img-src 'self' data:; "
+        "connect-src 'self' https://axelr-backend.onrender.com https://api.puter.com; "
+        "frame-src 'self' https://accounts.google.com; "
+        "object-src 'none'; base-uri 'self'; form-action 'self'; "
+        "upgrade-insecure-requests"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["X-XSS-Protection"] = "1; mode=block"
+    return response
+
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
 security = HTTPBearer()
 
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> dict:
+    """
+    Single source of truth for auth.
+
+    Order:
+      1. Google ID token (verified against Google JWKS)
+      2. Internal JWT (issued by GitHub OAuth / email login)
+    """
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
+
     token = credentials.credentials
 
+    # --- Path 1: Google ID token ---
     try:
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
-        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
+        idinfo = id_token.verify_oauth2_token(
+            token, google_requests.Request(), GOOGLE_CLIENT_ID,
+        )
+        if idinfo.get("iss") not in (
+            "accounts.google.com",
+            "https://accounts.google.com",
+        ):
             raise HTTPException(status_code=401, detail="Invalid issuer")
-        user_doc = await users_col.find_one({"googleId": idinfo['sub']})
+
+        user_doc = await users_col.find_one({"googleId": idinfo["sub"]})
         if not user_doc:
             user_doc = await _create_user_from_google(idinfo)
         else:
             user_doc = await _reset_quotas_if_needed(user_doc)
         return user_doc
-    except Exception as e:
-        logger.debug(f"Google OAuth failed: {e}")
+    except ValueError as e:
+        # This is the specific exception that verify_oauth2_token raises for invalid tokens
+        logger.debug("google_token_verify_failed", error=str(e))
+    except HTTPException:
+        # Re-raise HTTPExceptions to let FastAPI handle them
+        raise
 
-    try:
-        payload = decode_token(token)
-        if not payload:
-            raise HTTPException(status_code=401, detail="Invalid token")
-        user_doc = await users_col.find_one({"email": payload.get("sub")})
-        if not user_doc:
-            raise HTTPException(status_code=401, detail="User not found")
-        return user_doc
-    except Exception as e:
-        logger.error(f"Auth failed: {e}")
+    # --- Path 2: internal JWT ---
+    payload = decode_token(token)
+    if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    user_doc = await users_col.find_one({"email": payload.get("sub")})
+    if not user_doc:
+        raise HTTPException(status_code=401, detail="User not found")
+    return await _reset_quotas_if_needed(user_doc)
+def hash_password(password: str) -> str:
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(password: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(password.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+def create_access_token(data: dict) -> str:
+    to_encode = data.copy()
+    to_encode.update({"exp": datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)})
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def decode_token(token: str) -> Optional[dict]:
+    try:
+        return jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except JWTError:
+        return None
 
 
 # Also add a debug endpoint
@@ -562,238 +825,6 @@ async def debug_env(user: dict = Depends(get_current_user)):
         "redis_available": bool(redis_client),
         "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
     }
-
-# ---------------------------- ENV VARS (repeated for clarity) ----------------------------
-MONGO_URI = (os.getenv("MONGO_URI") or "").strip()
-GOOGLE_CLIENT_ID = (os.getenv("GOOGLE_CLIENT_ID") or "").strip()
-if not GOOGLE_CLIENT_ID:
-    GOOGLE_CLIENT_ID = "474929925590-kfpurq4aou35pkscf6gbr963vf4hfa7g.apps.googleusercontent.com"
-ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "shanh1346@gmail.com")
-STRIPE_SECRET_KEY = os.getenv("STRIPE_SECRET_KEY")
-STRIPE_WEBHOOK_SECRET = os.getenv("STRIPE_WEBHOOK_SECRET")
-SMTP_HOST = os.getenv("SMTP_HOST", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
-SMTP_USER = os.getenv("SMTP_USER")
-SMTP_PASS = os.getenv("SMTP_PASS")
-NETLIFY_ACCESS_TOKEN = os.getenv("NETLIFY_ACCESS_TOKEN")
-
-# AI KEYS
-GROQ_API_KEY = (os.getenv("GROQ_API_KEY") or "").strip()
-CLOUDFLARE_API_KEY = (os.getenv("CLOUDFLARE_API_KEY") or "").strip()
-CLOUDFLARE_ACCOUNT_ID = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
-OPENROUTER_API_KEY = (os.getenv("OPENROUTER_API_KEY") or "").strip()
-HF_API_KEY = (os.getenv("HUGGINGFACE_API_KEY") or "").strip()
-GEMINI_API_KEY = (os.getenv("GEMINI_API_KEY") or "").strip()
-MISTRAL_API_KEY = (os.getenv("MISTRAL_API_KEY") or "").strip()
-GITHUB_MODELS_TOKEN = (os.getenv("GITHUB_MODELS_TOKEN") or "").strip()
-NROUTER_API_KEY = (os.getenv("NROUTER_API_KEY") or "").strip()
-TEXT_CORTEX_API_KEY = (os.getenv("TEXT.CORTEX_API_KEY") or "").strip()
-NARAROUTER_API_KEY = (os.getenv("NARAROUTER_API_KEY") or "").strip()
-BAZAARLINK_API_KEY = (os.getenv("BAZAARLINK_API_KEY") or "").strip()
-SILICONFLOW_API_KEY = (os.getenv("SILICONFLOW_API_KEY") or "").strip()
-AGNES_API_KEY = (os.getenv("AGNES_API_KEY") or "").strip()
-OLLAMA_API_KEY = (os.getenv("OLLAMA_API_KEY") or "").strip()
-ANYAPI_API_KEY = (os.getenv("ANYAPI_API_KEY") or "").strip()
-MODELSCOPE_API_KEY = (os.getenv("MODELSCOPE_API_KEY") or "").strip()
-OVHCLOUD_API_KEY = (os.getenv("OVHCLOUD_API_KEY") or "").strip()
-REQUESTY_API_KEY = (os.getenv("REQUESTY_API_KEY") or "").strip()
-MANIFEST_API_KEY = (os.getenv("MANIFEST_API_KEY") or "").strip()
-GLAMA_API_KEY = (os.getenv("GLAMA_API_KEY") or "").strip()
-ZAI_API_KEY = (os.getenv("ZAI_API_KEY") or "").strip()
-TEAMOROUTER_API_KEY = (os.getenv("TEAMOROUTER_API_KEY") or "").strip()
-GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID", "").strip()
-GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET", "").strip()
-GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI", "https://axelr-backend.onrender.com/api/auth/github/callback")
-RP_ID = os.getenv("RP_ID", "axelr.in")
-RP_NAME = os.getenv("RP_NAME", "AXELR AI")
-ORIGIN = os.getenv("ORIGIN", "https://axelr.in")
-SECRET_KEY = os.getenv("JWT_SECRET", "your-super-secret-key")
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
-# ---------- MODEL LISTS ----------
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-1.5-flash")
-GEMINI_MODELS = [m.strip() for m in GEMINI_MODEL.split(",") if m.strip()]
-GEMINI_MODEL = GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-1.5-flash"
-GROQ_MODELS_STR = os.getenv("GROQ_MODELS", "llama3-70b-8192,mixtral-8x7b-32768,gemma2-9b-it")
-GROQ_MODELS = [m.strip() for m in GROQ_MODELS_STR.split(",") if m.strip()]
-OPENROUTER_MODELS_STR = os.getenv(
-    "OPENROUTER_MODELS",
-    "openrouter/auto,mistralai/mistral-7b-instruct:free,deepseek/deepseek-chat:free"
-)
-OPENROUTER_MODELS = [m.strip() for m in OPENROUTER_MODELS_STR.split(",") if m.strip()]
-CLOUDFLARE_MODEL = os.getenv("CLOUDFLARE_MODEL", "@cf/meta/llama-3.1-8b-instruct")
-MODELSCOPE_MODELS_STR = os.getenv("MODELSCOPE_MODELS", "qwen-max,deepseek-v3")
-MODELSCOPE_MODELS = [m.strip() for m in MODELSCOPE_MODELS_STR.split(",") if m.strip()]
-OLLAMA_MODELS_STR = os.getenv("OLLAMA_MODELS", "mistral-large-3:675b-cloud,kimi-k2.6,glm-5.3,glm-5.3-flash,deepseek-v4-flash,deepseek-v4-pro,gpt-oss:120b-cloud,qwen-3.5")
-OLLAMA_MODELS = [m.strip() for m in OLLAMA_MODELS_STR.split(",") if m.strip()]
-NARA_MODELS_STR = os.getenv("NARA_MODELS", "minimax-m3,deepseek-v3")
-NARA_MODELS = [m.strip() for m in NARA_MODELS_STR.split(",") if m.strip()]
-MISTRAL_MODELS_STR = os.getenv("MISTRAL_MODELS", "open-mistral-7b,mistral-small-latest")
-MISTRAL_MODELS = [m.strip() for m in MISTRAL_MODELS_STR.split(",") if m.strip()]
-HF_MODELS_STR = os.getenv("HUGGINGFACE_MODELS", "meta-llama/Llama-3.2-3B-Instruct,mistralai/Mistral-7B-Instruct-v0.3")
-HF_MODELS = [m.strip() for m in HF_MODELS_STR.split(",") if m.strip()]
-GITHUB_MODEL = os.getenv("GITHUB_MODEL", "gpt-4o-mini")
-OVHCLOUD_MODELS_STR = os.getenv("OVHCLOUD_MODELS", "llama-3.3-70b-instruct,mistral-7b-instruct")
-OVHCLOUD_MODELS = [m.strip() for m in OVHCLOUD_MODELS_STR.split(",") if m.strip()]
-SILICONFLOW_MODELS_STR = os.getenv("SILICONFLOW_MODELS", "deepseek-ai/DeepSeek-V3,Qwen/Qwen2.5-7B-Instruct")
-SILICONFLOW_MODELS = [m.strip() for m in SILICONFLOW_MODELS_STR.split(",") if m.strip()]
-AGNES_MODEL = os.getenv("AGNES_MODEL", "agnes-2.0-flash")
-BIFROST_MODELS = ["llama3.1:70b", "mistral:7b"]
-FREEGPT4_MODELS = ["gpt-4"]
-BAZAARLINK_MODEL = os.getenv("BAZAARLINK_MODEL", "auto:free")
-REQUESTY_MODEL = os.getenv("REQUESTY_MODEL", "auto:free")
-NROUTER_MODEL = os.getenv("NROUTER_MODEL", "meta-llama/llama-3.1-8b-instruct")
-PUTER_MODEL = "gpt-3.5-turbo"
-FREETHEAI_MODEL = "gpt-3.5-turbo"
-OMNIGPT_MODELS = ["gpt-3.5-turbo"]
-OPENDODE_MODELS = ["qwen3-coder"]
-FREEFLOW_MODEL = "gpt-3.5-turbo"
-QODER_MODEL = "qwen3-coder"
-MANIFEST_MODEL = "auto:free"
-KEYLESS_MODEL = "gpt-3.5-turbo"
-GLAMA_MODEL = os.getenv("GLAMA_MODEL", "gpt-3.5-turbo")
-CHUBVENUS_MODEL = "gpt-3.5-turbo"
-BLOCKRUN_MODELS = ["deepseek-v4-flash"]
-ANYAPI_MODEL = "poolside/laguna-xs.2:free"
-AYMO_MODELS = ["gemini-flash", "deepseek-v3.2", "qwen3"]
-ZEROTWO_MODELS = ["gpt-5-mini", "gemini-flash-lite"]
-AIHUBMIX_MODELS = ["gpt-5.5", "gemini-3", "glm-5.1", "kimi", "minimax"]
-AISURE_MODEL = "gpt-4o"
-ZHIPU_MODEL = os.getenv("ZHIPU_MODEL", "glm-4.5-flash")
-TEAMOROUTER_MODEL = os.getenv("TEAMOROUTER_MODEL", "teamorouter-free")
-FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", 1000000))
-
-
-# ---------------------------- JWT HELPERS ----------------------------
-def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-
-def verify_password(password: str, hashed: str) -> bool:
-    return bcrypt.checkpw(password.encode(), hashed.encode())
-
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-
-def decode_token(token: str):
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        return payload
-    except JWTError:
-        return None
-
-security = HTTPBearer()
-
-async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)) -> dict:
-    if not db_available:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-    token = credentials.credentials
-    try:
-        idinfo = id_token.verify_oauth2_token(token, google_requests.Request(), GOOGLE_CLIENT_ID)
-        if idinfo['iss'] not in ['accounts.google.com', 'https://accounts.google.com']:
-            raise HTTPException(status_code=401, detail="Invalid issuer")
-        user_doc = await users_col.find_one({"googleId": idinfo['sub']})
-        if not user_doc:
-            user_doc = await _create_user_from_google(idinfo)
-        else:
-            user_doc = await _reset_quotas_if_needed(user_doc)
-        return user_doc
-    except Exception:
-        # Fallback to JWT
-        try:
-            payload = decode_token(token)
-            if not payload:
-                raise HTTPException(status_code=401, detail="Invalid token")
-            user_doc = await users_col.find_one({"email": payload.get("sub")})
-            if not user_doc:
-                raise HTTPException(status_code=401, detail="User not found")
-            return user_doc
-        except Exception as e:
-            raise HTTPException(status_code=401, detail="Invalid or expired token")
-# ============================================================
-# LITELLM ROUTER CONFIGURATION
-# ============================================================
-
-LITELLM_SUPPORTED = {
-    "gemini": lambda: f"gemini/{GEMINI_MODEL}",
-    "groq": lambda: f"groq/{GROQ_MODELS[0]}" if GROQ_MODELS else None,
-    "cloudflare": lambda: f"cloudflare/{CLOUDFLARE_MODEL}",
-    "openrouter": lambda: f"openrouter/{OPENROUTER_MODELS[0]}" if OPENROUTER_MODELS else None,
-    "mistral": lambda: f"mistral/{MISTRAL_MODELS[0]}" if MISTRAL_MODELS else None,
-    "huggingface": lambda: f"huggingface/{HF_MODELS[0]}" if HF_MODELS else None,
-    "modelscope": lambda: f"modelscope/{MODELSCOPE_MODELS[0]}" if MODELSCOPE_MODELS else None,
-    "zhipuai": lambda: f"zai/{ZHIPU_MODEL}",
-}
-
-router_models = []
-for name, model_func in LITELLM_SUPPORTED.items():
-    model_str = model_func()
-    if model_str:
-        api_key = os.getenv(f"{name.upper()}_API_KEY", None)
-        if not api_key:
-            if name == "cloudflare" and CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID:
-                pass
-            elif name == "openrouter" and OPENROUTER_API_KEY:
-                pass
-            elif name == "gemini" and GEMINI_API_KEY:
-                pass
-            elif name == "groq" and GROQ_API_KEY:
-                pass
-            elif name == "mistral" and MISTRAL_API_KEY:
-                pass
-            elif name == "huggingface" and HF_API_KEY:
-                pass
-            elif name == "modelscope" and MODELSCOPE_API_KEY:
-                pass
-            elif name == "zhipuai" and ZAI_API_KEY:
-                pass
-            else:
-                continue
-        entry = {
-            "model_name": name,
-            "litellm_params": {
-                "model": model_str,
-                "api_key": os.getenv(f"{name.upper()}_API_KEY", None),
-            }
-        }
-        if name == "cloudflare":
-            entry["litellm_params"]["api_base"] = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/"
-        router_models.append(entry)
-
-class _DisabledLiteLLMRouter:
-    async def acompletion(self, **kwargs):
-        raise RuntimeError("LiteLLM router is disabled")
-
-router = _DisabledLiteLLMRouter()
-if Router is not None:
-    router = Router(
-        model_list=router_models,
-        routing_strategy='usage-based-routing',
-        num_retries=3,
-        fallbacks=[
-            {"gemini": ["groq", "openrouter"]},
-            {"groq": ["cloudflare", "mistral"]},
-            {"cloudflare": ["openrouter", "huggingface"]},
-            {"openrouter": ["modelscope", "zhipuai"]},
-            {"mistral": ["huggingface", "modelscope"]},
-        ],
-        allowed_fails=3,
-        cooldown_time=60,
-    )
-    logger.info("LiteLLM router initialized with %d models", len(router_models))
-else:
-    logger.info("LiteLLM router disabled; using direct provider routing")
-
-# ---------------------------- HTTP CLIENT ----------------------------
-import certifi
-HTTP_CLIENT = httpx.AsyncClient(
-    timeout=httpx.Timeout(12.0, connect=8.0, read=12.0, write=8.0),
-    verify=certifi.where(),   # use system CA bundle
-    limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
-)
-
 
 # ---------- UTILITY FUNCTIONS ----------
 async def http_post_async(url: str, headers: Dict[str, str], json_data: Dict[str, Any], timeout: float = 8.0) -> Any:
@@ -879,21 +910,6 @@ def contains_explicit(text: str) -> bool:
         if re.search(pattern, text, re.IGNORECASE):
             return True
     return False
-
-def strip_fluff(text: str) -> str:
-    patterns = [
-        r"^I (am|'m) (so |very )?happy to help",
-        r"^Sure!",
-        r"^Absolutely!",
-        r"^Of course!",
-        r"^Here( is| are|'s) (what|the|your)",
-        r"^Let me (know|explain|show you)",
-        r"^As (an|a) .* (assistant|AI),",
-    ]
-    for pat in patterns:
-        text = re.sub(pat, "", text, flags=re.IGNORECASE)
-    return text.strip()
-
 # ---------- EMAIL ----------
 def get_email_transport():
     if SMTP_USER and SMTP_PASS:
@@ -910,47 +926,79 @@ def get_email_transport():
 # PROVIDER FUNCTIONS – ALL IMPLEMENTED
 # ============================================================
 
-
-# 1. GEMINI (text-only)
-async def call_gemini(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
+# ---------------------------------------------------------------------------
+# Gemini (text + vision, unified)
+# ---------------------------------------------------------------------------
+async def _call_gemini_internal(
+    prompt: str,
+    max_tokens: int,
+    temp: float,
+    model: Optional[str] = None,
+    image_data_b64: Optional[str] = None,
+) -> str:
+    """Unified Gemini caller for both text and vision requests."""
     if not GEMINI_API_KEY:
-        raise Exception("GEMINI_API_KEY missing")
-    model_name = model or GEMINI_MODEL
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}],
-        "generationConfig": {"temperature": temp, "maxOutputTokens": max_tokens, "topP": 0.95, "topK": 40}
-    }
-    resp = await http_post_async(url, headers, payload)
-    try:
-        return resp["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        raise Exception(f"Gemini unexpected response: {resp}")
+        raise RuntimeError("GEMINI_API_KEY not set")
 
-# Gemini Vision
-async def call_gemini_vision(prompt: str, image_data_b64: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    if not GEMINI_API_KEY:
-        raise Exception("GEMINI_API_KEY missing")
     model_name = model or GEMINI_MODEL
-    parts: List[Dict[str, Any]] = [{"text": prompt}]
-    parts.append({
-        "inline_data": {
-            "mime_type": "image/png",
-            "data": image_data_b64
-        }
-    })
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{model_name}:generateContent?key={GEMINI_API_KEY}"
+    )
     headers = {"Content-Type": "application/json"}
+
+    parts: List[Dict[str, Any]] = []
+    if image_data_b64:
+        parts.append({
+            "inline_data": {"mime_type": "image/jpeg", "data": image_data_b64},
+        })
+    parts.append({"text": prompt})
+
     payload = {
         "contents": [{"parts": parts}],
-        "generationConfig": {"temperature": temp, "maxOutputTokens": max_tokens, "topP": 0.95, "topK": 40}
+        "generationConfig": {"temperature": temp, "maxOutputTokens": max_tokens},
+        "safetySettings": [
+            {"category": "HARM_CATEGORY_HARASSMENT",        "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH",       "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ],
     }
-    resp = await http_post_async(url, headers, payload)
+
+    t0 = time.time()
     try:
-        return resp["candidates"][0]["content"]["parts"][0]["text"]
-    except (KeyError, IndexError):
-        raise Exception(f"Gemini Vision unexpected response: {resp}")
+        resp = await HTTP_CLIENT.post(url, json=payload, headers=headers, timeout=45.0)
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        AI_REQUESTS.labels(provider="gemini", workspace="vision" if image_data_b64 else "text", status="failed").inc()
+        raise RuntimeError(f"Gemini request failed: {e}") from e
+
+    try:
+        text = data["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as e:
+        raise RuntimeError(f"Gemini malformed response: {data}") from e
+
+    AI_LATENCY.labels(provider="gemini").observe(time.time() - t0)
+    AI_REQUESTS.labels(provider="gemini", workspace="vision" if image_data_b64 else "text", status="success").inc()
+    return text
+
+
+async def call_gemini(
+    prompt: str, max_tokens: int, temp: float, model: Optional[str] = None
+) -> str:
+    """Text-only Gemini call."""
+    return await _call_gemini_internal(prompt, max_tokens, temp, model=model)
+
+
+async def call_gemini_vision(
+    prompt: str, image_data_b64: str, max_tokens: int, temp: float, model: Optional[str] = None
+) -> str:
+    """Gemini Vision call."""
+    return await _call_gemini_internal(
+        prompt, max_tokens, temp, model=model, image_data_b64=image_data_b64
+    )
+
 
 # 2. GROQ
 async def call_groq(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
@@ -1297,11 +1345,11 @@ async def call_omnigpt_gateway(prompt: str, max_tokens: int, temp: float, model:
     resp = await http_post_async(url, headers, payload)
     return resp["choices"][0]["message"]["content"]
 
-# 22. OPENDODE ZEN
+# 22. OPENCODE ZEN
 async def call_opencode_zen(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    url = os.getenv("OPENDODE_URL", "https://api.opencode.zen/v1/chat/completions")
+    url = os.getenv("OPENCODE_URL", "https://api.opencode.zen/v1/chat/completions")
     headers = {"Content-Type": "application/json"}
-    effective_model = model or OPENDODE_MODELS[0]
+    effective_model = model or OPENCODE_MODELS[0]
     payload = {
         "model": effective_model,
         "messages": [{"role": "user", "content": prompt}],
@@ -1424,8 +1472,7 @@ async def call_blockrun(prompt: str, max_tokens: int, temp: float, model: Option
 async def call_anyapi(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
     if not ANYAPI_API_KEY:
         raise Exception("ANYAPI_API_KEY missing")
-    baseurl = os.getenv("BASEURL", "https://api.anyapi.ai/v1/chat/completions")
-    url = f"{baseurl}/chat/completions"
+    url = os.getenv("BASEURL", "https://api.anyapi.ai/v1/chat/completions")
     headers = {"Authorization": f"Bearer {ANYAPI_API_KEY}", "Content-Type": "application/json"}
     effective_model = model or ANYAPI_MODEL
     payload = {
@@ -1576,7 +1623,7 @@ async def call_ninerouter(prompt: str, max_tokens: int, temp: float, model: Opti
 
 # ---- LOCAL FALLBACK ----
 async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: Optional[str] = None) -> str:
-    return build_local_fallback_response("general", "general", prompt)
+    return build_local_fallback_response("core", "core", prompt)
 
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     prompt_text = (prompt or "").strip()
@@ -1631,6 +1678,7 @@ PROVIDER_FUNC_MAP = {
     "proxygatellm": call_proxygatellm,
     "free_llm_gateway": call_free_llm_gateway,
     "ninerouter": call_ninerouter,
+        "local": call_local_fallback,
 }
 
 PROVIDER_KEY_CHECK = {
@@ -1668,7 +1716,7 @@ PROVIDER_KEY_CHECK = {
     "zerotwo": True,
     "aihubmix": True,
     "aisure": True,
-    "zhipu": bool(ZAI_API_KEY),
+    "zhipuai": bool(ZAI_API_KEY),
     "teamorouter": bool(TEAMOROUTER_API_KEY),
     "proxygatellm": True,
     "free_llm_gateway": bool(FREE_LLM_GATEWAY_URL),
@@ -1699,7 +1747,7 @@ PROVIDER_CHAIN_ENTRIES = [
     ("freegpt4_api", call_freegpt4_api, FREEGPT4_MODELS),
     ("bazaarlink", call_bazaarlink, [BAZAARLINK_MODEL]),
     ("requesty", call_requesty, [REQUESTY_MODEL]),
-    ("nrouter", call_nrouter, [NROUTER_MODEL]),
+
     ("freetheai", call_freetheai, [FREETHEAI_MODEL]),
     ("omnigpt_gateway", call_omnigpt_gateway, OMNIGPT_MODELS),
     ("opencode_zen", call_opencode_zen, OPENDODE_MODELS),
@@ -1801,7 +1849,31 @@ def strip_system_prompt(text: str) -> str:
     for pat in patterns:
         text = re.sub(pat, "", text, flags=re.DOTALL | re.IGNORECASE)
     return text.strip()
-
+def strip_fluff(text: str) -> str:
+    """Remove conversational fluff and any leaked generation watermarks."""
+    patterns = [
+        # --- conversational openers ---
+        r"^I (am|'m) (so |very )?happy to help[^\n]*\n?",
+        r"^Sure![ \t]*",
+        r"^Absolutely![ \t]*",
+        r"^Of course![ \t]*",
+        r"^Here( is| are|'s) (what|the|your)[^\n]*\n?",
+        r"^Let me (know|explain|show you)[^\n]*\n?",
+        r"^As (an|a) .*? (assistant|AI),?[^\n]*\n?",
+        # --- leaked watermarks (real newlines) ---
+        r"\n*-{2,}\n?\*Generated through Axelr in [\d.]+ seconds\*",
+        r"\n*-{2,}\n?\*Streamed through Axelr in [\d.]+ seconds\*",
+        r"\n*-{2,}\n?\*Served from Axelr Vector Cache in [\d.]+ms\*",
+        # --- filler preambles ---
+        r"I can do that\. Here is the code:",
+        r"Here is the updated code as requested:",
+        r"Certainly, here is the code:",
+        r"Here's the code:",
+        r"Here you go:",
+    ]
+    for pat in patterns:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE | re.MULTILINE)
+    return text.strip()
 # ---------- WORKSPACE PRIORITY ----------
 WORKSPACE_PRIORITY = {
     "data": [
@@ -1818,7 +1890,7 @@ WORKSPACE_PRIORITY = {
         "freegpt4_api", "ovhcloud", "nrouter", "puter", "omnigpt_gateway",
         "opencode_zen", "qoder", "keylessai", "glama", "chubvenus", "blockrun", "anyapi"
     ],
-    "general": [
+    "core": [
         "gemini", "modelscope", "groq", "openrouter", "ollama_cloud", "nara_router",
         "proxygatellm", "free_llm_gateway", "ninerouter",
         "mistral", "huggingface", "github_models", "zhipu", "teamorouter",
@@ -1840,7 +1912,7 @@ WORKSPACE_PRIORITY = {
 
 def get_provider_order(workspace: str) -> List[str]:
     provider_names = [name for name, _ in PROVIDER_CHAIN if name != "local"]
-    priority = WORKSPACE_PRIORITY.get(workspace, WORKSPACE_PRIORITY["general"])
+    priority = WORKSPACE_PRIORITY.get(workspace, WORKSPACE_PRIORITY["core"])
     ordered = []
     for name in priority:
         if name in provider_names and name not in ordered:
@@ -1871,38 +1943,49 @@ def detect_workspace(command: str, files: List[Dict]) -> str:
             return "design"
         if any(k in lower for k in data_keywords):
             return "data"
-    return "general"
+    return "core"
 
 # ---------- FEATURE: Dynamic Schema Discovery ----------
 async def discover_schema(files: List[Dict]) -> Optional[str]:
+    """
+    Best-effort schema discovery for CSV / XLSX / XLS files.
+    Uses only csv + openpyxl (both already in requirements.txt).
+    """
     for f in files:
         filename = f.get("filename", "").lower()
         mimetype = f.get("mimetype", "").lower()
         content_b64 = f.get("content_base64", "")
         if not content_b64:
             continue
+
+        # --- CSV ---
         if filename.endswith(".csv") or "csv" in mimetype:
             try:
-                content = base64.b64decode(content_b64).decode('utf-8')
+                content = base64.b64decode(content_b64).decode("utf-8", errors="ignore")
                 reader = csv.reader(io.StringIO(content))
                 headers = next(reader, [])
                 if headers:
                     return f"CSV columns: {', '.join(headers)}"
             except Exception as e:
-                logger.warning(f"Failed to parse CSV headers: {e}")
-        elif filename.endswith(('.xls', '.xlsx')) or "spreadsheet" in mimetype:
-            if pd and openpyxl:
-                try:
-                    content = base64.b64decode(content_b64)
-                    with io.BytesIO(content) as fh:
-                        df = pd.read_excel(fh, nrows=0)  # read only headers
-                        headers = df.columns.tolist()
-                        if headers:
-                            return f"Excel columns: {', '.join(headers)}"
-                except Exception as e:
-                    logger.warning(f"Failed to parse Excel headers: {e}")
-            else:
-                logger.warning("pandas/openpyxl not installed; skipping Excel schema discovery")
+                logger.warning("csv_schema_discovery_failed", error=str(e))
+
+        # --- XLSX / XLS ---
+        elif filename.endswith((".xls", ".xlsx")) or "spreadsheet" in mimetype:
+            if openpyxl is None:
+                logger.warning("openpyxl_missing_skip_excel")
+                continue
+            try:
+                content = base64.b64decode(content_b64)
+                with io.BytesIO(content) as buf:
+                    wb = openpyxl.load_workbook(buf, read_only=True)
+                    sheet = wb.active
+                    first_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
+                    if first_row:
+                        headers = [str(c) for c in first_row if c is not None]
+                        return f"Excel columns: {', '.join(headers)}"
+                    wb.close()
+            except Exception as e:
+                logger.warning("excel_schema_discovery_failed", error=str(e))
     return None
 
 # ---------- FEATURE: Dependency Resolver ----------
@@ -1926,39 +2009,11 @@ def generate_dependencies(code: str, language: str) -> Optional[str]:
         return None
     return None
 
-# ---------- FEATURE: Auto-Linting + Self-Heal ----------
-def run_linter(code: str, language: str) -> List[str]:
-    errors = []
-    if language == "python":
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-                f.write(code)
-                f.flush()
-                result = subprocess.run(['flake8', f.name], capture_output=True, text=True, timeout=5)
-                if result.stdout:
-                    errors = result.stdout.strip().split('\n')
-                os.unlink(f.name)
-        except (subprocess.SubprocessError, FileNotFoundError):
-            try:
-                compile(code, '<string>', 'exec')
-            except SyntaxError as e:
-                errors.append(str(e))
-    elif language in ["javascript", "typescript"]:
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                f.write(code)
-                f.flush()
-                result = subprocess.run(['eslint', f.name], capture_output=True, text=True, timeout=5)
-                if result.stdout:
-                    errors = result.stdout.strip().split('\n')
-                os.unlink(f.name)
-        except (subprocess.SubprocessError, FileNotFoundError):
-            if 'undefined' in code:
-                errors.append("Possible undefined variable usage")
-    return errors
-
 # ---------- BACKGROUND PR DEFENSE ----------
-async def generate_pr_defense_background(user, command, ai_result, critic_result, blast_result, heal_result, session_id):
+async def generate_pr_defense_background(
+    user, command, ai_result, critic_result, blast_result, heal_result, session_id
+):
+    """Persist a PR-shield-ready report. Rendering is done lazily by the reader."""
     if not db_available:
         return
     report = {
@@ -1969,9 +2024,13 @@ async def generate_pr_defense_background(user, command, ai_result, critic_result
         "critic_result": critic_result,
         "blast_result": blast_result,
         "heal_result": heal_result,
-        "createdAt": datetime.utcnow()
+        "files_changed": (ai_result.get("files_changed") or []),
+        "createdAt": datetime.utcnow(),
     }
-    await pr_reports_col.insert_one(report)
+    try:
+        await pr_reports_col.insert_one(report)
+    except Exception as e:
+        logger.warning("pr_defense_insert_failed", error=str(e))
 
 # ---------- WORKSPACE LLM CONFIG ----------
 WORKSPACE_LLM_CONFIG = {
@@ -1989,7 +2048,7 @@ WORKSPACE_LLM_CONFIG = {
         "rpm_limit": 10,
         "tpm_limit": 80000
     },
-    "general": {
+    "core": {
         "temperature": 0.5,
         "max_tokens": 8192,
         "priority_models": ["gemini-3.5-flash", "llama3-70b-8192", "mistral-small-latest"],
@@ -2069,7 +2128,9 @@ async def route_ai_request(
     # Cache
     normalized_prompt = ' '.join(prompt.lower().split())
     context_hash = hashlib.sha256(context.encode()).hexdigest() if context else ""
-    cache_key = hashlib.sha256(f"{workspace}:{task_type}:{normalized_prompt}:{history_text}:{context_hash}".encode()).hexdigest()
+    cache_key = hashlib.sha256(
+    f"{tier}:{workspace}:{task_type}:{normalized_prompt}:{history_text}:{context_hash}".encode()
+).hexdigest()
     if cache_key in ai_cache:
         cached = ai_cache[cache_key]
         return {**cached, "cached": True}
@@ -2190,12 +2251,13 @@ async def route_ai_request_sequential(
     provider_order = get_provider_order(workspace)
     provider_func_map = dict(PROVIDER_FUNC_MAP)
 
+    # Tier-based provider gating (uses TIER_CONFIG defined at module bottom)
+    _tier_cfg = TIER_CONFIG.get(tier, TIER_CONFIG["free"])
+    _allowed = _tier_cfg.get("providers", "*")
+
     for provider_name in provider_order:
         if provider_name == "local":
             continue
-                # Tier-based provider gating
-        _tier_cfg = TIER_CONFIG.get(tier, TIER_CONFIG["free"])
-        _allowed = _tier_cfg.get("providers", "*")
         if _allowed != "*" and provider_name not in _allowed:
             continue
         func = provider_func_map.get(provider_name)
@@ -2283,14 +2345,13 @@ async def route_ai_request_sequential(
             provider_failures[provider_name] += 1
             provider_last_fail[provider_name] = time.time()
             logger.warning(f"All models for provider {provider_name} failed; marking cooldown")
-
     if not response_text:
         response_text = build_local_fallback_response(workspace, task_type, prompt)
         provider_used = "local"
         model_used = "local-fallback"
         logger.error(f"All providers failed. Last error: {last_error}")
 
-    response_text = strip_system_prompt_sequential(response_text)
+    response_text = strip_system_prompt(response_text)
     response_text = strip_fluff(response_text)
     elapsed = time.time() - start
     response_text += f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
@@ -2300,7 +2361,7 @@ async def route_ai_request_sequential(
         "provider": provider_used,
         "model_used": model_used,
         "tokens_used": len(response_text.split()),
-        "latency_ms": round(elapsed * 1000, 2)
+        "latency_ms": round(elapsed * 1000, 2),
     }
     ai_cache[cache_key] = result
     if provider_used and provider_used in provider_health:
@@ -2335,20 +2396,26 @@ async def stream_ai_response(
     context: str = "",
 ) -> AsyncGenerator[str, None]:
     """
-    Stream the AI response word by word using SSE.
-    If the provider supports streaming (LiteLLM), we use it.
-    Otherwise, we simulate streaming by chunking the full response.
+    SSE streaming. Preference order:
+      1. Semantic cache (instant)
+      2. Native Groq streaming (sub-300 ms TTFT)
+      3. Sequential fallback, word-streamed
     """
+    start = time.time()
+
+    # ---- history ----
     history_text = ""
     if history:
-        recent = []
+        recent: List[str] = []
         for msg in history[-4:]:
-            if not isinstance(msg, dict): continue
+            if not isinstance(msg, dict):
+                continue
             role = msg.get("role", "user")
             content = msg.get("content") or msg.get("text") or ""
             if isinstance(content, list):
-                parts = [p.get("text", "") for p in content if isinstance(p, dict)]
-                content = "\n".join(parts)
+                content = "\n".join(
+                    p.get("text", "") for p in content if isinstance(p, dict)
+                )
             if isinstance(content, str) and content.strip():
                 recent.append(f"{role}: {content.strip()}")
         history_text = "\n".join(recent)
@@ -2361,131 +2428,88 @@ async def stream_ai_response(
         full_prompt += f"Previous conversation:\n{history_text}\n\n"
     full_prompt += f"User request: {prompt}"
 
-    # Attempt streaming via LiteLLM if possible
-    provider_order = get_provider_order(workspace)
-    supported_providers = [p for p in provider_order if LITELLM_AVAILABLE and router is not None and p in LITELLM_SUPPORTED]
-    stream_used = False
-    start = time.time()
+    # ---- 1. semantic cache ----
+    cached_response: Optional[str] = None
+    try:
+        cached_response = await _semantic_cache.get(prompt)
+    except Exception:
+        cached_response = None
 
-    if supported_providers:
-        for provider in supported_providers:
-            try:
-                model_str = LITELLM_SUPPORTED[provider]()
-                if not model_str:
-                    continue
-                response = await router.acompletion(
-                    model=model_str,
-                    messages=[{"role": "user", "content": full_prompt}],
-                    temperature=temp,
-                    max_tokens=max_tokens,
-                    stream=True
-                )
-                # Stream the response
-                collected_text = ""
-                async for chunk in response:
-                    if chunk.choices and chunk.choices[0].delta.content:
-                        text = chunk.choices[0].delta.content
-                        collected_text += text
-                        yield f"data: {json.dumps({'text': text})}\n\n"
-                # After streaming, append the watermark
-                elapsed = time.time() - start
-                watermark = f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
-                yield f"data: {json.dumps({'watermark': watermark})}\n\n"
-                stream_used = True
-                break
-            except Exception as e:
-                logger.warning(f"Streaming with {provider} failed: {e}")
-                continue
-        if stream_used:
-            return
-    # 1. Semantic Cache Check (Instant Return)
-    cached = check_semantic_cache(prompt)
-    if cached:
-        words = cached["response"].split()
-        for w in words:
-            yield f"data: {json.dumps({'text': w + ' '})}\n\n"
-            await asyncio.sleep(0.01)
+    if cached_response:
+        for word in cached_response.split():
+            yield f"data: {json.dumps({'text': word + ' '})}\n\n"
+            await asyncio.sleep(0.005)
         cache_ms = (time.time() - start) * 1000
-        watermark_text = (
-            "\n\n---\n"
-            f"*Served from Axelr Vector Cache in {cache_ms:.1f}ms*"
-        )
-        payload = {"watermark": watermark_text}
-        yield f"data: {json.dumps(payload)}\n\n"
+        wm = f"\n\n---\n*Served from Axelr Vector Cache in {cache_ms:.1f}ms*"
+        yield f"data: {json.dumps({'watermark': wm})}\n\n"
         return
 
-    system_prompt = get_system_prompt(workspace, task_type)
-    full_prompt = f"{system_prompt}\n\n"
-    if context:
-        full_prompt += f"Context: {context}\n\n"
-    if history:
-        recent = [f"{m.get('role', 'user')}: {m.get('text', '')}" for m in history[-4:] if isinstance(m, dict) and m.get('text')]
-        if recent:
-            full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
-    full_prompt += f"User request: {prompt}"
-
-    # 2. Native Groq Streaming (500+ tokens/sec, Sub-300ms TTFT)
+    # ---- 2. native Groq streaming ----
     if GROQ_API_KEY:
         try:
             url = "https://api.groq.com/openai/v1/chat/completions"
-            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+            headers = {
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            }
             payload = {
                 "model": GROQ_MODELS[0] if GROQ_MODELS else "llama-3.3-70b-versatile",
                 "messages": [{"role": "user", "content": full_prompt}],
                 "max_tokens": max_tokens,
                 "temperature": temp,
-                "stream": True
+                "stream": True,
             }
-            async with httpx.AsyncClient(timeout=15.0) as client:
-                async with client.stream("POST", url, headers=headers, json=payload) as response:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                async with client.stream(
+                    "POST", url, headers=headers, json=payload
+                ) as response:
                     if response.status_code == 200:
-                        collected = []
+                        collected: List[str] = []
                         async for line in response.aiter_lines():
-                            if line.startswith("data: "):
-                                data_str = line[6:].strip()
-                                if data_str == "[DONE]":
-                                    break
-                                try:
-                                    chunk = json.loads(data_str)
-                                    delta = (
-                                        chunk.get("choices", [{}])[0]
-                                        .get("delta", {})
-                                        .get("content", "")
-                                    )
-                                    if delta:
-                                        collected.append(delta)
-                                        yield f"data: {json.dumps({'text': delta})}\n\n"
-                                except Exception:
-                                    continue
+                            if not line.startswith("data: "):
+                                continue
+                            data_str = line[6:].strip()
+                            if data_str == "[DONE]":
+                                break
+                            try:
+                                chunk = json.loads(data_str)
+                                delta = (
+                                    chunk.get("choices", [{}])[0]
+                                    .get("delta", {})
+                                    .get("content", "")
+                                )
+                                if delta:
+                                    collected.append(delta)
+                                    yield f"data: {json.dumps({'text': delta})}\n\n"
+                            except Exception:
+                                continue
 
-                        # ---- after the stream loop ends ----
                         full_res = "".join(collected)
-                        write_semantic_cache(prompt, full_res)
+                        try:
+                            await _semantic_cache.set(prompt, full_res)
+                        except Exception:
+                            pass
                         elapsed = time.time() - start
-                        watermark_text = (
-                            "\n\n---\n"
-                            f"*Streamed through Axelr in {elapsed:.2f} seconds*"
-                        )
-                        payload = {"watermark": watermark_text}
-                        yield f"data: {json.dumps(payload)}\n\n"
+                        wm = f"\n\n---\n*Streamed through Axelr in {elapsed:.2f} seconds*"
+                        yield f"data: {json.dumps({'watermark': wm})}\n\n"
                         return
         except Exception as e:
-            logger.warning(f"Groq native stream failed: {e}. Cascading to parallel fallback.")
-    # Fallback: generate full response via sequential route and stream word by word
-    result = await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
-    
+            logger.warning("groq_stream_failed", error=str(e))
+
+    # ---- 3. sequential fallback, word-streamed ----
+    result = await route_ai_request_sequential(
+        workspace, task_type, prompt, history, files,
+        max_tokens, temp, tier, user, context,
+    )
     if not result.get("success"):
         yield f"data: {json.dumps({'error': result.get('text', 'AI service unavailable')})}\n\n"
         return
+
     full_text = result["text"]
-    # Split into words and stream
-    words = full_text.split()
-    for word in words:
+    for word in full_text.split():
         yield f"data: {json.dumps({'text': word + ' '})}\n\n"
-        await asyncio.sleep(0.02)
-    # Send watermark separately (already included but we send again)
-    elapsed = time.time() - start
-    watermark = f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
+        await asyncio.sleep(0.015)
+    watermark = f"\n\n---\n*Generated through Axelr in {time.time() - start:.2f} seconds*"
     yield f"data: {json.dumps({'watermark': watermark})}\n\n"
 @app.post("/api/extract_stream")
 @limiter.limit("5/minute")
@@ -2499,6 +2523,7 @@ async def extract_stream(
     context: Optional[str] = Form(None),          # <-- NEW
     files: List[UploadFile] = File([])
 ):
+    
     allowed, reset_sec = await check_rate_limit(str(user["_id"]), user.get("tier", "free"), "extract_stream")
     if not allowed:
         raise HTTPException(
@@ -2519,8 +2544,8 @@ async def extract_stream(
         file_infos.append({"filename": f.filename, "mimetype": f.content_type or ""})
     detected_workspace = detect_workspace(command, file_infos)
     workspace = workspace or detected_workspace
-    if workspace not in ["data", "design", "general"]:
-        workspace = "general"
+    if workspace not in ["data", "design", "core"]:
+        workspace = "core"
 
     valid_files = []
     for f in files:
@@ -2568,7 +2593,7 @@ async def extract_stream(
     if schema_info:
         combined_context += f"\nSchema info: {schema_info}\n"
 
-    llm_config = WORKSPACE_LLM_CONFIG.get(workspace, WORKSPACE_LLM_CONFIG["general"])
+    llm_config = WORKSPACE_LLM_CONFIG.get(workspace, WORKSPACE_LLM_CONFIG["core"])
     max_tokens = llm_config["max_tokens"]
     temp = llm_config["temperature"]
 
@@ -2590,6 +2615,54 @@ async def extract_stream(
         yield "event: close\ndata: {}\n\n"
 
     return StreamingResponse(event_generator(), media_type="text/event-stream")
+async def check_rate_limit(user_id: str, tier: str, endpoint: str) -> Tuple[bool, int]:
+    """
+    Redis-backed per-user RPM/TPM/RPD rate limiter.
+    Returns (allowed: bool, seconds_until_reset: int).
+    Falls back to (True, 0) when Redis is unavailable.
+    """
+    if not redis_client:
+        return True, 0
+    try:
+        now = int(time.time())
+        limits = {
+            "free":     {"rpm": 5,  "tpm": 10000,  "rpd": 5,  "rpm_hard": 8,  "tpm_hard": 15000,  "rpd_hard": 8},
+            "pro":      {"rpm": 15, "tpm": 50000,  "rpd": 15, "rpm_hard": 20, "tpm_hard": 75000,  "rpd_hard": 20},
+            "business": {"rpm": 30, "tpm": 150000, "rpd": 30, "rpm_hard": 45, "tpm_hard": 225000, "rpd_hard": 45},
+        }
+        lim = limits.get(tier, limits["free"])
+        key_rpm = f"rate:{user_id}:rpm:{endpoint}"
+        key_tpm = f"rate:{user_id}:tpm:{endpoint}"
+        key_rpd = f"rate:{user_id}:rpd:{endpoint}"
+
+        minute_ago = now - 60
+        day_ago    = now - 86400
+
+        pipe = redis_client.pipeline()
+        pipe.zremrangebyscore(key_rpm, 0, minute_ago)
+        pipe.zremrangebyscore(key_tpm, 0, minute_ago)
+        pipe.zremrangebyscore(key_rpd, 0, day_ago)
+        await pipe.execute()
+
+        rpm_count = await redis_client.zcard(key_rpm)
+        tpm_count = await redis_client.zcard(key_tpm)
+        rpd_count = await redis_client.zcard(key_rpd)
+
+        if rpm_count >= lim["rpm_hard"] or tpm_count >= lim["tpm_hard"] or rpd_count >= lim["rpd_hard"]:
+            return False, 60
+
+        pipe = redis_client.pipeline()
+        pipe.zadd(key_rpm, {str(now): now})
+        pipe.zadd(key_tpm, {str(now): now})
+        pipe.zadd(key_rpd, {str(now): now})
+        pipe.expire(key_rpm, 120)
+        pipe.expire(key_tpm, 120)
+        pipe.expire(key_rpd, 172800)
+        await pipe.execute()
+        return True, 0
+    except Exception as e:
+        logger.warning("rate_limit_check_failed", error=str(e))
+        return True, 0
 # ---------- PARALLEL ROUTER (true concurrency) ----------
 # ============================================================
 # 1, 3, 4. RESILIENT PARALLEL RACING (4s Timeout) & DYNAMIC FALLBACK
@@ -2607,41 +2680,56 @@ async def route_ai_request_parallel(
     context: str = "",
 ) -> Dict[str, Any]:
     start = time.time()
-    
-    if detect_manipulation(prompt) or contains_explicit(prompt):
-        return await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
 
-    # 6. Check Semantic Vector Cache First
-    cached = check_semantic_cache(prompt)
-    if cached:
-        logger.info("Semantic cache HIT for prompt", extra={"prompt": prompt[:40]})
+    # ---- safety ----
+    if detect_manipulation(prompt) or contains_explicit(prompt):
+        return await route_ai_request_sequential(
+            workspace, task_type, prompt, history, files,
+            max_tokens, temp, tier, user, context,
+        )
+
+    # ---- semantic cache ----
+    try:
+        cached_response = await _semantic_cache.get(prompt)
+    except Exception:
+        cached_response = None
+
+    if cached_response:
+        logger.info("semantic_cache_hit", prompt_head=prompt[:40])
         return {
             "success": True,
-            "text": cached["response"],
+            "text": cached_response,
             "provider": "semantic_cache",
             "model_used": "cache",
-            "tokens_used": len(cached["response"].split()),
+            "tokens_used": len(cached_response.split()),
             "latency_ms": round((time.time() - start) * 1000, 2),
-            "cached": True
+            "cached": True,
         }
 
-    # Build prompt
+    # ---- build prompt ----
     system_prompt = get_system_prompt(workspace, task_type)
     full_prompt = f"{system_prompt}\n\n"
     if context:
         full_prompt += f"Context: {context}\n\n"
     if history:
-        recent = [f"{m.get('role', 'user')}: {m.get('text', '')}" for m in history[-4:] if isinstance(m, dict) and m.get('text')]
+        recent = [
+            f"{m.get('role', 'user')}: {m.get('text', '')}"
+            for m in history[-4:]
+            if isinstance(m, dict) and m.get("text")
+        ]
         if recent:
             full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
     full_prompt += f"User request: {prompt}"
 
-    # 2 & 3. Get dynamically ranked providers based on live composite scores
+    # ---- top-3 race ----
     ranked_providers = get_dynamically_ranked_providers(workspace)
     top_3 = [p for p in ranked_providers if p != "local"][:3]
 
     if not top_3:
-        return await route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context)
+        return await route_ai_request_sequential(
+            workspace, task_type, prompt, history, files,
+            max_tokens, temp, tier, user, context,
+        )
 
     async def execute_provider(p_name: str):
         t0 = time.time()
@@ -2653,7 +2741,12 @@ async def route_ai_request_parallel(
             elapsed = time.time() - t0
             if resp and len(resp.strip()) > 10:
                 record_provider_result(p_name, elapsed, success=True)
-                return {"text": resp, "provider": p_name, "model": model, "latency": elapsed}
+                return {
+                    "text": resp,
+                    "provider": p_name,
+                    "model": model,
+                    "latency": elapsed,
+                }
             raise ValueError("Empty output")
         except Exception as e:
             elapsed = time.time() - t0
@@ -2661,7 +2754,6 @@ async def route_ai_request_parallel(
             record_provider_result(p_name, elapsed, success=False, is_rate_limit=is_429)
             raise
 
-    # 1. Fire Top 3 in parallel with strict 4.0s timeout
     tasks = [asyncio.create_task(execute_provider(p)) for p in top_3]
     try:
         for finished in asyncio.as_completed(tasks, timeout=4.0):
@@ -2670,60 +2762,77 @@ async def route_ai_request_parallel(
                 for t in tasks:
                     if not t.done():
                         t.cancel()
-                
-                final_text = strip_fluff(res["text"]) + f"\n\n---\n*Generated through Axelr in {res['latency']:.2f} seconds*"
-                write_semantic_cache(prompt, final_text)
+
+                final_text = (
+                    strip_fluff(res["text"])
+                    + f"\n\n---\n*Generated through Axelr in {res['latency']:.2f} seconds*"
+                )
+                try:
+                    await _semantic_cache.set(prompt, final_text)
+                except Exception:
+                    pass
+
                 return {
                     "success": True,
                     "text": final_text,
                     "provider": res["provider"],
                     "model_used": res["model"],
                     "tokens_used": len(final_text.split()),
-                    "latency_ms": round(res["latency"] * 1000, 2)
+                    "latency_ms": round(res["latency"] * 1000, 2),
                 }
             except Exception:
                 continue
     except asyncio.TimeoutError:
-        logger.warning("Parallel race timed out at 4.0s. Falling back to dynamic chain.")
+        logger.warning("parallel_race_timeout_4s")
 
-    # 4. Intelligent Fallback with Jittered Backoff
+    # ---- jittered fallback ----
     remaining = [p for p in ranked_providers[3:] if p != "local"]
     delays = [0.5, 1.0, 2.0]
     for idx, p_name in enumerate(remaining):
         jitter = random.uniform(0.05, 0.25)
         await asyncio.sleep(delays[min(idx, len(delays) - 1)] + jitter)
-        
+
         func = PROVIDER_FUNC_MAP.get(p_name)
         model = PROVIDER_MODELS.get(p_name, [None])[0]
         t0 = time.time()
         try:
-            resp = await asyncio.wait_for(func(full_prompt, max_tokens, temp, model), timeout=3.5)
+            resp = await func(full_prompt, max_tokens, temp, model)
             elapsed = time.time() - t0
             if resp and len(resp.strip()) > 5:
                 record_provider_result(p_name, elapsed, success=True)
-                final_text = strip_fluff(resp) + f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
-                write_semantic_cache(prompt, final_text)
+                final_text = (
+                    strip_fluff(resp)
+                    + f"\n\n---\n*Generated through Axelr in {elapsed:.2f} seconds*"
+                )
+                try:
+                    await _semantic_cache.set(prompt, final_text)
+                except Exception:
+                    pass
                 return {
                     "success": True,
                     "text": final_text,
                     "provider": p_name,
                     "model_used": model,
                     "tokens_used": len(final_text.split()),
-                    "latency_ms": round(elapsed * 1000, 2)
+                    "latency_ms": round(elapsed * 1000, 2),
                 }
         except Exception as e:
-            record_provider_result(p_name, time.time() - t0, success=False, is_rate_limit=("429" in str(e)))
+            record_provider_result(
+                p_name, time.time() - t0,
+                success=False,
+                is_rate_limit=("429" in str(e)),
+            )
             continue
 
-    # Final Local Fallback
-    fallback_text = build_local_fallback_response(workspace, "general", prompt)
+    # ---- final local fallback ----
+    fallback_text = build_local_fallback_response(workspace, "core", prompt)
     return {
         "success": True,
         "text": fallback_text,
         "provider": "local",
         "model_used": "local-fallback",
         "tokens_used": len(fallback_text.split()),
-        "latency_ms": round((time.time() - start) * 1000, 2)
+        "latency_ms": round((time.time() - start) * 1000, 2),
     }
 
 # ---------- PROVIDER VALIDATION ----------
@@ -3224,16 +3333,18 @@ async def email_register(data: EmailLoginRequest):
 # ---------- RATE LIMITING ----------
 user_rate_limiter = {}
 RATE_LIMITS = {"free": 2, "pro": 5, "business": 8}
+user_rate_limiter: dict = {}
+RATE_LIMITS = {"free": 2, "pro": 5, "business": 8}
 
-def check_user_rate_limit(user_id: str, tier: str):
+def check_user_rate_limit(user_id: str, tier: str) -> None:
+    """Soft in-memory RPM limiter; logs but never blocks."""
     now = time.time()
     limit = RATE_LIMITS.get(tier, 2)
-    if user_id not in user_rate_limiter:
-        user_rate_limiter[user_id] = []
-    user_rate_limiter[user_id] = [t for t in user_rate_limiter[user_id] if now - t < 60]
+    bucket = user_rate_limiter.setdefault(user_id, [])
+    user_rate_limiter[user_id] = [t for t in bucket if now - t < 60]
     if len(user_rate_limiter[user_id]) >= limit:
-        logger.info(f"Rate limit exceeded for user {user_id}, but allowing request (soft limit)")
-    user_rate_limiter[user_id].append(now)
+        logger.info("soft_rate_limit_exceeded", user_id=user_id)
+    bucket.append(now)
 
 # ---------- GUEST SESSIONS ----------
 guest_sessions = {}
@@ -3274,14 +3385,18 @@ async def guest_extract(
     command: str = Form(...),
     workspace: Optional[str] = Form(None),
     sessionId: Optional[str] = Form(None),
-    files: List[UploadFile] = File([])
+    files: List[UploadFile] = File([]),
 ):
     try:
-        file_infos = []
-        for f in files:
-            file_infos.append({"filename": f.filename, "mimetype": f.content_type or ""})
+        # ---- workspace + session ----
+        file_infos = [
+            {"filename": f.filename, "mimetype": f.content_type or ""}
+            for f in files
+        ]
         detected_workspace = detect_workspace(command, file_infos)
         workspace = workspace or detected_workspace
+        if workspace not in ("data", "design", "core"):
+            workspace = "core"
 
         if not sessionId or sessionId not in guest_sessions:
             new_session = secrets.token_urlsafe(16)
@@ -3289,7 +3404,7 @@ async def guest_extract(
                 "expires": datetime.utcnow() + timedelta(hours=1),
                 "messages": [],
                 "structured": None,
-                "created_at": datetime.utcnow()
+                "created_at": datetime.utcnow(),
             }
             sessionId = new_session
 
@@ -3304,32 +3419,34 @@ async def guest_extract(
                 "code": "GUEST_LIMIT_REACHED",
                 "message": "Guest sessions limited to 5 messages. Sign in for unlimited access.",
                 "limit": 5,
-                "used": message_count
+                "used": message_count,
             })
 
-        valid_files = []
-        for f in files:
-            if is_allowed_file(workspace, f.filename, f.content_type or ""):
-                valid_files.append(f)
-
+        # ---- files ----
+        valid_files = [
+            f for f in files
+            if is_allowed_file(workspace, f.filename, f.content_type or "")
+        ]
         file_contents = []
         for f in valid_files:
             content_bytes = await f.read()
-            b64 = base64.b64encode(content_bytes).decode('utf-8')
             file_contents.append({
                 "filename": f.filename,
                 "mimetype": f.content_type or "application/octet-stream",
-                "content_base64": b64
+                "content_base64": base64.b64encode(content_bytes).decode("utf-8"),
             })
 
-        intent_result = None
+        # ---- intent classification (elite IntentRouter) ----
         if ENABLE_INTENT_CLASSIFIER and intent_classifier:
             try:
                 intent_result = await intent_classifier.classify(command, file_contents)
-                workspace = intent_result.get("workspace", workspace)
+                new_ws = getattr(intent_result, "workspace", None)
+                if new_ws in ("data", "design", "core"):
+                    workspace = new_ws
             except Exception as e:
-                logger.warning(f"Intent classification failed: {e}")
+                logger.warning("intent_classification_failed", error=str(e))
 
+        # ---- external context ----
         context = ""
         schema_info = await discover_schema(file_contents)
         if schema_info:
@@ -3339,6 +3456,7 @@ async def guest_extract(
         max_tokens = llm_config["max_tokens"]
         temp = llm_config["temperature"]
 
+        # ---- AI routing ----
         ai_result = await route_ai_request_parallel(
             workspace=workspace,
             task_type="extraction" if workspace == "data" else "frontend",
@@ -3349,49 +3467,76 @@ async def guest_extract(
             temp=temp,
             tier="free",
             user=None,
-            context=context
+            context=context,
         )
-
         if not ai_result.get("success"):
             raise HTTPException(status_code=503, detail="AI service unavailable")
 
-        ai_text = ai_result["text"]
-        provider = ai_result.get("provider")
+        ai_text    = ai_result["text"]
+        provider   = ai_result.get("provider")
         model_used = ai_result.get("model_used")
 
-        is_code = False
-        if ENABLE_CRITIC and critic_agent:
-            if "```" in ai_text or any(ext in ai_text for ext in [".py", ".js", ".html", ".css"]):
-                try:
-                    critic_result = await critic_agent.validate(ai_text, expected_schema=None, language="python")
-                    if not critic_result.get("passed", True):
-                        if ENABLE_SELF_HEAL and self_healer:
-                            heal_result = await self_healer.heal(ai_text, "temp.py", "python")
-                            if heal_result.get("final_code"):
-                                ai_text = heal_result["final_code"]
-                                ai_result["text"] = ai_text
-                except Exception as e:
-                    logger.warning(f"Critic/Self-heal failed: {e}")
+        # ---- critic + self-heal ----
+        is_code = ("```" in ai_text) or any(
+            ext in ai_text for ext in (".py", ".js", ".html", ".css")
+        )
+        critic_result: Optional[Dict[str, Any]] = None
+        heal_result:   Optional[Dict[str, Any]] = None
 
-        if "```" in ai_text:
+        if ENABLE_CRITIC and critic_agent and is_code:
+            try:
+                language = "python" if workspace == "data" else "javascript"
+                scan = _code_guard.scan(ai_text, language=language)
+                critic_result = {
+                    "passed": scan.syntax_ok and scan.score >= 60,
+                    "issues": [f.to_dict() for f in scan.findings],
+                    "score": scan.score,
+                }
+                if not critic_result["passed"] and ENABLE_SELF_HEAL and self_healer:
+                    heal_obj = await self_healer.heal(
+                        ai_text,
+                        error=(critic_result["issues"][0]["message"]
+                               if critic_result["issues"] else "unknown"),
+                        language=language,
+                        tier="free",
+                        user=None,
+                    )
+                    heal_result = {
+                        "success": heal_obj.success,
+                        "attempts": heal_obj.attempts,
+                        "diff": heal_obj.diff,
+                        "error": heal_obj.error,
+                    }
+                    if heal_obj.success:
+                        ai_text = heal_obj.final_code
+                        ai_result["text"] = ai_text
+            except Exception as e:
+                logger.warning("critic_self_heal_failed", error=str(e))
+
+        # ---- dependency resolver ----
+        if is_code:
             language = "python" if workspace == "data" else "javascript"
             deps = generate_dependencies(ai_text, language)
             if deps:
                 ai_text += f"\n\n**Dependencies:**\n```\n{deps}\n```"
 
-        structured = []
+        # ---- structured data ----
+        structured: List[Any] = []
         json_match = re.search(r'\[JSON-DATA\](.*?)\[/JSON-DATA\]', ai_text, re.DOTALL)
         if json_match:
             try:
                 structured = json.loads(json_match.group(1).strip())
             except Exception:
                 structured = []
-            ai_text = re.sub(r'\[JSON-DATA\].*?\[/JSON-DATA\]', '', ai_text, flags=re.DOTALL).strip()
+            ai_text = re.sub(
+                r'\[JSON-DATA\].*?\[/JSON-DATA\]', '', ai_text, flags=re.DOTALL,
+            ).strip()
 
+        # ---- persist session ----
         session["messages"].append({
             "role": "user",
             "text": command,
-            "attachedFiles": [f.filename for f in valid_files]
+            "attachedFiles": [f.filename for f in valid_files],
         })
         session["messages"].append({
             "role": "model",
@@ -3399,10 +3544,10 @@ async def guest_extract(
             "variants": [ai_text],
             "activeVariant": 0,
             "canRegenerate": True,
-            "createdAt": datetime.utcnow().isoformat()
+            "createdAt": datetime.utcnow().isoformat(),
         })
         session["structured"] = structured
-
+        remaining = max(0, 5 - (len(session["messages"]) // 2))
         return {
             "success": True,
             "text": ai_text,
@@ -3411,12 +3556,13 @@ async def guest_extract(
             "filename": f"Export_{datetime.utcnow().strftime('%Y%m%d')}.csv",
             "provider": provider,
             "model": model_used,
-            "remaining": 5 - len(session.get("messages", [])) // 2
+            "remaining": remaining,
         }
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Guest extract error: {e}")
-        raise HTTPException(status_code=500, detail="An internal error occurred. Please try again later.")
-
+        logger.error("guest_extract_error", error=str(e))
+        raise HTTPException(status_code=500, detail="Internal error occurred")
 # ---------- ENDPOINTS ----------
 @app.get("/")
 @app.get("/api/health")
@@ -3657,7 +3803,7 @@ async def list_history(
 ):
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    if workspace not in ["data", "design", "general"]:
+    if workspace not in ["data", "design", "core"]:
         workspace = "data"
     if status not in ["active", "archived", "trashed"]:
         status = "active"
@@ -3924,8 +4070,8 @@ async def extract(
             file_infos.append({"filename": f.filename, "mimetype": f.content_type or ""})
         detected_workspace = detect_workspace(command, file_infos)
         workspace = workspace or detected_workspace
-        if workspace not in ["data", "design", "general"]:
-            workspace = "general"
+        if workspace not in ["data", "design", "core"]:
+            workspace = "core"
 
         if len(files) > 5:
             raise HTTPException(status_code=400, detail="Too many files (max 5)")
@@ -4055,16 +4201,16 @@ async def extract(
                 history = current_session.get("messages", [])
                 if isRetry == "true" and history and history[-1].get("role") == "model":
                     history = history[:-2]
-
         # ORCHESTRATION
         intent_result = None
         if ENABLE_INTENT_CLASSIFIER and intent_classifier:
             try:
                 intent_result = await intent_classifier.classify(command, file_contents)
-                workspace = intent_result.get("workspace", workspace)
+                new_ws = getattr(intent_result, "workspace", None)
+                if new_ws in ("data", "design", "core"):
+                    workspace = new_ws
             except Exception as e:
-                logger.warning(f"Intent classification failed: {e}")
-
+                logger.warning("intent_classification_failed", error=str(e))
         context = ""
         if ENABLE_CONTEXT_REGISTRY and context_registry and db_available:
             try:
@@ -4112,34 +4258,48 @@ async def extract(
         prompt_tokens = len(command.split())
         completion_tokens = ai_result.get("tokens_used", len(ai_text.split()))
 
-        # Post-processing: Critic + Self-Heal
         critic_result = None
         heal_result = None
         blast_result = None
 
-        if ENABLE_CRITIC and critic_agent:
-            is_code = "```" in ai_text or any(ext in ai_text for ext in [".py", ".js", ".html", ".css"])
-            if is_code:
-                try:
-                    language = "python" if workspace == "data" else "javascript"
-                    critic_result = await critic_agent.validate(ai_text, expected_schema=None, language=language)
-                    if not critic_result.get("passed", True):
-                        if ENABLE_SELF_HEAL and self_healer:
-                            heal_result = await self_healer.heal(ai_text, "temp." + ("py" if language == "python" else "js"), language)
-                            if heal_result.get("final_code"):
-                                ai_text = heal_result["final_code"]
-                                ai_result["text"] = ai_text
-                except Exception as e:
-                    logger.warning(f"Critic/Self-heal failed: {e}")
+        # Always compute is_code so downstream code can rely on it
+        is_code = ("```" in ai_text) or any(
+            ext in ai_text for ext in [".py", ".js", ".html", ".css"]
+        )
 
-        if ENABLE_BLAST_RADIUS and dependency_graph and files:
+        if ENABLE_CRITIC and critic_agent and is_code:
+            try:
+                language = "python" if workspace == "data" else "javascript"
+                scan = _code_guard.scan(ai_text, language=language)
+                critic_result = {
+                    "passed": scan.syntax_ok and scan.score >= 60,
+                    "issues": [f.to_dict() for f in scan.findings],
+                    "score": scan.score,
+                }
+                if not critic_result["passed"] and ENABLE_SELF_HEAL and self_healer:
+                    heal_result = await self_healer.heal(
+                        ai_text,
+                        error=(critic_result["issues"][0]["message"]
+                               if critic_result["issues"] else "unknown"),
+                        language=language,
+                        tier=tier,
+                        user=user,
+                    )
+                    if heal_result.success:
+                        ai_text = heal_result.final_code
+                        ai_result["text"] = ai_text
+            except Exception as e:
+                logger.warning("critic/self-heal failed", error=str(e))
+
+        # ---- Blast radius ----
+        if ENABLE_BLAST_RADIUS and dependency_tracker and files:
             try:
                 first_file = files[0].filename if files else "unknown"
-                file_path = os.path.join(WORKSPACE_ROOT, first_file) if WORKSPACE_ROOT else first_file
-                blast_result = dependency_graph.assess_impact(file_path, ai_text)
+                file_path = (os.path.join(WORKSPACE_ROOT, first_file)
+                             if WORKSPACE_ROOT else first_file)
+                blast_result = dependency_tracker.assess_impact(file_path).to_dict()
             except Exception as e:
-                logger.warning(f"Blast radius failed: {e}")
-
+                logger.warning("blast radius failed", error=str(e))
         if ENABLE_PR_DEFENSE and pr_defense and user:
             try:
                 asyncio.create_task(
@@ -4171,7 +4331,7 @@ async def extract(
             except Exception:
                 structured = []
             ai_text = re.sub(r'\[JSON-DATA\].*?\[/JSON-DATA\]', '', ai_text, flags=re.DOTALL).strip()
-                    # ... after ai_result is processed and ai_text is set
+        # ... after ai_result is processed and ai_text is set
         if not ai_text:
             ai_text = "I am Axelr AI. How can I help you?"
 
@@ -4403,128 +4563,47 @@ class TouchFixEngine:
             return self.apply_diff(full_code, diff_text)
         return full_code
 
-# ---------- STUB CLASSES (real logic already implemented) ----------
-class IntentClassifier:
-    async def classify(self, command: str, files: List[Dict]) -> Dict:
-        workspace = detect_workspace(command, files)
-        if workspace == "general" and GEMINI_API_KEY:
-            try:
-                prompt = f"Classify the following request into one of: data, design, general. Respond only with the category name.\n\nRequest: {command[:500]}"
-                result = await call_gemini(prompt, max_tokens=10, temp=0.0, model="gemini-1.5-flash")
-                result = result.strip().lower()
-                if result in ["data", "design", "general"]:
-                    workspace = result
-            except Exception as e:
-                logger.warning(f"Intent classification fallback failed: {e}")
-        config = WORKSPACE_LLM_CONFIG.get(workspace, WORKSPACE_LLM_CONFIG["data"])
-        return {"workspace": workspace, "compute_profile": {"max_tokens": config["max_tokens"]}}
-
-class ContextRegistry:
-    def __init__(self, redis_client, db_collection):
-        self.redis = redis_client
-        self.db = db_collection
-
-    async def get_context(self, user_id: str, workspace: str) -> Optional[str]:
-        if self.redis:
-            key = f"context:{user_id}:{workspace}"
-            return await self.redis.get(key)
-        return None
-
-    async def set_context(self, user_id: str, workspace: str, context: str):
-        if self.redis:
-            key = f"context:{user_id}:{workspace}"
-            await self.redis.setex(key, 86400, context)
-
-class DependencyGraph:
-    def __init__(self, workspace_root):
-        self.root = workspace_root
-
-    def assess_impact(self, file_path: str, code: str) -> Dict:
-        imports = re.findall(r'^(?:from|import)\s+(\w+)', code, re.MULTILINE)
-        affected = []
-        for imp in imports:
-            for root, dirs, files in os.walk(self.root):
-                for f in files:
-                    if f.startswith(imp) or f.endswith(f"{imp}.py"):
-                        affected.append(os.path.join(root, f))
-        return {"affected_files": affected[:10]}
-
-class CriticAgent:
-    async def validate(self, code: str, expected_schema: Optional[str], language: str) -> Dict:
-        errors = run_linter(code, language)
-        passed = len(errors) == 0
-        return {"passed": passed, "errors": errors}
-
-class SelfHealingEngine:
-    def __init__(self, route_func, max_retries=3):
-        self.route_func = route_func
-        self.max_retries = max_retries
-        self.touch_fix = TouchFixEngine()
-
-    async def heal(self, code: str, filename: str, language: str) -> Dict:
-        errors = run_linter(code, language)
-        if not errors:
-            return {"final_code": code, "fixed": False}
-        error_line = None
-        for err in errors:
-            match = re.search(r'line (\d+)', err)
-            if match:
-                error_line = int(match.group(1)) - 1
-                break
-        if error_line is not None:
-            start, end = self.touch_fix._locate_block(code, error_line)
-            error_block = "\n".join(code.splitlines()[start:end])
-            fixed_code = await self.touch_fix.fix_block(code, error_block, errors[0], self.route_func)
-            if fixed_code != code:
-                return {"final_code": fixed_code, "fixed": True, "diff": ""}
-        error_text = "\n".join(errors)
-        prompt = f"The following code has errors:\n{error_text}\n\nPlease fix the code and return only the corrected code without explanation.\n\n```{language}\n{code}\n```"
-        result = await self.route_func(
-            workspace="design",
-            task_type="touch_fix",
-            prompt=prompt,
-            history=[],
-            files=[],
-            max_tokens=4096,
-            temp=0.2,
-            tier="free",
-            user=None
-        )
-        if result.get("success"):
-            fixed_code = result["text"]
-            code_match = re.search(r"```(?:python|javascript|html|css)?\s*([\s\S]*?)```", fixed_code, re.DOTALL)
-            if code_match:
-                fixed_code = code_match.group(1).strip()
-            if fixed_code != code:
-                diff = list(difflib.unified_diff(code.splitlines(True), fixed_code.splitlines(True), fromfile='original', tofile='fixed'))
-                diff_text = ''.join(diff)
-                final_code = self.touch_fix.apply_diff(code, diff_text)
-                return {"final_code": final_code, "fixed": True, "diff": diff_text}
-        return {"final_code": code, "fixed": False, "errors": errors}
-
-class PRDefenseGenerator:
-    async def generate(self, user, command, ai_result, critic_result, blast_result, heal_result, session_id) -> Dict:
-        return {
-            "report": {
-                "userId": user["_id"],
-                "sessionId": session_id,
-                "command": command,
-                "ai_result": ai_result.get("text", ""),
-                "critic_result": critic_result,
-                "blast_result": blast_result,
-                "heal_result": heal_result,
-                "createdAt": datetime.utcnow()
-            }
-        }
-
+# ---------------------------------------------------------------------------
+# Bleach allow-lists for /api/deploy HTML sanitization
+# ---------------------------------------------------------------------------
+ALLOWED_TAGS = [
+    'html', 'head', 'title', 'body', 'div', 'span', 'p', 'a', 'img',
+    'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li',
+    'table', 'thead', 'tbody', 'tr', 'th', 'td',
+    'form', 'input', 'button', 'select', 'option', 'textarea', 'label',
+    'fieldset', 'legend', 'style', 'script', 'link', 'meta',
+    'header', 'footer', 'nav', 'section', 'article', 'aside', 'main',
+    'figure', 'figcaption', 'canvas', 'svg',
+    'path', 'circle', 'rect', 'line', 'polygon', 'g', 'defs', 'use',
+    'blockquote', 'pre', 'code', 'br', 'hr',
+    'strong', 'em', 'b', 'i', 'u', 's', 'sub', 'sup', 'mark', 'small',
+    'del', 'ins', 'details', 'summary', 'dialog', 'menu', 'menuitem',
+]
+ALLOWED_ATTRS = {
+    '*':        ['class', 'id', 'style', 'title', 'lang', 'dir', 'hidden', 'tabindex', 'role'],
+    'a':        ['href', 'target', 'rel', 'download', 'type'],
+    'img':      ['src', 'alt', 'width', 'height', 'loading', 'decoding', 'crossorigin', 'srcset', 'sizes'],
+    'iframe':   ['src', 'width', 'height', 'allow', 'allowfullscreen', 'loading', 'referrerpolicy', 'sandbox'],
+    'input':    ['type', 'name', 'value', 'placeholder', 'checked', 'disabled', 'readonly', 'required',
+                 'min', 'max', 'step', 'pattern', 'autocomplete', 'autofocus', 'multiple'],
+    'button':   ['type', 'name', 'value', 'disabled'],
+    'select':   ['name', 'multiple', 'disabled', 'required', 'size'],
+    'option':   ['value', 'selected', 'disabled'],
+    'textarea': ['name', 'rows', 'cols', 'disabled', 'readonly', 'required', 'placeholder', 'wrap'],
+    'form':     ['action', 'method', 'enctype', 'target', 'novalidate', 'autocomplete'],
+    'style':    ['type', 'media'],
+    'script':   ['type', 'src', 'async', 'defer', 'integrity', 'crossorigin'],
+    'link':     ['href', 'rel', 'type', 'media', 'crossorigin', 'integrity'],
+    'meta':     ['name', 'content', 'charset', 'http-equiv'],
+}
 # ---------- Instantiate features ----------
-intent_classifier = IntentClassifier() if ENABLE_INTENT_CLASSIFIER else None
-context_registry = ContextRegistry(redis_client, users_col) if ENABLE_CONTEXT_REGISTRY else None
-dependency_graph = DependencyGraph(WORKSPACE_ROOT) if ENABLE_BLAST_RADIUS else None
-critic_agent = CriticAgent() if ENABLE_CRITIC else None
-self_healer = SelfHealingEngine(route_ai_request, max_retries=3) if ENABLE_SELF_HEAL else None
-pr_defense = PRDefenseGenerator() if ENABLE_PR_DEFENSE else None
-
+# ---------- Feature service holders (populated by lifespan) ----------
+intent_classifier: Optional[Any] = None
+context_registry: Optional[Any] = None
+dependency_tracker: Optional[Any] = None
+critic_agent: Optional[Any] = None
+self_healer: Optional[Any] = None
+pr_defense: Optional[Any] = None
 class TouchFixRequest(BaseModel):
     code: str
     error_message: str
@@ -4564,45 +4643,8 @@ Return only the corrected code, without any explanation.
     if code_match:
         fixed_code = code_match.group(1).strip()
     return {"success": True, "fixed_code": fixed_code}
-    async def fix_block(self, full_code: str, error_block: str, error_message: str) -> str:
-        """
-        Asynchronously fix a specific block of code using the AI route.
-        The AI is prompted to fix only the erroneous block and return the corrected block.
-        Then we apply the diff to the full code.
-        """
-        if not self.route_func:
-            return full_code
-
-        prompt = f"Fix the following code block. Error: {error_message}\n\n```\n{error_block}\n```\nReturn only the corrected block, no extra text."
-        result = await self.route_func(
-            workspace="design",
-            task_type="touch_fix",
-            prompt=prompt,
-            history=[],
-            files=[],
-            max_tokens=2048,
-            temp=0.2,
-            tier="free",
-            user=None
-        )
-        if not result.get("success"):
-            return full_code
-        fixed_block = result["text"]
-        # Extract code block if wrapped
-        code_match = re.search(r"```(?:\w+)?\s*([\s\S]*?)```", fixed_block, re.DOTALL)
-        if code_match:
-            fixed_block = code_match.group(1).strip()
-        # Compute unified diff between original block and fixed block
-        original_lines = error_block.splitlines(True)
-        fixed_lines = fixed_block.splitlines(True)
-        diff = list(difflib.unified_diff(original_lines, fixed_lines, fromfile='original', tofile='fixed'))
-        diff_text = ''.join(diff)
-        if diff_text:
-            return self.apply_diff(full_code, diff_text)
-        return full_code
-    
 def _build_multipart(data: Dict, files: Dict) -> (bytes, str):
-    boundary = '----WebKitFormBoundary' + hashlib.md5(os.urandom(16)).hexdigest()
+    boundary = '----WebKitFormBoundary' + secrets.token_hex(16)
     body_parts = []
     for key, value in data.items():
         body_parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{key}"\r\n\r\n{value}\r\n'.encode('utf-8'))
@@ -4824,92 +4866,508 @@ async def admin_metrics(user: dict = Depends(get_current_user)):
         "recentUsers": recent_users,
         "timestamp": datetime.utcnow().isoformat()
     }
+# ============================================================
+# BILLING — CHECKOUT, PORTAL, STATUS, CANCEL
+# ============================================================
+
+class CheckoutRequest(BaseModel):
+    tier: str
+    subTier: str = "full"
+    period: str = "monthly"
+
+
+class PortalRequest(BaseModel):
+    returnUrl: Optional[str] = None
+
+
+def _resolve_price(tier: str, sub_tier: str, period: str) -> Dict[str, Any]:
+    """
+    Return the `line_items[0]` payload for Stripe.
+    Prefers a pre-created Price ID; falls back to inline price_data.
+    """
+    price_id = (STRIPE_PRICE_CATALOG.get(tier, {})
+                                .get(sub_tier, {})
+                                .get(period))
+    if price_id:
+        return {"price": price_id, "quantity": 1}
+
+    amount = (STRIPE_PRICE_AMOUNTS.get(tier, {})
+                                   .get(sub_tier, {})
+                                   .get(period))
+    if not amount:
+        raise HTTPException(status_code=400, detail="Invalid pricing combination")
+
+    # `annual` is charged once per year; `monthly` per month
+    interval = "year" if period == "annual" else "month"
+    label = TIER_LABELS.get((tier, sub_tier), f"Axelr {tier.title()} ({sub_tier})")
+
+    return {
+        "quantity": 1,
+        "price_data": {
+            "currency": "usd",
+            "unit_amount": amount,
+            "recurring": {"interval": interval},
+            "product_data": {
+                "name": label,
+                "description": f"Axelr AI · {tier.upper()} tier · {sub_tier} workspace access",
+                "metadata": {"tier": tier, "subTier": sub_tier, "period": period},
+            },
+        },
+    }
+
+
+async def _ensure_stripe_customer(user: dict) -> str:
+    """
+    Return a Stripe Customer ID for the user, creating one if needed
+    and persisting it to Mongo.
+    """
+    existing = user.get("stripeCustomerId")
+    if existing:
+        try:
+            # Verify the customer still exists in Stripe
+            cust = await asyncio.to_thread(stripe.Customer.retrieve, existing)
+            if not getattr(cust, "deleted", False):
+                return existing
+        except Exception as e:
+            logger.warning(f"Stripe customer {existing} stale: {e}")
+
+    # Create a new customer
+    metadata = {"axelrUserId": str(user["_id"])}
+    if user.get("googleId"):
+        metadata["googleId"] = user["googleId"]
+    if user.get("githubId"):
+        metadata["githubId"] = user["githubId"]
+
+    customer = await asyncio.to_thread(
+        stripe.Customer.create,
+        email=user.get("email"),
+        name=user.get("displayName") or user.get("email"),
+        metadata=metadata,
+    )
+    await users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"stripeCustomerId": customer.id}},
+    )
+    logger.info(f"Created Stripe customer {customer.id} for {user.get('email')}")
+    return customer.id
+
+
+@app.post("/api/billing/checkout")
+async def billing_checkout(data: CheckoutRequest, user: dict = Depends(get_current_user)):
+    """
+    Create a Stripe Checkout Session and return its hosted URL.
+    """
+    if not STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Billing is temporarily unavailable")
+
+    tier      = (data.tier or "").lower().strip()
+    sub_tier  = (data.subTier or "full").lower().strip()
+    period    = (data.period or "monthly").lower().strip()
+
+    if tier not in VALID_TIERS:
+        raise HTTPException(status_code=400, detail="Invalid tier")
+    if sub_tier not in VALID_SUBTIERS:
+        raise HTTPException(status_code=400, detail="Invalid sub-tier")
+    if period not in VALID_PERIODS:
+        raise HTTPException(status_code=400, detail="Invalid billing period")
+
+    # Refuse to downgrade via checkout — use portal instead
+    current_tier = (user.get("tier") or "free").lower()
+    if current_tier == tier:
+        raise HTTPException(
+            status_code=409,
+            detail="You are already on this tier. Use the customer portal to change plans.",
+        )
+
+    customer_id = await _ensure_stripe_customer(user)
+    line_item   = _resolve_price(tier, sub_tier, period)
+
+    try:
+        session = await asyncio.to_thread(
+            stripe.checkout.Session.create,
+            mode="subscription",
+            customer=customer_id,
+            line_items=[line_item],
+            allow_promotion_codes=True,
+            billing_address_collection="auto",
+            automatic_tax={"enabled": True},
+            success_url=f"{STRIPE_SUCCESS_URL}&session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=STRIPE_CANCEL_URL,
+            client_reference_id=str(user["_id"]),
+            subscription_data={
+                "metadata": {
+                    "axelrUserId": str(user["_id"]),
+                    "tier": tier,
+                    "subTier": sub_tier,
+                    "period": period,
+                },
+                **({"trial_period_days": STRIPE_TRIAL_DAYS} if STRIPE_TRIAL_DAYS > 0 else {}),
+            },
+            metadata={
+                "axelrUserId": str(user["_id"]),
+                "tier": tier,
+                "subTier": sub_tier,
+                "period": period,
+            },
+        )
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe checkout failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e.user_message or str(e)}")
+
+    return {"success": True, "url": session.url, "sessionId": session.id}
+
+
+@app.post("/api/billing/portal")
+async def billing_portal(data: PortalRequest, user: dict = Depends(get_current_user)):
+    """
+    Return a Stripe Customer Portal URL so the user can manage/cancel.
+    """
+    if not STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Billing is temporarily unavailable")
+
+    customer_id = user.get("stripeCustomerId")
+    if not customer_id:
+        raise HTTPException(status_code=400, detail="No active subscription found")
+
+    try:
+        portal = await asyncio.to_thread(
+            stripe.billing_portal.Session.create,
+            customer=customer_id,
+            return_url=data.returnUrl or STRIPE_PORTAL_RETURN,
+        )
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe portal failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e.user_message or str(e)}")
+
+    return {"success": True, "url": portal.url}
+
+
+@app.get("/api/billing/status")
+async def billing_status(user: dict = Depends(get_current_user)):
+    """
+    Return the current subscription snapshot for the UI.
+    """
+    tier      = user.get("tier", "free")
+    sub_opts  = user.get("subTierOptions", {}) or {}
+    subscription_id = user.get("stripeSubscriptionId")
+
+    status = {
+        "tier": tier,
+        "subTierOptions": sub_opts,
+        "isPaid": tier in ("pro", "business"),
+        "hasActiveSubscription": bool(subscription_id),
+        "stripeCustomerId": user.get("stripeCustomerId"),
+        "subscriptionId": subscription_id,
+        "cancelAtPeriodEnd": bool(user.get("subscriptionCancelAtPeriodEnd", False)),
+        "currentPeriodEnd": user.get("subscriptionCurrentPeriodEnd"),
+    }
+
+    # Live refresh from Stripe for paid users
+    if STRIPE_AVAILABLE and subscription_id:
+        try:
+            sub = await asyncio.to_thread(stripe.Subscription.retrieve, subscription_id)
+            status.update({
+                "status": sub.status,
+                "cancelAtPeriodEnd": sub.cancel_at_period_end,
+                "currentPeriodEnd": datetime.utcfromtimestamp(sub.current_period_end).isoformat()
+                                    if sub.current_period_end else None,
+            })
+        except Exception as e:
+            logger.warning(f"Live subscription refresh failed: {e}")
+
+    return status
+
+
+@app.post("/api/billing/cancel")
+async def billing_cancel(user: dict = Depends(get_current_user)):
+    """
+    Cancel the user's subscription at period end (no immediate downgrade).
+    """
+    if not STRIPE_AVAILABLE:
+        raise HTTPException(status_code=503, detail="Billing is temporarily unavailable")
+
+    subscription_id = user.get("stripeSubscriptionId")
+    if not subscription_id:
+        raise HTTPException(status_code=400, detail="No active subscription to cancel")
+
+    try:
+        sub = await asyncio.to_thread(
+            stripe.Subscription.modify,
+            subscription_id,
+            cancel_at_period_end=True,
+        )
+    except stripe.error.StripeError as e:
+        logger.error(f"Stripe cancel failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Stripe error: {e.user_message or str(e)}")
+
+    await users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {
+            "subscriptionCancelAtPeriodEnd": True,
+            "subscriptionCurrentPeriodEnd": datetime.utcfromtimestamp(sub.current_period_end).isoformat()
+                                            if sub.current_period_end else None,
+        }},
+    )
+    return {"success": True, "cancelAtPeriodEnd": True}
+# ============================================================
+# STRIPE WEBHOOK — PRODUCTION HARDENED v24.3
+# ============================================================
+async def _apply_subscription_to_user(user_doc: dict, sub: dict):
+    """Idempotently apply a Stripe subscription object to a user document."""
+    meta     = sub.get("metadata", {}) or {}
+    tier     = (meta.get("tier") or "pro").lower()
+    sub_tier = (meta.get("subTier") or "full").lower()
+    period   = (meta.get("period") or "monthly").lower()
+
+    has_data   = sub_tier in ("full", "data")
+    has_design = sub_tier in ("full", "design")
+
+    status    = sub.get("status")
+    is_active = status in ("active", "trialing")
+
+    update = {
+        "tier": tier if is_active else "free",
+        "stripeCustomerId": sub.get("customer"),
+        "stripeSubscriptionId": sub.get("id"),
+        "subscriptionStatus": status,
+        "subscriptionCancelAtPeriodEnd": bool(sub.get("cancel_at_period_end", False)),
+        "subscriptionCurrentPeriodEnd": (
+            datetime.utcfromtimestamp(sub["current_period_end"]).isoformat()
+            if sub.get("current_period_end") else None
+        ),
+        "subTierOptions.hasDataAccess":   has_data   if is_active else False,
+        "subTierOptions.hasDesignAccess": has_design if is_active else False,
+        "billingPeriod": period,
+    }
+    await users_col.update_one({"_id": user_doc["_id"]}, {"$set": update})
+    logger.info(
+        f"Applied Stripe subscription {sub.get('id')} to {user_doc.get('email')} "
+        f"(tier={update['tier']}, status={status})"
+    )
+
+
+async def _find_user_for_subscription(sub: dict) -> Optional[dict]:
+    """Resolve the Axelr user for a Stripe subscription: metadata → customer → email."""
+    meta = sub.get("metadata", {}) or {}
+
+    axelr_uid = meta.get("axelrUserId")
+    if axelr_uid:
+        ObjectId = get_object_id()
+        if ObjectId and ObjectId.is_valid(axelr_uid):
+            doc = await users_col.find_one({"_id": ObjectId(axelr_uid)})
+            if doc:
+                return doc
+
+    customer_id = sub.get("customer")
+    if customer_id:
+        doc = await users_col.find_one({"stripeCustomerId": customer_id})
+        if doc:
+            return doc
+
+    if customer_id:
+        try:
+            cust = await asyncio.to_thread(stripe.Customer.retrieve, customer_id)
+            email = getattr(cust, "email", None)
+            if email:
+                doc = await users_col.find_one({"email": email})
+                if doc:
+                    return doc
+        except Exception as e:
+            logger.warning(f"Customer lookup failed for {customer_id}: {e}")
+
+    return None
+
+
 @app.post("/api/webhooks/stripe")
 async def stripe_webhook(request: Request):
-    if not (STRIPE_AVAILABLE and STRIPE_SECRET_KEY):
-        return JSONResponse(content={"received": True, "note": "Stripe disabled"})
+    """Stripe webhook — signature verified, idempotent, event-complete."""
+    if not STRIPE_AVAILABLE:
+        return JSONResponse(status_code=200, content={"received": True, "note": "Stripe disabled"})
+
     payload = await request.body()
-    sig = request.headers.get("stripe-signature")
-    event = None
+    sig_header = request.headers.get("stripe-signature")
+
+    if not sig_header:
+        logger.warning("Stripe webhook missing signature header — rejecting")
+        raise HTTPException(status_code=400, detail="Missing stripe-signature header")
+
+    if not STRIPE_WEBHOOK_SECRET:
+        logger.error("STRIPE_WEBHOOK_SECRET not configured — refusing to process webhook")
+        raise HTTPException(status_code=503, detail="Webhook not configured")
+
+    # Signature verification — no unsigned fallback
     try:
-        event = stripe.Webhook.construct_event(payload, sig, STRIPE_WEBHOOK_SECRET)
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
+    except stripe.error.SignatureVerificationError as e:
+        logger.warning(f"Stripe webhook signature verification FAILED: {e}")
+        raise HTTPException(status_code=400, detail="Invalid signature")
     except Exception as e:
-        logger.warning(f"Webhook signature verification failed: {e}")
-        event = json.loads(payload)
-    if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        google_id = session.get("client_reference_id")
-        if google_id:
-            user = await users_col.find_one({"googleId": google_id})
-            if user:
-                tier = session.get("metadata", {}).get("tier", "pro")
-                subTier = session.get("metadata", {}).get("subTier", "full")
-                has_data = subTier in ["full", "data"]
-                has_design = subTier in ["full", "design"]
+        logger.error(f"Stripe webhook parse error: {e}")
+        raise HTTPException(status_code=400, detail="Invalid payload")
+
+    event_id   = event.get("id")
+    event_type = event.get("type")
+    logger.info(f"Stripe webhook received: {event_type} ({event_id})")
+
+    if not db_available:
+        logger.error("DB unavailable — cannot process webhook")
+        return {"received": True, "db": "unavailable"}
+
+    # ---- Idempotency guard (Mongo-backed, TTL-collected) ----
+    events_col = db.get_collection("stripe_events")
+    try:
+        await events_col.insert_one({
+            "_id": event_id,
+            "type": event_type,
+            "receivedAt": datetime.utcnow(),
+        })
+    except Exception:
+        logger.info(f"Stripe event {event_id} already processed — skipping")
+        return {"received": True, "duplicate": True}
+
+    data_obj = event["data"]["object"]
+
+    try:
+        # -------- CHECKOUT COMPLETED --------
+        if event_type == "checkout.session.completed":
+            session         = data_obj
+            subscription_id = session.get("subscription")
+            customer_id     = session.get("customer")
+            client_ref      = session.get("client_reference_id")
+
+            user_doc = None
+            if client_ref:
+                ObjectId = get_object_id()
+                if ObjectId and ObjectId.is_valid(client_ref):
+                    user_doc = await users_col.find_one({"_id": ObjectId(client_ref)})
+            if not user_doc and customer_id:
+                user_doc = await users_col.find_one({"stripeCustomerId": customer_id})
+            if not user_doc:
+                logger.warning(f"checkout.session.completed: no user for session {session.get('id')}")
+                return {"received": True}
+
+            if customer_id and not user_doc.get("stripeCustomerId"):
                 await users_col.update_one(
-                    {"_id": user["_id"]},
-                    {"$set": {
-                        "tier": tier,
-                        "stripeCustomerId": session.get("customer"),
-                        "stripeSubscriptionId": session.get("subscription"),
-                        "subTierOptions.hasDataAccess": has_data,
-                        "subTierOptions.hasDesignAccess": has_design
-                    }}
+                    {"_id": user_doc["_id"]},
+                    {"$set": {"stripeCustomerId": customer_id}},
                 )
-                logger.info(f"User {user['email']} upgraded to {tier}")
+
+            if subscription_id:
+                try:
+                    sub = await asyncio.to_thread(stripe.Subscription.retrieve, subscription_id)
+                    sub = sub.to_dict_recursive() if hasattr(sub, "to_dict_recursive") else dict(sub)
+                    if not sub.get("metadata"):
+                        sub["metadata"] = session.get("metadata", {}) or {}
+                    await _apply_subscription_to_user(user_doc, sub)
+                except Exception as e:
+                    logger.error(f"Failed to fetch subscription {subscription_id}: {e}")
+
+            if SMTP_USER and SMTP_PASS:
+                try:
+                    server = get_email_transport()
+                    if server:
+                        tier_label = (session.get("metadata", {}) or {}).get("tier", "pro").upper()
+                        msg = MIMEMultipart()
+                        msg["From"] = SMTP_USER
+                        msg["To"] = user_doc["email"]
+                        msg["Subject"] = f"🎉 Axelr AI — Welcome to {tier_label}"
+                        body = f"""
+                        <h2>Welcome to Axelr AI {tier_label}!</h2>
+                        <p>Your subscription is active. Here's what you unlocked:</p>
+                        <ul>
+                            <li>Workspace access upgraded</li>
+                            <li>Higher daily quotas</li>
+                            <li>Priority AI routing</li>
+                        </ul>
+                        <p><a href="{ORIGIN}/">Launch your workspace →</a></p>
+                        """
+                        msg.attach(MIMEText(body, "html"))
+                        server.sendmail(SMTP_USER, user_doc["email"], msg.as_string())
+                        server.quit()
+                except Exception as e:
+                    logger.warning(f"Upgrade email failed: {e}")
+
+        # -------- SUBSCRIPTION CREATED / UPDATED --------
+        elif event_type in ("customer.subscription.created", "customer.subscription.updated"):
+            sub = data_obj
+            user_doc = await _find_user_for_subscription(sub)
+            if user_doc:
+                await _apply_subscription_to_user(user_doc, sub)
+            else:
+                logger.warning(f"No user found for subscription {sub.get('id')}")
+
+        # -------- SUBSCRIPTION DELETED --------
+        elif event_type == "customer.subscription.deleted":
+            sub = data_obj
+            user_doc = await _find_user_for_subscription(sub)
+            if user_doc:
+                await users_col.update_one(
+                    {"_id": user_doc["_id"]},
+                    {"$set": {
+                        "tier": "free",
+                        "subTierOptions.hasDataAccess": False,
+                        "subTierOptions.hasDesignAccess": False,
+                        "stripeSubscriptionId": None,
+                        "subscriptionStatus": "canceled",
+                        "subscriptionCancelAtPeriodEnd": False,
+                        "subscriptionCurrentPeriodEnd": None,
+                    }},
+                )
+                logger.info(f"Subscription cancelled — {user_doc['email']} downgraded to free")
+
                 if SMTP_USER and SMTP_PASS:
                     try:
                         server = get_email_transport()
                         if server:
                             msg = MIMEMultipart()
                             msg["From"] = SMTP_USER
-                            msg["To"] = user["email"]
-                            msg["Subject"] = "🎉 Axelr AI - Subscription Upgrade Confirmed"
-                            body = f"""
-                            <h2>Welcome to {tier.upper()} Tier!</h2>
-                            <p>Your Axelr AI workspace has been successfully upgraded.</p>
-                            <p><strong>Plan:</strong> {tier}</p>
-                            <p><strong>Features:</strong></p>
-                            <ul>
-                                <li>Data Access: {'✅' if has_data else '❌'}</li>
-                                <li>Design Access: {'✅' if has_design else '❌'}</li>
-                            </ul>
-                            <p>Thank you for choosing Axelr AI!</p>
-                            """
-                            msg.attach(MIMEText(body, "html"))
-                            server.sendmail(SMTP_USER, user["email"], msg.as_string())
+                            msg["To"] = user_doc["email"]
+                            msg["Subject"] = "Axelr AI — Subscription Cancelled"
+                            msg.attach(MIMEText(
+                                "<p>Your Axelr AI subscription has been cancelled. "
+                                "You're now on the Free tier. We'd love to have you back anytime.</p>",
+                                "html",
+                            ))
+                            server.sendmail(SMTP_USER, user_doc["email"], msg.as_string())
                             server.quit()
                     except Exception as e:
-                        logger.warning(f"Upgrade email failed: {e}")
-    elif event["type"] == "customer.subscription.deleted":
-        subscription = event["data"]["object"]
-        user = await users_col.find_one({"stripeSubscriptionId": subscription["id"]})
-        if user:
-            await users_col.update_one(
-                {"_id": user["_id"]},
-                {"$set": {"tier": "free", "subTierOptions.hasDataAccess": False, "subTierOptions.hasDesignAccess": False}}
-            )
-            logger.info(f"Subscription cancelled for {user['email']}")
-            if SMTP_USER and SMTP_PASS:
-                try:
-                    server = get_email_transport()
-                    if server:
-                        msg = MIMEMultipart()
-                        msg["From"] = SMTP_USER
-                        msg["To"] = user["email"]
-                        msg["Subject"] = "Axelr AI - Subscription Cancelled"
-                        body = """
-                        <h2>Subscription Cancelled</h2>
-                        <p>Your Axelr AI subscription has been cancelled.</p>
-                        <p>You are now on the Free tier.</p>
-                        """
-                        msg.attach(MIMEText(body, "html"))
-                        server.sendmail(SMTP_USER, user["email"], msg.as_string())
-                        server.quit()
-                except Exception as e:
-                    logger.warning(f"Cancellation email failed: {e}")
-    return {"received": True}
+                        logger.warning(f"Cancellation email failed: {e}")
 
+        # -------- INVOICE PAYMENT FAILED --------
+        elif event_type in ("invoice.payment_failed", "invoice.payment_action_required"):
+            invoice = data_obj
+            customer_id = invoice.get("customer")
+            if customer_id:
+                user_doc = await users_col.find_one({"stripeCustomerId": customer_id})
+                if user_doc:
+                    await users_col.update_one(
+                        {"_id": user_doc["_id"]},
+                        {"$set": {"subscriptionStatus": "past_due"}},
+                    )
+                    logger.warning(f"Payment failed for {user_doc['email']}")
+
+        # -------- INVOICE PAID --------
+        elif event_type == "invoice.paid":
+            invoice = data_obj
+            sub_id = invoice.get("subscription")
+            if sub_id:
+                try:
+                    sub = await asyncio.to_thread(stripe.Subscription.retrieve, sub_id)
+                    sub = sub.to_dict_recursive() if hasattr(sub, "to_dict_recursive") else dict(sub)
+                    user_doc = await _find_user_for_subscription(sub)
+                    if user_doc:
+                        await _apply_subscription_to_user(user_doc, sub)
+                except Exception as e:
+                    logger.warning(f"invoice.paid subscription refresh failed: {e}")
+
+        else:
+            logger.debug(f"Unhandled Stripe event: {event_type}")
+
+    except Exception as e:
+        logger.exception(f"Webhook processing error ({event_type}): {e}")
+        return {"received": True, "error": "processing_error"}
+
+    return {"received": True}
 @app.post("/api/explain-code")
 async def explain_code(data: CodeRequest, user: dict = Depends(get_current_user)):
     if not data.code:
@@ -4920,7 +5378,7 @@ async def explain_code(data: CodeRequest, user: dict = Depends(get_current_user)
 {data.code}
 ```"""
     ai_result = await route_ai_request(
-        workspace="general",
+        workspace="design",
         task_type="explain",
         prompt=prompt,
         history=[],
@@ -4944,7 +5402,7 @@ async def generate_tests(data: CodeRequest, user: dict = Depends(get_current_use
 {data.code}
 ```"""
     ai_result = await route_ai_request(
-        workspace="general",
+        workspace="design",
         task_type="generate_tests",
         prompt=prompt,
         history=[],
@@ -4968,7 +5426,7 @@ async def summarize(data: TextRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="No text provided")
     prompt = f"Summarize the following text concisely (max 150 words):\n\n{data.text}"
     ai_result = await route_ai_request(
-        workspace="general",
+        workspace="core",
         task_type="summarize",
         prompt=prompt,
         history=[],
@@ -4988,7 +5446,7 @@ async def brainstorm(data: TextRequest, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="No topic provided")
     prompt = f"Brainstorm 10 creative, actionable ideas related to: {data.text}. List them with brief explanations."
     ai_result = await route_ai_request(
-        workspace="general",
+        workspace="core",
         task_type="brainstorm",
         prompt=prompt,
         history=[],
@@ -5019,7 +5477,7 @@ async def get_suggestions(workspace: str = "data", user: dict = Depends(get_curr
             "Build a login form with validation",
             "Make this existing page mobile-friendly"
         ],
-        "general": [
+        "core": [
             "Summarize this text",
             "Explain this concept in simple terms",
             "Draft a professional email",
@@ -5027,7 +5485,7 @@ async def get_suggestions(workspace: str = "data", user: dict = Depends(get_curr
             "Brainstorm ideas for a project"
         ]
     }
-    return {"suggestions": suggestions.get(workspace, suggestions["general"])}
+    return {"suggestions": suggestions.get(workspace, suggestions["core"])}
 @app.get("/terms")
 async def terms_page():
     return HTMLResponse("""
@@ -5223,7 +5681,7 @@ class PreferencesUpdate(BaseModel):
 async def update_preferences(data: PreferencesUpdate, user: dict = Depends(get_current_user)):
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    if data.defaultWorkspace not in ["data", "design", "general"]:
+    if data.defaultWorkspace not in ["data", "design", "core"]:
         raise HTTPException(status_code=400, detail="Invalid workspace")
     await users_col.update_one(
         {"_id": user["_id"]},
@@ -5286,18 +5744,26 @@ async def provider_health_endpoint(user: dict = Depends(get_current_user)):
         raise HTTPException(403, "Admin only")
     results = await validate_all_providers()
     return {"status": "ok", "providers": results}
-
 @app.get("/api/pr_report/{session_id}")
 async def get_pr_report(session_id: str, user: dict = Depends(get_current_user)):
     if not db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
     report_doc = await pr_reports_col.find_one(
         {"sessionId": session_id, "userId": user["_id"]},
-        sort=[("createdAt", -1)]
+        sort=[("createdAt", -1)],
     )
     if not report_doc:
         raise HTTPException(status_code=404, detail="No PR report found for this session")
-    return {"success": True, "report": report_doc.get("report", "")}
+
+    report_md = PRShield().render(PRShieldInput(
+        title=(report_doc.get("command") or "PR")[:80],
+        files_changed=report_doc.get("files_changed", []),
+        blast_radius=report_doc.get("blast_result") or {},
+        security_findings=(report_doc.get("critic_result") or {}).get("issues", []),
+        self_heal=report_doc.get("heal_result") or {},
+        test_results=report_doc.get("test_result") or {},
+    ))
+    return {"success": True, "report": report_md}
 
 # ---------- KEEPALIVE ----------
 async def start_keepalive():
@@ -5325,91 +5791,27 @@ async def _keepalive_loop():
 # ============================================================
 class VisualDiffRequest(BaseModel):
     code: str
-    reference_image_b64: str  # base64 encoded image
+    reference_image_b64: str
+
+
 @app.post("/api/visual_diff")
-async def visual_diff(data: VisualDiffRequest, user: dict = Depends(get_current_user)):
-    if not GEMINI_API_KEY:
-        raise HTTPException(503, "Gemini Vision not available")
-    try:
-        from playwright.async_api import async_playwright
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
-            await page.set_content(data.code)
-            screenshot = await page.screenshot(full_page=True)
-            await browser.close()
-            code_image_b64 = base64.b64encode(screenshot).decode('utf-8')
-    except Exception as e:
-        logger.warning(f"Playwright not available: {e}. Simulating diff.")
-        return {
-            "diff_report": "Playwright not installed. Please install playwright to enable visual diff.",
-            "similarity": 0.5,
-            "discrepancies": ["Playwright missing"]
-        }
-
-    # Use Gemini Vision to compare the two images
-    prompt = (
-        "You are a pixel‑perfect UI/UX auditor. Compare the reference image and the generated image.\n"
-        "List all visual discrepancies: layout, colors, spacing, font sizes, alignment, missing elements, etc.\n"
-        "Provide a similarity score (0-100).\n"
-        "Format your response as JSON with keys: 'similarity' (int), 'discrepancies' (list of strings)."
-    )
-    # Send both images to Gemini Vision (we need to combine them in one prompt)
-    # Since Gemini can take multiple images, we can send them as separate parts.
-    # We'll construct a request with two inline_data parts.
-    # However, call_gemini_vision only accepts one image. We'll create a new function.
-    async def call_gemini_vision_multi(prompt, image_b64_list, max_tokens=1024, temp=0.2):
-        if not GEMINI_API_KEY:
-            raise Exception("GEMINI_API_KEY missing")
-        model_name = GEMINI_MODEL
-        parts = [{"text": prompt}]
-        for img_b64 in image_b64_list:
-            parts.append({
-                "inline_data": {
-                    "mime_type": "image/png",
-                    "data": img_b64
-                }
-            })
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        payload = {
-            "contents": [{"parts": parts}],
-            "generationConfig": {"temperature": temp, "maxOutputTokens": max_tokens, "topP": 0.95, "topK": 40}
-        }
-        resp = await http_post_async(url, headers, payload)
-        try:
-            return resp["candidates"][0]["content"]["parts"][0]["text"]
-        except (KeyError, IndexError):
-            raise Exception(f"Gemini Vision unexpected response: {resp}")
-
-    try:
-        response_text = await call_gemini_vision_multi(
-            prompt,
-            [data.reference_image_b64, code_image_b64],
-            max_tokens=1024,
-            temp=0.2
-        )
-        # Parse the JSON response
-        json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group(0))
-            similarity = result.get("similarity", 80)
-            discrepancies = result.get("discrepancies", ["No discrepancies detected"])
-        else:
-            similarity = 80
-            discrepancies = ["Gemini response did not contain JSON; treating as no major issues."]
-        return {
-            "diff_report": response_text,
-            "similarity": similarity,
-            "discrepancies": discrepancies
-        }
-    except Exception as e:
-        logger.error(f"Gemini Vision diff failed: {e}")
-        return {
-            "diff_report": f"Error during visual diff: {str(e)}",
-            "similarity": 50,
-            "discrepancies": ["Error: " + str(e)]
-        }
+async def visual_diff(
+    data: VisualDiffRequest,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Visual diff requires a headless browser (Playwright/Chromium).
+    Not available on Render's 512 MB free tier — return a structured
+    'unavailable' response so the frontend degrades gracefully.
+    """
+    return {
+        "success": False,
+        "available": False,
+        "reason": "Visual diff requires a headless browser. Not available in this deployment.",
+        "diff_report": "Visual diff is disabled on the free tier.",
+        "similarity": None,
+        "discrepancies": ["Feature not enabled"],
+    }
 # ============================================================
 # API MICROSERVICE GENERATION
 # ============================================================
@@ -5492,6 +5894,7 @@ async def delete_item(item_id: int):
     raise HTTPException(status_code=404, detail="Item not found")
 # Ensure all required environment variables are checked at startup
 if __name__ == "__main__":
+    print("app.py executed successfully")
     uvicorn.run(app, host="0.0.0.0", port=8000)
 """,
     "express_template.js.j2": """
@@ -5612,303 +6015,6 @@ async def generate_api(
     )
 
 # ============================================================
-# TOUCH FIX ENGINE (with full implementation)
-# ============================================================
-class TouchFixEngine:
-    def __init__(self, route_func=None):
-        self.route_func = route_func
-
-    def apply_diff(self, code: str, diff_text: str) -> str:
-        try:
-            patch_set = PatchSet(diff_text)
-            lines = code.splitlines(True)
-            for patch_file in patch_set:
-                for hunk in patch_file:
-                    start_line = hunk.target_start - 1
-                    end_line = start_line + hunk.target_length
-                    new_lines = []
-                    for line in hunk:
-                        if line.is_added:
-                            new_lines.append(line.value)
-                    if start_line <= len(lines):
-                        lines[start_line:end_line] = new_lines
-            return ''.join(lines)
-        except Exception as e:
-            logger.warning(f"Unidiff failed, fallback: {e}")
-            return self._apply_diff_manual(code, diff_text)
-
-    def _apply_diff_manual(self, code: str, diff_text: str) -> str:
-        lines = code.splitlines(True)
-        diff_lines = diff_text.splitlines()
-        i = 0
-        while i < len(diff_lines):
-            line = diff_lines[i]
-            if line.startswith('@@'):
-                m = re.match(r'@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@', line)
-                if m:
-                    old_start = int(m.group(1))
-                    old_count = int(m.group(2) or 1)
-                    i += 1
-                    new_block = []
-                    while i < len(diff_lines) and not diff_lines[i].startswith('@@'):
-                        if diff_lines[i].startswith('+'):
-                            new_block.append(diff_lines[i][1:])
-                        elif diff_lines[i].startswith(' '):
-                            new_block.append(diff_lines[i][1:])
-                        i += 1
-                    start_idx = old_start - 1
-                    end_idx = start_idx + old_count
-                    if start_idx < len(lines):
-                        lines[start_idx:end_idx] = [l + '\n' for l in new_block]
-                else:
-                    i += 1
-            else:
-                i += 1
-        return ''.join(lines)
-
-    def _locate_block(self, code: str, error_line: int) -> Tuple[int, int]:
-        lines = code.splitlines()
-        if error_line < 0 or error_line >= len(lines):
-            return 0, len(lines)
-        start = error_line
-        while start > 0 and lines[start].strip() and (len(lines[start]) - len(lines[start].lstrip())) >= (len(lines[error_line]) - len(lines[error_line].lstrip())):
-            start -= 1
-        if start > 0 and not lines[start].strip():
-            start += 1
-        end = error_line
-        while end < len(lines) and (len(lines[end]) - len(lines[end].lstrip())) >= (len(lines[error_line]) - len(lines[error_line].lstrip())):
-            end += 1
-        return start, end
-
-    async def fix_block(self, full_code: str, error_block: str, error_message: str) -> str:
-        """Fix a block using AI and apply the diff."""
-        if not self.route_func:
-            return full_code
-
-        prompt = f"Fix the following code block. Error: {error_message}\n\n```\n{error_block}\n```\nReturn only the corrected block, no extra text."
-        result = await self.route_func(
-            workspace="design",
-            task_type="touch_fix",
-            prompt=prompt,
-            history=[],
-            files=[],
-            max_tokens=2048,
-            temp=0.2,
-            tier="free",
-            user=None
-        )
-        if not result.get("success"):
-            return full_code
-        fixed_block = result["text"]
-        code_match = re.search(r"```(?:\w+)?\s*([\s\S]*?)```", fixed_block, re.DOTALL)
-        if code_match:
-            fixed_block = code_match.group(1).strip()
-        original_lines = error_block.splitlines(True)
-        fixed_lines = fixed_block.splitlines(True)
-        diff = list(difflib.unified_diff(original_lines, fixed_lines, fromfile='original', tofile='fixed'))
-        diff_text = ''.join(diff)
-        if diff_text:
-            return self.apply_diff(full_code, diff_text)
-        return full_code
-# ============================================================
-# STUB CLASSES WITH REAL LOGIC
-# ============================================================
-class IntentClassifier:
-    async def classify(self, command: str, files: List[Dict]) -> Dict:
-        # Robust classifier using rules first, then Gemini‑Flash fallback.
-        workspace = detect_workspace(command, files)
-        # If uncertain, use a small model to confirm
-        if workspace == "general" and GEMINI_API_KEY:
-            try:
-                prompt = f"Classify the following request into one of: data, design, general. Respond only with the category name.\n\nRequest: {command[:500]}"
-                result = await call_gemini(prompt, max_tokens=10, temp=0.0, model="gemini-1.5-flash")
-                result = result.strip().lower()
-                if result in ["data", "design", "general"]:
-                    workspace = result
-            except Exception as e:
-                logger.warning(f"Intent classification fallback failed: {e}")
-        config = WORKSPACE_LLM_CONFIG.get(workspace, WORKSPACE_LLM_CONFIG["data"])
-        return {"workspace": workspace, "compute_profile": {"max_tokens": config["max_tokens"]}}
-
-class ContextRegistry:
-    def __init__(self, redis_client, db_collection):
-        self.redis = redis_client
-        self.db = db_collection
-
-    async def get_context(self, user_id: str, workspace: str) -> Optional[str]:
-        if self.redis:
-            key = f"context:{user_id}:{workspace}"
-            return await self.redis.get(key)
-        return None
-
-    async def set_context(self, user_id: str, workspace: str, context: str):
-        if self.redis:
-            key = f"context:{user_id}:{workspace}"
-            await self.redis.setex(key, 86400, context)  # 24h TTL
-
-class DependencyGraph:
-    def __init__(self, workspace_root):
-        self.root = workspace_root
-
-    def assess_impact(self, file_path: str, code: str) -> Dict:
-        # Parse imports to find dependencies
-        imports = re.findall(r'^(?:from|import)\s+(\w+)', code, re.MULTILINE)
-        affected = []
-        for imp in imports:
-            # Simple heuristic: look for files matching the import name
-            for root, dirs, files in os.walk(self.root):
-                for f in files:
-                    if f.startswith(imp) or f.endswith(f"{imp}.py"):
-                        affected.append(os.path.join(root, f))
-        return {"affected_files": affected[:10]}
-
-class CriticAgent:
-    async def validate(self, code: str, expected_schema: Optional[str], language: str) -> Dict:
-        errors = run_linter(code, language)
-        passed = len(errors) == 0
-        return {"passed": passed, "errors": errors}
-class SelfHealingEngine:
-    def __init__(self, route_func, max_retries=3):
-        self.route_func = route_func
-        self.max_retries = max_retries
-        self.touch_fix = TouchFixEngine(route_func)   # pass route_func
-
-    async def heal(self, code: str, filename: str, language: str) -> Dict:
-        errors = run_linter(code, language)
-        if not errors:
-            return {"final_code": code, "fixed": False}
-
-        # Attempt block-level fix
-        error_line = None
-        for err in errors:
-            match = re.search(r'line (\d+)', err)
-            if match:
-                error_line = int(match.group(1)) - 1
-                break
-        if error_line is not None:
-            start, end = self.touch_fix._locate_block(code, error_line)
-            error_block = "\n".join(code.splitlines()[start:end])
-            fixed_code = await self.touch_fix.fix_block(code, error_block, errors[0])
-            if fixed_code != code:
-                # Verify with linter again
-                new_errors = run_linter(fixed_code, language)
-                if not new_errors:
-                    return {"final_code": fixed_code, "fixed": True, "diff": ""}
-                code = fixed_code  # continue with partially fixed code
-
-        # Full-code fix as fallback
-        error_text = "\n".join(errors)
-        prompt = f"The following code has errors:\n{error_text}\n\nPlease fix the code and return only the corrected code without explanation.\n\n```{language}\n{code}\n```"
-        result = await self.route_func(
-            workspace="design",
-            task_type="touch_fix",
-            prompt=prompt,
-            history=[],
-            files=[],
-            max_tokens=4096,
-            temp=0.2,
-            tier="free",
-            user=None
-        )
-        if result.get("success"):
-            fixed_code = result["text"]
-            code_match = re.search(r"```(?:python|javascript|html|css)?\s*([\s\S]*?)```", fixed_code, re.DOTALL)
-            if code_match:
-                fixed_code = code_match.group(1).strip()
-            if fixed_code != code:
-                diff = list(difflib.unified_diff(code.splitlines(True), fixed_code.splitlines(True), fromfile='original', tofile='fixed'))
-                diff_text = ''.join(diff)
-                final_code = self.touch_fix.apply_diff(code, diff_text)
-                return {"final_code": final_code, "fixed": True, "diff": diff_text}
-        return {"final_code": code, "fixed": False, "errors": errors}
-class PRDefenseGenerator:
-    async def generate(self, user, command, ai_result, critic_result, blast_result, heal_result, session_id) -> Dict:
-        report = {
-            "userId": user["_id"],
-            "sessionId": session_id,
-            "command": command,
-            "ai_result": ai_result.get("text", ""),
-            "critic_result": critic_result,
-            "blast_result": blast_result,
-            "heal_result": heal_result,
-            "createdAt": datetime.utcnow()
-        }
-        return {"report": report}
-
-    async def heal(self, code: str, filename: str, language: str) -> Dict:
-        errors = run_linter(code, language)
-        if not errors:
-            return {"final_code": code, "fixed": False}
-        # Attempt to locate the first error line and fix the block
-        error_line = None
-        for err in errors:
-            match = re.search(r'line (\d+)', err)
-            if match:
-                error_line = int(match.group(1)) - 1
-                break
-        if error_line is not None and self.touch_fix.route_func:
-            start, end = self.touch_fix._locate_block(code, error_line)
-            error_block = "\n".join(code.splitlines()[start:end])
-            fixed_code = await self.touch_fix.fix_block(code, error_block, errors[0])
-            if fixed_code != code:
-                return {"final_code": fixed_code, "fixed": True, "diff": ""}
-        # Fallback to full-code fix
-        error_text = "\n".join(errors)
-        prompt = f"The following code has errors:\n{error_text}\n\nPlease fix the code and return only the corrected code without explanation.\n\n```{language}\n{code}\n```"
-        result = await self.route_func(
-            workspace="design",
-            task_type="touch_fix",
-            prompt=prompt,
-            history=[],
-            files=[],
-            max_tokens=4096,
-            temp=0.2,
-            tier="free",
-            user=None
-        )
-        if result.get("success"):
-            fixed_code = result["text"]
-            code_match = re.search(r"```(?:python|javascript|html|css)?\s*([\s\S]*?)```", fixed_code, re.DOTALL)
-            if code_match:
-                fixed_code = code_match.group(1).strip()
-            if fixed_code != code:
-                diff = list(difflib.unified_diff(code.splitlines(True), fixed_code.splitlines(True), fromfile='original', tofile='fixed'))
-                diff_text = ''.join(diff)
-                final_code = self.touch_fix.apply_diff(code, diff_text)
-                return {"final_code": final_code, "fixed": True, "diff": diff_text}
-        return {"final_code": code, "fixed": False, "errors": errors}
-# ---------------------------- MISSING FUNCTIONS ----------------------------
-def run_linter(code: str, language: str) -> List[str]:
-    errors = []
-    if language == "python":
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
-                f.write(code)
-                f.flush()
-                result = subprocess.run(['flake8', f.name], capture_output=True, text=True, timeout=5)
-                if result.stdout:
-                    errors = result.stdout.strip().split('\n')
-                os.unlink(f.name)
-        except (subprocess.SubprocessError, FileNotFoundError):
-            try:
-                compile(code, '<string>', 'exec')
-            except SyntaxError as e:
-                errors.append(str(e))
-    elif language in ["javascript", "typescript"]:
-        try:
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.js', delete=False) as f:
-                f.write(code)
-                f.flush()
-                result = subprocess.run(['eslint', f.name], capture_output=True, text=True, timeout=5)
-                if result.stdout:
-                    errors = result.stdout.strip().split('\n')
-                os.unlink(f.name)
-        except (subprocess.SubprocessError, FileNotFoundError):
-            if 'undefined' in code:
-                errors.append("Possible undefined variable usage")
-    return errors
-
-# ============================================================
 # PROJECTS SYSTEM
 # ============================================================
 class ProjectCreate(BaseModel):
@@ -6008,17 +6114,8 @@ async def delete_project(project_id: str, user: dict = Depends(get_current_user)
     if result.deleted_count == 0:
         raise HTTPException(404, "Project not found")
     return {"success": True}
-# Metrics
-REQUESTS = Counter('http_requests_total', 'Total HTTP requests', ['method', 'endpoint', 'status'])
-AI_LATENCY = Histogram('ai_latency_seconds', 'AI provider latency', ['provider'])
-
-@app.middleware("http")
-async def metrics_middleware(request: Request, call_next):
-    start = time.time()
-    response = await call_next(request)
-    duration = time.time() - start
-    REQUESTS.labels(method=request.method, endpoint=request.url.path, status=response.status_code).inc()
-    return response
+# NOTE: REQUESTS / AI_LATENCY / AI_REQUESTS and metrics_middleware are already
+# defined once near the top of the module. Do not redefine them here.
 
 @app.get("/metrics")
 async def metrics():
@@ -6041,7 +6138,7 @@ async def get_model_config():
                 {"id": "business", "label": "AXELR‑DESIGN OPS", "badge": "DESIGN OPS", "desc": "Team‑scale design & deployment", "tier": "business"}
             ]
         },
-        "general": {
+        "core": {
             "models": [
                 {"id": "flash", "label": "AXELR‑FLASH", "badge": "FREE", "desc": "Instant answers for everyday questions", "tier": "free"},
                 {"id": "pro", "label": "AXELR‑HYPER", "badge": "HYPER", "desc": "Deep reasoning & code generation", "tier": "pro"},
@@ -6054,14 +6151,14 @@ async def get_model_config():
 class AgentRequest(BaseModel):
     task: str
     agents: List[Dict[str, str]]  # [{"name": "Researcher", "role": "research"}, ...]
-    workspace: Optional[str] = "general"
+    workspace: Optional[str] = "core"
 @app.post("/api/agents/chat")
 @limiter.limit("10/minute")
 async def agent_chat(request: Request, data: AgentRequest, user: dict = Depends(get_current_user)):
     if not data.agents:
         raise HTTPException(400, "At least one agent required")
     # Validate each agent has a role
-    allowed_roles = {"research", "code", "review", "data", "design", "general"}
+    allowed_roles = {"research", "code", "review", "data", "design", "core"}
     for agent in data.agents:
         if agent.get("role") not in allowed_roles:
             raise HTTPException(400, f"Invalid role: {agent.get('role')}")
@@ -6073,16 +6170,16 @@ async def agent_chat(request: Request, data: AgentRequest, user: dict = Depends(
         "review": "You are a code reviewer. Analyse code for bugs, performance, and security. Suggest improvements.",
         "data": "You are a data analyst. Extract and interpret data, provide actionable insights.",
         "design": "You are a UI/UX designer. Suggest layouts, color schemes, and interactions.",
-        "general": "You are a versatile assistant. Provide concise, helpful answers."
+        "core": "You are a versatile assistant. Provide concise, helpful answers."
     }
     
     async def call_agent(agent: Dict, subtask: str) -> Dict:
-        role = agent.get("role", "general")
-        system = role_prompts.get(role, role_prompts["general"])
+        role = agent.get("role", "core")
+        system = role_prompts.get(role, role_prompts["core"])
         full_prompt = f"{system}\n\nTask: {subtask}\n\nRespond directly without preamble."
         # Use existing route_ai_request
         result = await route_ai_request(
-            workspace=data.workspace or "general",
+            workspace=data.workspace or "core",
             task_type="structuring",
             prompt=full_prompt,
             history=[],
@@ -6166,7 +6263,7 @@ class WorkflowStep(BaseModel):
 
 class WorkflowRequest(BaseModel):
     steps: List[WorkflowStep]
-    workspace: Optional[str] = "general"
+    workspace: Optional[str] = "core"
 
 @app.post("/api/workflow/run")
 async def run_workflow(data: WorkflowRequest, user: dict = Depends(get_current_user)):
@@ -6181,7 +6278,7 @@ async def run_workflow(data: WorkflowRequest, user: dict = Depends(get_current_u
             try:
                 prompt = step.prompt.format(context=accumulated) if "{context}" in step.prompt else step.prompt
                 result = await route_ai_request(
-                    workspace=data.workspace or "general",
+                    workspace=data.workspace or "core",
                     task_type="structuring",
                     prompt=prompt,
                     history=[],
@@ -6219,7 +6316,7 @@ async def summarize_chat(session_id: str, user: dict = Depends(get_current_user)
     conv = "\n".join([f"{m['role']}: {m['text']}" for m in messages if m.get('text')])
     prompt = f"Summarize the following conversation concisely (max 300 words). Include key decisions, questions, and answers.\n\n{conv}"
     result = await route_ai_request(
-        workspace="general",
+        workspace="core",
         task_type="summarize",
         prompt=prompt,
         history=[],
@@ -6231,14 +6328,6 @@ async def summarize_chat(session_id: str, user: dict = Depends(get_current_user)
     )
     summary = result.get("text", "Unable to summarize.")
     return {"success": True, "summary": summary}
-    # ---------- CODE EXECUTION SANDBOX ----------
-import subprocess
-try:
-    import resource
-except ImportError:
-    resource = None
-import tempfile
-import shutil
 
 class ExecuteRequest(BaseModel):
     language: str  # 'python' or 'javascript'
@@ -6415,7 +6504,7 @@ async def refine_response(data: RefineRequest, user: dict = Depends(get_current_
     # Re‑run AI with the new context
     history = messages[:-1]  # all previous messages
     command = messages[-1].get("text", "")
-    workspace = session.get("workspace", "general")
+    workspace = session.get("workspace", "core")
 
     result = await route_ai_request(
         workspace=workspace,
@@ -6465,19 +6554,18 @@ async def delete_knowledge(knowledge_id: str, user: dict = Depends(get_current_u
     if result.deleted_count == 0:
         raise HTTPException(404, "Knowledge not found")
     return {"success": True}
-
-    import random
+# ============================================================
+# PROVIDER METRICS — circuit breaker + dynamic ranking
+# ============================================================
 from collections import deque
 from dataclasses import dataclass, field
 
-# ============================================================
-# 2, 3, 7. IN-MEMORY METRICS & CIRCUIT BREAKER
-# ============================================================
-@dataclass
+
+@dataclass(slots=True)
 class ProviderMetrics:
     name: str
     latencies: deque = field(default_factory=lambda: deque(maxlen=10))
-    history: deque = field(default_factory=lambda: deque(maxlen=10)) # True for success, False for fail
+    history: deque = field(default_factory=lambda: deque(maxlen=10))
     consecutive_failures: int = 0
     cooldown_until: float = 0.0
 
@@ -6488,27 +6576,34 @@ class ProviderMetrics:
     def get_score(self, workspace: str) -> float:
         if not self.is_available:
             return -9999.0
-        
-        # Success Rate (last 10 calls)
         total = len(self.history)
         success_rate = (sum(self.history) / total) if total > 0 else 0.85
-        
-        # Average Latency in seconds
         avg_lat = (sum(self.latencies) / len(self.latencies)) if self.latencies else 1.5
-        
-        # Workspace affinity bonus
-        affinity_bonus = 0
-        if workspace == "design" and self.name in ["cloudflare", "groq", "gemini"]:
-            affinity_bonus = 15
-        elif workspace == "data" and self.name in ["gemini", "modelscope", "groq"]:
-            affinity_bonus = 15
-            
-        return (success_rate * 100) - (avg_lat * 12) - (self.consecutive_failures * 25) + affinity_bonus
+        affinity = 15 if (
+            (workspace == "design" and self.name in {"cloudflare", "groq", "gemini"})
+            or (workspace == "data" and self.name in {"gemini", "modelscope", "groq"})
+        ) else 0
+        return (
+            (success_rate * 100)
+            - (avg_lat * 12)
+            - (self.consecutive_failures * 25)
+            + affinity
+        )
 
-# Initialize metric tracker for all providers
-PROVIDER_TRACKER = {name: ProviderMetrics(name=name) for name, _ in PROVIDER_CHAIN if name != "local"}
 
-def record_provider_result(name: str, latency: float, success: bool, is_rate_limit: bool = False):
+PROVIDER_TRACKER: Dict[str, ProviderMetrics] = {
+    name: ProviderMetrics(name=name)
+    for name, _ in PROVIDER_CHAIN
+    if name != "local"
+}
+
+
+def record_provider_result(
+    name: str,
+    latency: float,
+    success: bool,
+    is_rate_limit: bool = False,
+) -> None:
     p = PROVIDER_TRACKER.get(name)
     if not p:
         return
@@ -6520,94 +6615,23 @@ def record_provider_result(name: str, latency: float, success: bool, is_rate_lim
         p.history.append(False)
         p.consecutive_failures += 1
         if is_rate_limit:
-            # 7. 30-minute cooldown for rate-limited providers (429)
-            p.cooldown_until = time.time() + 1800
-            logger.warning(f"Provider {name} rate-limited. 30-minute cooldown engaged.")
+            p.cooldown_until = time.time() + 1800   # 30 min
+            logger.warning("provider_rate_limited", provider=name)
         elif p.consecutive_failures >= 3:
-            # 7. 5-minute cooldown for 3 consecutive failures
-            p.cooldown_until = time.time() + 300
-            logger.warning(f"Provider {name} tripped circuit breaker. 5-minute cooldown engaged.")
+            p.cooldown_until = time.time() + 300    # 5 min
+            logger.warning("provider_circuit_tripped", provider=name)
+
 
 def get_dynamically_ranked_providers(workspace: str) -> List[str]:
-    valid = [p for p in PROVIDER_TRACKER.values() if p.is_available and PROVIDER_KEY_CHECK.get(p.name, False)]
+    valid = [
+        p for p in PROVIDER_TRACKER.values()
+        if p.is_available and PROVIDER_KEY_CHECK.get(p.name, False)
+    ]
     valid.sort(key=lambda x: x.get_score(workspace), reverse=True)
     ranked = [p.name for p in valid]
     ranked.append("local")
     return ranked
-
 # ============================================================
-# 6. SEMANTIC CACHING VIA SENTENCE TRANSFORMERS & FAISS
-# ============================================================
-# ============================================================
-# 6. SEMANTIC CACHING (optional — gracefully degrades if missing)
-# ============================================================
-SEMANTIC_CACHE_ENABLED = False
-semantic_embedder = None
-semantic_cache_store = None
-
-try:
-    from semantic_cache import EmbeddingService          # type: ignore
-    from faiss_cache import FaissSemanticCache           # type: ignore
-    try:
-        semantic_embedder = EmbeddingService("sentence-transformers/all-MiniLM-L6-v2")
-        semantic_cache_store = FaissSemanticCache(dimension=semantic_embedder.dimension)
-        SEMANTIC_CACHE_ENABLED = True
-        logger.info("Semantic cache initialized with all-MiniLM-L6-v2 and FAISS.")
-    except Exception as e:
-        SEMANTIC_CACHE_ENABLED = False
-        logger.warning(f"Semantic cache disabled (model/FAISS init failed): {e}")
-except ImportError as e:
-    logger.warning(
-        f"Semantic cache modules not installed ({e}). "
-        "Continuing without semantic cache — the app will still work."
-    )
-
-def check_semantic_cache(prompt: str) -> Optional[Dict[str, Any]]:
-    if not SEMANTIC_CACHE_ENABLED:
-        return None
-    try:
-        vec = semantic_embedder.encode(prompt.strip())
-        return semantic_cache_store.get(vec, threshold=0.92)
-    except Exception:
-        return None
-
-def write_semantic_cache(prompt: str, response: str):
-    if not SEMANTIC_CACHE_ENABLED:
-        return
-    try:
-        vec = semantic_embedder.encode(prompt.strip())
-        semantic_cache_store.set(prompt.strip(), vec, response)
-    except Exception:
-        pass
-
-    # ============================================================
-# 5. 5-MINUTE HEALTH PROBE ("Say OK")
-# ============================================================
-# ============================================================
-# 5. 5-MINUTE REFINED HEALTH PROBE ("Say OK")
-# ============================================================
-async def background_health_check():
-    while True:
-        try:
-            test_prompt = "Say OK"
-            for name, func in PROVIDER_CHAIN:
-                if name == "local" or not PROVIDER_KEY_CHECK.get(name, False):
-                    continue
-                models = PROVIDER_MODELS.get(name, [])
-                if not models:
-                    continue
-                try:
-                    t0 = time.time()
-                    resp = await asyncio.wait_for(func(test_prompt, 5, 0.0, models[0]), timeout=3.0)
-                    lat = time.time() - t0
-                    if resp and len(resp.strip()) > 0:
-                        record_provider_result(name, lat, success=True)
-                except Exception as e:
-                    record_provider_result(name, 3.0, success=False, is_rate_limit=("429" in str(e)))
-        except Exception as e:
-            logger.warning(f"Health check error: {e}")
-        await asyncio.sleep(300) # Exactly 5 minutes
-        # ============================================================
 # 8–12. ELITE PRODUCTION AI CAPABILITIES
 # ============================================================
 
@@ -6638,7 +6662,7 @@ async def tool_mermaid_generator(data: MermaidRequest, user: dict = Depends(get_
         f"{data.process_description}\n\n"
         f"Output ONLY a valid ```mermaid code block."
     )
-    res = await route_ai_request_parallel("general", "structuring", prompt, [], [], 2048, 0.2, user.get("tier", "free"), user)
+    res = await route_ai_request_parallel("core", "structuring", prompt, [], [], 2048, 0.2, user.get("tier", "free"), user)
     return {"success": True, "mermaid": res["text"]}
 
 class PIIScanRequest(BaseModel):
@@ -6669,7 +6693,7 @@ async def tool_meeting_minutes(data: MeetingMinutesRequest, user: dict = Depends
         f"3. Action Items Table with columns: Task, Owner, Priority, Target Date.\n\n"
         f"Transcript:\n{data.transcript[:10000]}"
     )
-    res = await route_ai_request_parallel("general", "structuring", prompt, [], [], 4096, 0.2, user.get("tier", "free"), user)
+    res = await route_ai_request_parallel("core", "structuring", prompt, [], [], 4096, 0.2, user.get("tier", "free"), user)
     return {"success": True, "minutes": res["text"]}
 
 class DecisionMatrixRequest(BaseModel):
