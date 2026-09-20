@@ -6670,43 +6670,7 @@ async def logging_middleware(request: Request, call_next):
     )
     REQUESTS.labels(method=request.method, endpoint=request.url.path, status=response.status_code).inc()
     return response
-from pydantic import BaseModel
-from typing import List, Optional
-import uvicorn
 
-app = FastAPI(title="Auto-Generated API", version="1.0")
-
-class Item(BaseModel):
-    {% for field in fields %}
-    {{ field.name }}: {{ field.type }}
-    {% endfor %}
-class ItemCreate(BaseModel):
-    {% for field in fields if field.name != "id" %}
-    {{ field.name }}: {{ field.type }}
-    {% endfor %}
-
-items = []
-counter = 1
-
-@app.get("/items", response_model=List[Item])
-async def get_items():
-    return items
-
-@app.get("/items/{item_id}", response_model=Item)
-async def get_item(item_id: int):
-    for item in items:
-        if item.id == item_id:
-            return item
-    raise HTTPException(status_code=404, detail="Item not found")
-
-@app.post("/items", response_model=Item)
-async def create_item(item: ItemCreate):
-    global counter
-    new_item = item.dict()
-    new_item["id"] = counter
-    counter += 1
-    items.append(Item(**new_item))
-    return items[-1]
 
 @app.put("/items/{item_id}", response_model=Item)
 async def update_item(item_id: int, updated: ItemCreate):
