@@ -22,7 +22,7 @@ from __future__ import annotations
 import ast
 import re
 from dataclasses import asdict, dataclass, field
-from typing import List, Literal, Optional, Tuple
+from typing import Literal
 
 __all__ = ["CodeGuard", "Finding", "ScanResult", "Severity", "default_guard"]
 
@@ -83,7 +83,7 @@ _PATH_TRAVERSAL = re.compile(
     """,
 )
 
-_SECRET_PATTERNS: Tuple[Tuple[str, re.Pattern[str]], ...] = (
+_SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("AWS Access Key", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("Google API Key", re.compile(r"AIza[0-9A-Za-z\-_]{35}")),
     ("Slack Token", re.compile(r"xox[baprs]-[0-9A-Za-z\-]{10,48}")),
@@ -126,9 +126,9 @@ class Finding:
 class ScanResult:
     """Aggregated scan output."""
 
-    findings: List[Finding] = field(default_factory=list)
+    findings: list[Finding] = field(default_factory=list)
     syntax_ok: bool = True
-    syntax_error: Optional[str] = None
+    syntax_error: str | None = None
     score: int = 100  # 0–100; lower = more dangerous
 
     def to_dict(self) -> dict:
@@ -183,7 +183,7 @@ class CodeGuard:
 
     def __init__(self) -> None:
         """Instantiate the scanner with pre-compiled patterns."""
-        self._patterns: Tuple[Tuple[str, str, re.Pattern[str]], ...] = (
+        self._patterns: tuple[tuple[str, str, re.Pattern[str]], ...] = (
             ("sql_injection", "critical", _SQL_INJECTION),
             ("command_injection", "critical", _CMD_INJECTION),
             ("xss_sink", "high", _XSS_SINK),

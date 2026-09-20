@@ -8,15 +8,15 @@ All modules are:
     * Lazy-loaded for heavy dependencies (ONNX, numpy)
     * Safe to import on Render free tier (512 MB / 0.1 CPU)
 """
-from .ai_engine import ResilientAIRouter, ProviderMetrics
+from .ai_engine import ProviderMetrics, ResilientAIRouter
 from .code_guard import CodeGuard, Finding, ScanResult
 from .context_registry import ContextRegistry
-from .dependency_tracker import DependencyTracker, BlastRadius
-from .intent_router import IntentRouter, IntentResult, get_router
+from .dependency_tracker import BlastRadius, DependencyTracker
+from .intent_router import IntentResult, IntentRouter, get_router
 from .pr_shield import PRShield, PRShieldInput
-from .self_healer import SelfHealer, HealResult
-from .semantic_cache import SemanticCache, get_semantic_cache
 from .prompts import SYSTEM_PROMPTS
+from .self_healer import HealResult, SelfHealer
+from .semantic_cache import SemanticCache, get_semantic_cache
 
 __all__ = [
     # Routing

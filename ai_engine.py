@@ -15,7 +15,6 @@ from __future__ import annotations
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Dict, List
 
 __all__ = ["ProviderMetrics", "ResilientAIRouter"]
 
@@ -53,16 +52,16 @@ class ResilientAIRouter:
     only the metrics and circuit-breaker state.
     """
 
-    __slots__ = ("providers", "_cooldown", "_threshold")
+    __slots__ = ("_cooldown", "_threshold", "providers")
 
     def __init__(
         self,
-        providers: List[str],
+        providers: list[str],
         *,
         cooldown_seconds: float = 300.0,
         failure_threshold: int = 3,
     ) -> None:
-        self.providers: Dict[str, ProviderMetrics] = {
+        self.providers: dict[str, ProviderMetrics] = {
             p: ProviderMetrics(name=p) for p in providers
         }
         self._cooldown = float(cooldown_seconds)
@@ -85,7 +84,7 @@ class ResilientAIRouter:
             if p.consecutive_failures >= self._threshold:
                 p.cooldown_until = time.time() + self._cooldown
 
-    def get_ranked_providers(self) -> List[str]:
+    def get_ranked_providers(self) -> list[str]:
         """Return available providers sorted best → worst."""
         valid = [p for p in self.providers.values() if p.is_available]
         valid.sort(key=lambda x: x.score, reverse=True)

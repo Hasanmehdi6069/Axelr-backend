@@ -24,9 +24,9 @@ import os
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
-__all__ = ["SemanticCache", "CacheEntry", "get_semantic_cache"]
+__all__ = ["CacheEntry", "SemanticCache", "get_semantic_cache"]
 
 
 # ---------------------------------------------------------------------------
@@ -83,19 +83,19 @@ class SemanticCache:
     """
 
     __slots__ = (
-        "_model_name",
-        "_max_entries",
-        "_threshold",
         "_dim",
         "_embedder",
         "_embeddings",
         "_entries",
         "_id_to_row",
+        "_load_lock",
         "_lock",
+        "_max_entries",
+        "_model_loaded",
+        "_model_name",
         "_redis",
         "_redis_prefix",
-        "_model_loaded",
-        "_load_lock",
+        "_threshold",
     )
 
     def __init__(
@@ -114,8 +114,8 @@ class SemanticCache:
 
         self._embedder = None
         self._embeddings = None                            # lazy numpy matrix
-        self._entries: "OrderedDict[int, CacheEntry]" = OrderedDict()
-        self._id_to_row: Dict[str, int] = {}
+        self._entries: OrderedDict[int, CacheEntry] = OrderedDict()
+        self._id_to_row: dict[str, int] = {}
         self._lock = asyncio.Lock()
         self._model_loaded = False
         self._load_lock = asyncio.Lock()
@@ -129,8 +129,8 @@ class SemanticCache:
         self,
         prompt: str,
         *,
-        threshold: Optional[float] = None,
-    ) -> Optional[str]:
+        threshold: float | None = None,
+    ) -> str | None:
         """
         Look up the closest cached response. Returns ``None`` on miss.
 
@@ -224,7 +224,7 @@ class SemanticCache:
         except Exception:
             pass
 
-    def stats(self) -> Dict[str, Any]:
+    def stats(self) -> dict[str, Any]:
         """Return a lightweight snapshot of cache metrics."""
         try:
             total_hits = sum(e.hits for e in self._entries.values())
@@ -379,7 +379,7 @@ def _hash(prompt: str) -> str:
 # Singleton accessor
 # ---------------------------------------------------------------------------
 
-_default_cache: Optional[SemanticCache] = None
+_default_cache: SemanticCache | None = None
 
 
 def get_semantic_cache() -> SemanticCache:

@@ -20,11 +20,11 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
 
-__all__ = ["IntentRouter", "IntentResult", "get_router"]
+__all__ = ["IntentResult", "IntentRouter", "get_router"]
 
 
 # ---------------------------------------------------------------------------
@@ -132,24 +132,24 @@ class IntentRouter:
     """
 
     __slots__ = (
-        "_model_dir",
         "_confidence_threshold",
-        "_session",
-        "_tokenizer",
-        "_session_lock",
         "_labels",
+        "_model_dir",
+        "_session",
+        "_session_lock",
+        "_tokenizer",
     )
 
     def __init__(
         self,
-        model_dir: Optional[str] = None,
+        model_dir: str | None = None,
         *,
         confidence_threshold: float = 0.75,
     ) -> None:
         """Initialise the router; ONNX loads lazily on first ambiguous request."""
         _raw = (model_dir or os.getenv("INTENT_MODEL_DIR") or "").strip()
         # ── FIX: use walrus for clean optional-path resolution ──────────
-        self._model_dir: Optional[Path] = (
+        self._model_dir: Path | None = (
             Path(raw)
             if (raw := (model_dir or os.getenv("INTENT_MODEL_DIR")))
             else None
@@ -159,14 +159,14 @@ class IntentRouter:
         self._tokenizer = None
         self._session_lock = asyncio.Lock()
         # MobileBERT-MNLI was trained on these labels.
-        self._labels: List[str] = ["data", "design", "core"]
+        self._labels: list[str] = ["data", "design", "core"]
 
     # -- public API ---------------------------------------------------------
 
     async def classify(
         self,
         prompt: str,
-        files: Optional[Sequence[Dict[str, str]]] = None,
+        files: Sequence[dict[str, str]] | None = None,
     ) -> IntentResult:
         """
         Classify the user request.
@@ -182,7 +182,7 @@ class IntentRouter:
     async def _classify_inner(
         self,
         prompt: str,
-        files: Optional[Sequence[Dict[str, str]]],
+        files: Sequence[dict[str, str]] | None,
     ) -> IntentResult:
         prompt = (prompt or "").strip()
         files = list(files or [])
@@ -229,8 +229,8 @@ class IntentRouter:
 
     @staticmethod
     def _classify_by_files(
-        files: Sequence[Dict[str, str]],
-    ) -> Tuple[str, float]:
+        files: Sequence[dict[str, str]],
+    ) -> tuple[str, float]:
         """Return (workspace, confidence) from file extensions/mimetypes."""
         if not files:
             return "core", 0.0
@@ -274,7 +274,7 @@ class IntentRouter:
         return "core", 0.3
 
     @staticmethod
-    def _classify_by_keywords(prompt: str) -> Tuple[str, float]:
+    def _classify_by_keywords(prompt: str) -> tuple[str, float]:
         """Return (workspace, confidence) from keyword rules."""
         if not prompt:
             return "core", 0.0
@@ -297,7 +297,7 @@ class IntentRouter:
         confidence = min(1.0, best_score / max(1.0, total) * 1.4)
         return best_ws, confidence
 
-    async def _classify_onnx(self, prompt: str) -> Optional[IntentResult]:
+    async def _classify_onnx(self, prompt: str) -> IntentResult | None:
         """Run the ONNX classifier. Returns ``None`` on any failure."""
         if self._session is None and self._model_dir is not None:
             async with self._session_lock:
@@ -391,7 +391,7 @@ class IntentRouter:
 # Module-level singleton
 # ---------------------------------------------------------------------------
 
-_default_router: Optional[IntentRouter] = None
+_default_router: IntentRouter | None = None
 
 
 def get_router() -> IntentRouter:

@@ -13,10 +13,10 @@ from __future__ import annotations
 
 import difflib
 import re
-from dataclasses import dataclass, field
-from typing import Awaitable, Callable, List, Optional
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 
-__all__ = ["SelfHealer", "HealResult", "RouteFunc", "make_diff"]
+__all__ = ["HealResult", "RouteFunc", "SelfHealer", "make_diff"]
 
 RouteFunc = Callable[..., Awaitable[dict]]
 
@@ -80,7 +80,7 @@ class HealResult:
     final_code: str
     diff: str = ""
     attempts: int = 0
-    error: Optional[str] = None
+    error: str | None = None
 
     def to_dict(self) -> dict:
         """Return a JSON-serialisable representation."""
@@ -113,7 +113,7 @@ class SelfHealer:
         Number of full-code retries if the block fix fails.
     """
 
-    __slots__ = ("_route", "_max_retries")
+    __slots__ = ("_max_retries", "_route")
 
     def __init__(self, route_func: RouteFunc, max_retries: int = 2) -> None:
         """Initialise the healer with a route function and retry budget."""
@@ -131,7 +131,7 @@ class SelfHealer:
         *,
         language: str = "python",
         tier: str = "free",
-        user: Optional[dict] = None,
+        user: dict | None = None,
         context: str = "",
     ) -> HealResult:
         """
@@ -144,7 +144,7 @@ class SelfHealer:
             return HealResult(success=False, final_code=code, error="empty code")
 
         original = code
-        last_error: Optional[str] = None
+        last_error: str | None = None
         current_error = error
 
         for attempt in range(1, self._max_retries + 1):

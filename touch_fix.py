@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from typing import Awaitable, Callable, List, Optional, Tuple
+from collections.abc import Awaitable, Callable
 
 __all__ = ["TouchFixEngine"]
 
@@ -65,7 +65,7 @@ class TouchFixEngine:
 
     __slots__ = ("_route",)
 
-    def __init__(self, route_func: Optional[RouteFunc] = None) -> None:
+    def __init__(self, route_func: RouteFunc | None = None) -> None:
         """Inject the AI route function. May be ``None`` for diff-only use."""
         self._route = route_func
 
@@ -88,7 +88,7 @@ class TouchFixEngine:
         *,
         language: str = "python",
         tier: str = "free",
-        user: Optional[dict] = None,
+        user: dict | None = None,
     ) -> str:
         """Fix only ``error_block`` inside ``full_code``. Never raises."""
         if not full_code or not error_block:
@@ -109,7 +109,7 @@ class TouchFixEngine:
         error_message: str,
         language: str,
         tier: str,
-        user: Optional[dict],
+        user: dict | None,
     ) -> str:
         start, end = self._locate_block(full_code, error_block)
         fixed_block = await self._ai_fix_block(
@@ -132,7 +132,7 @@ class TouchFixEngine:
         return full_code
 
     @staticmethod
-    def _locate_block(full_code: str, error_block: str) -> Tuple[int, int]:
+    def _locate_block(full_code: str, error_block: str) -> tuple[int, int]:
         """Locate ``error_block`` inside ``full_code``. Returns (start, end)."""
         code_lines = full_code.splitlines()
         block_lines = error_block.strip().splitlines()
@@ -177,8 +177,8 @@ class TouchFixEngine:
         error_message: str,
         language: str,
         tier: str,
-        user: Optional[dict],
-    ) -> Optional[str]:
+        user: dict | None,
+    ) -> str | None:
         if self._route is None:
             return None
 
@@ -220,10 +220,10 @@ class TouchFixEngine:
     @staticmethod
     def _apply_unified_diff(code: str, diff_text: str) -> str:
         """Parse and apply a unified diff. Raises on malformed input."""
-        code_lines: List[str] = code.split("\n")
-        diff_lines: List[str] = diff_text.split("\n")
+        code_lines: list[str] = code.split("\n")
+        diff_lines: list[str] = diff_text.split("\n")
 
-        result: List[str] = []
+        result: list[str] = []
         pos = 0
         i = 0
 

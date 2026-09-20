@@ -20,11 +20,11 @@ from __future__ import annotations
 import ast
 import os
 import re
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Iterable, Iterator, List, Optional, Set
 
-__all__ = ["DependencyTracker", "BlastRadius"]
+__all__ = ["BlastRadius", "DependencyTracker"]
 
 
 # ---------------------------------------------------------------------------
@@ -111,7 +111,7 @@ class BlastRadius:
     """Result of an impact assessment."""
 
     file: str
-    dependents: List[str] = field(default_factory=list)
+    dependents: list[str] = field(default_factory=list)
     severity: str = "low"
     count: int = 0
 
@@ -140,13 +140,13 @@ class DependencyTracker:
         impact = tracker.assess_impact("/path/to/project/app.py")
     """
 
-    __slots__ = ("_root", "_graph", "_reverse", "_built")
+    __slots__ = ("_built", "_graph", "_reverse", "_root")
 
-    def __init__(self, root: "str | os.PathLike[str]") -> None:
+    def __init__(self, root: str | os.PathLike[str]) -> None:
         """Initialise the tracker rooted at ``root``."""
         self._root = Path(root).resolve()
-        self._graph: Dict[str, Set[str]] = {}
-        self._reverse: Dict[str, Set[str]] = {}
+        self._graph: dict[str, set[str]] = {}
+        self._reverse: dict[str, set[str]] = {}
         self._built = False
 
     # -- public API ---------------------------------------------------------
@@ -168,7 +168,7 @@ class DependencyTracker:
 
         self._built = True
 
-    def update_file(self, file_path: "str | os.PathLike[str]") -> None:
+    def update_file(self, file_path: str | os.PathLike[str]) -> None:
         """Reparse a single file (used after an edit)."""
         path = Path(file_path).resolve()
         key = str(path)
@@ -188,19 +188,19 @@ class DependencyTracker:
         for dep in deps:
             self._reverse.setdefault(dep, set()).add(key)
 
-    def get_dependencies(self, file_path: "str | os.PathLike[str]") -> List[str]:
+    def get_dependencies(self, file_path: str | os.PathLike[str]) -> list[str]:
         """Direct dependencies of a file."""
         return sorted(self._graph.get(str(Path(file_path).resolve()), set()))
 
-    def get_dependents(self, file_path: "str | os.PathLike[str]") -> List[str]:
+    def get_dependents(self, file_path: str | os.PathLike[str]) -> list[str]:
         """Files that directly depend on this file."""
         return sorted(self._reverse.get(str(Path(file_path).resolve()), set()))
 
-    def assess_impact(self, file_path: "str | os.PathLike[str]") -> BlastRadius:
+    def assess_impact(self, file_path: str | os.PathLike[str]) -> BlastRadius:
         """Transitive dependents (BFS) plus a coarse severity score."""
         root_key = str(Path(file_path).resolve())
-        seen: Set[str] = set()
-        queue: List[str] = [root_key]
+        seen: set[str] = set()
+        queue: list[str] = [root_key]
 
         while queue:
             current = queue.pop()
@@ -248,7 +248,7 @@ class DependencyTracker:
                 if count >= max_files:
                     return
 
-    def _extract_dependencies(self, path: Path) -> Set[str]:
+    def _extract_dependencies(self, path: Path) -> set[str]:
         """Return the set of resolved absolute paths this file imports."""
         try:
             content = path.read_text(encoding="utf-8", errors="ignore")
@@ -259,7 +259,7 @@ class DependencyTracker:
         raw = self._extract_raw_imports(content, lang)
         return self._resolve(path, raw)
 
-    def _extract_raw_imports(self, content: str, lang: str) -> List[str]:
+    def _extract_raw_imports(self, content: str, lang: str) -> list[str]:
         """Extract raw import strings (unresolved) for the given language."""
         if not content:
             return []
@@ -275,7 +275,7 @@ class DependencyTracker:
                 for m in _PY_IMPORT_RE.finditer(content)
             ]
 
-        results: List[str] = []
+        results: list[str] = []
         if lang in ("javascript", "typescript"):
             for m in _JS_IMPORT_RE.finditer(content):
                 results.append(m.group(1) or m.group(2) or m.group(3) or "")
@@ -289,7 +289,7 @@ class DependencyTracker:
         return [r.strip() for r in results if r and r.strip()]
 
     @staticmethod
-    def _extract_python_imports_ast(content: str) -> List[str]:
+    def _extract_python_imports_ast(content: str) -> list[str]:
         """Extract Python imports with ``ast`` — accurate, no false positives."""
         try:
             tree = ast.parse(content)
@@ -298,7 +298,7 @@ class DependencyTracker:
         except Exception:
             return []
 
-        imports: List[str] = []
+        imports: list[str] = []
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
@@ -309,9 +309,9 @@ class DependencyTracker:
                     imports.append(node.module)
         return imports
 
-    def _resolve(self, source: Path, imports: Iterable[str]) -> Set[str]:
+    def _resolve(self, source: Path, imports: Iterable[str]) -> set[str]:
         """Resolve raw import strings to filesystem paths."""
-        resolved: Set[str] = set()
+        resolved: set[str] = set()
         source_dir = source.parent
 
         for imp in imports:
@@ -321,7 +321,7 @@ class DependencyTracker:
             if imp.startswith(("http://", "https://", "//", "data:")):
                 continue
 
-            candidates: List[Path] = []
+            candidates: list[Path] = []
             if imp.startswith("."):
                 candidates.append((source_dir / imp).resolve())
             else:
@@ -337,7 +337,7 @@ class DependencyTracker:
         return resolved
 
     @staticmethod
-    def _match_file(candidate: Path) -> Optional[Path]:
+    def _match_file(candidate: Path) -> Path | None:
         """Try candidate as-is, with each extension, or as an index file."""
         try:
             if candidate.is_file():

@@ -1,0 +1,23 @@
+version: "1.0"
+services:
+  - name: axelr-ai-workers
+    type: web
+    env: python
+    region: us-east-1
+    plan: free  # Snap Deploy free tier: 512MB RAM / 0.25vCPU
+    buildCommand: pip install litellm bifrost-ai aiohttp
+    startCommand: litellm --host 0.0.0.0 --port 8000 --enable-metrics
+    envVars:
+      - key: LITELLM_MODEL_MAX_MEMORY
+        value: "350MB"
+      - key: BIFROST_STANDBY
+        value: "true"
+    resources:
+      limits:
+        memory: 512MB
+        cpu: "0.25"
+    healthCheck:
+      path: /health
+      interval: 30
+      timeout: 5
+      retries: 3

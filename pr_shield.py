@@ -15,9 +15,10 @@ Pure stdlib. RAM footprint: < 5 MB.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any
 
 __all__ = ["PRShield", "PRShieldInput"]
 
@@ -31,14 +32,14 @@ class PRShieldInput:
     """All inputs the shield needs to render a report."""
 
     title: str = "Untitled Change"
-    author: Optional[str] = None
-    files_changed: List[str] = field(default_factory=list)
-    blast_radius: Optional[Mapping[str, Any]] = None      # from DependencyTracker
-    security_findings: List[Mapping[str, Any]] = field(default_factory=list)  # from CodeGuard
-    self_heal: Optional[Mapping[str, Any]] = None         # from SelfHealer
-    test_results: Optional[Mapping[str, Any]] = None      # {"passed": bool, "errors": [...]}
-    recommendations: List[str] = field(default_factory=list)
-    extra_notes: Optional[str] = None
+    author: str | None = None
+    files_changed: list[str] = field(default_factory=list)
+    blast_radius: Mapping[str, Any] | None = None      # from DependencyTracker
+    security_findings: list[Mapping[str, Any]] = field(default_factory=list)  # from CodeGuard
+    self_heal: Mapping[str, Any] | None = None         # from SelfHealer
+    test_results: Mapping[str, Any] | None = None      # {"passed": bool, "errors": [...]}
+    recommendations: list[str] = field(default_factory=list)
+    extra_notes: str | None = None
 
     def to_dict(self) -> dict:
         """Return a JSON-serialisable representation."""
@@ -80,7 +81,7 @@ class PRShield:
         if data is None:
             return "# PR Defense Report\n\n_No data supplied._\n"
 
-        parts: List[str] = []
+        parts: list[str] = []
         parts.append(f"# PR Defense Report — {data.title}")
         parts.append(
             f"**Generated:** "
@@ -114,7 +115,7 @@ class PRShield:
 
     def _section_data_flow(self, data: PRShieldInput) -> str:
         """Section 1 — files changed and blast radius."""
-        out: List[str] = ["## 1. Data Flow & Blast Radius", ""]
+        out: list[str] = ["## 1. Data Flow & Blast Radius", ""]
 
         if data.files_changed:
             out.append("**Files touched:**")
@@ -149,7 +150,7 @@ class PRShield:
 
     def _section_validation(self, data: PRShieldInput) -> str:
         """Section 2 — self-heal outcome and diff."""
-        out: List[str] = ["## 2. Validation & Self-Heal", ""]
+        out: list[str] = ["## 2. Validation & Self-Heal", ""]
 
         heal = data.self_heal
         if not heal:
@@ -182,7 +183,7 @@ class PRShield:
 
     def _section_security(self, data: PRShieldInput) -> str:
         """Section 3 — findings grouped by severity."""
-        out: List[str] = ["## 3. Security Summary", ""]
+        out: list[str] = ["## 3. Security Summary", ""]
 
         findings = list(data.security_findings or [])
         if not findings:
@@ -190,7 +191,7 @@ class PRShield:
             out.append("")
             return "\n".join(out)
 
-        by_sev: Dict[str, List[Mapping[str, Any]]] = {
+        by_sev: dict[str, list[Mapping[str, Any]]] = {
             s: [] for s in self._SEVERITY_ORDER
         }
         for f in findings:
@@ -218,7 +219,7 @@ class PRShield:
 
     def _section_tests(self, data: PRShieldInput) -> str:
         """Section 4 — test results."""
-        out: List[str] = ["## 4. Test Results", ""]
+        out: list[str] = ["## 4. Test Results", ""]
 
         tr = data.test_results
         if not tr:
@@ -246,9 +247,9 @@ class PRShield:
 
     def _section_recommendations(self, data: PRShieldInput) -> str:
         """Section 5 — recommendations (auto-generated if none supplied)."""
-        out: List[str] = ["## 5. Recommendations", ""]
+        out: list[str] = ["## 5. Recommendations", ""]
 
-        recs: List[str] = list(data.recommendations or [])
+        recs: list[str] = list(data.recommendations or [])
         if not recs:
             recs.extend(self._auto_recommendations(data))
 
@@ -263,9 +264,9 @@ class PRShield:
     # -- helpers ------------------------------------------------------------
 
     @staticmethod
-    def _auto_recommendations(data: PRShieldInput) -> List[str]:
+    def _auto_recommendations(data: PRShieldInput) -> list[str]:
         """Derive actionable recommendations from the inputs."""
-        recs: List[str] = []
+        recs: list[str] = []
 
         br = data.blast_radius or {}
         if str(br.get("severity", "")).lower() == "high":

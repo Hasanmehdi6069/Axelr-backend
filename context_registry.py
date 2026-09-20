@@ -16,17 +16,17 @@ RAM footprint: < 5 MB.
 from __future__ import annotations
 
 import asyncio
-import os
 import logging
-from dataclasses import dataclass, field
+import os
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import httpx
 
 logger = logging.getLogger("axelr-unified")
 
-__all__ = ["ContextRegistry", "ContextItem"]
+__all__ = ["ContextItem", "ContextRegistry"]
 
 
 # ---------------------------------------------------------------------------
@@ -78,17 +78,17 @@ class ContextRegistry:
         A Motor collection for audit persistence. May be ``None``.
     """
 
-    __slots__ = ("_redis", "_db", "_http", "_sources")
+    __slots__ = ("_db", "_http", "_redis", "_sources")
 
     def __init__(self, redis_client: Any = None, db_collection: Any = None) -> None:
         self._redis = redis_client
         self._db = db_collection
-        self._http: Optional[httpx.AsyncClient] = None
+        self._http: httpx.AsyncClient | None = None
         self._sources = self._load_sources()
 
     # -- public API ---------------------------------------------------------
 
-    async def get_context(self, user_id: str, workspace: str) -> Optional[str]:
+    async def get_context(self, user_id: str, workspace: str) -> str | None:
         """
         Return a token-bounded context summary for the given user/workspace.
         Returns ``None`` if no sources are configured or all fetches fail.
@@ -132,9 +132,9 @@ class ContextRegistry:
     # -- internal: sources --------------------------------------------------
 
     @staticmethod
-    def _load_sources() -> Dict[str, Dict[str, str]]:
+    def _load_sources() -> dict[str, dict[str, str]]:
         """Read source configuration from environment."""
-        sources: Dict[str, Dict[str, str]] = {}
+        sources: dict[str, dict[str, str]] = {}
 
         jira_url = os.getenv("JIRA_URL")
         jira_token = os.getenv("JIRA_TOKEN")
@@ -167,7 +167,7 @@ class ContextRegistry:
             )
         return self._http
 
-    async def _fetch_all(self, user_id: str) -> List[ContextItem]:
+    async def _fetch_all(self, user_id: str) -> list[ContextItem]:
         """Run all source fetches concurrently with failure isolation."""
         fetchers = []
         if "jira" in self._sources:
@@ -181,7 +181,7 @@ class ContextRegistry:
             return []
 
         results = await asyncio.gather(*fetchers, return_exceptions=True)
-        items: List[ContextItem] = []
+        items: list[ContextItem] = []
         for res in results:
             if isinstance(res, Exception):
                 logger.warning("context fetch error: %s", res)
@@ -191,7 +191,7 @@ class ContextRegistry:
 
     # -- internal: individual sources --------------------------------------
 
-    async def _fetch_jira(self, user_id: str) -> List[ContextItem]:
+    async def _fetch_jira(self, user_id: str) -> list[ContextItem]:
         cfg = self._sources.get("jira")
         if not cfg:
             return []
@@ -211,7 +211,7 @@ class ContextRegistry:
             logger.warning("jira fetch failed: %s", e)
             return []
 
-        items: List[ContextItem] = []
+        items: list[ContextItem] = []
         for issue in data.get("issues", [])[:10]:
             fields = issue.get("fields", {})
             status = (fields.get("status") or {}).get("name", "")
@@ -228,7 +228,7 @@ class ContextRegistry:
             )
         return items
 
-    async def _fetch_linear(self, user_id: str) -> List[ContextItem]:
+    async def _fetch_linear(self, user_id: str) -> list[ContextItem]:
         cfg = self._sources.get("linear")
         if not cfg:
             return []
@@ -262,7 +262,7 @@ class ContextRegistry:
             return []
 
         nodes = (data.get("data") or {}).get("viewer", {}).get("assignedIssues", {}).get("nodes", [])
-        items: List[ContextItem] = []
+        items: list[ContextItem] = []
         for n in nodes[:10]:
             items.append(
                 ContextItem(
@@ -276,7 +276,7 @@ class ContextRegistry:
             )
         return items
 
-    async def _fetch_openapi(self, user_id: str) -> List[ContextItem]:
+    async def _fetch_openapi(self, user_id: str) -> list[ContextItem]:
         cfg = self._sources.get("openapi")
         if not cfg:
             return []
@@ -294,7 +294,7 @@ class ContextRegistry:
 
         if not isinstance(data, list):
             return []
-        items: List[ContextItem] = []
+        items: list[ContextItem] = []
         for row in data[:10]:
             if not isinstance(row, dict):
                 continue
@@ -313,7 +313,7 @@ class ContextRegistry:
     # -- internal: summary --------------------------------------------------
 
     @staticmethod
-    def _summarise(items: List[ContextItem], workspace: str) -> str:
+    def _summarise(items: list[ContextItem], workspace: str) -> str:
         """Render items into a token-bounded text block."""
         if not items:
             return ""
@@ -324,7 +324,7 @@ class ContextRegistry:
         else:
             items.sort(key=lambda i: i.source)
 
-        lines: List[str] = []
+        lines: list[str] = []
         running = 0
         for item in items:
             rendered = item.render()
@@ -338,7 +338,7 @@ class ContextRegistry:
 
     # -- internal: persistence ---------------------------------------------
 
-    async def _cache_get(self, key: str) -> Optional[str]:
+    async def _cache_get(self, key: str) -> str | None:
         if self._redis is None:
             return None
         try:
