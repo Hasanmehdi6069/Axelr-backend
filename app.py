@@ -79,7 +79,7 @@ from email.mime.text import MIMEText
 from typing import Any
 
 import bcrypt
-import bleach
+import nh3
 import certifi
 import httpx
 import jinja2
@@ -5504,7 +5504,7 @@ async def deploy(data: DeployRequest, user: dict = Depends(get_current_user)):
     if "<html" not in html or "</html>" not in html:
         raise HTTPException(status_code=400, detail="Generated HTML is incomplete.")
     
-    sanitized = bleach.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
+    sanitized = nh3.clean(html, tags=ALLOWED_TAGS, attributes=ALLOWED_ATTRS, strip=True)
     
     if NETLIFY_ACCESS_TOKEN:
         try:
