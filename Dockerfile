@@ -29,8 +29,8 @@ USER axelr
 EXPOSE 8000
 
 # Install system dependencies FIRST (correct build stage order)
-RUN sudo apt-get update && sudo apt-get install -y --no-install-recommends \
-    ca-certificates tini bubblewrap && sudo rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates tini bubblewrap && rm -rf /var/lib/apt/lists/*
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
     CMD python -c "import httpx,sys; sys.exit(0 if httpx.get('http://127.0.0.1:8000/api/health', timeout=3).status_code==200 else 1)"
