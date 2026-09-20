@@ -13,6 +13,9 @@ import logging
 import os
 import sys
 
+# Add the current directory to Python path to resolve core module imports
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
 import structlog
 from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient

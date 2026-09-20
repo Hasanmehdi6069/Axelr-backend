@@ -28,10 +28,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 USER axelr
 EXPOSE 8000
 
-HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=5 \
     CMD python -c "import httpx,sys; sys.exit(0 if httpx.get('http://127.0.0.1:8000/api/health', timeout=3).status_code==200 else 1)"
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000", \
      "--workers", "1", "--loop", "uvloop", "--http", "httptools", \
-     "--limit-concurrency", "200", "--timeout-keep-alive", "20"]
+     "--limit-concurrency", "50", "--timeout-keep-alive", "30"]
