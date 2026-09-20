@@ -87,12 +87,34 @@ import certifi
 import httpx
 import jinja2
 import redis.asyncio as aioredis
+import os
 
-if os.getenv("REDIS_URL"):
-    redis_client = aioredis.from_url(os.getenv("REDIS_URL"))
+# ---- structlog must be configured BEFORE anything logs ----
+logger = structlog.get_logger("axelr")
+structlog.configure(
+    processors=[
+        structlog.processors.add_log_level,
+        structlog.processors.TimeStamper(fmt="iso"),
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        structlog.processors.JSONRenderer(),
+    ],
+    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
+    cache_logger_on_first_use=True,
+)
+
+# ---- now safe to log ----
+redis_client = None
+REDIS_URL = os.getenv("REDIS_URL")
+if REDIS_URL:
+    try:
+        redis_client = aioredis.from_url(REDIS_URL)
+        logger.info("Redis client initialized successfully.")
+    except Exception as e:
+        logger.error("Failed to initialize Redis client", error=str(e))
 else:
-    redis_client = None
-logger = structlog.get_logger()
+    logger.info("REDIS_URL not set, Redis client not initialized.")
+logger = structlog.get_logger()                                  # ← defined only now
 structlog.configure(
     processors=[
         structlog.processors.add_log_level,
@@ -167,7 +189,7 @@ except ImportError:
         def limit(self, *a, **kw): return lambda f: f
     class RateLimitExceeded(Exception): pass
     def _rate_limit_exceeded_handler(request, exc):
-        return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
+         return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
 
 # ---------------------------------------------------------------------------
 # Environment loading — MUST run before any core singleton is constructed
@@ -841,7 +863,13 @@ async def init_db():
     global client, db, users_col, conversations_col, db_available
     if MONGO_URI:
         try:
-            client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+            try:
+                client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+                await client.admin.command("ping")
+                logger.info("MongoDB client initialized successfully.")
+            except Exception as e:
+                logger.error("Failed to initialize MongoDB client", error=str(e))
+                client = None
             await client.admin.command('ismaster')
             db = client.NexusDB
             users_col = db.users
@@ -854,38 +882,72 @@ async def init_db():
     else:
         logger.critical("mongo_unavailable_degraded_mode")
         db_available = False
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_redis()
-    await init_qstash()
-    await init_db()
-    # Start resource monitoring background task for LiteLLM/Bifrost failover
-    asyncio.create_task(monitor_resource_limits())
-
-    # ---- elite modules wired to live redis_client ----
-    global conversation_memory, repo_indexer, test_loop
-    conversation_memory = ConversationMemory(redis_client=redis_client, http_client=HTTP_CLIENT)
-    repo_indexer        = RepoIndexer(redis_client=redis_client, http_client=HTTP_CLIENT)
-    test_loop           = TestLoop(
-        route_func=route_ai_request_parallel,
-        execute_func=_sandbox_execute,
-    )
-    logger.info(
-        "elite_modules_ready",
-        conv_mem=bool(conversation_memory),
-        repo_idx=bool(repo_indexer),
-        test_loop=bool(test_loop),
-    )
-    # ---- Stripe idempotency TTL index ----
     try:
-        if db is not None:
-            await db.get_collection("stripe_events").create_index(
-                "receivedAt", expireAfterSeconds=60 * 60 * 24 * 30,
-            )
-    except Exception as e:
-        logger.warning("stripe_events_index_failed", error=str(e))
+        await init_redis()
+        await init_qstash()
+        await init_db()
+        # Start resource monitoring background task for LiteLLM/Bifrost failover
+        asyncio.create_task(monitor_resource_limits())
 
+        # ---- elite modules wired to live redis_client ----
+        global conversation_memory, repo_indexer, test_loop
+        conversation_memory = ConversationMemory(redis_client=redis_client, http_client=HTTP_CLIENT)
+        repo_indexer        = RepoIndexer(redis_client=redis_client, http_client=HTTP_CLIENT)
+        test_loop           = TestLoop(
+            route_func=route_ai_request_parallel,
+            execute_func=_sandbox_execute,
+        )
+        logger.info(
+            "elite_modules_ready",
+            conv_mem=bool(conversation_memory),
+            repo_idx=bool(repo_indexer),
+            test_loop=bool(test_loop),
+        )
+        # ---- Stripe idempotency TTL index ----
+        try:
+            if db is not None:
+                await db.get_collection("stripe_events").create_index(
+                    "receivedAt", expireAfterSeconds=60 * 60 * 24 * 30,
+                )
+        except Exception as e:
+            logger.warning("stripe_events_index_failed", error=str(e))
+
+        # Background tasks for the app's lifespan
+        app.state.start_time = time.time()
+        app.state.bg_tasks: set = set()
+
+        def _spawn(coro, *, name: str):
+            t = asyncio.create_task(coro, name=name)
+            app.state.bg_tasks.add(t)
+            t.add_done_callback(app.state.bg_tasks.discard)
+            return t
+
+        _spawn(validate_all_providers(), name="validate_providers")
+        _spawn(background_health_check(), name="health_check")
+        if ENABLE_PR_DEFENSE:
+                   _spawn(pr_defense_cleanup(), name="pr_cleanup")
+        _spawn(_keepalive_loop(), name="keepalive")
+
+        yield # This is crucial for asynccontextmanager, indented 12 spaces
+    except Exception as e: # This except block should be indented 8 spaces
+        logger.error("Application startup failed", error=str(e), exc_info=True)
+        raise
+    finally: # This finally block should be indented 8 spaces
+        # ---- graceful shutdown ----
+        logger.info("shutdown_initiated")
+
+        # Cancel all background tasks and wait for them
+        for t in list(getattr(app.state, "bg_tasks", ())):
+            t.cancel()
+        with contextlib.suppress(Exception):
+            await asyncio.gather(
+                *getattr(app.state, "bg_tasks", ()),
+                return_exceptions=True,
+            )
+            # ... (rest of the finally block content)
+            pass # Placeholder for the rest of the finally block, indented 12 spaces
     logger.info(
         "axelr_startup",
         origin=ORIGIN,
@@ -990,35 +1052,42 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # ---- graceful shutdown ----
-    logger.info("shutdown_initiated")
+    try:
+        await _semantic_cache._ensure_model()
+        logger.info("semantic_cache_warmed")
+    except Exception as e:
+        logger.error("Application startup failed", error=str(e), exc_info=True)
+        raise
+    finally:
+        # ---- graceful shutdown ----
+        logger.info("shutdown_initiated")
 
-    # Cancel all background tasks and wait for them
-    for t in list(getattr(app.state, "bg_tasks", ())):
-        t.cancel()
-    with contextlib.suppress(Exception):
-        await asyncio.gather(
-            *getattr(app.state, "bg_tasks", ()),
-            return_exceptions=True,
-        )
+        # Cancel all background tasks and wait for them
+        for t in list(getattr(app.state, "bg_tasks", ())):
+            t.cancel()
+        with contextlib.suppress(Exception):
+            await asyncio.gather(
+                *getattr(app.state, "bg_tasks", ()),
+                return_exceptions=True,
+            )
 
-    try:
-        if context_registry is not None:
-            await context_registry.close()
-    except Exception:
-        pass
-    try:
-        await _semantic_cache.clear()
-    except Exception:
-        pass
-    try:
-        await HTTP_CLIENT.aclose()
-    except Exception:
-        pass
-    _touch_fix_engine = None
-    if client:
-        client.close()
-    logger.info("shutdown_complete")
+        try:
+            if context_registry is not None:
+                await context_registry.close()
+        except Exception:
+            pass
+        try:
+            await _semantic_cache.clear()
+        except Exception:
+            pass
+        try:
+            await HTTP_CLIENT.aclose()
+        except Exception:
+            pass
+        _touch_fix_engine = None
+        if client:
+            client.close()
+        logger.info("shutdown_complete")
 
 # ---------------------------------------------------------------------------
 # CORS + middleware
@@ -2644,8 +2713,8 @@ async def route_ai_request(
     start = time.time()
     # First run security checks
     if detect_manipulation(prompt):
-        yield {"success": False, "text": "⚠️ Manipulation attempt detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
-        return
+         yield {"success": False, "text": "⚠️ Manipulation attempt detected.", "provider": "security", "model_used": "filter", "tokens_used": 0, "latency_ms": 0}
+         return
     if contains_explicit(prompt):
         yield {"success": False, "text": "🚫 Content policy violation.", "provider": "security", "model_used": "blocked", "tokens_used": 0, "latency_ms": 0}
         return
