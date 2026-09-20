@@ -7522,6 +7522,19 @@ async def not_found(request, exc):
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    logger.info(f"=== STARTING AXELR AI v24.3 (FINAL) ON PORT {port} ===")
-    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    import traceback
+    try:
+        port = int(os.getenv("PORT", 8000))
+        print(f"=== DEBUG: Starting AXELR AI v24.3 (FINAL) on port {port} ===")
+        print(f"=== DEBUG: Python path: {sys.path} ===")
+        print(f"=== DEBUG: Current directory contents: {os.listdir('.')} ===")
+        print(f"=== DEBUG: Core directory exists: {os.path.exists('core')} ===")
+        if os.path.exists('core'):
+            print(f"=== DEBUG: Core directory contents: {os.listdir('core')} ===")
+        logger.info(f"=== STARTING AXELR AI v24.3 (FINAL) ON PORT {port} ===")
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
+    except Exception as e:
+        print(f"=== FATAL STARTUP ERROR: {str(e)} ===")
+        print("=== FULL TRACEBACK ===")
+        traceback.print_exc()
+        sys.exit(1)

@@ -7,6 +7,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential gcc && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
+# Cache bust: 2026-09-20 - force rebuild to install new dependencies like nh3
 RUN pip install --prefix=/install -r requirements.txt
 
 # ---------- Stage 2: runtime ----------
