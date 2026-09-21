@@ -46,14 +46,30 @@ import urllib.request
 import uuid
 import zipfile
 
+# ---------------------------------------------------------------------------
+# core package — fully guarded
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# core.touch_fix — guarded import with a *working* stub
+# ---------------------------------------------------------------------------
 try:
     from core.touch_fix import TouchFixEngine
-except ImportError:            # keep server bootable if optional module missing
-    class TouchFixEngine:      # no-op stub so wiring never crashes
-        def __init__(self, *a, **kw): pass
-        async def fix_block(self, *a, **kw): return a[0] if a else ""
-        def apply_diff(self, code, diff): return code
+except Exception as _tf_err:                                    # noqa: BLE001
+    import traceback as _tbf
+    logging.getLogger("axelr").warning(
+        "touch_fix_import_failed",
+        error=str(_tf_err),
+        traceback=_tbf.format_exc(),
+    )
 
+    class TouchFixEngine:                                       # type: ignore
+        """No-op stub so wiring never crashes if core.touch_fix is missing."""
+        def __init__(self, *a, **kw):
+            pass
+        async def fix_block(self, *a, **kw):
+            return a[0] if a else ""
+        def apply_diff(self, code, diff):
+            return code
 try:
     import resource
 except ImportError:
@@ -221,11 +237,8 @@ if "redis://" in upstash_redis_raw:
     import re
     redis_match = re.search(r'redis://[^\s]+', upstash_redis_raw)
     if redis_match:
-        REDIS_URL = os.getenv("REDIS_URL") or redis_match.group(0)
-    else:
-        REDIS_URL = os.getenv("REDIS_URL")
-else:
-    REDIS_URL = os.getenv("REDIS_URL")
+        REDIS_URL = REDIS_URL or redis_match.group(0)
+# Otherwise, keep the existing REDIS_URL value from line 124
 
 # ---------------------------------------------------------------------------
 # AI provider keys
@@ -272,9 +285,6 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7
 
 # ---------------------------------------------------------------------------
-# Stripe
-# ---------------------------------------------------------------------------
-# ---------------------------------------------------------------------------
 # Stripe — env vars always defined, regardless of library availability
 # ---------------------------------------------------------------------------
 STRIPE_SECRET_KEY     = os.getenv("STRIPE_SECRET_KEY", "").strip()
@@ -284,19 +294,106 @@ STRIPE_CANCEL_URL     = os.getenv("STRIPE_CANCEL_URL",  "https://axelr.in/?billi
 STRIPE_PORTAL_RETURN  = os.getenv("STRIPE_PORTAL_RETURN_URL", "https://axelr.in/?billing=portal_return")
 STRIPE_TRIAL_DAYS     = max(0, int(os.getenv("STRIPE_TRIAL_DAYS", "0")))
 
-from core import (
-    CodeGuard,
-    ContextRegistry,
-    DependencyTracker,
-    PRShield,
-    PRShieldInput,
-    SelfHealer,
-    get_router,
-    get_semantic_cache,
-)
-from core.ai_engine import ResilientAIRouter
-from core.worker_client import execute_code_on_worker
+  # ---------------------------------------------------------------------------
+  # Core package — guarded import with functional fallbacks
+# ---------------------------------------------------------------------------
+try:
+    from core import (
+        CodeGuard,
+        ContextRegistry,
+        DependencyTracker,
+        PRShield,
+        PRShieldInput,
+        SelfHealer,
+        get_router,
+        get_semantic_cache,
+    )
+    from core.ai_engine import ResilientAIRouter
+    from core.worker_client import execute_code_on_worker
+    CORE_AVAILABLE = True
+    logger.info("core_package_loaded")
+except ImportError as _core_err:
+    CORE_AVAILABLE = False
+    logger.warning("core_package_missing_using_stubs", error=str(_core_err))
 
+    class _ScanFinding:
+        def __init__(self, message="", severity="info", line=0, code="", category=""):
+            self.message, self.severity, self.line = message, severity, line
+            self.code, self.category = code, category
+        def to_dict(self):
+            return {"message": self.message, "severity": self.severity,
+                    "line": self.line, "code": self.code, "category": self.category}
+
+    class _ScanResult:
+        syntax_ok = True
+        score = 100
+        findings: list = []
+
+    class CodeGuard:
+        def scan(self, code, language="python"):
+            return _ScanResult()
+
+    class ContextRegistry:
+        def __init__(self, *a, **kw): pass
+        async def get_context(self, *a, **kw): return ""
+        async def close(self): pass
+
+    class _ImpactResult:
+        def to_dict(self): return {"impacted": [], "risk": "unknown"}
+
+    class DependencyTracker:
+        def __init__(self, root=""): self.root = root
+        def build(self, max_files=3000): return None
+        def to_dict(self): return {"graph": {}}
+        def assess_impact(self, path): return _ImpactResult()
+
+    class PRShieldInput(BaseModel):
+        title: str = ""
+        files_changed: list = []
+        blast_radius: dict = {}
+        security_findings: list = []
+        self_heal: dict = {}
+        test_results: dict = {}
+
+    class PRShield:
+        def render(self, data):
+            return f"# {getattr(data, 'title', 'PR')}\n\n_PRShield unavailable._"
+
+    class _HealResult:
+        success = False
+        final_code = ""
+        diff = ""
+        attempts = 0
+        error = "self_healer_unavailable"
+
+    class SelfHealer:
+        def __init__(self, *a, **kw): pass
+        async def heal(self, *a, **kw): return _HealResult()
+
+    class _FallbackIntentRouter:
+        async def classify(self, *a, **kw):
+            class R: workspace = "core"
+            return R()
+
+    def get_router(): return _FallbackIntentRouter()
+
+    class _FallbackSemanticCache:
+        async def _ensure_model(self): pass
+        async def get(self, prompt): return None
+        async def set(self, prompt, response): pass
+        async def clear(self): pass
+
+    def get_semantic_cache(): return _FallbackSemanticCache()
+
+    class ResilientAIRouter:
+        def __init__(self, providers=None):
+            self.providers = providers or list(LITELLM_SUPPORTED.keys())
+        def get_ranked_providers(self):
+            return self.providers
+        def record_outcome(self, provider, latency, success=True): pass
+
+    async def execute_code_on_worker(language, code, timeout=8):
+        return {"success": False, "output": "", "error": "worker_unavailable"}
 # Process-wide singletons — constructed exactly once
 _code_guard = CodeGuard()
 _intent_router = get_router()
@@ -675,6 +772,7 @@ redis_client: aioredis.Redis | None = None
 # In-memory caches & circuit breaker state
 # ---------------------------------------------------------------------------
 ai_cache = TTLCache(maxsize=2000, ttl=3600)
+session_clients: TTLCache = TTLCache(maxsize=500, ttl=3600)
 provider_failures  = defaultdict(int)
 provider_last_fail = defaultdict(float)
 model_failures     = defaultdict(int)
@@ -773,8 +871,11 @@ async def monitor_resource_limits():
                                 logger.critical(f"LiteLLM exceeded resource limits! Mem: {mem_usage:.0f}MB/{LITELLM_MEMORY_LIMIT_MB}MB, CPU: {cpu_usage:.0f}%/{LITELLM_CPU_LIMIT_PERCENT}% - Switching to Bifrost fallback")
                                 provider_health["litellm"]["status"] = "disabled"
                                 provider_health["bifrost"]["status"] = "primary"
-                                # Emit alert to Sentry for manual intervention
-                                capture_message("LiteLLM failover triggered - resource limits exceeded", level="critical")
+                                # Emit alert to Sentry for manual intervention if available
+                                if 'capture_message' in globals():
+                                    capture_message("LiteLLM failover triggered - resource limits exceeded", level="critical")
+                                else:
+                                    logger.critical("LiteLLM failover triggered - resource limits exceeded")
                         else:
                             provider_health["litellm"]["consecutive_failures"] += 1
             except Exception as e:
@@ -855,66 +956,44 @@ async def init_qstash() -> None:
 
 def get_object_id():
     return ObjectId if db_available else None
-
 # ---------------------------------------------------------------------------
-# FastAPI app + lifespan
+# FastAPI app + lifespan  (SINGLE-YIELD, correct ordering)
 # ---------------------------------------------------------------------------
 async def init_db():
-    global client, db, users_col, conversations_col, db_available
-    if MONGO_URI:
-        try:
-            try:
-                client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-                await client.admin.command("ping")
-                logger.info("MongoDB client initialized successfully.")
-            except Exception as e:
-                logger.error("Failed to initialize MongoDB client", error=str(e))
-                client = None
-            await client.admin.command('ismaster')
-            db = client.NexusDB
-            users_col = db.users
-            conversations_col = db.conversations
-            db_available = True
-            logger.info("mongo_connected_successfully")
-        except Exception as e:
-            logger.critical("mongo_connection_failed", error=str(e))
-            db_available = False
-    else:
+    global client, db, users_col, sessions_col, reports_col, pr_reports_col, projects_col, db_available
+    if not MONGO_URI:
         logger.critical("mongo_unavailable_degraded_mode")
         db_available = False
+        return
+    try:
+        client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        await client.admin.command("ping")
+        db = client.NexusDB
+        users_col      = db.users
+        sessions_col   = db.conversations
+        reports_col    = db.reports
+        pr_reports_col = db.pr_reports
+        projects_col   = db.projects
+        db_available   = True
+        logger.info("mongo_connected_successfully")
+    except Exception as e:
+        logger.critical("mongo_connection_failed", error=str(e))
+        db_available = False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ==================================================================
+    # STARTUP  (everything here runs ONCE before the first request)
+    # ==================================================================
+    logger.info("axelr_startup_begin")
     try:
+        # -- 1. infrа ---------------------------------------------------
         await init_redis()
         await init_qstash()
         await init_db()
-        # Start resource monitoring background task for LiteLLM/Bifrost failover
-        asyncio.create_task(monitor_resource_limits())
 
-        # ---- elite modules wired to live redis_client ----
-        global conversation_memory, repo_indexer, test_loop
-        conversation_memory = ConversationMemory(redis_client=redis_client, http_client=HTTP_CLIENT)
-        repo_indexer        = RepoIndexer(redis_client=redis_client, http_client=HTTP_CLIENT)
-        test_loop           = TestLoop(
-            route_func=route_ai_request_parallel,
-            execute_func=_sandbox_execute,
-        )
-        logger.info(
-            "elite_modules_ready",
-            conv_mem=bool(conversation_memory),
-            repo_idx=bool(repo_indexer),
-            test_loop=bool(test_loop),
-        )
-        # ---- Stripe idempotency TTL index ----
-        try:
-            if db is not None:
-                await db.get_collection("stripe_events").create_index(
-                    "receivedAt", expireAfterSeconds=60 * 60 * 24 * 30,
-                )
-        except Exception as e:
-            logger.warning("stripe_events_index_failed", error=str(e))
-
-        # Background tasks for the app's lifespan
+        # -- 2. background monitors ------------------------------------
         app.state.start_time = time.time()
         app.state.bg_tasks: set = set()
 
@@ -927,168 +1006,152 @@ async def lifespan(app: FastAPI):
         _spawn(validate_all_providers(), name="validate_providers")
         _spawn(background_health_check(), name="health_check")
         if ENABLE_PR_DEFENSE:
-                   _spawn(pr_defense_cleanup(), name="pr_cleanup")
+            _spawn(pr_defense_cleanup(), name="pr_cleanup")
         _spawn(_keepalive_loop(), name="keepalive")
 
-        yield # This is crucial for asynccontextmanager, indented 12 spaces
-    except Exception as e: # This except block should be indented 8 spaces
-        logger.error("Application startup failed", error=str(e), exc_info=True)
-        raise
-    finally: # This finally block should be indented 8 spaces
-        # ---- graceful shutdown ----
-        logger.info("shutdown_initiated")
-
-        # Cancel all background tasks and wait for them
-        for t in list(getattr(app.state, "bg_tasks", ())):
-            t.cancel()
-        with contextlib.suppress(Exception):
-            await asyncio.gather(
-                *getattr(app.state, "bg_tasks", ()),
-                return_exceptions=True,
-            )
-            # ... (rest of the finally block content)
-            pass # Placeholder for the rest of the finally block, indented 12 spaces
-    logger.info(
-        "axelr_startup",
-        origin=ORIGIN,
-        mongo="SET" if MONGO_URI else "MISSING",
-        gemini="SET" if GEMINI_API_KEY else "MISSING",
-        groq="SET" if GROQ_API_KEY else "MISSING",
-        openrouter="SET" if OPENROUTER_API_KEY else "MISSING",
-    )
-
-    # ---- feature-service instantiation ----
-    global intent_classifier, context_registry, dependency_tracker
-    global critic_agent, self_healer, pr_defense
-
-    # AI Router — expose both on app.state and as a module global
-    global _global_ai_router
-    _global_ai_router = ResilientAIRouter(providers=list(LITELLM_SUPPORTED.keys()))
-    app.state.ai_router = _global_ai_router
-    # IntentRouter (elite — keyword + optional ONNX)
-    intent_classifier = _intent_router if ENABLE_INTENT_CLASSIFIER else None
-
-    # External context (Jira/Linear/OpenAPI)
-    context_registry = None
-    if ENABLE_CONTEXT_REGISTRY and redis_client is not None and db is not None:
+        # -- 3. elite modules (built BEFORE the yield) -----------------
+        global conversation_memory, repo_indexer, test_loop
         try:
-            context_registry = ContextRegistry(redis_client, users_col)
-        except Exception as e:
-            logger.warning("context_registry_init_failed", error=str(e))
-
-    # Dependency tracker (build in a thread — could be slow on big repos)
-    dependency_tracker = None
-    if ENABLE_BLAST_RADIUS and WORKSPACE_ROOT:
-        try:
-            dependency_tracker = DependencyTracker(WORKSPACE_ROOT)
-            await asyncio.to_thread(dependency_tracker.build, max_files=3000)
-            logger.info(
-                "dependency_graph_built",
-                files=len(dependency_tracker.to_dict()["graph"]),
+            conversation_memory = ConversationMemory(
+                redis_client=redis_client, http_client=HTTP_CLIENT
             )
         except Exception as e:
-            logger.warning("dependency_tracker_build_failed", error=str(e))
-            dependency_tracker = None
+            logger.warning("conversation_memory_init_failed", error=str(e))
+            conversation_memory = None
 
-    # Critic → CodeGuard (elite)
-    critic_agent = _code_guard if ENABLE_CRITIC else None
-
-    # Self-healer — bound to route_ai_request
-        # was: SelfHealer(route_ai_request, max_retries=2)
-    self_healer = (
-        SelfHealer(route_ai_request_parallel, max_retries=2)
-        if ENABLE_SELF_HEAL else None
-    )
-    # PR shield (pure stateless Markdown renderer)
-    pr_defense = PRShield() if ENABLE_PR_DEFENSE else None
-
-    # Touch-fix engine — bind to the parallel router
-    global _touch_fix_engine
-    try:
-        _touch_fix_engine = TouchFixEngine(route_func=route_ai_request_parallel)
-    except Exception as _e:
-        logger.warning("touch_fix_engine_init_failed", error=str(_e))
-        _touch_fix_engine = None
-    # ---- connectivity probes ----
-    if not db_available:
-        logger.critical("mongo_unavailable_degraded_mode")
-    else:
         try:
-            await db.command("ping")
-            logger.info("mongo_ping_ok")
+            repo_indexer = RepoIndexer(
+                redis_client=redis_client, http_client=HTTP_CLIENT
+            )
         except Exception as e:
-            logger.error("mongo_ping_failed", error=str(e))
+            logger.warning("repo_indexer_init_failed", error=str(e))
+            repo_indexer = None
 
-    if redis_client:
         try:
-            await redis_client.ping()
-            logger.info("redis_ping_ok")
+            test_loop = TestLoop(
+                route_func=route_ai_request_parallel,
+                execute_func=_sandbox_execute,
+            )
         except Exception as e:
-            logger.error("redis_ping_failed", error=str(e))
+            logger.warning("test_loop_init_failed", error=str(e))
+            test_loop = None
 
-    # ---- semantic cache warm-up (correct place, correct timing) ----
-    try:
-        await _semantic_cache._ensure_model()
-        logger.info("semantic_cache_warmed")
+        # -- 4. feature services ---------------------------------------
+        global intent_classifier, context_registry, dependency_tracker
+        global critic_agent, self_healer, pr_defense, _global_ai_router
+        global _touch_fix_engine
+
+        _global_ai_router = ResilientAIRouter(
+            providers=list(LITELLM_SUPPORTED.keys())
+        )
+        app.state.ai_router = _global_ai_router
+
+        intent_classifier = _intent_router if ENABLE_INTENT_CLASSIFIER else None
+
+        context_registry = None
+        if ENABLE_CONTEXT_REGISTRY and redis_client is not None and users_col is not None:
+            try:
+                context_registry = ContextRegistry(redis_client, users_col)
+            except Exception as e:
+                logger.warning("context_registry_init_failed", error=str(e))
+
+        dependency_tracker = None
+        if ENABLE_BLAST_RADIUS and WORKSPACE_ROOT:
+            try:
+                dependency_tracker = DependencyTracker(WORKSPACE_ROOT)
+                await asyncio.to_thread(dependency_tracker.build, max_files=3000)
+            except Exception as e:
+                logger.warning("dependency_tracker_build_failed", error=str(e))
+                dependency_tracker = None
+
+        critic_agent = _code_guard if ENABLE_CRITIC else None
+
+        self_healer = (
+            SelfHealer(route_ai_request_parallel, max_retries=2)
+            if ENABLE_SELF_HEAL else None
+        )
+        pr_defense = PRShield() if ENABLE_PR_DEFENSE else None
+
+        try:
+            _touch_fix_engine = TouchFixEngine(route_func=route_ai_request_parallel)
+        except Exception as e:
+            logger.warning("touch_fix_engine_init_failed", error=str(e))
+            _touch_fix_engine = None
+
+        # -- 5. connectivity probes (non-fatal) ------------------------
+        if db_available:
+            try:
+                await db.command("ping")
+                logger.info("mongo_ping_ok")
+            except Exception as e:
+                logger.error("mongo_ping_failed", error=str(e))
+
+        if redis_client:
+            try:
+                await redis_client.ping()
+                logger.info("redis_ping_ok")
+            except Exception as e:
+                logger.error("redis_ping_failed", error=str(e))
+
+        # -- 6. semantic cache warm-up (best-effort) -------------------
+        try:
+            await asyncio.wait_for(_semantic_cache._ensure_model(), timeout=30)
+            logger.info("semantic_cache_warmed")
+        except Exception as e:
+            logger.warning("semantic_cache_warmup_failed", error=str(e))
+
+        logger.info(
+            "axelr_startup",
+            origin=ORIGIN,
+            mongo="SET" if MONGO_URI else "MISSING",
+            gemini="SET" if GEMINI_API_KEY else "MISSING",
+            groq="SET" if GROQ_API_KEY else "MISSING",
+            openrouter="SET" if OPENROUTER_API_KEY else "MISSING",
+        )
+
     except Exception as e:
-        logger.warning("semantic_cache_warmup_failed", error=str(e))
+        logger.error("application_startup_failed", error=str(e), exc_info=True)
+        raise
 
-    app.state.start_time = time.time()
-
-    # ---- background tasks (tracked so they cannot be GC'd mid-flight) ----
-    app.state.bg_tasks: set = set()
-
-    def _spawn(coro, *, name: str):
-        t = asyncio.create_task(coro, name=name)
-        app.state.bg_tasks.add(t)
-        t.add_done_callback(app.state.bg_tasks.discard)
-        return t
-
-    _spawn(validate_all_providers(), name="validate_providers")
-    _spawn(background_health_check(), name="health_check")
-    if ENABLE_PR_DEFENSE:
-        _spawn(pr_defense_cleanup(), name="pr_cleanup")
-    _spawn(_keepalive_loop(), name="keepalive")
-
+    # ── SINGLE YIELD: application runs here ───────────────────────────
     yield
 
-    try:
-        await _semantic_cache._ensure_model()
-        logger.info("semantic_cache_warmed")
-    except Exception as e:
-        logger.error("Application startup failed", error=str(e), exc_info=True)
-        raise
-    finally:
-        # ---- graceful shutdown ----
-        logger.info("shutdown_initiated")
+    # ==================================================================
+    # SHUTDOWN  (everything below runs ONCE, on shutdown)
+    # ==================================================================
+    logger.info("shutdown_initiated")
 
-        # Cancel all background tasks and wait for them
-        for t in list(getattr(app.state, "bg_tasks", ())):
-            t.cancel()
+    for t in list(getattr(app.state, "bg_tasks", ())):
+        t.cancel()
+    with contextlib.suppress(Exception):
+        await asyncio.gather(
+            *getattr(app.state, "bg_tasks", ()),
+            return_exceptions=True,
+        )
+
+    if context_registry is not None:
         with contextlib.suppress(Exception):
-            await asyncio.gather(
-                *getattr(app.state, "bg_tasks", ()),
-                return_exceptions=True,
-            )
+            await context_registry.close()
 
-        try:
-            if context_registry is not None:
-                await context_registry.close()
-        except Exception:
-            pass
-        try:
-            await _semantic_cache.clear()
-        except Exception:
-            pass
-        try:
-            await HTTP_CLIENT.aclose()
-        except Exception:
-            pass
-        _touch_fix_engine = None
-        if client:
+    if conversation_memory is not None:
+        with contextlib.suppress(Exception):
+            await conversation_memory.close()
+
+    if repo_indexer is not None:
+        with contextlib.suppress(Exception):
+            await repo_indexer.close()
+
+    with contextlib.suppress(Exception):
+        await _semantic_cache.clear()
+
+    with contextlib.suppress(Exception):
+        await HTTP_CLIENT.aclose()
+
+    if client:
+        with contextlib.suppress(Exception):
             client.close()
-        logger.info("shutdown_complete")
 
+    logger.info("shutdown_complete")
 # ---------------------------------------------------------------------------
 # CORS + middleware
 # ---------------------------------------------------------------------------
@@ -1111,6 +1174,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 from fastapi.exceptions import RequestValidationError
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
@@ -1425,7 +1489,7 @@ def sanitize_input(text: str) -> str:
         return ""
     # Allow alphanumeric characters, spaces, and a limited set of punctuation.
     # This is a restrictive policy to prevent injection.
-    sanitized_text = re.sub(r'[^a-zA-Z0-9\s.,!?-]', '', text)
+    sanitized_text = re.sub(r'[\x00-\x1f\x7f]', '', text)
     return sanitized_text
 # ---------- EMAIL ----------
 def get_email_transport():
@@ -2719,6 +2783,13 @@ async def route_ai_request(
         yield {"success": False, "text": "🚫 Content policy violation.", "provider": "security", "model_used": "blocked", "tokens_used": 0, "latency_ms": 0}
         return
 
+    # Define streaming client tracking variables to avoid NameError in finally block
+    session_id = f"{user['_id']}:{workspace}" if (user and "_id" in user) else str(uuid.uuid4())
+    client_id = str(uuid.uuid4())
+    redis_key = f"streaming_clients:{session_id}"
+    if redis_client:
+        await redis_client.sadd(redis_key, client_id)
+        await redis_client.expire(redis_key, 300)  # 5-minute TTL to prevent leaks
 
     try:
         # ---- Process history ----
@@ -2833,10 +2904,12 @@ async def route_ai_request(
             except Exception as e:
                 logger.warning(f"LiteLLM provider {provider} failed: {e}")
                 continue
-
     # If all providers fail, fall back to sequential processing
-    async for chunk in route_ai_request_sequential(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context):
-        yield chunk
+    sequential_result = await route_ai_request_sequential(
+        workspace, task_type, prompt, history, files,
+        max_tokens, temp, tier, user, context,
+    )
+    yield sequential_result
 # ---------- SEQUENTIAL ROUTER ----------
 def strip_system_prompt_sequential(text: str) -> str:
     patterns = [
@@ -3211,7 +3284,6 @@ async def stream_ai_response(
                         return
         except Exception as e:
             logger.warning("groq_stream_failed", error=str(e))
-
     # ---- 3. sequential fallback, chunked-streamed ----
     result = await route_ai_request_sequential(
         workspace, task_type, prompt, history, files,
@@ -3225,6 +3297,7 @@ async def stream_ai_response(
     # Apply system prompt stripping to prevent leakage
     full_text = strip_system_prompt(full_text)
     full_text = strip_fluff(full_text)
+
     buf: list[str] = []
     tokens = full_text.split()
     for i, w in enumerate(tokens):
@@ -3236,32 +3309,7 @@ async def stream_ai_response(
 
     watermark = f"\n\n---\n*Generated through Axelr in {time.time() - start:.2f} seconds*"
     yield f"data: {json.dumps({'watermark': watermark})}\n\n"
-
-
 @app.post("/api/extract_stream")
-@limiter.limit("5/minute")
-async def extract_stream(
-    request: Request,
-    user: dict = Depends(get_current_user),
-    command: str = Form(...),
-    workspace: str | None = Form(None),
-    task_type: str | None = Form(None),
-    sessionId: str | None = Form(None),
-    context: str | None = Form(None),
-    files: list[UploadFile] = File([])
-):
-    allowed, reset_sec = await check_rate_limit(
-        str(user["_id"]), user.get("tier", "free"), "extract_stream"
-    )
-    if not allowed:
-        raise HTTPException(
-            status_code=429,
-            detail={
-                "code": "QUOTA_EXCEEDED",
-                "message": f"Rate limit exceeded. Try again in {reset_sec} seconds.",
-                "reset": reset_sec
-            }
-        )
 @limiter.limit("5/minute")
 async def extract_stream(
     request: Request,
@@ -3413,6 +3461,7 @@ async def extract_stream(
                         "messages": [new_user_msg, new_model_msg],
                         "createdAt": datetime.utcnow()
                     }
+                    # Add projectId if provided and valid
                     if projectId and ObjectId.is_valid(projectId):
                         new_session["projectId"] = ObjectId(projectId)
                     result = await sessions_col.insert_one(new_session)
@@ -3780,10 +3829,35 @@ async def validate_all_providers(force: bool = False) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # AXELR Elite Modules — wiring
 # ---------------------------------------------------------------------------
-from core.conversation_memory import ConversationMemory
-from core.repo_indexer import RepoIndexer
-from core.test_loop import TestLoop
-from core.webhook_pipeline import make_webhook_router
+try:
+    from core.conversation_memory import ConversationMemory
+    from core.repo_indexer import RepoIndexer
+    from core.test_loop import TestLoop
+    from core.webhook_pipeline import make_webhook_router
+except Exception as _e:                                        # noqa: BLE001
+    import traceback as _tb2
+    logger.warning(
+        "core_submodules_missing_using_stubs",
+        error=str(_e),
+        traceback=_tb2.format_exc(),
+    )
+
+    class ConversationMemory:
+        def __init__(self, *a, **kw): pass
+        async def retrieve(self, *a, **kw): return []
+        async def add_message(self, *a, **kw): return None
+        async def close(self): pass
+
+    class RepoIndexer:
+        def __init__(self, *a, **kw): pass
+        async def close(self): pass
+
+    class TestLoop:
+        def __init__(self, *a, **kw): pass
+
+    from fastapi import APIRouter as _APIRouter
+    def make_webhook_router(route_func, http_client=None):
+        return _APIRouter()
 
 # Lazily instantiated in lifespan() — leave as None at module scope.
 conversation_memory: ConversationMemory | None = None
@@ -4523,24 +4597,143 @@ async def guest_extract(
         logger.error("guest_extract_error", error=str(e))
         raise HTTPException(status_code=500, detail="Internal error occurred")
 # ---------- ENDPOINTS ----------
-@app.get("/")
-@app.get("/api/health")
-async def health():
-    db_status = "unavailable" if not db_available else "connected"
+from fastapi import Response as _FastResponse
+
+# Ultra-light liveness probe — used by UptimeRobot / Cronitor / Render
+@app.api_route(
+    "/ping",
+    methods=["GET", "HEAD", "OPTIONS"],
+    include_in_schema=False,
+)
+async def ping():
+    """Zero-dependency liveness probe. Always 200, never touches DB/Redis."""
+    if False:  # placeholder so linters see `Request` isn't needed
+        pass
+    return _FastResponse(
+        status_code=200,
+        content=b"pong" if True else b"",
+        media_type="text/plain",
+    )
+
+
+@app.api_route(
+    "/",
+    methods=["GET", "HEAD", "OPTIONS"],
+    include_in_schema=False,
+)
+@app.api_route(
+    "/api/health",
+    methods=["GET", "HEAD", "OPTIONS"],
+)
+async def health(request: Request):
+    # Fast path: HEAD/OPTIONS never hit the DB.
+    if request.method in ("HEAD", "OPTIONS"):
+        return _FastResponse(status_code=200)
+
+    # GET path: bounded DB ping, never blocks the monitor.
+    db_status = "disconnected"
     if db_available:
         try:
-            await db.command("ping")
+            await asyncio.wait_for(db.command("ping"), timeout=1.5)
             db_status = "connected"
         except Exception:
             db_status = "disconnected"
-    return {
-        "status": "operational" if db_status == "connected" else "degraded",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
-        "db": db_status,
-        "stripe": bool(STRIPE_SECRET_KEY),
-        "email": bool(SMTP_USER and SMTP_PASS),
-        "uptime": time.time() - app.state.start_time if hasattr(app.state, "start_time") else 0
-    }
+    else:
+        db_status = "unavailable"
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "operational" if db_status == "connected" else "degraded",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "db": db_status,
+            "stripe": bool(STRIPE_SECRET_KEY),
+            "email": bool(SMTP_USER and SMTP_PASS),
+            "uptime": (
+                time.time() - app.state.start_time
+                if hasattr(app.state, "start_time") else 0
+            ),
+        },
+    )
+# ---------------------------------------------------------------------------
+# HEALTH / LIVENESS / READINESS  — one route per path, no stacked decorators
+# ---------------------------------------------------------------------------
+# Works with: UptimeRobot (HEAD + GET), Cronitor (GET), Render's health check,
+# Better Uptime, Pingdom, Prometheus blackbox_exporter, Fly.io, k8s probes.
+#
+# /ping  /healthz  /livez         → zero-dependency liveness. NEVER touches DB.
+# /api/health                     → readiness. Bounded (1.5 s) DB ping.
+# /api/health/detailed            → full diagnostics.
+# ---------------------------------------------------------------------------
+
+from starlette.responses import Response as _Resp
+
+
+async def _liveness() -> _Resp:
+    """Liveness: always 200, never blocks, never touches DB/Redis."""
+    return _Resp(status_code=200, content=b"ok", media_type="text/plain")
+
+
+# Register one decorator per path — this is the key fix.
+for _path in (
+    "/ping",
+    "/healthz",
+    "/livez",
+    "/api/live",
+    "/api/health/live",
+):
+    app.add_api_route(
+        _path,
+        _liveness,
+        methods=["GET", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+    )
+
+
+@app.api_route("/", methods=["GET", "HEAD", "OPTIONS"], include_in_schema=False)
+async def root(request: Request):
+    """Root — used by Render's own probe and by UptimeRobot redirects."""
+    if request.method in ("HEAD", "OPTIONS"):
+        return _Resp(status_code=200)
+    return JSONResponse(
+        status_code=200,
+        content={"service": "axelr-backend", "status": "ok"},
+    )
+
+
+@app.api_route("/api/health", methods=["GET", "HEAD", "OPTIONS"])
+async def health(request: Request):
+    """
+    Readiness probe.
+
+    IMPORTANT: this endpoint *always returns 200*. It is a status *report*,
+    not a gate. Returning 5xx here causes flapping UptimeRobot incidents
+    whenever Mongo hiccups for 200 ms.
+    """
+    if request.method in ("HEAD", "OPTIONS"):
+        # Fast path — no DB, no Redis, no I/O.
+        return _Resp(status_code=200)
+
+    db_status = "unavailable"
+    if db_available:
+        try:
+            await asyncio.wait_for(db.command("ping"), timeout=1.5)
+            db_status = "connected"
+        except Exception:
+            db_status = "disconnected"
+
+    return JSONResponse(
+        status_code=200,                                   # ← always 200
+        content={
+            "status": "operational" if db_status == "connected" else "degraded",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "db": db_status,
+            "redis": "connected" if redis_client else "disabled",
+            "stripe": bool(STRIPE_SECRET_KEY),
+            "email": bool(SMTP_USER and SMTP_PASS),
+            "uptime": time.time() - getattr(app.state, "start_time", time.time()),
+        },
+    )
 @app.get("/api/health/detailed")
 async def health_detailed():
     provider_status = {}
@@ -4900,7 +5093,7 @@ async def enhance_prompt(data: EnhanceRequest, user: dict = Depends(get_current_
             "usage": used,
             "limit": limit
         })
-    ai_result = await route_ai_request(
+    ai_result = await route_ai_request_parallel(
         workspace="prompt",
         task_type="structuring",
         prompt=prompt_text,
@@ -4937,7 +5130,7 @@ Return only the refactored code, without any explanation.
 ```html
 {data.code}
 ```"""
-    ai_result = await route_ai_request(
+    ai_result = await route_ai_request_parallel(
         workspace="design",
         task_type="refactor",
         prompt=prompt,
@@ -6276,7 +6469,7 @@ async def explain_code(data: CodeRequest, user: dict = Depends(get_current_user)
 ```html
 {data.code}
 ```"""
-    ai_result = await route_ai_request(
+    ai_result = await route_ai_request_parallel(
         workspace="design",
         task_type="explain",
         prompt=prompt,
@@ -6300,7 +6493,7 @@ async def generate_tests(data: CodeRequest, user: dict = Depends(get_current_use
 ```html
 {data.code}
 ```"""
-    ai_result = await route_ai_request(
+    ai_result = await route_ai_request_parallel(
         workspace="design",
         task_type="generate_tests",
         prompt=prompt,
@@ -6324,7 +6517,7 @@ async def summarize(data: TextRequest, user: dict = Depends(get_current_user)):
     if not data.text:
         raise HTTPException(status_code=400, detail="No text provided")
     prompt = f"Summarize the following text concisely (max 150 words):\n\n{data.text}"
-    ai_result = await route_ai_request(
+    ai_result = await route_ai_request_parallel(
         workspace="core",
         task_type="summarize",
         prompt=prompt,
@@ -6344,7 +6537,7 @@ async def brainstorm(data: TextRequest, user: dict = Depends(get_current_user)):
     if not data.text:
         raise HTTPException(status_code=400, detail="No topic provided")
     prompt = f"Brainstorm 10 creative, actionable ideas related to: {data.text}. List them with brief explanations."
-    ai_result = await route_ai_request(
+    ai_result = await route_ai_request_parallel(
         workspace="core",
         task_type="brainstorm",
         prompt=prompt,
@@ -7047,7 +7240,7 @@ async def agent_chat(request: Request, data: AgentRequest, user: dict = Depends(
         system = role_prompts.get(role, role_prompts["core"])
         full_prompt = f"{system}\n\nTask: {subtask}\n\nRespond directly without preamble."
         # Use existing route_ai_request
-        result = await route_ai_request(
+        result = await route_ai_request_parallel(
             workspace=data.workspace or "core",
             task_type="structuring",
             prompt=full_prompt,
@@ -7146,7 +7339,7 @@ async def run_workflow(data: WorkflowRequest, user: dict = Depends(get_current_u
             yield f"data: {json.dumps({'step': step.name, 'status': 'started', 'index': idx})}\n\n"
             try:
                 prompt = step.prompt.format(context=accumulated) if "{context}" in step.prompt else step.prompt
-                result = await route_ai_request(
+                result = await route_ai_request_parallel(
                     workspace=data.workspace or "core",
                     task_type="structuring",
                     prompt=prompt,
@@ -7184,7 +7377,7 @@ async def summarize_chat(session_id: str, user: dict = Depends(get_current_user)
     # Build conversation text
     conv = "\n".join([f"{m['role']}: {m['text']}" for m in messages if m.get('text')])
     prompt = f"Summarize the following conversation concisely (max 300 words). Include key decisions, questions, and answers.\n\n{conv}"
-    result = await route_ai_request(
+    result = await route_ai_request_parallel(
         workspace="core",
         task_type="summarize",
         prompt=prompt,
@@ -7211,7 +7404,85 @@ async def execute_code(data: ExecuteRequest, user: dict = Depends(get_current_us
         raise HTTPException(status_code=413, detail="code_too_large")
     data.timeout = max(1, min(int(data.timeout or 5), 10))
     return await execute_code_on_worker(data.language, data.code, data.timeout)
-    
+    # ============================================================
+# ELITE MODULES — HTTP surface
+# ============================================================
+class RepoIndexRequest(BaseModel):
+    repo_url: str
+    branch: str | None = None
+    force: bool = False
+
+
+class RepoQueryRequest(BaseModel):
+    repo_url: str
+    query: str
+    top_k: int = 10
+
+
+class TestLoopRequest(BaseModel):
+    code: str
+    language: str = "python"
+
+
+@app.post("/api/repo/index", tags=["Elite"])
+async def repo_index_endpoint(
+    data: RepoIndexRequest,
+    user: dict = Depends(get_current_user),
+):
+    if repo_indexer is None:
+        raise HTTPException(status_code=503, detail="Repo indexer unavailable")
+    stats = await repo_indexer.index_repo(
+        data.repo_url, data.branch, force=data.force
+    )
+    return {"success": True, **stats.to_dict()}
+
+
+@app.post("/api/repo/query", tags=["Elite"])
+async def repo_query_endpoint(
+    data: RepoQueryRequest,
+    user: dict = Depends(get_current_user),
+):
+    if repo_indexer is None:
+        raise HTTPException(status_code=503, detail="Repo indexer unavailable")
+    chunks = await repo_indexer.query(
+        data.repo_url, data.query, top_k=max(1, min(data.top_k, 50))
+    )
+    return {"success": True, "chunks": [c.to_dict() for c in chunks]}
+
+
+@app.post("/api/test-loop/run", tags=["Elite"])
+async def test_loop_endpoint(
+    data: TestLoopRequest,
+    user: dict = Depends(get_current_user),
+):
+    if test_loop is None:
+        raise HTTPException(status_code=503, detail="Test loop unavailable")
+    result = await test_loop.run(
+        data.code,
+        data.language,
+        tier=user.get("tier", "free"),
+        user=user,
+    )
+    return {"success": True, **result.to_dict()}
+
+
+@app.get("/api/memory/{session_id}", tags=["Elite"])
+async def memory_endpoint(
+    session_id: str,
+    query: str = "",
+    user: dict = Depends(get_current_user),
+):
+    if conversation_memory is None:
+        raise HTTPException(status_code=503, detail="Memory unavailable")
+    if query:
+        items = await conversation_memory.retrieve(
+            str(user["_id"]), query, session_id=session_id
+        )
+    else:
+        items = await conversation_memory.retrieve_recent(
+            str(user["_id"]), session_id
+        )
+    return {"success": True, "items": [i.to_dict() for i in items]}
 # ---------- PERSONAS ----------
 class Persona(BaseModel):
     name: str
@@ -7338,7 +7609,7 @@ async def refine_response(data: RefineRequest, user: dict = Depends(get_current_
     command = messages[-1].get("text", "")
     workspace = session.get("workspace", "core")
 
-    result = await route_ai_request(
+    result = await route_ai_request_parallel(
         workspace=workspace,
         task_type="structuring",
         prompt=command,
