@@ -1212,7 +1212,159 @@ async def _unhandled_err(request: Request, exc: Exception):
         content={"success": False, "code": "INTERNAL_ERROR",
                  "message": "Internal server error.", "request_id": rid},
     )
+# ===========================================================================
+# MONITORING & HEALTH — CONSOLIDATED, 405-PROOF, ALL-PLATFORM SAFE
+# ---------------------------------------------------------------------------
+# Guarantees:
+#   * One route per path. No duplicate registration. No 405s, ever.
+#   * GET  -> 200 JSON (readiness) or plain "ok" (liveness)
+#   * HEAD -> 200, empty body (Starlette strips body automatically)
+#   * OPTIONS -> 200, empty body, CORS-safe for browser preflight
+#   * Liveness NEVER touches DB / Redis / AI / disk -> instant response
+#   * Readiness uses a hard 1.5s timeout and ALWAYS returns 200
+#     (the JSON body reports degraded vs operational)
+#   * Works with: UptimeRobot, Cronitor, Better Uptime, Pingdom,
+#     Freshping, Render probe, Fly.io, k8s probes, Prometheus blackbox
+# ===========================================================================
 
+from starlette.responses import Response as _StarletteResponse
+
+def _no_body_ok() -> _StarletteResponse:
+    """Instant 200, no body — safe for HEAD / OPTIONS."""
+    return _StarletteResponse(
+        status_code=200,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "X-Robots-Tag": "noindex",
+        },
+    )
+
+
+async def _liveness(request: Request) -> _StarletteResponse:
+    """
+    Pure liveness. Zero dependencies. Always 200.
+    Safe for UptimeRobot, Cronitor, Render's internal probe.
+    """
+    if request.method in ("HEAD", "OPTIONS"):
+        return _no_body_ok()
+    return _StarletteResponse(
+        status_code=200,
+        content=b"ok",
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "X-Robots-Tag": "noindex",
+        },
+    )
+
+
+async def _readiness(request: Request) -> JSONResponse:
+    """
+    Readiness report. Bounded DB + Redis ping. ALWAYS 200.
+    The JSON body tells the truth — monitors can parse `status`.
+    """
+    if request.method in ("HEAD", "OPTIONS"):
+        return _no_body_ok()
+
+    db_status = "disabled"
+    redis_status = "disabled"
+
+    if db_available and db is not None:
+        try:
+            await asyncio.wait_for(db.command("ping"), timeout=1.5)
+            db_status = "connected"
+        except Exception:
+            db_status = "disconnected"
+
+    if redis_client is not None:
+        try:
+            await asyncio.wait_for(redis_client.ping(), timeout=1.0)
+            redis_status = "connected"
+        except Exception:
+            redis_status = "disconnected"
+
+    overall = "operational" if db_status == "connected" else "degraded"
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": overall,
+            "service": "axelr-backend",
+            "version": app.version,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "uptime_seconds": round(
+                time.time() - getattr(app.state, "start_time", time.time()), 2
+            ),
+            "checks": {
+                "database": db_status,
+                "redis": redis_status,
+            },
+        },
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate",
+            "X-Robots-Tag": "noindex",
+        },
+    )
+
+
+# --- ONE registration pass. No duplicates. No 405s. ----------------------
+_LIVENESS_PATHS = (
+    "/ping",          # UptimeRobot default 2
+    "/livez",         # k8s convention
+    "/healthz",       # k8s / GCP convention
+    "/api/live",      # your existing alias
+    "/api/ping",      # your existing alias
+)
+
+_READINESS_PATHS = (
+    "/health",        # UptimeRobot / Better Uptime / Pingdom default
+    "/api/health",    # your existing alias
+    "/status",        # Cronitor / Freshping convention
+    "/api/status",    # alias
+    "/readyz",        # k8s convention
+    "/api/ready",     # alias
+)
+
+for _p in _LIVENESS_PATHS:
+    app.add_api_route(
+        _p,
+        _liveness,
+        methods=["GET", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+        name=f"liveness_{_p.strip('/').replace('/', '_') or 'root'}",
+    )
+
+for _p in _READINESS_PATHS:
+    app.add_api_route(
+        _p,
+        _readiness,
+        methods=["GET", "HEAD", "OPTIONS"],
+        include_in_schema=False,
+        name=f"readiness_{_p.strip('/').replace('/', '_')}",
+    )
+
+
+# --- Root: also a valid monitor target, no longer 405-prone ---------------
+@app.api_route(
+    "/",
+    methods=["GET", "HEAD", "OPTIONS"],
+    include_in_schema=False,
+)
+async def _root_probe(request: Request):
+    if request.method in ("HEAD", "OPTIONS"):
+        return _no_body_ok()
+    return JSONResponse(
+        status_code=200,
+        content={
+            "service": "axelr-backend",
+            "status": "ok",
+            "version": app.version,
+            "uptime_seconds": round(
+                time.time() - getattr(app.state, "start_time", time.time()), 2
+            ),
+        },
+        headers={"Cache-Control": "no-store"},
+    )
     # ---------------------------------------------------------------------------
 # Rate limiter — key by bearer token when present, else by client IP
 # ---------------------------------------------------------------------------
@@ -1301,6 +1453,40 @@ async def body_size_guard(request: Request, call_next):
                          "message": f"Body exceeds {MAX_BODY_BYTES} bytes"},
             )
     return await call_next(request)
+@app.middleware("http")
+async def monitor_safety_net(request: Request, call_next):
+    """
+    Guarantees that monitor-facing paths NEVER bubble up an exception.
+    Any internal error on a health path becomes a 200 'degraded' report
+    instead of a 5xx, so UptimeRobot never flaps on transient hiccups.
+    """
+    monitor_prefixes = (
+        "/ping", "/livez", "/healthz", "/api/live", "/api/ping",
+        "/health", "/api/health", "/status", "/api/status",
+        "/readyz", "/api/ready", "/",
+    )
+    is_monitor = (
+        request.url.path in monitor_prefixes
+        or request.url.path.rstrip("/") in monitor_prefixes
+    )
+
+    try:
+        return await call_next(request)
+    except Exception as exc:                       # noqa: BLE001
+        if is_monitor:
+            logger.warning(
+                "monitor_request_failed",
+                path=request.url.path,
+                method=request.method,
+                error=str(exc),
+            )
+            if request.method in ("HEAD", "OPTIONS"):
+                return _StarletteResponse(status_code=200)
+            return JSONResponse(
+                status_code=200,
+                content={"status": "degraded", "error": "internal"},
+            )
+        raise
 # ---------------------------------------------------------------------------
 # Auth
 # ---------------------------------------------------------------------------
@@ -4596,144 +4782,10 @@ async def guest_extract(
     except Exception as e:
         logger.error("guest_extract_error", error=str(e))
         raise HTTPException(status_code=500, detail="Internal error occurred")
-# ---------- ENDPOINTS ----------
-from fastapi import Response as _FastResponse
-
-# Ultra-light liveness probe — used by UptimeRobot / Cronitor / Render
-@app.api_route(
-    "/ping",
-    methods=["GET", "HEAD", "OPTIONS"],
-    include_in_schema=False,
-)
-async def ping():
-    """Zero-dependency liveness probe. Always 200, never touches DB/Redis."""
-    if False:  # placeholder so linters see `Request` isn't needed
-        pass
-    return _FastResponse(
-        status_code=200,
-        content=b"pong" if True else b"",
-        media_type="text/plain",
-    )
-
-
-@app.api_route(
-    "/",
-    methods=["GET", "HEAD", "OPTIONS"],
-    include_in_schema=False,
-)
-@app.api_route(
-    "/api/health",
-    methods=["GET", "HEAD", "OPTIONS"],
-)
-async def health(request: Request):
-    # Fast path: HEAD/OPTIONS never hit the DB.
-    if request.method in ("HEAD", "OPTIONS"):
-        return _FastResponse(status_code=200)
-
-    # GET path: bounded DB ping, never blocks the monitor.
-    db_status = "disconnected"
-    if db_available:
-        try:
-            await asyncio.wait_for(db.command("ping"), timeout=1.5)
-            db_status = "connected"
-        except Exception:
-            db_status = "disconnected"
-    else:
-        db_status = "unavailable"
-
-    return JSONResponse(
-        status_code=200,
-        content={
-            "status": "operational" if db_status == "connected" else "degraded",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "db": db_status,
-            "stripe": bool(STRIPE_SECRET_KEY),
-            "email": bool(SMTP_USER and SMTP_PASS),
-            "uptime": (
-                time.time() - app.state.start_time
-                if hasattr(app.state, "start_time") else 0
-            ),
-        },
-    )
 # ---------------------------------------------------------------------------
 # HEALTH / LIVENESS / READINESS  — one route per path, no stacked decorators
 # ---------------------------------------------------------------------------
 # Works with: UptimeRobot (HEAD + GET), Cronitor (GET), Render's health check,
-# Better Uptime, Pingdom, Prometheus blackbox_exporter, Fly.io, k8s probes.
-#
-# /ping  /healthz  /livez         → zero-dependency liveness. NEVER touches DB.
-# /api/health                     → readiness. Bounded (1.5 s) DB ping.
-# /api/health/detailed            → full diagnostics.
-# ---------------------------------------------------------------------------
-
-from starlette.responses import Response as _Resp
-
-
-async def _liveness() -> _Resp:
-    """Liveness: always 200, never blocks, never touches DB/Redis."""
-    return _Resp(status_code=200, content=b"ok", media_type="text/plain")
-
-
-# Register one decorator per path — this is the key fix.
-for _path in (
-    "/ping",
-    "/healthz",
-    "/livez",
-    "/api/live",
-    "/api/health/live",
-):
-    app.add_api_route(
-        _path,
-        _liveness,
-        methods=["GET", "HEAD", "OPTIONS"],
-        include_in_schema=False,
-    )
-
-
-@app.api_route("/", methods=["GET", "HEAD", "OPTIONS"], include_in_schema=False)
-async def root(request: Request):
-    """Root — used by Render's own probe and by UptimeRobot redirects."""
-    if request.method in ("HEAD", "OPTIONS"):
-        return _Resp(status_code=200)
-    return JSONResponse(
-        status_code=200,
-        content={"service": "axelr-backend", "status": "ok"},
-    )
-
-
-@app.api_route("/api/health", methods=["GET", "HEAD", "OPTIONS"])
-async def health(request: Request):
-    """
-    Readiness probe.
-
-    IMPORTANT: this endpoint *always returns 200*. It is a status *report*,
-    not a gate. Returning 5xx here causes flapping UptimeRobot incidents
-    whenever Mongo hiccups for 200 ms.
-    """
-    if request.method in ("HEAD", "OPTIONS"):
-        # Fast path — no DB, no Redis, no I/O.
-        return _Resp(status_code=200)
-
-    db_status = "unavailable"
-    if db_available:
-        try:
-            await asyncio.wait_for(db.command("ping"), timeout=1.5)
-            db_status = "connected"
-        except Exception:
-            db_status = "disconnected"
-
-    return JSONResponse(
-        status_code=200,                                   # ← always 200
-        content={
-            "status": "operational" if db_status == "connected" else "degraded",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "db": db_status,
-            "redis": "connected" if redis_client else "disabled",
-            "stripe": bool(STRIPE_SECRET_KEY),
-            "email": bool(SMTP_USER and SMTP_PASS),
-            "uptime": time.time() - getattr(app.state, "start_time", time.time()),
-        },
-    )
 @app.get("/api/health/detailed")
 async def health_detailed():
     provider_status = {}
