@@ -1,0 +1,8 @@
+-r requirements.txt
+pytest==8.4.2
+pytest-asyncio==0.24.0
+pytest-cov==7.1.0
+ruff==0.16.8
+bandit[toml]==1.9.4
+locust==2.28.0
+watchfiles==1.2.0
