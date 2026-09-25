@@ -31,13 +31,15 @@ Security
   ``X-Axelr-Signature: sha256=<hex>`` over ``{timestamp}.{body}`` using
   ``WEBHOOK_INBOUND_SECRET``.
 * Outbound: the callback is signed with ``WEBHOOK_CALLBACK_SECRET``.
+* In production (``ENV`` not in dev/local/test), missing inbound auth
+  configuration is refused with 503 rather than silently allowed.
 
 RAM footprint: < 20 MB (streaming download, hard 25 MB cap).
 """
-
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import hmac
 import ipaddress
@@ -47,6 +49,7 @@ import os
 import socket
 import time
 from collections.abc import Awaitable, Callable
+from email.utils import parseaddr
 from typing import Any
 from urllib.parse import urlparse
 
@@ -66,6 +69,12 @@ _CALLBACK_TIMEOUT = 15.0
 _CALLBACK_RETRIES = 3
 _ALLOWED_SCHEMES = {"http", "https"}
 _QSTASH_PUBLISH = "https://qstash.upstash.io/v2/publish/{url}"
+
+_DEV_ENVS = frozenset({"dev", "local", "test", "development"})
+
+
+def _is_prod() -> bool:
+    return (os.getenv("ENV", "dev") or "dev").lower() not in _DEV_ENVS
 
 
 # ---------------------------------------------------------------------------
@@ -106,16 +115,21 @@ def _verify_inbound(
     max_skew: int = 300,
 ) -> None:
     """
-    Enforce inbound authentication. Raises :class:`HTTPException` on failure.
+    Enforce inbound authentication.
 
-    Accepts either:
-      * ``Authorization: Bearer <token>`` matching ``shared_token``;
-      * ``X-Axelr-Signature: sha256=<hex>`` matching HMAC over
-        ``{timestamp}.{body}`` using ``shared_secret``.
+    In production (ENV != dev/local/test) at least one of
+    WEBHOOK_INBOUND_TOKEN / WEBHOOK_INBOUND_SECRET must be set. If neither
+    is set, we refuse with 503 so misconfigured deployments cannot be
+    silently exploited.
     """
     if not shared_token and not shared_secret:
-        # No auth configured: caller is assumed to be in dev / behind a proxy.
-        logger.warning("webhook_inbound_auth_disabled")
+        if _is_prod():
+            logger.error("webhook_inbound_auth_unconfigured env=prod")
+            raise HTTPException(
+                status_code=503,
+                detail="Webhook auth not configured",
+            )
+        logger.warning("webhook_inbound_auth_disabled env=dev")
         return
 
     # Bearer path
@@ -192,9 +206,6 @@ async def _download_file(
     Returns ``{"filename": str, "mimetype": str, "content_base64": str}``.
     Raises ``RuntimeError`` on transport / size failures.
     """
-    import base64
-    from email.utils import parseaddr
-
     filename = "download"
     mimetype = "application/octet-stream"
     total = 0
@@ -235,23 +246,6 @@ async def _download_file(
 # Callback POST
 # ---------------------------------------------------------------------------
 
-def _callback_headers(
-    secret: str, timestamp: int, pipeline_id: str, extra: dict[str, str] | None = None
-) -> dict[str, str]:
-    """Construct outbound callback headers."""
-    h = {
-        "Content-Type": "application/json",
-        "User-Agent": "Axelr-Webhook/1.0",
-        "X-Axelr-Timestamp": str(timestamp),
-        "X-Axelr-Pipeline-Id": pipeline_id,
-    }
-    if secret:
-        h["X-Axelr-Signature"] = f"sha256={_sign(secret, timestamp, b'')}"
-    if extra:
-        h.update(extra)
-    return h
-
-
 async def _post_callback(
     client: httpx.AsyncClient,
     callback_url: str,
@@ -261,13 +255,10 @@ async def _post_callback(
     pipeline_id: str,
     qstash_token: str = "",
 ) -> bool:
-    """
-    POST the result to ``callback_url``.
+    if not secret and _is_prod():
+        logger.error("webhook_callback_secret_missing env=prod")
+        return False
 
-    When ``qstash_token`` is set, the callback is dispatched via Upstash
-    QStash so retries and scheduling are handled by Upstash. Otherwise a
-    bounded local retry loop is used.
-    """
     body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
     ts = int(time.time())
     signature = _sign(secret, ts, body) if secret else ""
@@ -490,3 +481,10 @@ def make_webhook_router(
         )
 
     return router
+
+
+# ── Public surface ───────────────────────────────────────────────────────────
+__all__ = [
+    "ExtractWebhookPayload",
+    "make_webhook_router",
+]

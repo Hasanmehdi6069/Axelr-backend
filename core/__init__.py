@@ -1,106 +1,105 @@
 # core/__init__.py
 """
-AXELR Core — production-grade, memory-optimized services.
+AXELR Core — public API surface.
 
-Every submodule import is guarded so a single missing optional dependency
-(e.g. onnxruntime, fastembed, aiohttp) cannot take down the whole package.
+All modules are:
+    * Fully typed
+    * Self-contained (no cross-module imports at the package level)
+    * Lazy-loaded for heavy dependencies (ONNX, numpy)
+    * Safe to import on Render free tier (512 MB / 0.1 CPU)
+
+Sub-modules:
+    infra           — Redis-backed state: cache, circuit breaker, external context
+    security        — CodeGuard security scanner (Finding, ScanResult, Severity)
+    dependency      — DependencyTracker import graph + blast radius
+    healing         — SelfHealer / TouchFixEngine / make_diff / RouteFunc
+    worker_client   — remote sandbox execution client
+    testloop        — autonomous generate → execute → heal loop
+    pr_shield       — Markdown PR defense report builder
+    vectorize       — Cloudflare Vectorize semantic response cache
+    conversation    — Async vector-backed conversation memory
+    repo_indexer    — GitHub repo → Vectorize index + query
+    routing         — intent classification + agentic orchestration + LLM providers
+    webhook_pipeline — inbound extraction webhook pipeline
 """
-from __future__ import annotations
+from .infra import (
+    # cache helpers
+    get_redis_cache, set_redis_cache, delete_redis_cache,
+    # circuit breaker
+    CircuitBreaker,
+    # external context
+    ContextRegistry, ContextItem,
+)
 
-import logging
+# ── code layer (6 files replacing the old core.code monolith) ───────────────
+from .security import (
+    CodeGuard, Finding, ScanResult, Severity, default_guard,
+)
+from .dependency import (
+    DependencyTracker, BlastRadius,
+)
+from .healing import (
+    SelfHealer, TouchFixEngine, HealResult, make_diff, RouteFunc,
+)
+from .worker_client import (
+    execute_code_on_worker, close_worker_client,
+)
+from .testloop import (
+    TestLoop, TestIteration, TestLoopResult, ExecuteFunc,
+)
+from .pr_shield import (
+    PRShield, PRShieldInput,
+)
 
-logger = logging.getLogger("axelr.core")
+# ── memory layer (3 files replacing the old core.memory monolith) ───────────
+from .vectorize import (
+    CloudflareVectorizeCache, CacheEntry, get_vector_cache,
+)
+from .conversation import (
+    ConversationMemory, MemoryItem,
+)
+from .repo_indexer import (
+    RepoIndexer, IndexStats, CodeChunk,
+)
 
-# ── Safe exports ──────────────────────────────────────────────────────────
-# Each block is independent — one failure does not cascade.
+from .routing import (
+    IntentRouter, IntentResult, get_router,
+    Orchestrator, Subtask,
+    # LLM providers
+    OpenAICompatProvider, OPENAI_COMPAT, make_provider_func, call_openai_compat,
+)
 
-try:
-    from .ai_engine import ProviderMetrics, ResilientAIRouter
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.ai_engine unavailable: %s", e)
-    ProviderMetrics = None                                      # type: ignore
-    ResilientAIRouter = None                                    # type: ignore
-
-try:
-    from .code_guard import CodeGuard, Finding, ScanResult
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.code_guard unavailable: %s", e)
-    CodeGuard = None                                            # type: ignore
-    Finding = None                                              # type: ignore
-    ScanResult = None                                           # type: ignore
-
-try:
-    from .context_registry import ContextRegistry
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.context_registry unavailable: %s", e)
-    ContextRegistry = None                                      # type: ignore
-
-try:
-    from .dependency_tracker import BlastRadius, DependencyTracker
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.dependency_tracker unavailable: %s", e)
-    BlastRadius = None                                          # type: ignore
-    DependencyTracker = None                                    # type: ignore
-
-try:
-    from .intent_router import IntentResult, IntentRouter, get_router
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.intent_router unavailable: %s", e)
-    IntentResult = None                                         # type: ignore
-    IntentRouter = None                                         # type: ignore
-
-    def get_router():                                           # type: ignore
-        class _Fallback:
-            async def classify(self, *a, **kw):
-                class R:
-                    workspace = "core"
-                    confidence = 0.0
-                    method = "fallback"
-                return R()
-        return _Fallback()
-
-try:
-    from .pr_shield import PRShield, PRShieldInput
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.pr_shield unavailable: %s", e)
-    PRShield = None                                             # type: ignore
-    PRShieldInput = None                                        # type: ignore
-
-try:
-    from .prompts import SYSTEM_PROMPTS
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.prompts unavailable: %s", e)
-    SYSTEM_PROMPTS = {}                                         # type: ignore
-
-try:
-    from .self_healer import HealResult, SelfHealer
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.self_healer unavailable: %s", e)
-    HealResult = None                                           # type: ignore
-    SelfHealer = None                                           # type: ignore
-
-try:
-    from .semantic_cache import SemanticCache, get_semantic_cache
-except Exception as e:                                          # noqa: BLE001
-    logger.warning("core.semantic_cache unavailable: %s", e)
-    SemanticCache = None                                        # type: ignore
-
-    def get_semantic_cache():                                   # type: ignore
-        class _FallbackCache:
-            async def get(self, *a, **kw): return None
-            async def set(self, *a, **kw): return None
-            async def clear(self, *a, **kw): return None
-            async def _ensure_model(self): return None
-        return _FallbackCache()
+from .webhook_pipeline import (
+    make_webhook_router, ExtractWebhookPayload,
+)
 
 __all__ = [
-    "ResilientAIRouter", "ProviderMetrics",
-    "CodeGuard", "Finding", "ScanResult",
-    "ContextRegistry",
+    # infra
+    "get_redis_cache", "set_redis_cache", "delete_redis_cache",
+    "CircuitBreaker",
+    "ContextRegistry", "ContextItem",
+    # code — security
+    "CodeGuard", "Finding", "ScanResult", "Severity", "default_guard",
+    # code — dependency graph
     "DependencyTracker", "BlastRadius",
-    "IntentRouter", "IntentResult", "get_router",
+    # code — healing
+    "SelfHealer", "TouchFixEngine", "HealResult", "make_diff", "RouteFunc",
+    # code — sandbox worker
+    "execute_code_on_worker", "close_worker_client",
+    # code — test loop
+    "TestLoop", "TestIteration", "TestLoopResult", "ExecuteFunc",
+    # code — PR shield
     "PRShield", "PRShieldInput",
-    "SelfHealer", "HealResult",
-    "SemanticCache", "get_semantic_cache",
-    "SYSTEM_PROMPTS",
+    # memory — semantic cache
+    "CloudflareVectorizeCache", "CacheEntry", "get_vector_cache",
+    # memory — conversation
+    "ConversationMemory", "MemoryItem",
+    # memory — repo indexer
+    "RepoIndexer", "IndexStats", "CodeChunk",
+    # routing
+    "IntentRouter", "IntentResult", "get_router",
+    "Orchestrator", "Subtask",
+    "OpenAICompatProvider", "OPENAI_COMPAT", "make_provider_func", "call_openai_compat",
+    # webhooks
+    "make_webhook_router", "ExtractWebhookPayload",
 ]

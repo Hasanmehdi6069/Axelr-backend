@@ -21,11 +21,10 @@ Caching
 
 RAM footprint: < 25 MB (streaming, per-file processing, no global cache).
 """
-
 from __future__ import annotations
 
-import ast
 import asyncio
+import ast
 import base64
 import hashlib
 import json
@@ -40,20 +39,20 @@ from typing import Any
 
 import httpx
 
-logger = logging.getLogger("axelr.repo_indexer")
+# Shared Cloudflare endpoint templates live in core.conversation (single
+# source of truth across the memory layer).
+from .conversation import _EMBED_MODEL, _EMBED_URL, _VECTOR_URL
+
+logger = logging.getLogger("axelr.memory")
 
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
+def _sha(text: str) -> str:
+    """Deterministic short hash (mirrors conversation._sha; local copy)."""
+    return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
-_CF_ACCT = "https://api.cloudflare.com/client/v4/accounts/{acct}"
-_EMBED_URL = _CF_ACCT + "/ai/run/{model}"
-_VECTOR_URL = _CF_ACCT + "/vectorize/v2/indexes/{index}{suffix}"
-_EMBED_MODEL = "@cf/baai/bge-small-en-v1.5"
 
 _GITHUB_API = "https://api.github.com"
-_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+_REPO_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 _INDEXABLE_EXTS: dict[str, str] = {
     ".py": "python", ".pyi": "python",
@@ -87,10 +86,6 @@ _MAX_DEFAULT_CHUNKS = 5000
 _DEFAULT_EMBED_BATCH = 32
 _FINGERPRINT_TTL = 86_400          # 1 day
 
-
-# ---------------------------------------------------------------------------
-# Data
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class IndexStats:
@@ -159,14 +154,6 @@ class CodeChunk:
         }
 
 
-# ---------------------------------------------------------------------------
-# Small helpers
-# ---------------------------------------------------------------------------
-
-def _sha(text: str) -> str:
-    return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
-
-
 def _parse_repo_url(url: str) -> tuple[str, str]:
     """Return ``(owner, repo)`` from a GitHub URL; raises ``ValueError``."""
     u = (url or "").strip()
@@ -180,12 +167,8 @@ def _parse_repo_url(url: str) -> tuple[str, str]:
     return m.group(1), m.group(2)
 
 
-# ---------------------------------------------------------------------------
-# Inline Vectorize client (self-contained)
-# ---------------------------------------------------------------------------
-
-class _VectorizeClient:
-    """Minimal Cloudflare Vectorize REST wrapper."""
+class _RepoVectorizeClient:
+    """Minimal Cloudflare Vectorize REST wrapper (repo indexer)."""
 
     __slots__ = ("_acct", "_http", "_index", "_key")
 
@@ -258,9 +241,7 @@ class _VectorizeClient:
             return False
 
 
-# ---------------------------------------------------------------------------
-# Chunkers
-# ---------------------------------------------------------------------------
+# ── Chunkers ────────────────────────────────────────────────────────────────
 
 def _chunk_lines(
     content: str, max_chars: int = 2400, overlap: int = 6
@@ -381,10 +362,6 @@ def _chunk_file(path: str, content: str, max_chars: int = 2400) -> list[tuple[in
     return _chunk_lines(content, max_chars)
 
 
-# ---------------------------------------------------------------------------
-# RepoIndexer
-# ---------------------------------------------------------------------------
-
 class RepoIndexer:
     """
     Index a GitHub repository into Cloudflare Vectorize.
@@ -452,7 +429,7 @@ class RepoIndexer:
 
         if http_client is None:
             self._http = httpx.AsyncClient(
-                timeout=_HTTP_TIMEOUT,
+                timeout=_REPO_HTTP_TIMEOUT,
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
                 headers={"User-Agent": "axelr-repo-indexer/1.0"},
             )
@@ -461,7 +438,7 @@ class RepoIndexer:
             self._http = http_client
             self._owns_http = False
 
-        self._vec = _VectorizeClient(acct, key, idx, self._http)
+        self._vec = _RepoVectorizeClient(acct, key, idx, self._http)
         self._redis = redis_client
         self._gh_token = tok
         self._max_file_bytes = max(1024, int(max_file_bytes))
@@ -911,3 +888,6 @@ class RepoIndexer:
         except Exception as e:
             logger.warning("embed_many_failed error=%s", e)
             return None
+
+
+__all__ = ["RepoIndexer", "IndexStats", "CodeChunk"]

@@ -1,9 +1,8 @@
-# pr_shield.py
+# core/pr_shield.py
 """
 AXELR PR Shield
 ===============
 Generates a Markdown PR Defense Report from analysis artifacts:
-
     * Blast-radius dependents
     * Security findings (from CodeGuard)
     * Self-heal status (from SelfHealer)
@@ -12,7 +11,6 @@ Generates a Markdown PR Defense Report from analysis artifacts:
 
 Pure stdlib. RAM footprint: < 5 MB.
 """
-
 from __future__ import annotations
 
 from collections.abc import Mapping
@@ -20,12 +18,6 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
-__all__ = ["PRShield", "PRShieldInput"]
-
-
-# ---------------------------------------------------------------------------
-# Input structure
-# ---------------------------------------------------------------------------
 
 @dataclass(slots=True)
 class PRShieldInput:
@@ -55,10 +47,6 @@ class PRShieldInput:
             "extra_notes": self.extra_notes,
         }
 
-
-# ---------------------------------------------------------------------------
-# Report generator
-# ---------------------------------------------------------------------------
 
 class PRShield:
     """
@@ -301,3 +289,6 @@ class PRShield:
     def _escape_cell(text: str) -> str:
         """Escape pipe and newline characters for Markdown table cells."""
         return text.replace("|", "\\|").replace("\n", " ")
+
+
+__all__ = ["PRShield", "PRShieldInput"]
