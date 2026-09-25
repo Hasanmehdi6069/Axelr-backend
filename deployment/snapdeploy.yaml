@@ -1,0 +1,24 @@
+version: "1.0"
+services:
+  - name: axelr-ai-workers
+    type: web
+    env: docker
+    region: us-east-1
+    plan: free              # 512 MB / 0.25 vCPU
+    dockerfile: Dockerfile.snapdeploy
+    healthCheck:
+      path: /health
+      interval: 30
+      timeout: 5
+      retries: 3
+    envVars:
+      - key: SNAPDEPLOY_INFERENCE_KEY
+        value: "replace-with-strong-random-token"
+      - key: WORKSPACE_ROOT
+        value: /app
+      - key: LLAMA_CLI
+        value: /app/bin/llama-cli
+      - key: BIFROST_PORT
+        value: "8080"
+      - key: INFERENCE_PORT
+        value: "8081"

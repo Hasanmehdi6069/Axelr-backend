@@ -1,0 +1,31 @@
+# render.yaml
+services:
+  - type: web
+    name: axelr-core
+    env: python
+    region: oregon
+    plan: free                       # 512 MB RAM / 0.1 vCPU
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
+    autoDeploy: true
+    envVars:
+      - key: ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      - key: PYTHONDONTWRITEBYTECODE
+        value: "1"
+      - key: WORKSPACE_ROOT
+        value: /app
+      - key: LLAMA_CLI
+        value: /app/bin/llama-cli
+      - key: LITELLM_URL
+        fromService:
+          name: axelr-ai-workers
+          property: url
+    disk:
+      name: axelr-data
+      mountPath: /data
+      sizeGB: 1

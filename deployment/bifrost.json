@@ -1,0 +1,27 @@
+{
+  "providers": {
+    "groq":         { "api_key_env": "GROQ_API_KEY",         "base_url": "https://api.groq.com/openai/v1" },
+    "openrouter":   { "api_key_env": "OPENROUTER_API_KEY",   "base_url": "https://openrouter.ai/api/v1" },
+    "mistral":      { "api_key_env": "MISTRAL_API_KEY",      "base_url": "https://api.mistral.ai/v1" },
+    "siliconflow":  { "api_key_env": "SILICONFLOW_API_KEY",  "base_url": "https://api.siliconflow.cn/v1" },
+    "zhipu":        { "api_key_env": "ZAI_API_KEY",          "base_url": "https://open.bigmodel.cn/api/paas/v4" },
+    "modelscope":   { "api_key_env": "MODELSCOPE_API_KEY",   "base_url": "https://api.modelscope.cn/v1" },
+    "ovhcloud":     { "api_key_env": "OVHCLOUD_API_KEY",     "base_url": "https://api.ai.cloud.ovh.net/v1" },
+    "bazaarlink":   { "api_key_env": "BAZAARLINK_API_KEY",   "base_url": "https://api.bazaarlink.io/v1" },
+    "requesty":     { "api_key_env": "REQUESTY_API_KEY",     "base_url": "https://api.requesty.ai/v1" },
+    "nrouter":      { "api_key_env": "NROUTER_API_KEY",      "base_url": "https://api.nrouter.io/v1" },
+    "manifest":     { "api_key_env": "MANIFEST_API_KEY",     "base_url": "https://api.manifest.build/v1" },
+    "glama":        { "api_key_env": "GLAMA_API_KEY",        "base_url": "https://api.glama.ai/v1" },
+    "anyapi":       { "api_key_env": "ANYAPI_API_KEY",       "base_url": "https://api.anyapi.ai/v1" },
+    "agnes_ai":     { "api_key_env": "AGNES_API_KEY",        "base_url": "https://api.agnes.ai/v1" },
+    "teamorouter":  { "api_key_env": "TEAMOROUTER_API_KEY",  "base_url": "https://api.teamorouter.io/v1" }
+  },
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "max_concurrent": 8,
+    "request_timeout_s": 30,
+    "log_level": "warn"
+  },
+  "fallback_chain": ["groq", "openrouter", "mistral", "siliconflow", "zhipu"]
+}

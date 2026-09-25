@@ -1,0 +1,31 @@
+FROM python:3.11-slim-bookworm
+
+# 1. System deps
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        supervisor curl ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+
+# 2. Bifrost — Go binary (self-contained, no runtime)
+ARG BIFROST_VERSION=v1.4.4
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL "https://github.com/maximhq/bifrost/releases/download/${BIFROST_VERSION}/bifrost-linux-${ARCH}" \
+        -o /usr/local/bin/bifrost && \
+    chmod +x /usr/local/bin/bifrost
+
+# 3. llama.cpp CLI (replace with your static build)
+COPY bin/llama-cli /app/bin/llama-cli
+RUN chmod +x /app/bin/llama-cli
+
+# 4. Models — mount via volume in prod, or COPY here for a baked image
+# COPY models/ /app/models/
+
+# 5. Python app for local inference
+COPY snapdeploy_app.py /app/
+COPY core/ /app/core/
+RUN pip install --no-cache-dir fastapi==0.115.6 uvicorn==0.34.0
+
+# 6. Supervisor — runs Bifrost + FastAPI side by side
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+EXPOSE 8080 8081
+CMD ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
