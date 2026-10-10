@@ -19,13 +19,21 @@ services:
         value: "1"
       - key: WORKSPACE_ROOT
         value: /app
-      - key: LLAMA_CLI
-        value: /app/bin/llama-cli
-      - key: LITELLM_URL
-        fromService:
-          name: axelr-ai-workers
-          property: url
-    disk:
-      name: axelr-data
-      mountPath: /data
-      sizeGB: 1
+      - key: MALLOC_ARENA_MAX
+        value: "2"
+      - key: WEB_CONCURRENCY
+        value: "1"
+      - key: AXELR_COGNITION_LEVEL
+        value: "2"
+      - key: ENABLE_BLAST_RADIUS
+        value: "true"
+      - key: TWIN_FAST_PARALLEL
+        value: "2"
+      - key: TWIN_MAX_INFLIGHT_FAST
+        value: "2"
+      - key: TWIN_MAX_INFLIGHT_ELITE
+        value: "1"
+      - key: PIPELINE_FAST_DEADLINE_S
+        value: "15.0"
+      - key: PIPELINE_PRO_DEADLINE_S
+        value: "30.0"
