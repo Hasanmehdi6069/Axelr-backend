@@ -2,12 +2,12 @@
 services:
   - type: web
     name: axelr-core
-    env: python
+    env: docker
+    dockerfilePath: ./Dockerfile
     region: oregon
     plan: free                       # 512 MB RAM / 0.1 vCPU
-    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
-    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT --workers 1
     autoDeploy: true
+    healthCheckPath: /api/health/ping
     envVars:
       - key: ENV
         value: production
