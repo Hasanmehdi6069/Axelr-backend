@@ -3,7 +3,7 @@ services:
   - type: web
     name: axelr-core
     env: docker
-    dockerfilePath: ./Dockerfile
+    dockerfilePath: .deployment/Dockerfile
     region: oregon
     plan: free                       # 512 MB RAM / 0.1 vCPU
     autoDeploy: true
