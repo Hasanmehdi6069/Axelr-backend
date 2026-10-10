@@ -2,10 +2,13 @@
 """
 AXELR Prompt Enhancer v27.0 — Elite Production
 ==============================================
-Parallel racing · Inline diff · Atomic quota · DB-optional
+Sequential bid · Inline diff · Atomic quota · DB-optional
 
 Design contract:
-  1. Parallel racing across top-N providers — first success wins.
+  1. Sequential provider bid — first TTFT-viable online provider wins.
+     (Racing was removed in v27 to cut redundant provider spend; the global
+     ranking in `get_provider_order` already returns the statistically
+     fastest provider first.)
   2. Quota is reserved atomically; rolled back on no-change / failure.
   3. No-change results are cached and NOT charged.
   4. Diff is real (token-level segments) and returned to the client.
@@ -22,14 +25,14 @@ import hashlib
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from prometheus_client import Counter, Histogram, REGISTRY
+from prometheus_client import REGISTRY, Counter, Histogram
 from pydantic import BaseModel
 
 from .auth import get_current_user
-from .config import HTTP_CLIENT  # noqa: F401 — providers use their own client
+from .config import get_http_client  # noqa: F401 — providers use their own client
 from .providers import (
     PROVIDER_FUNC_MAP,
     PROVIDER_KEY_CHECK,
@@ -65,13 +68,15 @@ ENHANCER_DAILY_LIMIT = {
 
 
 # ── Prometheus metrics (idempotent — safe across reloads) ────────────────────
-
 def _metric(name: str, factory):
     try:
         return factory()
     except ValueError:
-        return REGISTRY._names_to_collectors[name]
-
+        collectors = getattr(REGISTRY, "_names_to_collectors", {})
+        existing = collectors.get(name)
+        if existing is None:
+            raise
+        return existing
 
 ENHANCER_REQUESTS = _metric(
     "enhancer_requests_total",
@@ -384,7 +389,7 @@ async def _try_reserve_enhancer_quota(user: dict | None) -> tuple[bool, str]:
     limit = ENHANCER_DAILY_LIMIT.get(tier, 0)
     if limit <= 0:
         return False, "not_entitled"
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     if state.db_available and state.users_col is not None:
         # Ensure quota doc exists; reset if new day.
@@ -431,7 +436,7 @@ async def _rollback_enhancer_quota(user: dict | None) -> None:
             logger.warning("enhancer_quota_rollback_failed error=%s", e)
         return
     key = f"enhancer_quota:{user.get('_id', 'anon')}"
-    count, day = _ENHANCER_MEM_QUOTA.get(key, (0, datetime.utcnow().strftime("%Y-%m-%d")))
+    count, day = _ENHANCER_MEM_QUOTA.get(key, (0, datetime.now(timezone.utc).strftime("%Y-%m-%d")))
     _ENHANCER_MEM_QUOTA[key] = (max(0, count - 1), day)
 
 
@@ -466,78 +471,33 @@ async def _enhance_via_provider(
 
 
 async def _race_enhancer_providers(full_prompt: str):
-    """Two-wave race with negative cache. Returns (text, provider, latency) or None."""
+    """Single-provider bid: pick first TTFT-viable provider from the chain, no racing."""
     global _ENHANCER_UNAVAILABLE_UNTIL
 
     if time.time() < _ENHANCER_UNAVAILABLE_UNTIL:
         return None
 
-    candidates: list[str] = []
-    for name in get_provider_order("prompt"):
-        if name == "local":
+    # Iterate over the global provider order; pick FIRST viable online provider with key.
+    for provider_name in get_provider_order("prompt"):
+        if provider_name == "local":
             continue
-        if not PROVIDER_KEY_CHECK.get(name):
+        if not PROVIDER_KEY_CHECK.get(provider_name):
             continue
-        tracker = PROVIDER_TRACKER.get(name)
+        tracker = PROVIDER_TRACKER.get(provider_name)
         if tracker is not None and not tracker.is_available:
             continue
-        candidates.append(name)
-        if len(candidates) >= ENHANCER_RACE_TOP_N + 2:
-            break
 
-    if not candidates:
-        return None
-
-    wave1 = candidates[:ENHANCER_RACE_TOP_N]
-    wave2 = candidates[ENHANCER_RACE_TOP_N:]
-
-    WAVE2_DELAY_S = 1.5
-    tasks: dict[asyncio.Task, str] = {}
-
-    def _spawn(wave: list[str]) -> None:
-        for p in wave:
-            t = asyncio.create_task(
-                _enhance_via_provider(p, full_prompt, ENHANCER_TIMEOUT_S),
-                name=f"enhancer:{p}",
+        # Execute only this single provider (one bid at a time, zero redundant cost).
+        try:
+            return await _enhance_via_provider(
+                provider_name, full_prompt, ENHANCER_TIMEOUT_S,
             )
-            tasks[t] = p
+        except Exception:
+            continue
 
-    _spawn(wave1)
-    wave2_spawned = not wave2
-    wave2_deadline = time.time() + WAVE2_DELAY_S
-    deadline = time.time() + ENHANCER_TIMEOUT_S + 0.5
-
-    try:
-        while tasks:
-            now = time.time()
-            if now >= deadline:
-                break
-            timeout = (deadline - now) if wave2_spawned else min(
-                deadline - now, max(0.01, wave2_deadline - now)
-            )
-            done, _ = await asyncio.wait(
-                tasks.keys(), timeout=timeout, return_when=asyncio.FIRST_COMPLETED,
-            )
-            if not done:
-                if not wave2_spawned:
-                    _spawn(wave2)
-                    wave2_spawned = True
-                continue
-            for t in done:
-                tasks.pop(t, None)
-                try:
-                    return t.result()
-                except Exception:
-                    continue
-
-        _ENHANCER_UNAVAILABLE_UNTIL = time.time() + _ENHANCER_UNAVAILABLE_COOLDOWN_S
-        return None
-    finally:
-        for t in tasks:
-            if not t.done():
-                t.cancel()
-        if tasks:
-            await asyncio.gather(*tasks.keys(), return_exceptions=True)
+    # If all candidates failed, enter cooldown to avoid hammering unavailable APIs.
+    _ENHANCER_UNAVAILABLE_UNTIL = time.time() + _ENHANCER_UNAVAILABLE_COOLDOWN_S
+    return None
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
@@ -704,7 +664,7 @@ async def enhance_prompt_feedback(
                 "accepted": bool(data.accepted),
                 "mode": data.mode,
                 "provider": data.provider,
-                "createdAt": datetime.utcnow(),
+                "createdAt": datetime.now(timezone.utc),
             })
     except Exception as e:
         logger.warning("enhancer_feedback_insert_failed error=%s", e)

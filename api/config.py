@@ -7,30 +7,39 @@ and the shared HTTP client. Imported by every other `api/*` module and by
 the `app.py` warhead.
 
 Zero logic beyond reading env and building the shared clients.
+
+Prompt construction lives in ``api.prompts`` — do not re-add it here.
 """
 from __future__ import annotations
 
+import json as _json
 import logging
 import os
-from typing import Any
+import re as _re
 
 import certifi
 import httpx
 from dotenv import load_dotenv
-# ── Hardening: refuse to boot in prod with a weak/missing SECRET_KEY ──────
-_ENV = (os.getenv("ENV") or "dev").lower()
+
+# ---------------------------------------------------------------------------
+# Bootstrap order — DO NOT REORDER
+#   1. load_dotenv()   — populate os.environ from .env
+#   2. read ENV        — now correct on every host (Render env, .env, CI)
+#   3. validate secret — fail-fast in prod BEFORE any import side-effects
+# ---------------------------------------------------------------------------
+load_dotenv(override=False)
+
+_ENV    = (os.getenv("ENV") or "dev").lower()
 _SECRET = (os.getenv("JWT_SECRET") or "").strip()
-if _ENV not in ("dev", "local", "test", "development"):
-    if len(_SECRET) < 32:
-        raise RuntimeError(
-            "FATAL: JWT_SECRET must be set (>=32 chars) in production. "
-            "Refusing to boot."
-        )
-else:
-    if not _SECRET:
-        os.environ["JWT_SECRET"] = "dev-insecure-secret-do-not-use-in-prod"
-# Load .env once, before any os.getenv() runs.
-load_dotenv(override=True)
+_IS_PROD = _ENV not in ("dev", "local", "test", "development")
+
+if _IS_PROD and len(_SECRET) < 32:
+    raise RuntimeError(
+        "FATAL: JWT_SECRET must be set (>=32 chars) in production. "
+        "Refusing to boot."
+    )
+if not _IS_PROD and not _SECRET:
+    os.environ["JWT_SECRET"] = "dev-insecure-secret-do-not-use-in-prod"
 
 logger = logging.getLogger("axelr")
 
@@ -56,7 +65,6 @@ DATA_WORKER_URL = (os.getenv("DATA_WORKER_URL") or "").strip()
 REDIS_URL = os.getenv("REDIS_URL") or ""
 _upstash_raw = os.getenv("UPSTASH_REDIS_REST_URL", "")
 if "redis://" in _upstash_raw:
-    import re as _re
     _m = _re.search(r"redis://[^\s]+", _upstash_raw)
     if _m:
         REDIS_URL = REDIS_URL or _m.group(0)
@@ -102,6 +110,25 @@ RP_NAME = os.getenv("RP_NAME", "AXELR AI")
 ORIGIN  = os.getenv("ORIGIN", "https://axelr.in").rstrip("/")
 
 
+# ── Lazy HTTP client (single shared AsyncClient) ─────────────────────────────
+_http_client: httpx.AsyncClient | None = None
+
+def get_http_client() -> httpx.AsyncClient:
+    """
+    Lazy initialization of the shared httpx AsyncClient to avoid
+    creating new clients on every import/request, which causes socket leaks.
+    Only creates the client once and reuses it for all requests.
+    """
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(
+            verify=certifi.where(),
+            timeout=httpx.Timeout(30.0),
+            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+        )
+    return _http_client
+
+
 # ── JWT ──────────────────────────────────────────────────────────────────────
 
 ALGORITHM = "HS256"
@@ -121,50 +148,34 @@ STRIPE_CANCEL_URL     = os.getenv("STRIPE_CANCEL_URL", "https://axelr.in/?billin
 STRIPE_PORTAL_RETURN  = os.getenv("STRIPE_PORTAL_RETURN_URL", "https://axelr.in/?billing=portal_return")
 STRIPE_TRIAL_DAYS     = max(0, int(os.getenv("STRIPE_TRIAL_DAYS", "0")))
 
-STRIPE_PRICE_CATALOG = {
-    "pro": {
-        "full":   {"monthly": os.getenv("STRIPE_PRICE_PRO_FULL_MONTHLY"),
-                   "annual":  os.getenv("STRIPE_PRICE_PRO_FULL_ANNUAL")},
-        "data":   {"monthly": os.getenv("STRIPE_PRICE_PRO_DATA_MONTHLY"),
-                   "annual":  os.getenv("STRIPE_PRICE_PRO_DATA_ANNUAL")},
-        "design": {"monthly": os.getenv("STRIPE_PRICE_PRO_DESIGN_MONTHLY"),
-                   "annual":  os.getenv("STRIPE_PRICE_PRO_DESIGN_ANNUAL")},
-    },
-    "business": {
-        "full":   {"monthly": os.getenv("STRIPE_PRICE_BIZ_FULL_MONTHLY"),
-                   "annual":  os.getenv("STRIPE_PRICE_BIZ_FULL_ANNUAL")},
-        "data":   {"monthly": os.getenv("STRIPE_PRICE_BIZ_DATA_MONTHLY"),
-                   "annual":  os.getenv("STRIPE_PRICE_BIZ_DATA_ANNUAL")},
-        "design": {"monthly": os.getenv("STRIPE_PRICE_BIZ_DESIGN_MONTHLY"),
-                   "annual":  os.getenv("STRIPE_PRICE_BIZ_DESIGN_ANNUAL")},
-    },
-}
 
-STRIPE_PRICE_AMOUNTS = {
-    "pro": {
-        "full":   {"monthly": 1500, "annual": 14400},
-        "data":   {"monthly": 900,  "annual": 8400},
-        "design": {"monthly": 1000, "annual": 9600},
-    },
-    "business": {
-        "full":   {"monthly": 3500, "annual": 33600},
-        "data":   {"monthly": 2200, "annual": 21600},
-        "design": {"monthly": 2400, "annual": 22800},
-    },
-}
+# ── Stripe catalog (env-driven; no hardcoded prices in source) ──
 
-TIER_LABELS = {
-    ("pro", "full"):    "Axelr Pro Architect (Full)",
-    ("pro", "data"):    "Axelr Pro Architect (Data)",
-    ("pro", "design"):  "Axelr Pro Architect (Design)",
-    ("business", "full"):   "Axelr Business Collective (Full)",
-    ("business", "data"):   "Axelr Business Collective (Data)",
-    ("business", "design"): "Axelr Business Collective (Design)",
-}
+def _price_map(env_key: str) -> dict:
+    raw = (os.getenv(env_key) or "").strip()
+    if not raw:
+        return {}
+    try:
+        obj = _json.loads(raw)
+        return obj if isinstance(obj, dict) else {}
+    except Exception:
+        logger.warning("stripe_price_map_invalid key=%s", env_key)
+        return {}
 
-VALID_TIERS    = {"pro", "business"}
-VALID_SUBTIERS = {"full", "data", "design"}
-VALID_PERIODS  = {"monthly", "annual"}
+STRIPE_PRICE_CATALOG: dict = _price_map("STRIPE_PRICE_CATALOG")
+STRIPE_PRICE_AMOUNTS: dict = _price_map("STRIPE_PRICE_AMOUNTS")
+
+TIER_LABELS: dict[tuple[str, str], str] = {
+    ("pro",      "full"):   "Axelr Pro — Full Access",
+    ("pro",      "data"):   "Axelr Pro — Data Workspace",
+    ("pro",      "design"): "Axelr Pro — Design Workspace",
+    ("business", "full"):   "Axelr Business — Full Access",
+    ("business", "data"):   "Axelr Business — Data Workspace",
+    ("business", "design"): "Axelr Business — Design Workspace",
+}
+VALID_TIERS    = ("pro", "business")
+VALID_SUBTIERS = ("full", "data", "design")
+VALID_PERIODS  = ("monthly", "annual")
 
 
 # ── Feature flags ────────────────────────────────────────────────────────────
@@ -243,17 +254,7 @@ WORKSPACE_LLM_CONFIG = {
 RATE_LIMITS: dict[str, int] = {"free": 2, "pro": 5, "business": 8}
 
 
-# ── Shared HTTP client ───────────────────────────────────────────────────────
-
-HTTP_CLIENT = httpx.AsyncClient(
-    timeout=httpx.Timeout(12.0, connect=8.0, read=12.0, write=8.0),
-    verify=certifi.where(),
-    limits=httpx.Limits(max_keepalive_connections=20, max_connections=50),
-)
-
-
 # ── Supabase ─────────────────────────────────────────────────────────────────
-
 SUPABASE_URL    = (os.getenv("SUPABASE_URL") or "").rstrip("/")
 SUPABASE_KEY    = (os.getenv("SUPABASE_SERVICE_KEY") or "").strip()
 SUPABASE_BUCKET = os.getenv("SUPABASE_BUCKET", "axelr-uploads")
@@ -282,7 +283,8 @@ __all__ = [
     # stripe
     "STRIPE_SECRET_KEY", "STRIPE_WEBHOOK_SECRET",
     "STRIPE_SUCCESS_URL", "STRIPE_CANCEL_URL", "STRIPE_PORTAL_RETURN",
-    "STRIPE_TRIAL_DAYS", "STRIPE_PRICE_CATALOG", "STRIPE_PRICE_AMOUNTS",
+    "STRIPE_TRIAL_DAYS",
+    "STRIPE_PRICE_CATALOG", "STRIPE_PRICE_AMOUNTS",
     "TIER_LABELS", "VALID_TIERS", "VALID_SUBTIERS", "VALID_PERIODS",
     # flags
     "ENABLE_INTENT_CLASSIFIER", "ENABLE_CONTEXT_REGISTRY", "ENABLE_CRITIC",
@@ -304,7 +306,7 @@ __all__ = [
     # workspace config
     "WORKSPACE_LLM_CONFIG", "RATE_LIMITS",
     # shared clients
-    "HTTP_CLIENT",
+    "get_http_client",
     # supabase
     "SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_BUCKET",
 ]

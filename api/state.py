@@ -15,12 +15,12 @@ Also hosts:
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import importlib
 import json
 import logging
 import os
-import time
 from typing import Any
 
 import httpx
@@ -34,7 +34,7 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from .config import (
     MONGO_URI,
     REDIS_URL,
-    HTTP_CLIENT,
+    get_http_client,
 )
 
 logger = logging.getLogger("axelr.state")
@@ -110,16 +110,20 @@ class _AppState:
     orchestrator: Any = None
     global_ai_router: Any = None
 
-    # Sub-module instances (conversation memory, repo indexer, test loop)
+       # Sub-module instances (conversation memory, repo indexer, test loop)
     conversation_memory: Any = None
     repo_indexer: Any = None
     test_loop: Any = None
 
+    # Cascade / twin / memory bus (populated in lifespan)
+    provider_cascade: Any = None
+    twin_engine: Any = None
+    memory_bus: Any = None
     # Stateless services (constructed once at import of app.py)
     code_guard: Any = None
     intent_router: Any = None
     semantic_cache: Any = None
-
+    hot_swap_engine: Any = None
     # Provider validation cache (Redis key constants)
     PROVIDER_VALIDATION_KEY: str = "axelr:provider:validation"
     PROVIDER_VALIDATION_TTL: int = 300
@@ -167,20 +171,24 @@ async def delete_redis_cache(key: str) -> None:
 
 
 # ── Boot helpers ─────────────────────────────────────────────────────────────
-
 async def init_redis() -> None:
     """Connect to Redis if a URL is configured. Never raises."""
     if not REDIS_URL or not REDIS_URL.startswith(("redis://", "rediss://", "unix://")):
         logger.info("redis_not_configured")
         return
+    temp_client = None
     try:
-        state.redis_client = await aioredis.from_url(
+        temp_client = await aioredis.from_url(
             REDIS_URL, decode_responses=True, max_connections=10,
         )
-        if await state.redis_client.ping():
+        if await temp_client.ping():
+            state.redis_client = temp_client
             logger.info("redis_connected")
             return
     except Exception as e:
+        if temp_client:
+            with contextlib.suppress(Exception):
+                await temp_client.aclose()
         logger.warning("redis_connect_failed error=%s", e)
         state.redis_client = None
 
@@ -191,9 +199,11 @@ async def init_db() -> None:
         logger.critical("mongo_unavailable_degraded_mode")
         state.db_available = False
         return
+    temp_client = None
     try:
-        state.client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
-        await state.client.admin.command("ping")
+        temp_client = AsyncIOMotorClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        await temp_client.admin.command("ping")
+        state.client = temp_client
         state.db = state.client.NexusDB
         state.users_col      = state.db.users
         state.sessions_col   = state.db.conversations
@@ -203,7 +213,17 @@ async def init_db() -> None:
         state.db_available = True
         logger.info("mongo_connected")
     except Exception as e:
+        if temp_client:
+            # Motor's close() is synchronous.
+            temp_client.close()
         logger.critical("mongo_connect_failed error=%s", e)
+        state.client = None
+        state.db = None
+        state.users_col = None
+        state.sessions_col = None
+        state.reports_col = None
+        state.pr_reports_col = None
+        state.projects_col = None
         state.db_available = False
 
 
@@ -219,7 +239,8 @@ async def init_qstash() -> None:
         return
     try:
         headers = {"Authorization": f"Bearer {token}"}
-        r = await HTTP_CLIENT.get(f"{base}/v2/events?limit=1", headers=headers, timeout=10.0)
+        client = get_http_client()
+        r = await client.get(f"{base}/v2/events?limit=1", headers=headers, timeout=10.0)
         if r.status_code == 401:
             logger.error("qstash_unauthorized")
             return

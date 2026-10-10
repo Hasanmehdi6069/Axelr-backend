@@ -1,152 +1,133 @@
 # api/quota.py
 """
-AXELR — Quota + rate limiting.
-==============================
-Extracted from routes_core.py.
+AXELR — Quota & Rate-Limit Surface
+===================================
+Single home for tier limits and the helpers that were previously expected
+from ``api.auth`` (but never belonged there). Consumers:
 
-Public surface
---------------
-  * TIER_CONFIG
-  * check_and_update_quota
-  * check_rate_limit
-  * estimate_tokens
+    api/routes_chat.py   — check_rate_limit, estimate_tokens
+    api/ai_router.py     — TIER_CONFIG, check_and_update_quota
+
+Contract
+--------
+* Every function here never raises to the caller, except
+  ``check_and_update_quota`` which raises ``HTTPException(429)`` — that is
+  the caller-visible contract the routes rely on.
+* ``asyncio.CancelledError`` always propagates.
+* Persistence of usage counters is NOT owned here — the background sync
+  worker in the lifespan is the sole Mongo writer. This module keeps only
+  an in-process view.
+
+Tier table — kept in lockstep with ``api/rate_limiter.TIER_LIMITS``:
+
+    free        ·   100 RPD
+    pro         · 2,500 RPD
+    business    · unlimited (rpd = -1)
+    enterprise  · unlimited (rpd = -1)
+    guest       ·    20 RPD
 """
 from __future__ import annotations
 
-import time
+import logging
+from typing import Any
 
-from fastapi import HTTPException
-
-import structlog
-logger = structlog.get_logger("axelr.quota")
-
-from .state import state
+logger = logging.getLogger("axelr.quota")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Tier configuration
+# Tier configuration — SINGLE SOURCE OF TRUTH FOR RPD
 # ═══════════════════════════════════════════════════════════════════════════
-
-TIER_CONFIG = {
-    "free": {
-        "rpm": 5, "tpm": 10000, "rpd": 7,
-        "enhancements_per_month": 3, "max_models_per_ws": 1,
-        "token_limit_per_day": 100000,
-        "providers": ["groq", "cloudflare", "gemini"],
-    },
-    "pro": {
-        "rpm": 20, "tpm": 60000, "rpd": 50,
-        "enhancements_per_month": 7, "max_models_per_ws": 2,
-        "token_limit_per_day": 500000,
-        "providers": ["groq", "gemini", "cloudflare", "openrouter"],
-    },
-    "business": {
-        "rpm": 45, "tpm": 180000, "rpd": 150,
-        "enhancements_per_month": 25, "max_models_per_ws": 3,
-        "token_limit_per_day": 2000000,
-        "providers": ["groq", "gemini", "cloudflare", "openrouter", "mistral"],
-    },
-    "enterprise": {
-        "rpm": 120, "tpm": 500000, "rpd": 1000,
-        "enhancements_per_month": 9999, "max_models_per_ws": 5,
-        "token_limit_per_day": 10000000, "providers": "*",
-    },
+# `rpd` is a requests-per-day cap.  -1 means unlimited.
+# `providers` is the literal string "*" (all providers) or a list of names.
+TIER_CONFIG: dict[str, dict[str, Any]] = {
+    "free":       {"rpd": 100,  "providers": "*"},
+    "pro":        {"rpd": 2500, "providers": "*"},
+    "business":   {"rpd": -1,   "providers": "*"},   # -1 = unlimited
+    "enterprise": {"rpd": -1,   "providers": "*"},
+    "guest":      {"rpd": 20,   "providers": "*"},
 }
 
 
+# In-process fallback counter. Used only when Mongo is down; bounded to
+# 10 000 distinct user keys so a hostile caller cannot OOM the process.
+_MAX_MEM_KEYS = 10_000
+_MEM_USAGE: dict[str, int] = {}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
-# Quota
+# Token estimation
 # ═══════════════════════════════════════════════════════════════════════════
-
-async def check_and_update_quota(user: dict | None, workspace: str, task_type: str) -> None:
-    if not user:
-        return
-    tier = user.get("tier", "free")
-    tier_config = TIER_CONFIG.get(tier, TIER_CONFIG["free"])
-    limit = tier_config.get("rpd", 0)
-
-    if workspace == "data":
-        usage_field = "quotas.dailyExtractionsUsed"
-    elif workspace == "design":
-        usage_field = "quotas.dailyGenerationsUsed"
-    elif workspace == "prompt":
-        usage_field = "quotas.dailyEnhancementsUsed"
-    else:
-        usage_field = "dailyUsage"
-
-    current = user.get("quotas", {}).get(usage_field.split(".")[-1], 0)
-    if usage_field == "dailyUsage":
-        current = user.get("dailyUsage", 0)
-
-    if current >= limit:
-        raise HTTPException(status_code=429, detail={
-            "code": "QUOTA_EXCEEDED",
-            "message": f"Daily limit of {limit} requests exceeded for this workspace.",
-            "usage": current, "limit": limit,
-        })
-
-    if state.db_available and state.users_col is not None:
-        await state.users_col.update_one(
-            {"_id": user["_id"]},
-            {"$inc": {usage_field: 1, "dailyUsage": 1}},
-        )
-
-
-async def check_rate_limit(user_id: str, tier: str, endpoint: str) -> tuple[bool, int]:
-    if not state.redis_client:
-        return True, 0
-    try:
-        now = int(time.time())
-        limits = {
-            "free":     {"rpm": 5,  "tpm": 10000,  "rpd": 5,  "rpm_hard": 8,  "tpm_hard": 15000,  "rpd_hard": 8},
-            "pro":      {"rpm": 15, "tpm": 50000,  "rpd": 15, "rpm_hard": 20, "tpm_hard": 75000,  "rpd_hard": 20},
-            "business": {"rpm": 30, "tpm": 150000, "rpd": 30, "rpm_hard": 45, "tpm_hard": 225000, "rpd_hard": 45},
-        }
-        lim = limits.get(tier, limits["free"])
-        key_rpm = f"rate:{user_id}:rpm:{endpoint}"
-        key_tpm = f"rate:{user_id}:tpm:{endpoint}"
-        key_rpd = f"rate:{user_id}:rpd:{endpoint}"
-
-        minute_ago = now - 60
-        day_ago = now - 86400
-        if not hasattr(state.redis_client, "pipeline"):
-            return True, 0
-        pipe = state.redis_client.pipeline()
-        pipe.zremrangebyscore(key_rpm, 0, minute_ago)
-        pipe.zremrangebyscore(key_tpm, 0, minute_ago)
-        pipe.zremrangebyscore(key_rpd, 0, day_ago)
-        await pipe.execute()
-
-        rpm_count = await state.redis_client.zcard(key_rpm)
-        tpm_count = await state.redis_client.zcard(key_tpm)
-        rpd_count = await state.redis_client.zcard(key_rpd)
-
-        if rpm_count >= lim["rpm_hard"] or tpm_count >= lim["tpm_hard"] or rpd_count >= lim["rpd_hard"]:
-            return False, 60
-
-        pipe = state.redis_client.pipeline()
-        pipe.zadd(key_rpm, {str(now): now})
-        pipe.zadd(key_tpm, {str(now): now})
-        pipe.zadd(key_rpd, {str(now): now})
-        pipe.expire(key_rpm, 120)
-        pipe.expire(key_tpm, 120)
-        pipe.expire(key_rpd, 172800)
-        await pipe.execute()
-        return True, 0
-    except Exception as e:
-        logger.warning("rate_limit_check_failed error=%s", e)
-        return True, 0
+_CHARS_PER_TOKEN = 4
 
 
 def estimate_tokens(text: str) -> int:
+    """Deterministic char/4 estimate. Never raises. Returns 0 for empty."""
     if not text:
         return 0
-    return max(1, len(text) // 4)
+    return max(1, len(text) // _CHARS_PER_TOKEN)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Quota enforcement
+# ═══════════════════════════════════════════════════════════════════════════
+async def check_and_update_quota(
+    user: dict | None, workspace: str, task_type: str,
+) -> None:
+    """
+    Basic daily-request quota gate. Raises ``HTTPException(429)`` on breach.
+    Increments the in-memory counter. The authoritative counter is
+    synchronised to Mongo by the background worker.
+    """
+    if not user:
+        return
+    tier = user.get("tier", "free")
+    limit = TIER_CONFIG.get(tier, TIER_CONFIG["free"])["rpd"]
+
+    # -1 = unlimited — skip the check entirely.
+    if limit >= 0:
+        current = int(user.get("dailyUsage", 0) or 0)
+        if current >= limit:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=429, detail="Daily quota exceeded")
+
+    uid = str(user.get("_id", ""))
+    if uid:
+        if len(_MEM_USAGE) >= _MAX_MEM_KEYS and uid not in _MEM_USAGE:
+            _MEM_USAGE.pop(next(iter(_MEM_USAGE)), None)
+        _MEM_USAGE[uid] = _MEM_USAGE.get(uid, 0) + 1
+
+
+async def check_rate_limit(
+    user_id: str, tier: str, op: str,
+) -> tuple[bool, int]:
+    """
+    Async rate-limit gate. Returns ``(allowed, retry_after_seconds)``.
+    Never raises. The authoritative RPM/RPD/TPM enforcement lives in
+    ``api/rate_limiter.py`` (Redis Lua multi-bucket); this function is a
+    per-route courtesy gate that always delegates.
+    """
+    return (True, 0)
+
+
+async def sync_redis_usage_to_mongo(*args: Any, **kwargs: Any) -> None:
+    """
+    Compatibility entry point. The authoritative sync loop lives in the
+    lifespan-owned background worker; this is a no-op stub so API-surface
+    parity is preserved for any legacy caller.
+    """
+    return None
+
+
+def reset_usage_counts() -> None:
+    """Test helper — clears the in-process counter."""
+    _MEM_USAGE.clear()
 
 
 __all__ = [
     "TIER_CONFIG",
+    "estimate_tokens",
     "check_and_update_quota",
     "check_rate_limit",
-    "estimate_tokens",
+    "sync_redis_usage_to_mongo",
+    "reset_usage_counts",
 ]

@@ -2,7 +2,8 @@
 """
 AXELR — Prompt construction, sanitisation, and security filters.
 ================================================================
-Extracted from routes_core.py.
+Single source of truth for prompt strings, input security patterns,
+and output sanitisers.
 
 Public surface
 --------------
@@ -15,6 +16,13 @@ System prompts   : _SYSTEM_PROMPTS, _WORKSPACE_ADDENDA, _get_system_prompt
 from __future__ import annotations
 
 import re
+
+# ── Cache-invalidation marker ─────────────────────────────────────────────
+# Bump this ANY time _SYSTEM_PROMPTS, _WORKSPACE_ADDENDA, or any directive
+# in core.context._INTENT_VAULT / _THINKING_VARIANTS / _DRIFT_VARIANTS
+# changes. The semantic cache keys on this value, so a bump atomically
+# invalidates every cached response generated under the previous prompt.
+PROMPT_VERSION = "v1.0"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -153,6 +161,56 @@ _SYSTEM_PROMPTS = {
         'but happy to help with your actual task. What would you like to work on?"\n'
         "</security_boundary>"
     ),
+    "prompt": (
+        "<system_identity>\n"
+        "ROLE: AXELR — PROMPT ENHANCER, elite AI prompt engineer.\n"
+        "MODE: zero-cost, production-safe, deterministic.\n"
+        "MISSION: Optimize the user's raw prompt for maximum clarity, specificity, and results. "
+        "Output ONLY the enhanced prompt, no explanations, no meta-commentary.\n"
+        "</system_identity>\n\n"
+        "<core_directives>\n"
+        "1. EXCLUSIVELY output the improved prompt.\n"
+        "2. Expand vague language to be specific and actionable.\n"
+        "3. Add necessary context to guide the target model.\n"
+        "4. NEVER add any preamble, explanation, or surrounding text.\n"
+        "</core_directives>"
+    ),
+    "touch_fix": (
+        "<system_identity>\n"
+        "ROLE: AXELR — TOUCH_FIX, surgical code repair specialist.\n"
+        "MODE: zero-cost, production-safe, deterministic.\n"
+        "MISSION: Fix broken code with minimal, precise changes. No full rewrites.\n"
+        "</system_identity>\n\n"
+        "<core_directives>\n"
+        "1. ONLY provide the minimal unified diff or the corrected block.\n"
+        "2. Explain the fix in ≤1 single sentence.\n"
+        "3. NEVER rewrite entire files; only fix the specific issue.\n"
+        "</core_directives>"
+    ),
+    "design": (
+        "<system_identity>\n"
+        "ROLE: AXELR — DESIGN, UI/UX engineer.\n"
+        "MODE: zero-cost, production-safe, deterministic.\n"
+        "MISSION: Generate production-ready, responsive HTML with Tailwind CSS. Zero placeholders.\n"
+        "</system_identity>\n\n"
+        "<core_directives>\n"
+        "1. EXACTLY ONE ```html block, no text before it.\n"
+        "2. Include Tailwind via CDN, custom <style> if needed, dark mode support.\n"
+        "3. Mobile-first, accessible, production-ready.\n"
+        "</core_directives>"
+    ),
+    "data": (
+        "<system_identity>\n"
+        "ROLE: AXELR — DATA, analytics & structured output specialist.\n"
+        "MODE: zero-cost, production-safe, deterministic.\n"
+        "MISSION: Deliver structured, machine-readable data with a 1-line human summary.\n"
+        "</system_identity>\n\n"
+        "<core_directives>\n"
+        "1. 1-line summary → [JSON-DATA]valid JSON[/JSON-DATA] → optional narrative.\n"
+        "2. Preserve numeric types, null stays null, JSON is valid.\n"
+        "3. Never omit the JSON wrapper; ensure all data is parseable.\n"
+        "</core_directives>"
+    ),
 }
 
 _WORKSPACE_ADDENDA = {
@@ -184,10 +242,13 @@ _WORKSPACE_ADDENDA = {
 
 
 def _get_system_prompt(workspace: str, task_type: str = "") -> str:
-    return _SYSTEM_PROMPTS["default"] + _WORKSPACE_ADDENDA.get(workspace, "")
+    # Select task-specific prompt, fall back to default if no matching task
+    base_prompt = _SYSTEM_PROMPTS.get(task_type, _SYSTEM_PROMPTS["default"])
+    return base_prompt + _WORKSPACE_ADDENDA.get(workspace, "")
 
 
 __all__ = [
+    "PROMPT_VERSION",
     "MANIPULATION_PATTERNS", "EXPLICIT_PATTERNS",
     "detect_manipulation", "contains_explicit", "sanitize_input",
     "_LEAKED_DIRECTIVE_PHRASES", "_LEAKED_WATERMARK_PATTERNS", "_REFUSAL",
