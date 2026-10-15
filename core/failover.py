@@ -224,35 +224,44 @@ class HotSwapDetector:
                          temp: float) -> HotSwapResult | None:
         if not wave:
             return None
+        # Create tasks with their metadata embedded directly in coroutine returns
+        async def wrapped_attempt(p: str, model: str, func: ProviderFunc) -> tuple[str, str, float, dict[str, Any] | None]:
+            t0 = time.monotonic()
+            outcome = await self._attempt(p, model, func, prompt, max_tokens, temp)
+            return (p, model, t0, outcome)
+            
         tasks: list[asyncio.Task] = []
-        meta: dict[asyncio.Task, tuple[str, str, float]] = {}
         for p in wave:
             func = self._providers.get(p)
             if not func:
                 continue
-            models = (model_map.get(p) or [None]) or [None]
-            model = models[0]
-            if model is None:
-                continue
-            t0 = time.monotonic()
+            models = model_map.get(p)
+            if not models:
+                model = "default-model"  # Fallback if no models specified
+            else:
+                model = models[0]
+            # Always create a task even with default model - no more skipped providers
             task = asyncio.create_task(
-                self._attempt(p, model, func, prompt, max_tokens, temp),
+                wrapped_attempt(p, model, func),
                 name=f"hotswap::{p}")
             tasks.append(task)
-            meta[task] = (p, model, t0)
         if not tasks:
+            logger.warning(f"_race_wave_no_tasks wave={wave}")
             return None
+        logger.info(f"_race_wave_created_tasks wave={wave} tasks_created={len(tasks)}")
         winner: HotSwapResult | None = None
         try:
             for fut in asyncio.as_completed(tasks, timeout=self._timeout_s + 5.0):
                 try:
-                    outcome = await fut
+                    p, model, t0, outcome = await fut
                 except Exception as e:
                     logger.debug("provider_task_failed error=%s", str(e)[:100])
                     continue
                 if outcome is None:
+                    logger.debug(f"provider_task_returned_none provider={p}")
                     continue
-                p, model, t0 = meta[fut]  # type: ignore[index]
+                # We got a valid outcome! Set as winner immediately
+                logger.debug(f"provider_task_succeeded provider={p} model={model} resp_length={len(outcome['text'])}")
                 await self._record(p, success=True, ttft_ms=outcome["ttft_ms"])
                 winner = HotSwapResult(
                     provider=p, model=model, text=outcome["text"],
@@ -270,20 +279,28 @@ class HotSwapDetector:
                     t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
         if winner is None:
-            for t, (p, _, _) in meta.items():
-                if t.done() and t.exception() is None:
-                    continue
-                await self._record(p, success=False, ttft_ms=0.0)
+            logger.warning(f"_race_wave_no_winner wave={wave}")
+            # Record failures for all tasks that didn't succeed
+            for t in tasks:
+                if t.done():
+                    try:
+                        p, _, _, _ = t.result()
+                        await self._record(p, success=False, ttft_ms=0.0)
+                    except:
+                        pass
         return winner
 
     async def _attempt(self, provider: str, model: str, func: ProviderFunc,
                        prompt: str, max_tokens: int,
                        temp: float) -> dict[str, Any] | None:
+        logger.debug(f"_attempt_start provider={provider} model={model}")
         t0 = time.monotonic()
         try:
             resp = await asyncio.wait_for(
                 func(prompt, max_tokens, temp, model), timeout=self._timeout_s)
+            logger.debug(f"_attempt_success provider={provider} model={model} resp_length={len(resp)}")
             if not resp or len(resp.strip()) <= 3:
+                logger.debug(f"_attempt_empty_response provider={provider} model={model}")
                 return None
             ttft = (time.monotonic() - t0) * 1000.0
             self._recent.append({"provider": provider, "model": model,
@@ -291,8 +308,10 @@ class HotSwapDetector:
                                  "t": time.time()})
             return {"text": resp, "ttft_ms": ttft}
         except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.debug(f"_attempt_timeout_cancelled provider={provider}")
             raise
         except Exception as e:
+            logger.debug(f"_attempt_exception provider={provider} error={str(e)[:80]}")
             self._recent.append({"provider": provider, "model": model,
                                  "error": str(e)[:80], "ok": False,
                                  "t": time.time()})

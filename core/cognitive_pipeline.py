@@ -1,11 +1,10 @@
 # core/cognitive_pipeline.py
 """
-AXELR — Asynchronous Multi-Agent Cognitive Pipelining (Cognitive Stage 2)
-==========================================================================
+AXELR — Asynchronous Multi-Agent Cognitive Pipelining (v2.1)
+=============================================================
 Slices a deep-tier request into 2–3 micro-specialist passes, each with
 its own directive and token budget, all routed through the SAME
-`route_ai_request_parallel` chain — no new providers, no new SDK, no
-added RAM footprint.
+`route_fn` chain — no new providers, no new SDK, no added RAM.
 
 Stage chain (ascending cost)
 ----------------------------
@@ -14,18 +13,21 @@ Stage chain (ascending cost)
     verify     →  fix fences, contradictions, refusals, truncation
                   (only for `critical` tier)
 
+v2.1 accepts a pre-assessed Complexity via `_preassessed` so callers
+like core.quality_conductor do not re-run classification.  Also
+reports stages_attempted / stages_skipped in the metadata block.
+
 Contract
 --------
     from core.cognitive_pipeline import run
-    result = await run(route_fn, workspace=..., task_type=..., ...)
+    result = await run(route_fn, workspace=..., task_type=..., ...,
+                       _preassessed=complexity)   # optional
 
 Guarantees
 ----------
 * Never raises — every stage is individually guarded.
 * Never duplicates a call — a stage is skipped if the deadline is spent.
 * Falls through to a single-shot `route_fn` call on any internal failure.
-* The final returned dict is always the *last successful* stage's result,
-  carrying a `cognitive` metadata block.
 
 RAM
 ---
@@ -34,7 +36,6 @@ RAM
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import logging
 import time
 from dataclasses import dataclass
@@ -49,7 +50,6 @@ __all__ = ["run", "Stage"]
 RouteFn = Callable[..., Awaitable[dict[str, Any]]]
 
 
-# ── Stage directives (compiled once) ─────────────────────────────────────
 _LOGIC_DIRECTIVE = (
     "<cognitive_stage name=\"logic\">\n"
     "Produce ONLY the factual/logical core of the answer.\n"
@@ -89,7 +89,7 @@ class Stage:
     name: str
     directive: str
     tokens_frac: float
-    min_prior_words: int = 0        # skip if the prior draft is shorter than this
+    min_prior_words: int = 0
 
 
 _STAGES_STANDARD: tuple[Stage, ...] = (
@@ -140,16 +140,21 @@ async def run(
     context: str = "",
     request: Any = None,
     budget_s: float = 22.0,
+    _preassessed: "Complexity | None" = None,
 ) -> dict[str, Any]:
     """
-    Escalate a deep request through the cognitive stages. If the request
+    Escalate a deep request through the cognitive stages.  If the request
     is not deep, or the pipeline fails on any axis, this delegates to a
     single-shot `route_fn` call and returns.
     """
-    try:
-        c = assess(prompt, history=history, files=files)
-    except Exception:
-        c = None
+    # Classification — reuse if the caller already did it.
+    if _preassessed is not None:
+        c = _preassessed
+    else:
+        try:
+            c = assess(prompt, history=history, files=files)
+        except Exception:
+            c = None
 
     if c is None or not c.is_deep:
         return await route_fn(workspace, task_type, prompt, history, files,
@@ -164,12 +169,17 @@ async def run(
     prior_text = ""
     last_result: dict[str, Any] = {}
     stages_run = 0
+    stages_attempted = 0
+    stages_skipped = 0
 
     for stage in stages:
         if time.monotonic() >= deadline - 1.0:
-            break
-        if stage.min_prior_words and len(prior_text.split()) < stage.min_prior_words:
+            stages_skipped += 1
             continue
+        if stage.min_prior_words and len(prior_text.split()) < stage.min_prior_words:
+            stages_skipped += 1
+            continue
+        stages_attempted += 1
         stage_budget = max(128, int(max_tokens * stage.tokens_frac))
         stage_prompt = _stage_prompt(stage, prompt, prior_text)
         remaining = max(2.0, deadline - time.monotonic())
@@ -183,6 +193,7 @@ async def run(
                 timeout=remaining,
             )
         except (asyncio.TimeoutError, asyncio.CancelledError):
+            logger.debug("cognition_stage_timeout stage=%s", stage.name)
             break
         except Exception as e:
             logger.debug("cognition_stage_failed stage=%s error=%s", stage.name, e)
@@ -195,7 +206,6 @@ async def run(
         stages_run += 1
 
     if not last_result:
-        # Total failure of the escalation — fall through to single-shot.
         return await route_fn(workspace, task_type, prompt, history, files,
                               max_tokens, temp, tier, user, context, request)
 
@@ -203,6 +213,8 @@ async def run(
         "tier": c.tier,
         "score": round(c.score, 3),
         "stages_run": stages_run,
+        "stages_attempted": stages_attempted,
+        "stages_skipped": stages_skipped,
         "stages_total": len(stages),
         "reasons": list(c.reasons),
     }

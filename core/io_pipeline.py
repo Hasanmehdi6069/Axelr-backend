@@ -9,9 +9,9 @@ bounded backoff. Both sign or verify what they send. One file.
     §2 Webhook pipeline   inbound HTTP router + SSRF-protected download
 """
 from __future__ import annotations
-
 import asyncio
 import base64
+import contextlib
 import hashlib
 import hmac
 import ipaddress
@@ -129,8 +129,6 @@ async def execute_code_on_worker(language: str, code: str, timeout: int = 8) -> 
 
     return {"success": False, "output": "", "error": last_error}
 
-
-import contextlib  # noqa: E402 — needed by close_worker_client above
 
 
 # ═══════════════════════════════════════════════════════════════════════════

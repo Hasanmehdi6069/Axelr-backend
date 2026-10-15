@@ -1,21 +1,28 @@
 # core/consensus.py
 """
-AXELR — Stage 4: Cross-Model Consensus & Local Token Repair
-=============================================================
-The final quality lock before delivery. Two independent gates:
+AXELR — Cross-Model Consensus & Local Token Repair (v1.1)
+==========================================================
+Three independent gates:
 
     §1  Multi-signal similarity     similarity(a, b) -> dict
     §2  Cross-model consensus       race_consensus(route_fn, ...) -> Outcome
     §3  Pure-local output repair    local_polish(text) -> PolishResult
 
-Everything is stdlib. No network. No premium APIs. No vector DB.
+Everything is stdlib.  No network.  No premium APIs.  No vector DB.
 Deterministic: identical inputs → identical outputs, byte-for-byte.
 
 Cost profile
 ------------
-    similarity(a, b)        ~40 µs on 4 KB inputs
+    similarity(a, b)        ~40 µs on 4 KB inputs (0 µs on identical)
     race_consensus(width=2)  exactly 2 extra provider calls, bounded
     local_polish(text)      ~15 µs on 8 KB outputs
+
+v1.1: similarity short-circuits when a == b (common when a caching
+layer feeds back the same text).  race_consensus now records a
+prefer_non_stream hint so callers can document intent.
+
+See core/quality_conductor.py for the budget-aware caller.  This
+module is safe to use standalone.
 """
 from __future__ import annotations
 
@@ -42,7 +49,6 @@ _WORD_RE   = re.compile(r"\w+")
 _NUM_RE    = re.compile(r"-?\d+(?:\.\d+)?")
 _FENCE_RE  = re.compile(r"```([a-zA-Z0-9_+\-]*)\n[\s\S]*?```")
 
-# Weights sum to 1.0.  Semantic overlap dominates; structure is a tiebreak.
 _W_JACCARD = 0.40
 _W_TRIGRAM = 0.30
 _W_NUMERIC = 0.20
@@ -63,14 +69,15 @@ def _jaccard_sets(a: set, b: set) -> float:
 def _trigrams(words: list[str]) -> set[tuple[str, str, str]]:
     if len(words) < 3:
         return set()
-    return {(words[i], words[i + 1], words[i + 2]) for i in range(len(words) - 2)}
+    return {(words[i], words[i + 1], words[i + 2])
+            for i in range(len(words) - 2)}
 
 
 def _numeric_agreement(a: str, b: str) -> float:
     ra = set(_NUM_RE.findall(a or ""))
     rb = set(_NUM_RE.findall(b or ""))
     if not ra and not rb:
-        return 1.0            # both have no numbers → aligned by default
+        return 1.0
     if not ra or not rb:
         return 0.0
     return len(ra & rb) / len(ra | rb)
@@ -89,6 +96,9 @@ def _code_agreement(a: str, b: str) -> float:
 def similarity(a: str, b: str) -> dict[str, float]:
     """Compute multi-signal similarity. Never raises. Bounded by input length."""
     try:
+        if a == b:
+            return {"jaccard": 1.0, "trigram": 1.0, "numeric": 1.0,
+                    "code": 1.0, "combined": 1.0}
         ta, tb = _tokens(a), _tokens(b)
         j = _jaccard_sets(set(ta), set(tb))
         t = _jaccard_sets(_trigrams(ta), _trigrams(tb))
@@ -111,8 +121,8 @@ def similarity(a: str, b: str) -> dict[str, float]:
 @dataclass(slots=True)
 class ConsensusOutcome:
     winner: dict[str, Any]
-    agreement: float                 # avg pairwise combined similarity
-    aligned: bool                    # agreement >= consensus_floor
+    agreement: float
+    aligned: bool
     participants: int
     pairwise: list[dict[str, Any]] = field(default_factory=list)
     errors: int = 0
@@ -138,13 +148,19 @@ async def race_consensus(
     width: int = 2,
     timeout_s: float = 22.0,
     consensus_floor: float = 0.55,
+    prefer_non_stream: bool = True,
 ) -> ConsensusOutcome:
     """
-    Fire N concurrent generation calls on the same prompt, pick the
-    "central" answer (highest mean pairwise similarity to peers), and
-    return it with a consensus metadata block.
+    Fire N concurrent generation calls, pick the "central" answer
+    (highest mean pairwise similarity), return it with a consensus
+    metadata block.
 
-    Never raises. Cancels stragglers at `timeout_s`. Width clamped to [2,3].
+    `prefer_non_stream` is a documented hint; the caller (typically the
+    quality conductor) should only call this on non-streaming requests,
+    because a mid-stream winner cannot be selected.  This function does
+    not enforce the hint — it records intent for tracing.
+
+    Never raises. Cancels stragglers at `timeout_s`. Width clamped to [2, 3].
     """
     width = max(2, min(3, int(width)))
     tasks = [
@@ -204,8 +220,8 @@ async def race_consensus(
         if counts[i]:
             avg[i] /= counts[i]
 
-    # Winner = highest mean similarity; tiebreak by longer text.
-    winner_idx = max(range(n), key=lambda i: (avg[i], len(results[i].get("text", ""))))
+    winner_idx = max(range(n),
+                     key=lambda i: (avg[i], len(results[i].get("text", ""))))
     agreement = (sum(avg) / n) if n else 1.0
 
     return ConsensusOutcome(
@@ -239,25 +255,22 @@ class PolishResult:
 
 def local_polish(text: str) -> PolishResult:
     """
-    Deterministic local repair. Never raises, never calls a model.
-    Runs on EVERY delivery (cheap enough to be unconditional).
+    Deterministic local repair.  Never raises, never calls a model.
+    Runs on every delivery (cheap enough to be unconditional).
     """
     if not text:
         return PolishResult("", [], False)
     out = text
     issues: list[str] = []
 
-    # 1. Balance fences.
     if out.count("```") % 2 == 1:
         out = out.rstrip() + "\n```"
         issues.append("closed_unbalanced_fence")
 
-    # 2. Close thinking tags.
     if len(re.findall(r"<thinking>", out, re.I)) > len(re.findall(r"</thinking>", out, re.I)):
         out = out.rstrip() + "\n</thinking>"
         issues.append("closed_thinking_tag")
 
-    # 3. Balance brackets inside the tail fence.
     tail_fence = out.rfind("```")
     if tail_fence != -1:
         tail = out[tail_fence:]
@@ -268,19 +281,16 @@ def local_polish(text: str) -> PolishResult:
                 issues.append(f"balanced_bracket_{o}{c}")
                 break
 
-    # 4. Strip trailing whitespace per line.
     stripped = _TRAIL_WS_RE.sub(r"\1", out)
     if stripped != out:
         out = stripped
         issues.append("stripped_trailing_ws")
 
-    # 5. Collapse 4+ blank lines.
     collapsed = _BLANK_LINES_RE.sub("\n\n\n", out)
     if collapsed != out:
         out = collapsed
         issues.append("collapsed_blank_lines")
 
-    # 6. Append terminal if the tail looks truncated (but not mid-clause).
     s = out.rstrip()
     if len(s) > 300 and s[-1] not in _TERMINAL_CHARS:
         tail = s[-40:]

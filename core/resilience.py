@@ -45,9 +45,9 @@ import re
 import time
 from dataclasses import dataclass
 from typing import Any, AsyncIterator, Awaitable, Callable
-
 from .failover import (                       # noqa: E402,F401
     HotSwapDetector, HotSwapResult, ProviderFunc,
+    Tier, TIERS, ladder_run,
 )
 
 logger = logging.getLogger("axelr.resilience")
@@ -98,74 +98,6 @@ PRO_TIER_DEADLINE_S  = float(os.getenv("PIPELINE_PRO_DEADLINE_S", "30.0"))
 
 _ms = lambda v: v / 1000.0
 
-
-# ═══════════════════════════════════════════════════════════════════════════
-# §1 — Degradation ladder
-# ═══════════════════════════════════════════════════════════════════════════
-@dataclass(frozen=True, slots=True)
-class Tier:
-    level: int
-    name: str
-    degraded: bool
-
-
-TIERS: dict[str, Tier] = {
-    "full":           Tier(0, "full", False),
-    "reduced_ctx":    Tier(1, "reduced_ctx", True),
-    "reduced_tokens": Tier(2, "reduced_tokens", True),
-    "cached_similar": Tier(3, "cached_similar", True),
-    "local":          Tier(4, "local", True),
-    "stub":           Tier(5, "stub", True),
-}
-
-
-async def ladder_run(
-    *,
-    full: Callable[[], Awaitable[dict[str, Any]]],
-    reduced_ctx: Callable[[], Awaitable[dict[str, Any]]] | None = None,
-    reduced_tokens: Callable[[], Awaitable[dict[str, Any]]] | None = None,
-    cached_similar: Callable[[], Awaitable[dict[str, Any]]] | None = None,
-    local: Callable[[], Awaitable[dict[str, Any]]] | None = None,
-    stub: Callable[[], Awaitable[dict[str, Any]]] | None = None,
-) -> dict[str, Any]:
-    steps = [(n, f) for n, f in (
-        ("full", full), ("reduced_ctx", reduced_ctx),
-        ("reduced_tokens", reduced_tokens), ("cached_similar", cached_similar),
-        ("local", local),
-    ) if f is not None]
-
-    for name, fn in steps:
-        tier = TIERS[name]
-        t0 = time.monotonic()
-        try:
-            result = await fn()
-        except Exception as e:
-            logger.warning("ladder_tier_failed tier=%s error=%s", name, e)
-            continue
-        if isinstance(result, dict) and result.get("success") and result.get("text"):
-            result["tier"] = tier.name
-            result["degraded"] = tier.degraded
-            result["ladder_ms"] = round((time.monotonic() - t0) * 1000, 2)
-            return result
-
-    if stub is not None:
-        try:
-            result = await stub()
-            if isinstance(result, dict):
-                result.setdefault("success", True)
-                result.setdefault("text", "⚠️ All AI services are temporarily busy.")
-                result["tier"] = TIERS["stub"].name
-                result["degraded"] = True
-                return result
-        except Exception as e:
-            logger.warning("ladder_stub_failed error=%s", e)
-
-    return {
-        "success": False, "text": "⚠️ All AI services are temporarily busy.",
-        "provider": "none", "model_used": "none",
-        "tokens_used": 0, "latency_ms": 0.0,
-        "tier": TIERS["stub"].name, "degraded": True,
-    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -603,7 +535,6 @@ class ResilientPipeline:
                     gw_res["pii_found"] = pii_found
                     yield ("result", _restore_and_yield(gw_res))
                     return
-
             # Stage 6: local twin (L3 only) — Stream-Heal delivery
             if AXELR_COGNITION_LEVEL >= 3 and deadline - time.monotonic() > 0.4:
                 hs_res = await self._try_local(
@@ -611,6 +542,11 @@ class ResilientPipeline:
                     context=context, tier=tier,
                 )
                 if hs_res is not None:
+                    if context and context.strip():
+                        yield ("thinking", {
+                            "stage": "local", "status": "healing",
+                            "recovered_bytes": len(context),
+                        })
                     yield ("thinking", {"stage": "local", "status": "ok", "round": round_num})
                     latency = (time.monotonic() - started) * 1000.0
                     hs_res["latency_ms"] = round(latency, 2)
@@ -756,12 +692,22 @@ class ResilientPipeline:
             if recent:
                 full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
         full_prompt += f"User request: {prompt}"
-
         try:
             ranked = await get_dynamically_ranked_providers(workspace)
         except Exception:
             ranked = list(PROVIDER_FUNC_MAP.keys())
 
+        # Overlay the Live Heartbeat Index on top of provider ranking.
+        # The heartbeat is authoritative for "which provider is healthy
+        # right now" — it aggregates circuit-breaker, gateway, and
+        # hot-swap health into a single score. Providers in cooldown are
+        # pushed to the back without being removed (so a full outage
+        # still tries them as a last resort).
+        try:
+            from .heartbeat import rank as _hb_rank
+            ranked = _hb_rank(ranked)
+        except Exception:
+            pass
         def _eligible(p: str) -> bool:
             if p == "local" or p in skip:
                 return False
@@ -967,8 +913,6 @@ class ResilientPipeline:
             return None
         self.stats["hot_swap_wins"] += 1
         return _pack(text, "local_twin", "twin", budget * 1000.0, tier="local")
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # §4 — Singletons
 # ═══════════════════════════════════════════════════════════════════════════

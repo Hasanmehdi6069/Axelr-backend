@@ -138,6 +138,70 @@ from .consensus import (
     ConsensusOutcome, PolishResult,
 )
 from .goat_layer import classify_workload, WorkloadProfile
+from .heartbeat import (
+    ProviderHealth, HEARTBEAT,
+    rank as heartbeat_rank, score as heartbeat_score,
+    record_success as heartbeat_record_success,
+    record_failure as heartbeat_record_failure,
+    snapshot as heartbeat_snapshot,
+    reset as heartbeat_reset,
+    install_bridge as heartbeat_install_bridge,
+    audit as heartbeat_audit,
+)
+from .ghost_telemetry import (
+    DeviceProfile, RoutingDecision,
+    fingerprint_to_profile, match_category, accept_telemetry,
+    snapshot as telemetry_snapshot,
+    audit as telemetry_audit,
+)
+from .prewarm import (
+    signal as prewarm_signal,
+    cancel as prewarm_cancel,
+    snapshot as prewarm_snapshot,
+    audit as prewarm_audit,
+)
+from .semantic_cache_local import (
+    LocalSemanticCache, get_local_cache, audit as local_cache_audit,
+)
+from .burst_scheduler import (
+    BurstToken, acquire as burst_acquire, release as burst_release,
+    active as burst_active, stats as burst_stats,
+    shutdown as burst_shutdown, audit as burst_audit,
+)
+from .micro_volatile import (
+    enter as micro_enter, exit as micro_exit,
+    is_active as micro_active, ceiling_mb as micro_ceiling,
+    clamp_max_tokens as micro_clamp_tokens,
+    clamp_response as micro_clamp_response,
+    policy as micro_policy, stats as micro_stats,
+    audit as micro_audit,
+)
+from .override_timer import (
+    issue as override_issue,
+    record_decision as override_record,
+    should_proceed as override_should_proceed,
+    stats as override_stats, audit as override_audit,
+)
+from .context_condenser import (
+    CondenseResult, condense as condense_context,
+    prune_whitespace as prune_context_whitespace,
+    extract_anchors as extract_context_anchors,
+    audit as condenser_audit,
+)
+from .thermal_guard import (
+    start as thermal_start, stop as thermal_stop,
+    running as thermal_running, budget as thermal_budget,
+    pressure as thermal_pressure, snapshot as thermal_snapshot,
+    audit as thermal_audit,
+)
+from .rank_bm25 import (
+    BM25Index, BM25Hit, get_bm25_index, audit as bm25_audit,
+)
+from .test_time_compute import (
+    decide_width as ttc_decide_width,
+    run_with_ttc as ttc_run,
+    audit as ttc_audit,
+)
 # ── anti-hallucination ────────────────────────────────────────────────────
 from . import anti_hallucination
 
@@ -150,6 +214,11 @@ def audit() -> dict[str, Any]:
         ("infra", infra), ("observe", observe),
         ("cache", cache), ("resilience", resilience),
         ("hardening", hardening), ("elite", elite_orchestrator),
+        ("heartbeat", __import__(__name__ + ".heartbeat", fromlist=["audit"])),
+        ("telemetry", __import__(__name__ + ".ghost_telemetry",
+                                 fromlist=["audit"])),
+        ("prewarm",   __import__(__name__ + ".prewarm",
+                                 fromlist=["audit"])),
     ):
         try:
             if hasattr(mod, "audit"):
@@ -230,4 +299,17 @@ __all__ = [
     "classify_workload", "WorkloadProfile",
     # anti-hallucination
     "anti_hallucination",
+        # heartbeat
+    "ProviderHealth", "HEARTBEAT",
+    "heartbeat_rank", "heartbeat_score",
+    "heartbeat_record_success", "heartbeat_record_failure",
+    "heartbeat_snapshot", "heartbeat_reset",
+    "heartbeat_install_bridge", "heartbeat_audit",
+    # ghost telemetry
+    "DeviceProfile", "RoutingDecision",
+    "fingerprint_to_profile", "match_category", "accept_telemetry",
+    "telemetry_snapshot", "telemetry_audit",
+    # prewarm
+    "prewarm_signal", "prewarm_cancel",
+    "prewarm_snapshot", "prewarm_audit",
 ]

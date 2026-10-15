@@ -81,9 +81,8 @@ def hedge_wrap(
         max_tokens: int, temp: float, tier: str,
         user: dict | None = None, context: str = "", request: Any = None,
     ) -> dict[str, Any]:
-        # 1. Classify — pure regex, <20 µs
         try:
-            from .task_router_v2 import classify as _classify
+            from .structured_gen import classify as _classify
             decision = _classify(prompt, files, intent=task_type,
                                  tier=tier or "free", workspace=workspace)
         except Exception:
@@ -165,12 +164,17 @@ async def _local_attempt(
 
     # Verify
     try:
-        from .local_verifier import verify as _verify
+        from .structured_gen import verify as _verify
         v = _verify(text, kind=getattr(decision, "verifier_kind", "none"),
                     prompt=prompt)
     except Exception:
         return None
-    if not v.passed:
+    # Reject degraded verdicts. `structured_gen.verify` returns
+    # `degraded=True` whenever the verifier could not actually run
+    # (verify disabled, missing schema, unknown kind, internal error).
+    # Those are NOT passes — accepting them would let the hedge ship
+    # unverified local text as if it were a verified win.
+    if not v.passed or v.degraded:
         return None
 
     return {

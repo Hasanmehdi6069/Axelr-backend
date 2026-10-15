@@ -436,10 +436,7 @@ class Orchestrator:
             "error": error,
         }
 
-
 __all__ = [
-    # Compat shim (preserved public surface)
-    "IntentRouter", "IntentResult", "get_router",
     # Orchestration (live surface)
     "Orchestrator", "Subtask",
     # Prompts

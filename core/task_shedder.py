@@ -1,10 +1,10 @@
 # core/task_shedder.py
 """
-AXELR — Dynamic Algorithmic Task-Shedding (Cognitive Stage 1)
-==============================================================
-A zero-IO gatekeeper. Measures prompt complexity from pure string signal,
-classifies the request into one of four tiers, and decides whether the
-request earns the multi-agent cognitive track.
+AXELR — Dynamic Algorithmic Task-Shedding (v1.1)
+=================================================
+A zero-IO gatekeeper.  Measures prompt complexity from pure string
+signal, classifies the request into one of four tiers, and decides
+whether the request earns the multi-agent cognitive track.
 
 Contract
 --------
@@ -12,15 +12,16 @@ Contract
     c = assess(prompt, history=history, files=files)
     if c.is_deep:
         ...                    # unlock multi-agent cognitive pipeline
-    else:
-        ...                    # lightning-fast single-pass
+
+v1.1 adds two convenience methods on Complexity:
+    .to_goat_tier()   → 'shed' | 'lite' | 'standard' | 'deep'
+    .budget_hint()    → recommended extra-call budget for the conductor
 
 Design
 ------
 * Pure analysis. No model calls, no Redis, no allocation spikes.
 * Deterministic — same prompt always maps to the same tier.
 * Cost: O(len(prompt)). ~3–10 µs on a 2 KB prompt.
-* Reasons list is preserved for the trace ring / Prometheus labels.
 
 Tiers (ascending)
 -----------------
@@ -44,11 +45,8 @@ from typing import Any, Iterable
 __all__ = ["Complexity", "assess", "should_escalate", "should_shed"]
 
 
-# ── Normalisation ────────────────────────────────────────────────────────
 _WS_RE = re.compile(r"\s+")
 
-
-# ── Signal regexes (compiled once, reused forever) ───────────────────────
 _CODE_HINT_RE = re.compile(
     r"\b(def|class|async|await|import|from|function|const|let|var|return|"
     r"SELECT|INSERT|UPDATE|DELETE|JOIN|WHERE|"
@@ -101,7 +99,7 @@ _NEGATION_FANOUT_RE = re.compile(
 @dataclass(frozen=True, slots=True)
 class Complexity:
     score: float
-    tier: str                       # trivial | standard | deep | critical
+    tier: str
     reasons: tuple[str, ...]
     words: int
     has_code: bool
@@ -112,6 +110,17 @@ class Complexity:
     @property
     def is_deep(self) -> bool:
         return self.tier in ("deep", "critical")
+
+    def to_goat_tier(self) -> str:
+        """Map this shedder tier → goat_layer tier.
+        Used by core.quality_conductor."""
+        return {"trivial": "shed", "standard": "lite",
+                "deep": "standard", "critical": "deep"}.get(self.tier, "shed")
+
+    def budget_hint(self) -> int:
+        """Recommended extra-provider-call budget for the conductor."""
+        return {"trivial": 0, "standard": 1,
+                "deep": 2, "critical": 3}.get(self.tier, 1)
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -134,7 +143,6 @@ def _normalize(text: str, cap: int = 8000) -> str:
 
 
 def _length_signal(words: int) -> float:
-    # log-scaled: 5 words → ~0.10, 500 words → ~1.0
     if words <= 0:
         return 0.0
     return min(1.0, math.log1p(words) / math.log1p(500))
