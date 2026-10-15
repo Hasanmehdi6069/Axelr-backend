@@ -459,11 +459,11 @@ async def _enhance_via_provider(
         latency = time.time() - t0
         if not resp or len(resp.strip()) < 3:
             raise RuntimeError(f"{provider_name}: empty response")
-        record_provider_result(provider_name, latency, success=True)
+        await record_provider_result(provider_name, latency, success=True)
         return resp, provider_name, latency
     except Exception as e:
         latency = time.time() - t0
-        record_provider_result(
+        await record_provider_result(
             provider_name, latency, success=False,
             is_rate_limit=("429" in str(e) or "quota" in str(e).lower()),
         )

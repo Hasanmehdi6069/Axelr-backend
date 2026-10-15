@@ -9,7 +9,6 @@ logging middleware so it does not pollute console metrics.
 from __future__ import annotations
 
 import time
-from typing import Any
 
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse

@@ -22,6 +22,7 @@ logging.basicConfig(
     stream=sys.stdout,
 )
 from dotenv import load_dotenv
+
 load_dotenv(override=False)
 
 structlog.configure(
@@ -92,8 +93,8 @@ def create_app() -> FastAPI:
         logger.warning("adjudicator_router_unavailable error=%s", e)
 
     try:
-        from api.config import get_http_client
         from api.ai_router import route_ai_request_parallel
+        from api.config import get_http_client
         from core.io_pipeline import make_webhook_router
         app.include_router(make_webhook_router(
             route_ai_request_parallel, http_client=get_http_client()))

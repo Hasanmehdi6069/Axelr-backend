@@ -30,16 +30,16 @@ from prometheus_client import REGISTRY, Counter
 from starlette.exceptions import HTTPException as StarletteHTTPException
 from starlette.responses import Response as _StarletteResponse
 
+from .lifespan import (
+    background_health_check,
+    pr_defense_cleanup,
+    validate_all_providers,
+)
 from .state import (
     RateLimitExceeded,
     _rate_limit_exceeded_handler,
     limiter,
     state,
-)
-from .lifespan import (  # noqa: E402,F401 — backward-compat re-exports
-    background_health_check,
-    pr_defense_cleanup,
-    validate_all_providers,
 )
 
 logger = structlog.get_logger("axelr")
@@ -256,19 +256,20 @@ async def metrics_middleware(request: Request, call_next):
     ).inc()
     return response
 
-
 async def security_headers_middleware(request: Request, call_next):
     response = await call_next(request)
     if request.url.path in ("/", "/terms", "/privacy"):
         csp = (
             "default-src 'self'; "
-            "script-src 'self' https://accounts.google.com https://cdn.jsdelivr.net "
-            "https://cdnjs.cloudflare.com 'unsafe-inline' https://js.stripe.com; "
+            "script-src 'self' 'wasm-unsafe-eval' https://accounts.google.com "
+            "https://cdn.jsdelivr.net https://cdnjs.cloudflare.com "
+            "'unsafe-inline' https://js.stripe.com; "
             "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; "
             "font-src 'self' https://fonts.gstatic.com data:; "
             "img-src 'self' data: blob:; "
             "connect-src 'self' https://axelr-backend.onrender.com "
             "https://api.puter.com https://api.stripe.com; "
+            "worker-src 'self' blob:; "
             "frame-src 'self' https://accounts.google.com https://hooks.stripe.com; "
             "object-src 'none'; base-uri 'self'; form-action 'self'; "
             "upgrade-insecure-requests"
@@ -281,8 +282,23 @@ async def security_headers_middleware(request: Request, call_next):
     response.headers["Referrer-Policy"]           = "strict-origin-when-cross-origin"
     response.headers["Permissions-Policy"]        = "geolocation=(), camera=(), microphone=()"
     response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-    return response
 
+    # ── Cross-origin isolation ──────────────────────────────────────
+    # These two headers are REQUIRED for:
+    #   * SharedArrayBuffer construction (Web Worker memory sharing)
+    #   * high-resolution performance.now() in the worker
+    #   * any WebAssembly.SIMD code that uses shared memory
+    # Without them, `crossOriginIsolated` is false and the twin worker
+    # cannot allocate shared memory — the frontend package in
+    # frontend/twin/ will throw at worker boot.
+    #
+    # COEP `credentialless` is chosen over `require-corp` so that the
+    # Google Fonts / jsDelivr / Stripe resources the CSP allows do not
+    # need to opt into CORS on our behalf.
+    response.headers["Cross-Origin-Opener-Policy"]   = "same-origin"
+    response.headers["Cross-Origin-Embedder-Policy"] = "credentialless"
+    response.headers["Cross-Origin-Resource-Policy"] = "cross-origin"
+    return response
 
 async def body_size_guard(request: Request, call_next):
     if request.method in ("POST", "PUT", "PATCH"):
@@ -428,8 +444,18 @@ def register_middleware(app: FastAPI, allowed_origins: list[str]) -> None:
     app.middleware("http")(security_headers_middleware)
     app.middleware("http")(body_size_guard)
     app.middleware("http")(monitor_safety_net)
-
-
+    # ── Rate limiter: Redis-Lua RPM/RPD/TPM enforcement ────────────────
+    try:
+        from .rate_limiter import rate_limit_middleware
+        app.middleware("http")(rate_limit_middleware)
+    except Exception:
+        pass
+    # ── Memory tuner: per-request gc.collect(1) + malloc_trim(0) ────────
+    try:
+        from .memory_tuner import trim_middleware
+        app.middleware("http")(trim_middleware)
+    except Exception:
+        pass
 def register_exception_handlers(app: FastAPI) -> None:
     try:
         from core.anti_hallucination import AxelrError as AheAxelrError
@@ -481,10 +507,20 @@ def register_monitor_routes(app: FastAPI) -> None:
 
 
 __all__ = [
-    "MONITOR_PATHS", "LIVENESS_PATHS", "READINESS_PATHS",
-    "MAX_BODY_BYTES", "HARD_SERVER_TIMEOUT_S", "PROVIDER_TIMEOUT_WINDOW_MS",
-    "get_sanitizer_vault", "get_stream_recovery_buffer",
-    "mask_pii", "restore_pii",
-    "register_middleware", "register_exception_handlers", "register_monitor_routes",
-    "background_health_check", "validate_all_providers", "pr_defense_cleanup",
+    "HARD_SERVER_TIMEOUT_S",
+    "LIVENESS_PATHS",
+    "MAX_BODY_BYTES",
+    "MONITOR_PATHS",
+    "PROVIDER_TIMEOUT_WINDOW_MS",
+    "READINESS_PATHS",
+    "background_health_check",
+    "get_sanitizer_vault",
+    "get_stream_recovery_buffer",
+    "mask_pii",
+    "pr_defense_cleanup",
+    "register_exception_handlers",
+    "register_middleware",
+    "register_monitor_routes",
+    "restore_pii",
+    "validate_all_providers",
 ]

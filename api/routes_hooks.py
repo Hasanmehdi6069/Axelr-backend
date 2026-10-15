@@ -16,13 +16,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hashlib
 import json
 import logging
 import os
 import re
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -157,4 +156,4 @@ async def warmup_signal(x_warmup_token: str | None = Header(default=None)):
     return {"success": ok}
 
 
-__all__ = ["router", "publish_token"]
+__all__ = ["publish_token", "router"]

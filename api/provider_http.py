@@ -22,22 +22,56 @@ from __future__ import annotations
 import logging
 import os
 import urllib.parse
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 
 from .config import (
-    AGNES_API_KEY, AGNES_MODEL, ANYAPI_API_KEY, ANYAPI_MODEL,
-    BAZAARLINK_API_KEY, BAZAARLINK_MODEL, CLOUDFLARE_ACCOUNT_ID,
-    CLOUDFLARE_API_KEY, CLOUDFLARE_MODEL, FREEFLOW_MODEL, FREETHEAI_MODEL,
-    GEMINI_API_KEY, GEMINI_MODELS, GITHUB_MODEL, GITHUB_MODELS_TOKEN,
-    GLAMA_API_KEY, GLAMA_MODEL, GROQ_API_KEY, GROQ_MODELS, HF_API_KEY,
-    MANIFEST_API_KEY, MANIFEST_MODEL, MISTRAL_API_KEY, MISTRAL_MODELS,
-    MODELSCOPE_API_KEY, MODELSCOPE_MODELS, NARAROUTER_API_KEY, NROUTER_API_KEY,
-    NROUTER_MODEL, OLLAMA_API_KEY, OPENROUTER_API_KEY, OPENROUTER_MODELS,
-    OVHCLOUD_API_KEY, OVHCLOUD_MODELS, PUTER_MODEL, QODER_MODEL,
-    REQUESTY_API_KEY, REQUESTY_MODEL, SILICONFLOW_API_KEY, SILICONFLOW_MODELS,
-    TEAMOROUTER_API_KEY, TEAMOROUTER_MODEL, ZAI_API_KEY, ZHIPU_MODEL,
+    AGNES_API_KEY,
+    AGNES_MODEL,
+    ANYAPI_API_KEY,
+    ANYAPI_MODEL,
+    BAZAARLINK_API_KEY,
+    BAZAARLINK_MODEL,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_API_KEY,
+    CLOUDFLARE_MODEL,
+    FREEFLOW_MODEL,
+    FREETHEAI_MODEL,
+    GEMINI_API_KEY,
+    GEMINI_MODELS,
+    GITHUB_MODEL,
+    GITHUB_MODELS_TOKEN,
+    GLAMA_API_KEY,
+    GLAMA_MODEL,
+    GROQ_API_KEY,
+    GROQ_MODELS,
+    HF_API_KEY,
+    MANIFEST_API_KEY,
+    MANIFEST_MODEL,
+    MISTRAL_API_KEY,
+    MISTRAL_MODELS,
+    MODELSCOPE_API_KEY,
+    MODELSCOPE_MODELS,
+    NARAROUTER_API_KEY,
+    NROUTER_API_KEY,
+    NROUTER_MODEL,
+    OLLAMA_API_KEY,
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODELS,
+    OVHCLOUD_API_KEY,
+    OVHCLOUD_MODELS,
+    PUTER_MODEL,
+    QODER_MODEL,
+    REQUESTY_API_KEY,
+    REQUESTY_MODEL,
+    SILICONFLOW_API_KEY,
+    SILICONFLOW_MODELS,
+    TEAMOROUTER_API_KEY,
+    TEAMOROUTER_MODEL,
+    ZAI_API_KEY,
+    ZHIPU_MODEL,
     get_http_client,
 )
 
@@ -129,9 +163,12 @@ def _openai_compat(
             "temperature": temp,
             "stream": False,
         }
-        # ── Stage 1: per-query hyperparameter injection ────────────────
+                # ── Stage 1: per-query hyperparameter injection ────────────────
+        # `payload_extras` now lives in core.hardening (merged from the
+        # retired core.hyperparams module). The old import silently
+        # failed and no hyperparams were ever injected.
         try:
-            from core.hyperparams import payload_extras
+            from core.hardening import payload_extras
             payload.update(payload_extras(prompt))
         except Exception:
             pass
@@ -516,8 +553,15 @@ PROVIDER_HTTP["local"] = call_local_fallback
 
 
 __all__ = [
-    "Adapter", "PROVIDER_HTTP", "http_post_async",
-    "call_gemini", "call_gemini_vision", "call_cloudflare", "call_huggingface",
-    "call_freegpt4_api", "call_zerotwo", "call_local_fallback",
+    "PROVIDER_HTTP",
+    "Adapter",
     "build_local_fallback_response",
+    "call_cloudflare",
+    "call_freegpt4_api",
+    "call_gemini",
+    "call_gemini_vision",
+    "call_huggingface",
+    "call_local_fallback",
+    "call_zerotwo",
+    "http_post_async",
 ]

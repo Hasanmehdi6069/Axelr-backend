@@ -83,8 +83,9 @@ def _install_hedge_wrap() -> None:
     is attached by ``core.routing.Orchestrator`` on first use.
     """
     try:
-        from . import routes_core as rc
         from core.elite_orchestrator import hedge_wrap
+
+        from . import ai_router as rc
     except Exception as e:                                    # noqa: BLE001
         logger.info("hedge_wrap_deferred reason=%s", e)
         return
@@ -190,7 +191,7 @@ def audit() -> dict[str, Any]:
     return _audit_snapshot()
 
 
-__all__ = ["install", "attach", "audit", "classify_intent"]
+__all__ = ["attach", "audit", "classify_intent", "install"]
 
 
 with contextlib.suppress(Exception):

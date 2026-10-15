@@ -112,19 +112,24 @@ ORIGIN  = os.getenv("ORIGIN", "https://axelr.in").rstrip("/")
 
 # ── Lazy HTTP client (single shared AsyncClient) ─────────────────────────────
 _http_client: httpx.AsyncClient | None = None
-
 def get_http_client() -> httpx.AsyncClient:
     """
-    Lazy initialization of the shared httpx AsyncClient to avoid
-    creating new clients on every import/request, which causes socket leaks.
-    Only creates the client once and reuses it for all requests.
+    Lazy singleton AsyncClient. Pool sizes are bounded (2 per backend by
+    default) so an idle process holds ~2 KB of socket state, not 100 KB.
+    Override via HTTP_MAX_CONNECTIONS / HTTP_MAX_KEEPALIVE env vars.
     """
     global _http_client
     if _http_client is None:
+        _max_conn = max(2, int(os.getenv("HTTP_MAX_CONNECTIONS", "2")))
+        _max_keep = max(1, int(os.getenv("HTTP_MAX_KEEPALIVE", "2")))
         _http_client = httpx.AsyncClient(
             verify=certifi.where(),
             timeout=httpx.Timeout(30.0),
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+            limits=httpx.Limits(
+                max_connections=_max_conn,
+                max_keepalive_connections=_max_keep,
+                keepalive_expiry=5.0,
+            ),
         )
     return _http_client
 
@@ -187,7 +192,12 @@ ENABLE_SELF_HEAL         = os.getenv("ENABLE_SELF_HEAL", "true").lower() == "tru
 ENABLE_BLAST_RADIUS      = os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true"
 ENABLE_PR_DEFENSE        = os.getenv("ENABLE_PR_DEFENSE", "true").lower() == "true"
 WORKSPACE_ROOT           = os.getenv("WORKSPACE_ROOT", "")
-
+# ── Hot Swap Engine ─────────────────────────────────────────────────────────
+ENABLE_HOT_SWAP         = os.getenv("ENABLE_HOT_SWAP", "true").lower() == "true"
+ENABLE_TWIN_TELEMETRY   = os.getenv("ENABLE_TWIN_TELEMETRY", "true").lower() == "true"
+ENABLE_TWIN_PREWARM     = os.getenv("ENABLE_TWIN_PREWARM", "true").lower() == "true"
+ENABLE_OVERRIDE_TIMER   = os.getenv("ENABLE_OVERRIDE_TIMER", "true").lower() == "true"
+ENABLE_MICRO_VOLATILE   = os.getenv("ENABLE_MICRO_VOLATILE", "true").lower() == "true"
 
 # ── Static model catalogs ────────────────────────────────────────────────────
 
@@ -247,12 +257,33 @@ WORKSPACE_LLM_CONFIG = {
     "design": {"temperature": 0.6, "max_tokens": 8192, "rpm_limit": 10, "tpm_limit": 80000},
     "core":   {"temperature": 0.5, "max_tokens": 8192, "rpm_limit": 15, "tpm_limit": 50000},
 }
-
-
 # ── Rate limits (tier → RPM) ─────────────────────────────────────────────────
+# NOTE: This dict is a compatibility alias.  The canonical source of truth
+# for enforced rate limits is ``rate_limiter.TIER_LIMITS``.  The reconciliation
+# guard below logs a warning at import time if the two diverge, so nothing
+# silently enforces the wrong value.
 
 RATE_LIMITS: dict[str, int] = {"free": 2, "pro": 5, "business": 8}
 
+
+def _reconcile_rate_limits() -> None:
+    """Best-effort: warn if RATE_LIMITS drifted from rate_limiter.TIER_LIMITS."""
+    try:
+        from rate_limiter import TIER_LIMITS  # type: ignore
+    except Exception:
+        return
+    if not isinstance(TIER_LIMITS, dict):
+        return
+    for k, v in RATE_LIMITS.items():
+        if k in TIER_LIMITS and TIER_LIMITS[k] != v:
+            logger.warning(
+                "RATE_LIMITS drift: config=%s rate_limiter=%s for tier=%s — "
+                "config value is deprecated; the rate_limiter value is enforced.",
+                v, TIER_LIMITS[k], k,
+            )
+
+
+_reconcile_rate_limits()
 
 # ── Supabase ─────────────────────────────────────────────────────────────────
 SUPABASE_URL    = (os.getenv("SUPABASE_URL") or "").rstrip("/")
@@ -290,6 +321,9 @@ __all__ = [
     "ENABLE_INTENT_CLASSIFIER", "ENABLE_CONTEXT_REGISTRY", "ENABLE_CRITIC",
     "ENABLE_SELF_HEAL", "ENABLE_BLAST_RADIUS", "ENABLE_PR_DEFENSE",
     "WORKSPACE_ROOT",
+    # Hot Swap Engine flags
+    "ENABLE_HOT_SWAP", "ENABLE_TWIN_TELEMETRY", "ENABLE_TWIN_PREWARM",
+    "ENABLE_OVERRIDE_TIMER", "ENABLE_MICRO_VOLATILE",
     # model catalogs
     "GEMINI_MODELS", "GEMINI_MODEL", "GROQ_MODELS", "OPENROUTER_MODELS",
     "CLOUDFLARE_MODEL", "MODELSCOPE_MODELS", "OLLAMA_MODELS",

@@ -19,11 +19,18 @@ import json
 import re
 from datetime import datetime, timezone
 from typing import Any
+
 import structlog
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from .ai_router import generate_with_cascade, route_ai_request_parallel, stream_ai_response
+
+from core.persistence import PERSIST
+
+from .ai_router import (
+    generate_with_cascade,
+    stream_ai_response,
+)
 from .auth import get_current_user
 from .config import WORKSPACE_LLM_CONFIG
 from .prompts import sanitize_input
@@ -34,8 +41,80 @@ from .workspace_detector import detect_workspace
 logger = structlog.get_logger("axelr.chat")
 
 router = APIRouter(tags=["AI"])
+# ── Internal twin endpoints (health, metrics, diagnose) ────────────────────
+try:
+    from core.twin_engine import twin_health_router as _twin_health_router
+    if _twin_health_router is not None:
+        router.include_router(_twin_health_router)
+except Exception:  # pragma: no cover — twin is optional
+    pass
+# ═══════════════════════════════════════════════════════════════════════════
+# Ghost Telemetry & Pre-Warm endpoints (Axelr Hot Swap Engine contract)
+# ═══════════════════════════════════════════════════════════════════════════
+class TelemetryPayload(BaseModel):
+    ram_free_mb: int = 0
+    ram_total_mb: int = 0
+    cores: int = 1
+    has_simd: bool = False
+    has_wasm: bool = False
+    has_webgpu: bool = False
+    battery_pct: int | None = None
+    thermal_state: str | None = None
+    # Optional scope hints — the client may also send these as headers.
+    task_type: str = ""
+    workspace: str = "core"
+    prompt_hint: str = ""
+
+class PrewarmPayload(BaseModel):
+    workspace: str = "core"
+    task_type: str = "structuring"
+    prompt_hint: str = ""
+
+@router.post("/api/twin/telemetry", tags=["AI"])
+@limiter.limit("120/minute")
+async def twin_telemetry(
+    body: TelemetryPayload, request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """
+    Client → server device fingerprint. Returns a tier-aware, task-aware
+    routing decision. Fields:
+        category · memory_envelope_mb · headroom_mb · purge_policy
+        context_window_hint · cache_prune_aggressive · suggested_models
+        specialist_model · specialist_role · deep_think_enabled
+        prewarm_hints · advisory · override_required · override_seconds
+        accept_id · device_class · tier_honored · micro_volatile
+    """
+    from core.ghost_telemetry import accept_telemetry
+    session_id = request.headers.get("x-session-id") or str(user.get("_id", ""))
+    tier = (user.get("tier") if isinstance(user, dict) else None) or "free"
+    # Optional scope hints from the client — task/workspace/prompt help
+    # the specialist picker choose the right model for the current work.
+    task_type = request.headers.get("x-task-type", "") or body.task_type or ""
+    workspace = request.headers.get("x-workspace", "") or "core"
+    prompt_hint = request.headers.get("x-prompt-hint", "")
+    decision = accept_telemetry(
+        body.model_dump(),
+        session_id=session_id, tier=tier,
+        task_type=task_type, workspace=workspace,
+        prompt=prompt_hint,
+    )
+    return {"success": True, **decision.to_dict()}
 
 
+@router.post("/api/twin/prewarm", tags=["AI"])
+@limiter.limit("60/minute")
+async def twin_prewarm(
+    body: PrewarmPayload, request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Client signals an imminent task. Server fires a task-specific warm-up."""
+    from core.prewarm import signal as prewarm_signal
+    workspace = body.workspace if body.workspace in (
+        "data", "design", "core") else "core"
+    task_type = body.task_type or "structuring"
+    fired = prewarm_signal(workspace, task_type, body.prompt_hint)
+    return {"success": True, "scheduled": fired}
 # ═══════════════════════════════════════════════════════════════════════════
 # Chat endpoint
 # ═══════════════════════════════════════════════════════════════════════════
@@ -47,6 +126,67 @@ class ChatRequestBody(BaseModel):
     provider: str = "gemini"
     max_tokens: int | None = None
     temperature: float | None = None
+@router.get("/api/chat/history/{session_id}", tags=["AI"])
+@limiter.limit("60/minute")
+async def get_chat_history(
+    session_id: str, request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Fetch all chat messages for a given session"""
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    user_id = str(user["_id"])
+    try:
+        # Get all messages for this session from the database
+        messages = await PERSIST.chats.get_session_messages(session_id, user_id)
+        # Convert to the format the frontend expects
+        frontend_messages = []
+        for msg in messages:
+            if msg.role == "user":
+                frontend_messages.append({
+                    "role": "user",
+                    "text": msg.content,
+                    "createdAt": datetime.fromtimestamp(msg.created_at, timezone.utc).isoformat()
+                })
+            elif msg.role == "assistant":
+                frontend_messages.append({
+                    "role": "model",
+                    "text": msg.content,
+                    "createdAt": datetime.fromtimestamp(msg.created_at, timezone.utc).isoformat(),
+                    "variants": [msg.content],
+                    "activeVariant": 0,
+                    "canRegenerate": True
+                })
+        return {"success": True, "sessionId": session_id, "messages": frontend_messages}
+    except Exception as e:
+        logger.error("failed_to_fetch_chat_history session_id=%s error=%s", session_id, e)
+        raise HTTPException(status_code=500, detail="Failed to fetch chat history")
+
+
+@router.delete("/api/chat/session/{session_id}", tags=["AI"])
+@limiter.limit("30/minute")
+async def delete_chat_session(
+    session_id: str, request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Delete a chat session (only works for guest sessions to comply with your requirement)"""
+    if not user:
+        raise HTTPException(status_code=401, detail="Authentication required")
+    
+    user_id = str(user["_id"])
+    # Only allow deletion if it's a guest session (user_id starts with guest_)
+    if not user_id.startswith("guest_"):
+        raise HTTPException(status_code=403, detail="Only guest sessions can be manually deleted")
+    
+    try:
+        # Set expire_at to now for all messages in this session so MongoDB TTL purges them
+        await PERSIST.chats.delete_guest_session(session_id, user_id)
+        logger.info("guest_session_deleted session_id=%s user_id=%s", session_id, user_id)
+        return {"success": True, "message": "Guest session deleted successfully"}
+    except Exception as e:
+        logger.error("failed_to_delete_guest_session session_id=%s error=%s", session_id, e)
+        raise HTTPException(status_code=500, detail="Failed to delete session")
 
 
 @router.post("/api/chat", tags=["AI"])
@@ -55,6 +195,11 @@ async def api_chat_main(
     body: ChatRequestBody, request: Request,
     user: dict = Depends(get_current_user),
 ):
+    # Pass the authenticated user and their REAL tier through the cascade.
+    # The previous revision hardcoded tier="free" / user=None, which meant
+    # every paid user was routed through the free-tier provider pool and
+    # every per-user quota counter was silently ignored.
+    real_tier = (user.get("tier") if isinstance(user, dict) else None) or "free"
     return await generate_with_cascade(
         workspace=body.workspace or "core",
         user_id=str(user["_id"]) if user else None,
@@ -64,14 +209,32 @@ async def api_chat_main(
         history=None, files=None,
         max_tokens=body.max_tokens or 2048,
         temp=body.temperature if body.temperature is not None else 0.4,
-        tier="free", user=None, context=body.context or "", request=request,
+        tier=real_tier,
+        user=user,
+        context=body.context or "",
+        request=request,
     )
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # File helpers
 # ═══════════════════════════════════════════════════════════════════════════
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
+    # Core workspace accepts all valid file types including code files
+    if workspace == "core" or workspace is None:
+        allowed_types = ("image/", "text/", "application/javascript", "application/json",
+                         "application/xhtml+xml", "application/xml", "text/x-", "text/x-python", "application/x-python-code",
+                         "application/pdf", "text/csv", "text/plain",
+                         "application/vnd.ms-excel",
+                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                         "application/msword",
+                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+        exts = (".csv", ".xls", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg",
+                ".gif", ".bmp", ".txt", ".doc", ".docx", ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
+                ".py", ".ipynb", ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs",
+                ".rb", ".php", ".swift", ".kt", ".scala", ".hs", ".lua", ".pl", ".r",
+                ".sh", ".bash", ".zsh", ".json", ".yaml", ".yml", ".toml", ".ini",
+                ".md", ".markdown", ".xml", ".svg", ".wasm", ".webp")
+        return content_type.startswith(allowed_types) or filename.lower().endswith(exts)
     if workspace == "data":
         allowed_types = ("image/", "application/pdf", "text/csv", "text/plain",
                          "application/vnd.ms-excel",
@@ -91,8 +254,59 @@ def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
                 ".md", ".markdown", ".txt", ".xml", ".svg", ".wasm",
                 ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
         return content_type.startswith(allowed_types) or filename.lower().endswith(exts)
-    return True
+    # Fallback for any other workspace - still accept all common file types
+    allowed_types = ("image/", "text/", "application/javascript", "application/json",
+                     "application/xhtml+xml", "application/xml", "text/x-", "text/x-python", "application/x-python-code",
+                     "application/pdf", "text/csv", "text/plain")
+    exts = (".csv", ".xls", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg",
+            ".gif", ".bmp", ".txt", ".doc", ".docx", ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
+            ".py", ".ipynb", ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs",
+            ".rb", ".php", ".swift", ".kt", ".scala", ".hs", ".lua", ".pl", ".r",
+            ".sh", ".bash", ".zsh", ".json", ".yaml", ".yml", ".toml", ".ini",
+            ".md", ".markdown", ".xml", ".svg", ".wasm", ".webp")
+    return content_type.startswith(allowed_types) or filename.lower().endswith(exts)
+# ═══════════════════════════════════════════════════════════════════════════
+# Shared upload-limit enforcement (used by /api/extract and
+# /api/extract_stream so the two paths cannot drift).
+# ═══════════════════════════════════════════════════════════════════════════
+_MAX_FILES        = 5
+_MAX_FILE_BYTES   = 10 * 1024 * 1024
+_MAX_TOTAL_BYTES  = 50 * 1024 * 1024
+def _validate_uploads(workspace: str, files: list[UploadFile]) -> list[UploadFile]:
+    """
+    Enforces: file count, per-file MIME/extension, per-file size, total size.
+    Raises HTTPException(400) with a stable shape. Returns the validated list.
+    """
+    if len(files) > _MAX_FILES:
+        raise HTTPException(status_code=400,
+                            detail=f"Too many files (max {_MAX_FILES})")
 
+    valid: list[UploadFile] = []
+    rejected: list[str] = []
+    for f in files:
+        if is_allowed_file(workspace, f.filename, f.content_type or ""):
+            valid.append(f)
+        else:
+            rejected.append(f.filename)
+    if rejected:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type(s) for {workspace}: {', '.join(rejected)}",
+        )
+
+    total = 0
+    for f in valid:
+        size = f.size or 0
+        if size > _MAX_FILE_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File {f.filename} exceeds "
+                       f"{_MAX_FILE_BYTES // (1024 * 1024)}MB",
+            )
+        total += size
+    if total > _MAX_TOTAL_BYTES:
+        raise HTTPException(status_code=400, detail="Total upload size too large")
+    return valid
 
 async def discover_schema(files: list[dict]) -> str | None:
     try:
@@ -206,10 +420,17 @@ async def _persist_chat_session(
     except Exception as e:
         logger.error("chat_session_persist_failed error=%s", e)
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Streaming extraction
 # ═══════════════════════════════════════════════════════════════════════════
+@router.put("/api/user/default-persona")
+async def set_default_persona(payload: dict, user: dict = Depends(get_current_user)):
+    pid = payload.get("default_persona_id")
+    await state.users_col.update_one(
+        {"_id": user["_id"]},
+        {"$set": {"default_persona_id": pid}},
+    )
+    return {"success": True, "default_persona_id": pid}
 @router.post("/api/extract_stream", response_model=None)
 @limiter.limit("5/minute")
 async def extract_stream(
@@ -238,8 +459,8 @@ async def extract_stream(
     workspace = workspace or detect_workspace(command, file_infos)
     if workspace not in ("data", "design", "core"):
         workspace = "core"
-
-    valid_files = [f for f in files if is_allowed_file(workspace, f.filename, f.content_type or "")]
+    files = _validate_uploads(workspace, files)
+    valid_files = files
     file_contents = []
     for f in valid_files:
         content_bytes = await f.read()
@@ -346,30 +567,8 @@ async def extract(
     workspace = workspace or detect_workspace(command, file_infos)
     if workspace not in ("data", "design", "core"):
         workspace = "core"
-
-    if len(files) > 5:
-        raise HTTPException(status_code=400, detail="Too many files (max 5)")
-
-    valid_files, rejected = [], []
-    for f in files:
-        if is_allowed_file(workspace, f.filename, f.content_type or ""):
-            valid_files.append(f)
-        else:
-            rejected.append(f.filename)
-    if rejected:
-        raise HTTPException(status_code=400,
-                            detail=f"Unsupported file type(s) for {workspace}: {', '.join(rejected)}")
-    files = valid_files
-
-    total_size = 0
-    for f in files:
-        size = f.size or 0
-        if size > 10 * 1024 * 1024:
-            raise HTTPException(status_code=400, detail=f"File {f.filename} exceeds 10MB")
-        total_size += size
-    if total_size > 50 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="Total upload size too large")
-
+    files = _validate_uploads(workspace, files)
+    total_size = sum((f.size or 0) for f in files)
     tier = user.get("tier", "free")
     is_design = workspace == "design"
 
@@ -578,6 +777,10 @@ async def extract(
 
 
 __all__ = [
-    "router", "is_allowed_file", "discover_schema",
-    "generate_dependencies", "generate_chat_name", "_persist_chat_session",
+    "_persist_chat_session",
+    "discover_schema",
+    "generate_chat_name",
+    "generate_dependencies",
+    "is_allowed_file",
+    "router",
 ]

@@ -15,6 +15,7 @@ No route here mutates billing; that's in ``routes_billing``.
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import secrets
 import urllib.parse
@@ -47,7 +48,6 @@ from .config import (
 )
 from .state import (
     delete_redis_cache,
-    get_object_id,
     get_redis_cache,
     set_redis_cache,
     state,
@@ -168,10 +168,13 @@ async def _reset_quotas_if_needed(user_doc: dict) -> dict:
     last_reset = user_doc.get("quotas", {}).get("lastQuotaReset")
     if not (last_reset and isinstance(last_reset, datetime)):
         return user_doc
+
     if last_reset.tzinfo is None:
         last_reset = last_reset.replace(tzinfo=timezone.utc)
-    last_reset_day = datetime(last_reset.year, last_reset.month, last_reset.day,
-                              tzinfo=timezone.utc)
+    last_reset_day = datetime(
+        last_reset.year, last_reset.month, last_reset.day,
+        tzinfo=timezone.utc,
+    )
     if today <= last_reset_day:
         return user_doc
 
@@ -195,23 +198,25 @@ async def _reset_quotas_if_needed(user_doc: dict) -> dict:
                 pipe.set(f"quota:{uid}:{f}", 0, ex=172800)
             pipe.set(f"quota:{uid}:last_reset", today.isoformat(), ex=172800)
             await pipe.execute()
-        logger.info("quota_reset_redis_only user_id=%s day=%s", uid, today.date())
+        logger.info("quota_reset_redis_only user_id=%s day=%s",
+                    uid, today.date())
     except Exception as e:
-        logger.warning("quota_reset_redis_failed user_id=%s error=%s", uid, e)
+        logger.warning("quota_reset_redis_failed user_id=%s error=%s",
+                       uid, e)
     return user_doc
 
-
 # ── The auth dependency ──────────────────────────────────────────────────────
-
 async def get_current_user(
+    request: Request,
     credentials: HTTPAuthorizationCredentials = Depends(security),
 ) -> dict:
     """
     Single source of truth for auth.
 
-    Order:
-      1. Google ID token (verified against Google JWKS)
-      2. Internal JWT (issued by GitHub OAuth / email login)
+    Side effect: populates ``request.state.user`` so the rate-limit
+    middleware (api.rate_limiter.rate_limit_middleware) can see the
+    authenticated tier without re-decoding the token. Failure to set
+    this attribute silently disables per-tier RPM enforcement.
     """
     if not state.db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -231,6 +236,8 @@ async def get_current_user(
             user_doc = await _create_user_from_google(idinfo)
         else:
             user_doc = await _reset_quotas_if_needed(user_doc)
+        with contextlib.suppress(Exception):
+            request.state.user = user_doc
         return user_doc
     except ValueError as e:
         logger.debug("google_token_verify_failed error=%s", e)
@@ -244,7 +251,10 @@ async def get_current_user(
     user_doc = await state.users_col.find_one({"email": payload.get("sub")})
     if not user_doc:
         raise HTTPException(status_code=401, detail="User not found")
-    return await _reset_quotas_if_needed(user_doc)
+    user_doc = await _reset_quotas_if_needed(user_doc)
+    with contextlib.suppress(Exception):
+        request.state.user = user_doc
+    return user_doc
 
 
 # ── Email login (dev/testing) ────────────────────────────────────────────────
@@ -547,8 +557,12 @@ if WEBAUTHN_AVAILABLE:
 
 
 __all__ = [
-    "router", "get_current_user",
-    "hash_password", "verify_password",
-    "create_access_token", "decode_token",
-    "security", "WEBAUTHN_AVAILABLE",
+    "WEBAUTHN_AVAILABLE",
+    "create_access_token",
+    "decode_token",
+    "get_current_user",
+    "hash_password",
+    "router",
+    "security",
+    "verify_password",
 ]

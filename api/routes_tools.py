@@ -18,15 +18,16 @@ from __future__ import annotations
 
 import asyncio
 import functools
+from collections.abc import Awaitable, Callable
 from datetime import datetime
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, TypeVar
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
-from .auth import get_current_user
 from .ai_router import route_ai_request_parallel
+from .auth import get_current_user
 from .state import (
     get_object_id,
     state,
@@ -368,8 +369,13 @@ async def tool_decision_matrix(
 
 
 __all__ = [
+    "CodeTranslateRequest",
+    "DecisionMatrixRequest",
+    "ExecuteRequest",
+    "MeetingMinutesRequest",
+    "MermaidRequest",
+    "PIIScanRequest",
+    "RefineRequest",
+    "TouchFixRequest",
     "router",
-    "ExecuteRequest", "TouchFixRequest", "RefineRequest",
-    "CodeTranslateRequest", "MermaidRequest", "PIIScanRequest",
-    "MeetingMinutesRequest", "DecisionMatrixRequest",
 ]

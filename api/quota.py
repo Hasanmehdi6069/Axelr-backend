@@ -115,7 +115,7 @@ async def sync_redis_usage_to_mongo(*args: Any, **kwargs: Any) -> None:
     lifespan-owned background worker; this is a no-op stub so API-surface
     parity is preserved for any legacy caller.
     """
-    return None
+    return
 
 
 def reset_usage_counts() -> None:
@@ -125,9 +125,9 @@ def reset_usage_counts() -> None:
 
 __all__ = [
     "TIER_CONFIG",
-    "estimate_tokens",
     "check_and_update_quota",
     "check_rate_limit",
-    "sync_redis_usage_to_mongo",
+    "estimate_tokens",
     "reset_usage_counts",
+    "sync_redis_usage_to_mongo",
 ]

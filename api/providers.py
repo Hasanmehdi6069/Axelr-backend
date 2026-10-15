@@ -23,18 +23,39 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import (
-    CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY, CLOUDFLARE_MODEL,
-    GEMINI_API_KEY, GEMINI_MODELS, GITHUB_MODEL, GITHUB_MODELS_TOKEN,
-    GROQ_API_KEY, GROQ_MODELS, HF_API_KEY, MISTRAL_API_KEY, MISTRAL_MODELS,
-    MODELSCOPE_API_KEY, MODELSCOPE_MODELS, NARAROUTER_API_KEY, NROUTER_API_KEY,
-    NROUTER_MODEL, OLLAMA_API_KEY, OPENROUTER_API_KEY, OPENROUTER_MODELS,
-    OVHCLOUD_API_KEY, OVHCLOUD_MODELS, REQUESTY_API_KEY, REQUESTY_MODEL,
-    SILICONFLOW_API_KEY, SILICONFLOW_MODELS, TEAMOROUTER_API_KEY,
-    TEAMOROUTER_MODEL, ZAI_API_KEY,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_API_KEY,
+    CLOUDFLARE_MODEL,
+    GEMINI_API_KEY,
+    GEMINI_MODELS,
+    GITHUB_MODEL,
+    GITHUB_MODELS_TOKEN,
+    GROQ_API_KEY,
+    GROQ_MODELS,
+    HF_API_KEY,
+    MISTRAL_API_KEY,
+    MISTRAL_MODELS,
+    MODELSCOPE_API_KEY,
+    MODELSCOPE_MODELS,
+    NARAROUTER_API_KEY,
+    NROUTER_API_KEY,
+    NROUTER_MODEL,
+    OLLAMA_API_KEY,
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODELS,
+    OVHCLOUD_API_KEY,
+    OVHCLOUD_MODELS,
+    REQUESTY_API_KEY,
+    REQUESTY_MODEL,
+    SILICONFLOW_API_KEY,
+    SILICONFLOW_MODELS,
+    TEAMOROUTER_API_KEY,
+    TEAMOROUTER_MODEL,
+    ZAI_API_KEY,
 )
 from .provider_http import (
-    PROVIDER_HTTP, build_local_fallback_response,
-    call_freegpt4_api,
+    PROVIDER_HTTP,
+    build_local_fallback_response,
 )
 from .state import state
 
@@ -127,7 +148,7 @@ PROVIDER_MODELS: dict[str, list[str]] = {
     "proxygatellm":     ["gpt-3.5-turbo"],
     "free_llm_gateway": ["auto"],
     "ninerouter":       ["auto"],
-    "local":            [],
+    "local":            ["local-model"],
 }
 
 # Active (production-ready) vs experimental
@@ -159,14 +180,14 @@ FREE_TIER_TOKEN_LIMIT = int(os.getenv("FREE_TIER_TOKEN_LIMIT", "1000000"))
 # ═══════════════════════════════════════════════════════════════════════════
 WORKSPACE_PRIORITY: dict[str, list[str]] = {
     "data": [
-        "gemini", "modelscope", "groq", "openrouter", "ollama_cloud",
+        "local", "gemini", "modelscope", "groq", "openrouter", "ollama_cloud",
         "nara_router", "proxygatellm", "free_llm_gateway", "ninerouter",
         "mistral", "ovhcloud", "siliconflow", "zhipuai", "teamorouter",
         "nrouter", "bazaarlink", "requesty", "qoder", "manifest",
         "keylessai", "anyapi", "aymo", "zerotwo", "aihubmix", "aisure",
     ],
     "design": [
-        "cloudflare", "groq", "gemini", "openrouter", "modelscope",
+        "local", "cloudflare", "groq", "gemini", "openrouter", "modelscope",
         "nara_router", "proxygatellm", "free_llm_gateway", "ninerouter",
         "agnes_ai", "siliconflow", "zhipuai", "teamorouter", "bifrost",
         "freegpt4_api", "ovhcloud", "nrouter", "puter", "omnigpt_gateway",
@@ -174,7 +195,7 @@ WORKSPACE_PRIORITY: dict[str, list[str]] = {
         "blockrun", "anyapi",
     ],
     "core": [
-        "gemini", "modelscope", "groq", "openrouter", "ollama_cloud",
+        "local", "gemini", "modelscope", "groq", "openrouter", "ollama_cloud",
         "nara_router", "proxygatellm", "free_llm_gateway", "ninerouter",
         "mistral", "huggingface", "github_models", "zhipuai", "teamorouter",
         "ovhcloud", "siliconflow", "nrouter", "bazaarlink", "requesty",
@@ -195,7 +216,7 @@ WORKSPACE_PRIORITY: dict[str, list[str]] = {
 
 
 def get_provider_order(workspace: str) -> list[str]:
-    all_names = [n for n, _ in PROVIDER_CHAIN if n != "local"]
+    all_names = [n for n, _ in PROVIDER_CHAIN]
     priority = WORKSPACE_PRIORITY.get(workspace, WORKSPACE_PRIORITY["core"])
     ordered: list[str] = []
     for name in priority:
@@ -204,7 +225,6 @@ def get_provider_order(workspace: str) -> list[str]:
     for name in all_names:
         if name not in ordered:
             ordered.append(name)
-    ordered.append("local")
     return ordered
 
 
@@ -367,12 +387,19 @@ async def get_dynamically_ranked_providers(workspace: str) -> list[str]:
 
 
 __all__ = [
-    "PROVIDER_FUNC_MAP", "PROVIDER_KEY_CHECK", "PROVIDER_MODELS",
-    "PROVIDER_CHAIN", "PROVIDER_CHAIN_ENTRIES",
-    "ACTIVE_PROVIDER_ENTRIES", "EXPERIMENTAL_PROVIDER_ENTRIES",
-    "WORKSPACE_PRIORITY", "get_provider_order",
-    "ProviderMetrics", "PROVIDER_TRACKER", "record_provider_result",
-    "get_dynamically_ranked_providers",
-    "build_local_fallback_response",
+    "ACTIVE_PROVIDER_ENTRIES",
+    "EXPERIMENTAL_PROVIDER_ENTRIES",
     "FREE_TIER_TOKEN_LIMIT",
+    "PROVIDER_CHAIN",
+    "PROVIDER_CHAIN_ENTRIES",
+    "PROVIDER_FUNC_MAP",
+    "PROVIDER_KEY_CHECK",
+    "PROVIDER_MODELS",
+    "PROVIDER_TRACKER",
+    "WORKSPACE_PRIORITY",
+    "ProviderMetrics",
+    "build_local_fallback_response",
+    "get_dynamically_ranked_providers",
+    "get_provider_order",
+    "record_provider_result",
 ]

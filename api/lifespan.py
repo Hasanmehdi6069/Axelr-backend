@@ -37,8 +37,10 @@ def _http_client():
 async def background_health_check() -> None:
     """Periodic liveness probe against every active provider."""
     from .providers import (
-        ACTIVE_PROVIDER_ENTRIES, PROVIDER_KEY_CHECK,
-        PROVIDER_MODELS, record_provider_result,
+        ACTIVE_PROVIDER_ENTRIES,
+        PROVIDER_KEY_CHECK,
+        PROVIDER_MODELS,
+        record_provider_result,
     )
     while True:
         try:
@@ -82,7 +84,9 @@ async def validate_all_providers(force: bool = False) -> dict:
             pass
 
     from .providers import (
-        ACTIVE_PROVIDER_ENTRIES, PROVIDER_KEY_CHECK, PROVIDER_MODELS,
+        ACTIVE_PROVIDER_ENTRIES,
+        PROVIDER_KEY_CHECK,
+        PROVIDER_MODELS,
     )
     from .state import set_redis_cache
 
@@ -162,8 +166,14 @@ async def _initialize_elite_services() -> None:
     try:
         logger.info("starting_lazy_initialization_of_elite_services")
 
-        from .ai_router import route_ai_request_parallel, _sandbox_execute
+        from .ai_router import _sandbox_execute, route_ai_request_parallel
 
+        try:
+            from core.thermal_guard import start as _thermal_start
+            if _thermal_start():
+                logger.info("thermal_guard_started")
+        except Exception as e:
+            logger.info("thermal_guard_unavailable reason=%s", e)
         # ── Memory (conversation) ─────────────────────────────────────
         try:
             from core.memory import Memory
@@ -220,7 +230,13 @@ async def _initialize_elite_services() -> None:
                 logger.info("twin_engine_unavailable remote_only_mode")
         except Exception as e:
             logger.info("twin_engine_unavailable reason=%s", e)
-
+                    # ── Live Heartbeat Index bridge ───────────────────────────────
+        try:
+            from core.heartbeat import install_bridge as _hb_install
+            ok = _hb_install()
+            logger.info("heartbeat_bridge_installed=%s", ok)
+        except Exception as e:
+            logger.info("heartbeat_bridge_unavailable reason=%s", e)
         # ── Context registry ──────────────────────────────────────────
         if (os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
                 and state.redis_client is not None
@@ -271,7 +287,7 @@ async def _initialize_elite_services() -> None:
 
         # ── Adjudicator (optional) ────────────────────────────────────
         try:
-            from app.services.dag_orchestrator import get_orchestrator
+            from core.routing import get_orchestrator
             _adj = await get_orchestrator()
             logger.info("adjudicator_ready")
         except Exception as e:
@@ -319,7 +335,7 @@ async def _initialize_elite_services() -> None:
 
         # ── Supabase compliance-audit tier (Stage 3.4) ──────────────────
         try:
-            from .config import SUPABASE_URL, SUPABASE_KEY, SUPABASE_BUCKET
+            from .config import SUPABASE_BUCKET, SUPABASE_KEY, SUPABASE_URL
             if SUPABASE_URL and SUPABASE_KEY:
                 from supabase import create_async_client
                 state.supabase = await create_async_client(
@@ -372,6 +388,12 @@ async def _initialize_elite_services() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("axelr_startup_begin")
+
+    # ── Memory tuner: disable cyclic GC + load libc handle ─────────────
+    from core.memory_tuner import arm as memory_tuner_arm
+    from core.memory_tuner import disarm as memory_tuner_disarm
+    memory_tuner_arm()
+
     app.state.bg_tasks = set()
 
     try:
@@ -412,7 +434,23 @@ async def lifespan(app: FastAPI):
                 t.cancel()
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
-
+        try:
+            from core.thermal_guard import stop as _thermal_stop
+            _thermal_stop()
+        except Exception:
+            pass
+        try:
+            from core.burst_scheduler import shutdown as _burst_stop
+            _burst_stop()
+        except Exception:
+            pass
+        try:
+            from core.prewarm import cancel as _pw_cancel
+            from core.prewarm import snapshot as _pw_snap
+            for entry in _pw_snap().get("in_flight", []):
+                _pw_cancel(entry["workspace"], entry["task_type"])
+        except Exception:
+            pass
         # ── Twin engine ─────────────────────────────────────────────────
         import core.twin_engine as _twin_mod
         _eng = getattr(_twin_mod, "_ENGINE", None)
@@ -461,13 +499,15 @@ async def lifespan(app: FastAPI):
             setattr(state, name, None)
         for name in ("twin_engine", "provider_cascade", "memory_bus"):
             setattr(app.state, name, None)
-
+        # ── Memory tuner: re-enable cyclic GC ───────────────────────────
+        with contextlib.suppress(Exception):
+            memory_tuner_disarm()
         logger.info("axelr_shutdown_complete")
 
 
 __all__ = [
-    "lifespan",
-    "validate_all_providers",
     "background_health_check",
+    "lifespan",
     "pr_defense_cleanup",
+    "validate_all_providers",
 ]

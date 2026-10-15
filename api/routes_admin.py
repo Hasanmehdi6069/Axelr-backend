@@ -29,15 +29,16 @@ from .state import get_object_id, state
 logger = logging.getLogger("axelr.admin")
 router = APIRouter(tags=["admin"])
 
-
 def _require_admin(user: dict) -> None:
-    if not user.get("isAdmin"):
+    # User documents store `is_admin` (snake_case) per api.auth._new_user_doc.
+    # This guard previously read `isAdmin` and rejected every request.
+    if not (user.get("is_admin") or user.get("isAdmin")):
         raise HTTPException(status_code=403, detail="Admin only")
 
 
 def _is_super_admin(user: dict) -> bool:
-    return user.get("isAdmin") and user.get("email") == ADMIN_EMAIL
-
+    return bool(user.get("is_admin") or user.get("isAdmin")) and \
+        user.get("email") == ADMIN_EMAIL
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Debug

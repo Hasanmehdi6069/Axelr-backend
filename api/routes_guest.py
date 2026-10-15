@@ -13,7 +13,6 @@ import json
 import re
 import secrets
 from datetime import datetime, timedelta, timezone
-from typing import Any
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 
@@ -21,7 +20,9 @@ from .ai_router import route_ai_request_parallel
 from .config import WORKSPACE_LLM_CONFIG
 from .routes_chat import discover_schema, is_allowed_file
 from .state import (
-    delete_redis_cache, get_redis_cache, set_redis_cache, state,
+    delete_redis_cache,
+    get_redis_cache,
+    set_redis_cache,
 )
 from .workspace_detector import detect_workspace
 
