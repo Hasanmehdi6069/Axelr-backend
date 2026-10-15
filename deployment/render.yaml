@@ -1,39 +1,76 @@
-# render.yaml
 services:
   - type: web
-    name: axelr-core
-    env: docker
-    dockerfilePath: .deployment/Dockerfile
+    name: axelr-backend
+    runtime: docker
+    plan: free
     region: oregon
-    plan: free                       # 512 MB RAM / 0.1 vCPU
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
     autoDeploy: true
-    healthCheckPath: /api/health/ping
     envVars:
       - key: ENV
         value: production
-      - key: LOG_LEVEL
-        value: INFO
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: PYTHONDONTWRITEBYTECODE
-        value: "1"
-      - key: WORKSPACE_ROOT
-        value: /app
-      - key: MALLOC_ARENA_MAX
-        value: "2"
+      - key: PORT
+        value: "8000"
       - key: WEB_CONCURRENCY
         value: "1"
+
+      # ── Secrets — set these in the Render dashboard, NOT here ─────
+      - key: JWT_SECRET
+        sync: false
+      - key: MONGO_URI
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: CLOUDFLARE_API_KEY
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+
+      # ── Tuning (safe to inline) ──────────────────────────────────
+      - key: AXELR_MEMORY_TUNER
+        value: "true"
+      - key: AXELR_TRIM_EVERY_N
+        value: "1"
+      - key: AXELR_HEARTBEAT_DECAY_S
+        value: "120"
+      - key: AXELR_BURST_DEFAULT_MIN
+        value: "10"
+      - key: AXELR_BURST_HARD_MAX_MIN
+        value: "20"
+      - key: AXELR_MICRO_VOLATILE_MB
+        value: "15"
+      - key: AXELR_OVERRIDE_SECONDS
+        value: "5"
+      - key: AXELR_PREWARM
+        value: "true"
+      - key: AXELR_THERMAL_INTERVAL_S
+        value: "5"
       - key: AXELR_COGNITION_LEVEL
         value: "2"
-      - key: ENABLE_BLAST_RADIUS
-        value: "true"
-      - key: TWIN_FAST_PARALLEL
-        value: "2"
-      - key: TWIN_MAX_INFLIGHT_FAST
-        value: "2"
-      - key: TWIN_MAX_INFLIGHT_ELITE
-        value: "1"
       - key: PIPELINE_FAST_DEADLINE_S
-        value: "15.0"
+        value: "15"
       - key: PIPELINE_PRO_DEADLINE_S
-        value: "30.0"
+        value: "30"
+      - key: TWIN_RSS_SOFT_CAP_MB
+        value: "380"
