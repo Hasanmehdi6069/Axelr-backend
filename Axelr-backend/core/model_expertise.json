@@ -1,0 +1,42 @@
+{
+  "generated_at": "2026-10-29T16:36:30+00:00",
+  "min_score": 0.5,
+  "fields": {
+    "data_extraction": {
+      "model": null,
+      "score": 0.0,
+      "p50_ms": null,
+      "verified": false
+    },
+    "csv_generation": {
+      "model": null,
+      "score": 0.0,
+      "p50_ms": null,
+      "verified": false
+    },
+    "code_generation": {
+      "model": null,
+      "score": 0.0,
+      "p50_ms": null,
+      "verified": false
+    },
+    "code_fix": {
+      "model": null,
+      "score": 0.0,
+      "p50_ms": null,
+      "verified": false
+    },
+    "ui_design": {
+      "model": null,
+      "score": 0.0,
+      "p50_ms": null,
+      "verified": false
+    },
+    "classify": {
+      "model": null,
+      "score": 0.0,
+      "p50_ms": null,
+      "verified": false
+    }
+  }
+}
