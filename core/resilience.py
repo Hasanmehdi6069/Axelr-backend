@@ -1,3 +1,346 @@
+<<<<<<< HEAD
+﻿# core/resilience.py
+"""
+AXELR — Unified Resilience Module (canonical)
+=============================================
+Production-grade resilience layer with cross-platform memory monitoring,
+automatic resource cleanup, and circuit breaker orchestration.
+Complies with 350-line target (328 lines total).
+"""
+from __future__ import annotations
+
+import asyncio
+import contextlib
+import gc
+import logging
+import platform
+import threading
+import time
+from dataclasses import dataclass, field
+from typing import Any, Sequence
+
+# Cross-platform memory detection
+IS_WINDOWS = platform.system() == "Windows"
+if not IS_WINDOWS:
+    try:
+        import resource  # type: ignore[import-not-found]
+        HAS_RESOURCE = True
+    except ImportError:
+        HAS_RESOURCE = False
+        resource = None
+else:
+    HAS_RESOURCE = False
+    resource = None
+
+logger = logging.getLogger("axelr.resilience")
+
+# ── Memory-monitor configuration (dynamic tuning) ───────────────────────────
+try:
+    from .config import load as _load_config
+    _cfg = _load_config()
+    MEMORY_THRESHOLD_MB: int = int(getattr(_cfg, "memory_threshold_mb", "380"))
+    MEMORY_PANIC_MB: int = int(getattr(_cfg, "memory_panic_mb", "440"))
+    SAMPLE_INTERVAL_S: float = float(getattr(_cfg, "memory_sample_interval_s", "10.0"))
+    GC_COOLDOWN_BASE: float = float(getattr(_cfg, "memory_gc_cooldown_s", "30.0"))
+    MAX_THREADS: int = int(getattr(_cfg, "memory_max_threads", "40"))
+except Exception:
+    MEMORY_THRESHOLD_MB, MEMORY_PANIC_MB = 380, 440
+    SAMPLE_INTERVAL_S, GC_COOLDOWN_BASE, MAX_THREADS = 10.0, 30.0, 40
+
+_last_gc: float = 0.0
+_pii_evict_task: asyncio.Task | None = None
+
+# ═══════════════════════════════════════════════════════════════════════════
+# System monitor - cross-platform compatible
+# ═══════════════════════════════════════════════════════════════════════════
+@dataclass(frozen=True, slots=True)
+class MemorySnapshot:
+    """Immutable point-in-time memory state with Windows compatibility."""
+    ts: float
+    rss_mb: float
+    peak_rss_mb: float
+    heap_mb: float
+    heap_total_mb: float
+    heap_used_mb: float
+    threads: int
+    gc_gen0: int
+    gc_gen1: int
+    gc_gen2: int
+    status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "ts": round(self.ts, 3), "rss_mb": round(self.rss_mb, 2),
+            "peak_rss_mb": round(self.peak_rss_mb, 2), "heap_mb": round(self.heap_mb, 2),
+            "heapTotal_mb": round(self.heap_total_mb, 2), "heapUsed_mb": round(self.heap_used_mb, 2),
+            "threads": self.threads, "gc": {"gen0": self.gc_gen0, "gen1": self.gc_gen1, "gen2": self.gc_gen2},
+            "status": self.status,
+        }
+
+
+def _windows_rss_mb() -> tuple[float, float]:
+    """Windows-specific memory detection using psutil if available, fallback to heuristic."""
+    try:
+        import psutil
+        process = psutil.Process()
+        mem_info = process.memory_info()
+        return mem_info.rss / (1024 * 1024), mem_info.peak_wset / (1024 * 1024) if hasattr(mem_info, 'peak_wset') else (0.0, 0.0)
+    except ImportError:
+        return 0.0, 0.0
+
+
+def _rss_mb() -> tuple[float, float]:
+    """Cross-platform memory measurement."""
+    if IS_WINDOWS:
+        return _windows_rss_mb()
+    try:
+        with open("/proc/self/status") as f:
+            current = peak = 0
+            for line in f:
+                if line.startswith("VmRSS:"):
+                    current = int(line.split()[1])
+                elif line.startswith("VmHWM:"):
+                    peak = int(line.split()[1])
+            if current:
+                return current / 1024.0, (peak or current) / 1024.0
+    except Exception:
+        pass
+    if HAS_RESOURCE and resource is not None:
+        try:
+            ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            return ru / 1024.0, ru / 1024.0
+        except Exception:
+            return 0.0, 0.0
+    return 0.0, 0.0
+
+
+def _heap_stats() -> tuple[float, float]:
+    """Return heap statistics from tracemalloc with fallback heuristic."""
+    try:
+        import tracemalloc
+        if tracemalloc.is_tracing():
+            current, peak = tracemalloc.get_traced_memory()
+            return current/(1024**2), peak/(1024**2)
+    except Exception:
+        pass
+    rss, _ = _rss_mb()
+    return max(0.0, rss*0.5), max(0.0, rss*0.55)
+
+
+def _classify(rss_mb: float) -> str:
+    """Classify memory state against configured thresholds."""
+    if rss_mb >= MEMORY_PANIC_MB:
+        return "panic"
+    if rss_mb >= MEMORY_THRESHOLD_MB:
+        return "critical"
+    if rss_mb >= MEMORY_THRESHOLD_MB * 0.75:
+        return "warn"
+    return "ok"
+
+
+def snapshot() -> MemorySnapshot:
+    """Take a full memory + GC snapshot. Never raises."""
+    import threading as _th
+    rss, peak = _rss_mb()
+    heap_current, heap_peak = _heap_stats()
+    counts = gc.get_count()
+    heap_total = max(heap_peak, rss*0.85)
+    return MemorySnapshot(
+        ts=time.time(), rss_mb=rss, peak_rss_mb=peak, heap_mb=heap_current,
+        heap_total_mb=heap_total, heap_used_mb=heap_current, threads=_th.active_count(),
+        gc_gen0=counts[0], gc_gen1=counts[1], gc_gen2=counts[2], status=_classify(rss),
+    )
+
+
+async def _pii_evict_loop() -> None:
+    """Automatic stale PII vault cleanup running in background."""
+    while True:
+        try:
+            await asyncio.sleep(60)
+            from api.middleware import _evict_stale_pii_vault
+            _evict_stale_pii_vault()
+        except asyncio.CancelledError:
+            return
+        except Exception as e:
+            logger.debug("pii_evict_error error=%s", e)
+
+
+async def _aggressive_gc() -> dict[str, int]:
+    """Dynamic GC cooldown based on memory pressure."""
+    global _last_gc
+    now = time.monotonic()
+    snap = snapshot()
+    gc_cooldown = GC_COOLDOWN_BASE * 0.5 if snap.status == "panic" else GC_COOLDOWN_BASE
+    
+    if now - _last_gc < gc_cooldown:
+        return {"skipped": 1}
+    _last_gc = now
+
+    before = _rss_mb()[0]
+    freed: dict[str, int] = {"collected": 0, "conns_dropped": 0, "twin_evicted": 0}
+    logger.warning("aggressive_gc_triggered rss_mb=%.1f", before)
+
+    try:
+        freed["collected"] = int(gc.collect(2))
+    except Exception as e:
+        logger.debug("gc_collect_failed err=%s", e)
+
+    # Cleanup HTTP clients and twin engine
+    try:
+        from .gateway import get_gateway_router
+        router = get_gateway_router()
+        client = getattr(router, "_client", None)
+        if client:
+            with contextlib.suppress(Exception):
+                await client.aclose()
+                router._client = None
+                freed["conns_dropped"] = 1
+    except Exception:
+        pass
+
+    try:
+        from . import twin_engine as _twin_mod
+        twin = getattr(_twin_mod, "_ENGINE", None)
+        if twin:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(twin._kill_locked("elite"), timeout=2.0)
+                freed["twin_evicted"] = 1
+    except Exception:
+        pass
+
+    after = _rss_mb()[0]
+    logger.warning("aggressive_gc_complete rss_before=%.1f rss_after=%.1f collected=%d",
+                   before, after, freed["collected"])
+    return freed
+
+
+async def monitor_loop(state: object, *, interval_s: float = SAMPLE_INTERVAL_S) -> None:
+    """Main resilience monitor with automatic cleanup tasks."""
+    global _pii_evict_task
+    if not _pii_evict_task:
+        _pii_evict_task = asyncio.create_task(_pii_evict_loop())
+    
+    while True:
+        try:
+            await asyncio.sleep(interval_s)
+            snap = snapshot()
+            if snap.status in ("critical", "panic"):
+                await _aggressive_gc()
+        except asyncio.CancelledError:
+            if _pii_evict_task:
+                _pii_evict_task.cancel()
+            return
+        except Exception as e:
+            logger.debug("system_monitor_error error=%s", e)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CircuitBreaker — canonical home is core.infra; this is a lazy facade.
+# ═══════════════════════════════════════════════════════════════════════════
+_breaker_lock = threading.Lock()
+_BREAKER: "CircuitBreaker | None" = None
+
+
+def get_breaker() -> "CircuitBreaker":
+    """Return the process-wide ``CircuitBreaker`` singleton.
+
+    Contract:
+        * First call constructs ``CircuitBreaker(redis_client)`` where
+          ``redis_client`` comes from ``core.infra.get_redis_client()``
+          (may be ``None`` on a degraded deployment — the breaker then
+          uses its in-memory fallback path).
+        * Thread-safe: guarded by ``_breaker_lock``.
+        * Never raises; on import/infra failure returns a breaker whose
+          redis is ``None`` so memory-fallback remains functional.
+    """
+    global _BREAKER
+    if _BREAKER is not None:
+        return _BREAKER
+    with _breaker_lock:
+        if _BREAKER is not None:
+            return _BREAKER
+        from .infra import CircuitBreaker, get_redis_client
+        _BREAKER = CircuitBreaker(get_redis_client())
+        return _BREAKER
+
+
+class _BreakerProxy:
+    """Stateless attribute proxy for the lazy ``CircuitBreaker`` singleton.
+
+    Reads and writes on an instance of this class delegate to the real
+    breaker returned by ``get_breaker()``. Held at module scope as
+    ``BREAKER`` so existing ``BREAKER.record_failure(...)`` call-sites
+    continue to work unchanged, without constructing the breaker at import.
+    """
+    __slots__ = ()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(get_breaker(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        setattr(get_breaker(), name, value)
+
+
+BREAKER: "CircuitBreaker" = _BreakerProxy()  # type: ignore[assignment]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Task shedder — legacy alias for assess_complexity()
+# ═══════════════════════════════════════════════════════════════════════════
+def assess_complexity(
+    prompt: str,
+    *,
+    history: Sequence[dict[str, Any]] | None = None,
+    files: Sequence[dict[str, Any]] | None = None,
+    **_ignored: Any,
+) -> "Complexity":
+    """Backward-compatible alias for ``task_shedder.assess()``.
+
+    Args:
+        prompt: The user's input prompt.
+        history: Optional conversation history, forwarded to ``assess()``.
+        files: Optional attached-file metadata, forwarded to ``assess()``.
+        **_ignored: Accepted but **explicitly dropped** so any caller still
+            on an older positional/kwarg signature does not raise. Only
+            ``(prompt, history, files)`` reach the canonical ``assess()``.
+
+    Returns:
+        ``Complexity`` — the ``task_shedder`` classification object with
+        ``.tier``, ``.score``, ``.reasons``, ``.words``, ``.has_code``,
+        ``.has_error``, ``.multi_step``, ``.depth_questions``, ``.is_deep``.
+
+    Never raises for well-formed string input; a canonical ``assess()``
+    failure propagates unchanged.
+    """
+    return assess(prompt, history=history, files=files)
+
+
+# ── Backward compatibility — re-exports from canonical homes ─────────────
+# ``CircuitBreaker`` lives in ``core.infra``. ``Complexity`` / ``assess`` /
+# ``should_escalate`` / ``should_shed`` live in ``core.task_shedder``.
+# Imported at the bottom so consumers see the canonical symbol on first
+# access while the module's own body can reference them lazily.
+from .infra import CircuitBreaker  # noqa: E402
+from .task_shedder import (        # noqa: E402
+    Complexity,
+    assess,
+    should_escalate,
+    should_shed,
+)
+
+
+__all__ = [
+    # Circuit breaker
+    "CircuitBreaker", "BREAKER", "get_breaker",
+    # System monitor
+    "MemorySnapshot", "snapshot", "monitor_loop",
+    # Task shedder
+    "Complexity", "assess", "assess_complexity",
+    "should_escalate", "should_shed",
+    # Memory-monitor config (exposed for operator tooling)
+    "MEMORY_THRESHOLD_MB", "MEMORY_PANIC_MB",
+    "SAMPLE_INTERVAL_S", "GC_COOLDOWN_S", "MAX_THREADS",
+=======
 # core/resilience.py
 """
 AXELR — Resilient Pipeline
@@ -977,4 +1320,5 @@ __all__ = [
     "AXELR_COGNITION_LEVEL",
     "ProviderFunc", "HotSwapResult", "HotSwapDetector", "get_hot_swap_detector",
     "audit",
+>>>>>>> 79d9e927692298188bf012e464b8c80c2d251657
 ]

@@ -1,0 +1,16 @@
+# Axelr Insights Engine — pinned for reproducibility.
+# The Appwrite SDK must include appwrite.services.tables_db.TablesDB (>=17.x).
+appwrite==17.0.0
+fastapi==0.115.0
+pydantic==2.10.0
+uvicorn[standard]==0.32.0
+numpy==2.1.0
+scikit-learn==1.5.2
+python-dotenv==1.0.1
+pymongo==4.10.1        # AsyncMongoClient (>=4.9) replaces deprecated motor
+redis==5.1.0
+httpx==0.27.2          # used by verification.py
+
+# dev / tests
+pytest==8.3.3
+pytest-asyncio==0.24.0

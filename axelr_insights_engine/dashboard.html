@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Axelr Insights — Live</title>
+<script>
+/* Server-injected config wins; safe defaults for local dev. */
+window.INSIGHTS_APPWRITE_ENDPOINT = 'https://<your-region>.cloud.appwrite.io/v1';
+window.INSIGHTS_APPWRITE_PROJECT  = '<your-project-id>';
+window.INSIGHTS_APPWRITE_DB       = 'insights';
+window.INSIGHTS_API_BASE          = '';  /* same-origin */
+</script>
+<style>
+:root{
+  --bg:#0a0c10; --card:#12161f; --card-2:#1a202c; --line:#232b3a;
+  --text:#e8ecf3; --dim:#7a8497; --accent:#4f8cff; --accent-2:#6ee7b7;
+  --warn:#fbbf24; --danger:#f87171;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:ui-sans-serif,system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+header{display:flex;align-items:center;justify-content:space-between;padding:16px 28px;border-bottom:1px solid var(--line);background:rgba(10,12,16,.8);backdrop-filter:blur(12px);position:sticky;top:0;z-index:10}
+.brand{font-weight:700;font-size:15px;letter-spacing:-.01em}
+.brand span{color:var(--dim);font-weight:400}
+.live{font-size:11px;font-weight:600;letter-spacing:.1em;color:var(--dim);display:flex;align-items:center;gap:6px}
+.live .dot{width:8px;height:8px;border-radius:50%;background:var(--warn);transition:background .3s}
+.live.on .dot{background:var(--accent-2);box-shadow:0 0 0 4px rgba(110,231,183,.15);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+.user{font-size:13px;color:var(--dim)}
+.user b{color:var(--text)}
+
+main{max-width:1280px;margin:0 auto;padding:28px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px}
+.stat .label{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:600}
+.stat .value{font-size:28px;font-weight:700;margin-top:6px;letter-spacing:-.02em}
+.stat .value.danger{color:var(--danger)}
+.stat .value.warn{color:var(--warn)}
+.stat .value.ok{color:var(--accent-2)}
+
+.grid{display:grid;grid-template-columns:1.6fr 1fr;gap:16px;margin-bottom:16px}
+.grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+.card h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--dim);font-weight:600;margin-bottom:16px}
+.chart-card{min-height:280px}
+.chart-wrap{position:relative;height:240px}
+
+.search-box{display:flex;gap:8px;margin-bottom:14px}
+.search-box input{flex:1;background:var(--card-2);border:1px solid var(--line);color:var(--text);padding:10px 14px;border-radius:8px;font-size:14px;outline:none}
+.search-box input:focus{border-color:var(--accent)}
+.search-box button{background:var(--accent);border:0;color:#fff;padding:0 18px;border-radius:8px;font-weight:600;cursor:pointer}
+.search-box button:hover{filter:brightness(1.1)}
+.hit{background:var(--card-2);border:1px solid var(--line);border-radius:8px;padding:12px;margin-bottom:8px}
+.hit .id{font-size:11px;color:var(--accent);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px}
+.hit .content{font-size:13px;line-height:1.5;color:var(--text)}
+.hit .score{font-size:11px;color:var(--dim);margin-top:6px}
+
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);font-weight:600;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:10px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:0}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.err{color:var(--danger)}
+
+.feed{max-height:320px;overflow-y:auto;font-size:12px;font-family:ui-monospace,monospace}
+.feed-item{padding:8px 0;border-bottom:1px solid var(--line);color:var(--dim);display:flex;gap:8px}
+.feed-item:last-child{border-bottom:0}
+.feed-item .ts{color:var(--dim);opacity:.7;min-width:60px}
+.feed-item .evt{color:var(--text);flex:1}
+.feed-item .evt.err{color:var(--danger)}
+.feed-item .lat{color:var(--accent-2);font-variant-numeric:tabular-nums}
+
+.empty{color:var(--dim);font-size:13px;padding:20px 0;text-align:center}
+
+/* Login modal */
+.modal{position:fixed;inset:0;background:rgba(10,12,16,.85);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center;z-index:100}
+.modal.open{display:flex}
+.login{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:32px;width:380px}
+.login h1{font-size:18px;margin-bottom:6px}
+.login p{font-size:13px;color:var(--dim);margin-bottom:20px}
+.login input{width:100%;background:var(--card-2);border:1px solid var(--line);color:var(--text);padding:11px 14px;border-radius:8px;font-size:14px;margin-bottom:10px;outline:none}
+.login input:focus{border-color:var(--accent)}
+.login button{width:100%;background:var(--accent);border:0;color:#fff;padding:12px;border-radius:8px;font-weight:600;cursor:pointer;margin-top:6px}
+.login button:hover{filter:brightness(1.1)}
+.login .err{color:var(--danger);font-size:12px;margin-top:10px;min-height:16px}
+.login .hint{font-size:11px;color:var(--dim);margin-top:16px;line-height:1.5}
+
+@media(max-width:900px){.stats{grid-template-columns:repeat(2,1fr)}.grid,.grid-2{grid-template-columns:1fr}}
+</style>
+
+</head>
+<body>
+
+<header>
+  <div class="brand">Axelr Insights <span>/ live</span></div>
+  <div class="live" id="live"><span class="dot"></span><span id="live-text">OFFLINE</span></div>
+  <div class="user" id="user">Not signed in</div>
+</header>
+
+<main>
+  <section class="stats">
+    <div class="stat"><div class="label">Events (1h)</div><div class="value" id="s-events">—</div></div>
+    <div class="stat"><div class="label">Error Rate</div><div class="value" id="s-errors">—</div></div>
+    <div class="stat"><div class="label">Avg Latency</div><div class="value" id="s-avg">—</div></div>
+    <div class="stat"><div class="label">P95 Latency</div><div class="value" id="s-p95">—</div></div>
+  </section>
+
+  <div class="grid">
+    <div class="card chart-card">
+      <h2>Live Latency — rolling 60s</h2>
+      <div class="chart-wrap"><canvas id="chart"></canvas></div>
+    </div>
+    <div class="card">
+      <h2>Semantic Search</h2>
+      <div class="search-box">
+        <input id="q" placeholder="e.g. provider failover strategy">
+        <button id="search-btn">→</button>
+      </div>
+      <div id="hits"><div class="empty">Search the knowledge base</div></div>
+    </div>
+  </div>
+
+  <div class="grid-2">
+    <div class="card">
+      <h2>Pipeline Health</h2>
+      <div id="pipelines"><div class="empty">Loading…</div></div>
+    </div>
+    <div class="card">
+      <h2>Live Activity</h2>
+      <div class="feed" id="feed"><div class="empty">Waiting for events…</div></div>
+    </div>
+  </div>
+</main>
+
+<!-- Login modal -->
+<div class="modal" id="modal">
+  <div class="login">
+    <h1>Sign in to Insights</h1>
+    <p>Use your Appwrite account.</p>
+    <input id="email" type="email" placeholder="email@example.com" autocomplete="username">
+    <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+    <button id="login-btn">Sign in</button>
+    <div class="err" id="login-err"></div>
+    <div class="hint">Signed in with an admin account? You'll get full dashboard access. Regular accounts see the search panel.</div>
+  </div>
+</div>
+
+<!-- Appwrite SDK v17 (TablesDB available) -->
+<script src="https://cdn.jsdelivr.net/npm/appwrite@17.0.0/dist/iife/sdk.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+const CFG = {
+  endpoint: window.INSIGHTS_APPWRITE_ENDPOINT || 'https://YOUR_REGION.cloud.appwrite.io/v1',
+  project:  window.INSIGHTS_APPWRITE_PROJECT  || 'YOUR_PROJECT_ID',
+  database: window.INSIGHTS_APPWRITE_DB       || 'insights',
+  table:    'audit_events',
+  apiBase:  window.INSIGHTS_API_BASE          || '',
+};
+
+let client = null, session = null, sessionSecret = null;
+let chart = null;
+const MAX_POINTS = 40;
+
+// ── Init chart
+function initChart() {
+  const ctx = document.getElementById('chart').getContext('2d');
+  const grad = ctx.createLinearGradient(0, 0, 0, 240);
+  grad.addColorStop(0, 'rgba(79,140,255,.35)');
+  grad.addColorStop(1, 'rgba(79,140,255,0)');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'latency_ms', data: [],
+      borderColor: '#4f8cff', backgroundColor: grad, fill: true,
+      borderWidth: 2, tension: .3, pointRadius: 0, pointHoverRadius: 4,
+    }]},
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { display: false },
+        y: {
+          beginAtZero: true, grid: { color: 'rgba(255,255,255,.04)' },
+          ticks: { color: '#7a8497', font: { size: 10 } },
+        },
+      },
+    },
+  });
+}
+
+function pushPoint(ts, value) {
+  const t = new Date(ts).toLocaleTimeString();
+  chart.data.labels.push(t);
+  chart.data.datasets[0].data.push(value);
+  if (chart.data.labels.length > MAX_POINTS) {
+    chart.data.labels.shift();
+    chart.data.datasets[0].data.shift();
+  }
+  chart.update('none');
+}
+
+// ── Auth
+async function doLogin() {
+  const email = document.getElementById('email').value.trim();
+  const pw = document.getElementById('pw').value;
+  const err = document.getElementById('login-err');
+  err.textContent = '';
+  if (!email || !pw) { err.textContent = 'Enter email and password'; return; }
+
+  client = new Appwrite.Client().setEndpoint(CFG.endpoint).setProject(CFG.project);
+  const account = new Appwrite.Account(client);
+  try {
+    await account.createEmailPasswordSession(email, pw);
+    const current = await account.getSession('current');
+    sessionSecret = current.secret;
+    const user = await account.get();
+    document.getElementById('user').innerHTML = `<b>${user.email}</b>`;
+    document.getElementById('modal').classList.remove('open');
+    await boot();
+  } catch (e) {
+    err.textContent = String(e.message || e);
+  }
+}
+
+// ── API helper
+async function api(path, opts = {}) {
+  const headers = { 'Content-Type': 'application/json', ...(opts.headers || {}) };
+  if (sessionSecret) headers['X-Appwrite-Session'] = sessionSecret;
+  const res = await fetch(CFG.apiBase + path, { ...opts, headers });
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+  return res.json();
+}
+
+// ── Realtime
+function startRealtime() {
+  const setLive = (on) => {
+    document.getElementById('live').classList.toggle('on', on);
+    document.getElementById('live-text').textContent = on ? 'LIVE' : 'OFFLINE';
+  };
+
+  const sub = client.subscribe(
+    `tablesdb.${CFG.database}.tables.${CFG.table}.rows`,
+    (resp) => {
+      if (!resp.events.some(e => e.endsWith('.create'))) return;
+      const row = resp.payload;
+      // `ts` is the event's own timestamp (set by the writer);
+      // `$createdAt` is Appwrite ingestion time. Prefer `ts` so
+      // backfilled events show their real time, not "now".
+      const ts = row.ts || row.$createdAt || new Date().toISOString();
+      const evt = row.node_id ? `${row.kind || 'event'} · ${row.node_id}`
+                : row.action ? `${row.kind || 'event'} · ${row.action}`
+                : (row.kind || 'event');
+      const lat = row.latency_ms != null ? `${row.latency_ms}ms` : '';
+      const isErr = row.status === 'error';
+      appendFeed(ts, evt, lat, isErr);
+      if (row.latency_ms != null) pushPoint(ts, Number(row.latency_ms));
+    }
+  );
+  sub.on('open',  () => setLive(true));
+  sub.on('close', () => setLive(false));
+  sub.on('error', () => setLive(false));
+}
+
+function appendFeed(ts, evt, lat, isErr) {
+  const feed = document.getElementById('feed');
+  const empty = feed.querySelector('.empty');
+  if (empty) empty.remove();
+  const el = document.createElement('div');
+  el.className = 'feed-item';
+  el.innerHTML = `<span class="ts">${new Date(ts).toLocaleTimeString()}</span>
+                  <span class="evt ${isErr ? 'err' : ''}">${esc(evt)}</span>
+                  <span class="lat">${esc(lat)}</span>`;
+  feed.prepend(el);
+  while (feed.children.length > 60) feed.lastChild.remove();
+}
+
+// ── Stats + pipelines + search
+async function refreshStats() {
+  try {
+    const d = await api('/insights/audit/stats?window_minutes=60');
+    document.getElementById('s-events').textContent = d.total_events ?? 0;
+    document.getElementById('s-avg').textContent = d.avg_latency_ms != null ? `${d.avg_latency_ms}ms` : '—';
+    const p95el = document.getElementById('s-p95');
+    p95el.textContent = d.p95_latency_ms != null ? `${d.p95_latency_ms}ms` : '—';
+    p95el.className = 'value ' + (d.p95_latency_ms > 200 ? 'danger' : d.p95_latency_ms > 100 ? 'warn' : 'ok');
+  } catch (e) { 
+    console.debug("Stats refresh failed (admin-only endpoint)", e); 
+  }
+}
+
+async function refreshPipelines() {
+  try {
+    const d = await api('/insights/audit/pipelines?window_minutes=60');
+    const el = document.getElementById('pipelines');
+    if (!d.pipelines || !Array.isArray(d.pipelines) || d.pipelines.length === 0) { 
+      el.innerHTML = '<div class="empty">No pipeline data available</div>'; 
+      return; 
+    }
+    const totalEvents = d.pipelines.reduce((sum, p) => sum + (p.total || 0), 0);
+    const totalErrors = d.pipelines.reduce((sum, p) => sum + (p.errors || 0), 0);
+    const errorPercent = totalEvents > 0 ? (totalErrors / totalEvents * 100) : 0;
+    document.getElementById('s-errors').textContent = `${errorPercent.toFixed(1)}%`;
+    
+    el.innerHTML = `<table>
+      <thead><tr><th>Pipeline</th><th class="num">Total</th><th class="num">Errors</th><th class="num">Avg</th><th class="num">Max</th></tr></thead>
+      <tbody>${d.pipelines.map(p => `
+        <tr>
+          <td>${esc(p.pipeline_id || 'unknown')}</td>
+          <td class="num">${p.total || 0}</td>
+          <td class="num ${(p.errors || 0) > 0 ? 'err' : ''}">${p.errors || 0}</td>
+          <td class="num">${p.avg_latency_ms ?? '—'}ms</td>
+          <td class="num">${p.max_latency_ms ?? '—'}ms</td>
+        </tr>`).join('')}</tbody></table>`;
+  } catch (e) { 
+    console.debug("Pipelines refresh failed (admin-only endpoint)", e); 
+  }
+}
+
+async function doSearch() {
+  const q = document.getElementById('q').value.trim();
+  if (!q) return;
+  const hits = document.getElementById('hits');
+  hits.innerHTML = '<div class="empty">Searching…</div>';
+  try {
+    const d = await api('/insights/search', {
+      method: 'POST',
+      body: JSON.stringify({ query: q, top_k: 5 }),
+    });
+    if (!d.hits || !d.hits.length) { hits.innerHTML = '<div class="empty">No matches</div>'; return; }
+    hits.innerHTML = d.hits.map(h => `
+      <div class="hit">
+        <div class="id">${esc(h.doc_id)}</div>
+        <div class="content">${esc(h.content)}</div>
+        <div class="score">score ${h.score.toFixed(4)}</div>
+      </div>`).join('');
+  } catch (e) {
+    hits.innerHTML = `<div class="empty" style="color:var(--danger)">${esc(e.message)}</div>`;
+  }
+}
+
+function esc(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── Boot
+async function boot() {
+  await refreshStats();
+  await refreshPipelines();
+  startRealtime();
+  setInterval(refreshStats, 15000);
+  setInterval(refreshPipelines, 15000);
+}
+
+document.getElementById('login-btn').addEventListener('click', doLogin);
+document.getElementById('pw').addEventListener('keydown', e => e.key === 'Enter' && doLogin());
+document.getElementById('search-btn').addEventListener('click', doSearch);
+document.getElementById('q').addEventListener('keydown', e => e.key === 'Enter' && doSearch());
+
+initChart();
+document.getElementById('modal').classList.add('open');
+</script>
+</body>
+</html>

@@ -1,3 +1,176 @@
+<<<<<<< HEAD
+# core/failover.py
+"""
+AXELR — Failover & Hotswap Infrastructure (canonical)
+====================================================
+Provides tiered provider failover logic, hotswap detection, and provider ladder
+execution. This is the canonical home for all failover-related functionality.
+"""
+from __future__ import annotations
+import asyncio
+import logging
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable, Sequence, TypeVar
+
+logger = logging.getLogger("axelr.failover")
+
+T = TypeVar("T")
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tier Definitions
+# ──────────────────────────────────────────────────────────────────────────────
+@dataclass(frozen=True, slots=True)
+class Tier:
+    """Represents a provider tier with priority, cost, and capability flags."""
+    name: str
+    priority: int  # lower = higher priority
+    cost_per_1k_tokens: float
+    supports_streaming: bool = True
+    supports_function_calling: bool = True
+
+# Predefined tiers
+TIERS = {
+    "local": Tier(
+        name="local",
+        priority=0,
+        cost_per_1k_tokens=0.0,
+        supports_streaming=True,
+        supports_function_calling=True
+    ),
+    "first_party": Tier(
+        name="first_party",
+        priority=1,
+        cost_per_1k_tokens=0.05,
+        supports_streaming=True,
+        supports_function_calling=True
+    ),
+    "premium": Tier(
+        name="premium",
+        priority=2,
+        cost_per_1k_tokens=0.15,
+        supports_streaming=True,
+        supports_function_calling=True
+    ),
+    "fallback": Tier(
+        name="fallback",
+        priority=3,
+        cost_per_1k_tokens=0.30,
+        supports_streaming=True,
+        supports_function_calling=False
+    )
+}
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Core Failover Types
+# ──────────────────────────────────────────────────────────────────────────────
+ProviderFunc = Callable[..., Awaitable[Any]]
+
+@dataclass(frozen=True, slots=True)
+class HotSwapResult:
+    """Result of a hotswap operation between providers."""
+    success: bool
+    original_provider: str
+    new_provider: str
+    latency_saved: float
+    error: str | None = None
+
+@dataclass
+class HotSwapDetector:
+    """Detects when a provider is underperforming and triggers hotswap."""
+    threshold_latency_p95: float = 2.0  # seconds
+    min_samples: int = 5
+    latency_history: dict[str, list[float]] = field(default_factory=dict)
+    _lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    def __init__(self, threshold_latency_p95: float = 2.0):
+        self.threshold_latency_p95 = threshold_latency_p95
+        self.latency_history = {}
+        self._lock = asyncio.Lock()
+
+    async def record_latency(self, provider: str, latency: float) -> None:
+        """Record a latency sample for a provider."""
+        async with self._lock:
+            if provider not in self.latency_history:
+                self.latency_history[provider] = []
+            self.latency_history[provider].append(latency)
+            # Keep only last 100 samples
+            if len(self.latency_history[provider]) > 100:
+                self.latency_history[provider] = self.latency_history[provider][-100:]
+
+    async def should_hotswap(self, provider: str) -> bool:
+        """Check if a provider's p95 latency exceeds threshold."""
+        async with self._lock:
+            if provider not in self.latency_history:
+                return False
+            samples = self.latency_history[provider]
+            if len(samples) < self.min_samples:
+                return False
+            # Calculate p95
+            sorted_samples = sorted(samples)
+            p95_index = int(len(sorted_samples) * 0.95)
+            p95 = sorted_samples[p95_index]
+            return p95 > self.threshold_latency_p95
+
+    async def audit(self) -> dict[str, Any]:
+        """Return audit stats for all providers."""
+        async with self._lock:
+            return {
+                "threshold": self.threshold_latency_p95,
+                "providers": {
+                    provider: {
+                        "samples": len(latencies),
+                        "p95": sorted(latencies)[int(len(latencies)*0.95)] if len(latencies)>=5 else None
+                    }
+                    for provider, latencies in self.latency_history.items()
+                }
+            }
+
+# Lazy singleton for hotswap detector
+_detector_instance: HotSwapDetector | None = None
+
+def get_hotswap_detector() -> HotSwapDetector:
+    """Get the global HotSwapDetector instance (lazy singleton)."""
+    global _detector_instance
+    if _detector_instance is None:
+        _detector_instance = HotSwapDetector()
+    return _detector_instance
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Ladder Execution
+# ──────────────────────────────────────────────────────────────────────────────
+async def ladder_run(
+    providers: Sequence[ProviderFunc],
+    *args: Any,
+    stop_on_success: bool = True,
+    **kwargs: Any
+) -> list[Any]:
+    """Run providers in order (ladder), stopping on first success if requested."""
+    results = []
+    for provider in providers:
+        try:
+            result = await provider(*args, **kwargs)
+            results.append(result)
+            if stop_on_success and result.get("success", False):
+                return results
+        except Exception as e:
+            logger.warning(f"Provider failed in ladder run: {str(e)}")
+            results.append({"success": False, "error": str(e)})
+            if stop_on_success:
+                continue
+    return results
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Public API
+# ──────────────────────────────────────────────────────────────────────────────
+__all__ = [
+    "Tier",
+    "TIERS",
+    "ladder_run",
+    "ProviderFunc",
+    "HotSwapResult",
+    "HotSwapDetector",
+    "get_hotswap_detector"
+=======
 # core/failover.py
 """
 AXELR — Failover Primitives (ladder · hot-swap detector)
@@ -353,4 +526,5 @@ def get_hot_swap_detector(providers: dict[str, ProviderFunc] | None = None,
 __all__ = [
     "Tier", "TIERS", "ladder_run",
     "ProviderFunc", "HotSwapResult", "HotSwapDetector", "get_hot_swap_detector",
+>>>>>>> 79d9e927692298188bf012e464b8c80c2d251657
 ]
