@@ -1,0 +1,15 @@
+# Bharat Civic Agent — runtime + test requirements
+#
+# Engine itself is pure Python 3.11+ standard library.
+# Only optional document loaders are needed for non-plaintext input.
+
+# --- Required for PDF ingestion ---
+pypdf>=4.0
+
+# --- Optional: image OCR (uncomment to enable) ---
+# pillow>=10.0
+# pytesseract>=0.3
+
+# --- Testing (hostile suite) ---
+pytest>=8.0
+pytest-asyncio>=0.23
