@@ -1,0 +1,5 @@
+name = "axelr-vectors"
+main = "src/index.js"
+compatibility_date = "2026-09-17"
+# account_id intentionally omitted — set via `wrangler deploy --account-id` or
+# CLOUDFLARE_ACCOUNT_ID env var in CI. Committing account IDs is a breach.

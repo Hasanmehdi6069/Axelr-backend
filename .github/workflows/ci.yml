@@ -1,0 +1,453 @@
+name: AXELR Unified CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ─── 1. META-TESTS (fast fail - validate test harness integrity) ───────
+  meta-tests:
+    name: Meta-Tests (Test Harness Integrity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest pytest-asyncio
+      - name: Run meta-tests
+        run: |
+          cd Axelr-backend
+          python -m pytest tests/_meta/ -v
+
+  # ─── 2. LINT (fast fail) ─────────────────────────────────────────────
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    needs: meta-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: pip install ruff==0.16.8
+      - run: ruff check Axelr-backend --output-format=github
+      - run: ruff format --check Axelr-backend
+
+  # ─── 3. TYPE CHECK ────────────────────────────────────────────────────
+  typecheck:
+    name: Type Check
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+          pip install pyright
+      - run: |
+          cd Axelr-backend
+          pyright
+
+  # ─── 4. UNIT TESTS (offline, deterministic) ──────────────────────────
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    env:
+      ENV: test
+      JWT_SECRET: test-secret-key-xxxxxxxxxxxxxxxxxxxxxxxxxx
+      MONGO_URI: ""
+      REDIS_URL: ""
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio pytest-cov httpx
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/ -q --cov=. --cov-report=xml --cov-fail-under=70
+      - uses: codecov/codecov-action@v4
+        with:
+          file: ./Axelr-backend/coverage.xml
+
+  # ─── 5. QUALITY TESTS (RAG, latency, OOD) ───────────────────────────
+  quality-tests:
+    name: Quality Tests (RAG, Latency, OOD)
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/quality/ -v
+
+  # ─── 6. SECURITY PRIMITIVES ───────────────────────────────────────────
+  security-tests:
+    name: Security Primitives
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/security/ -v
+
+  # ─── 7. GATEWAY PROVIDER COMPATIBILITY ────────────────────────────────
+  gateway-tests:
+    name: Gateway Provider Compatibility
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/gateway/ -v
+
+  # ─── 8. LOAD TESTS ───────────────────────────────────────────────────
+  load-tests:
+    name: Load Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/load/ -v
+
+  # ─── 9. CHAOS PROBES ─────────────────────────────────────────────────
+  chaos-tests:
+    name: Chaos Probes
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/chaos/ -v
+
+  # ─── 10. RESILIENCE TESTS ────────────────────────────────────────────
+  resilience-tests:
+    name: Resilience Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/resilience/ -v
+
+  # ─── 11. API E2E TESTS ───────────────────────────────────────────────
+  api-e2e-tests:
+    name: API E2E Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/api/ -v
+
+  # ─── 12. AGENT TESTS ─────────────────────────────────────────────────
+  agent-tests:
+    name: Agent Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/agents/ -v
+
+  # ─── 13. ENGINE TESTS ─────────────────────────────────────────────────
+  engine-tests:
+    name: Engine Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/engine/ -v
+
+  # ─── 14. PERSISTENCE TESTS ───────────────────────────────────────────
+  persistence-tests:
+    name: Persistence Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/persistence/ -v
+
+  # ─── 15. RUNTIME TESTS ────────────────────────────────────────────────
+  runtime-tests:
+    name: Runtime Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/runtime/ -v
+
+  # ─── 16. PAYMENTS TESTS ───────────────────────────────────────────────
+  payments-tests:
+    name: Payments Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/payments/ -v
+
+  # ─── 17. APPWRITE TESTS ───────────────────────────────────────────────
+  appwrite-tests:
+    name: Appwrite Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/appwrite/ -v
+
+  # ─── 18. MCP TESTS ───────────────────────────────────────────────────
+  mcp-tests:
+    name: MCP Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/mcp/ -v
+
+  # ─── 19. DR TESTS ────────────────────────────────────────────────────
+  dr-tests:
+    name: Disaster Recovery Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    env:
+      ENV: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-backend
+          python -m pytest tests/dr/ -v
+
+  # ─── 20. FRONTEND E2E ────────────────────────────────────────────────
+  frontend-e2e:
+    name: Frontend E2E
+    runs-on: ubuntu-latest
+    needs: [unit-tests, quality-tests, security-tests]
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Axelr-Frontend/package-lock.json
+      - run: |
+          cd Axelr-backend
+          pip install -r requirements.txt
+      - run: |
+          cd Axelr-Frontend
+          npm install
+      - name: Boot uvicorn
+        env:
+          ENV: dev
+          JWT_SECRET: test-secret-key-xxxxxxxxxxxxxxxxxxxxxxxxxx
+          MONGO_URI: ""
+          REDIS_URL: ""
+          WEBHOOK_INBOUND_TOKEN: test-token
+          WEBHOOK_INBOUND_SECRET: test-secret
+        run: |
+          cd Axelr-backend
+          nohup uvicorn api.warhead:create_app --host 127.0.0.1 --port 8000 > uvicorn.log 2>&1 &
+          echo $! > uvicorn.pid
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:8000/ping >/dev/null && exit 0
+            sleep 1
+          done
+          tail -n 200 uvicorn.log >&2
+          exit 1
+      - name: Run frontend build
+        run: |
+          cd Axelr-Frontend
+          npm run build
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: frontend-build
+          path: Axelr-Frontend/dist
+          retention-days: 14
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: uvicorn-log
+          path: Axelr-backend/uvicorn.log
+      - if: always()
+        run: |
+          if [ -f Axelr-backend/uvicorn.pid ]; then
+            kill "$(cat Axelr-backend/uvicorn.pid)" 2>/dev/null || true
+          fi

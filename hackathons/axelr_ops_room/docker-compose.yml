@@ -1,0 +1,32 @@
+version: "3.9"
+
+services:
+  mattermost:
+    image: mattermost/mattermost-team-edition:latest
+    container_name: axelr-mattermost
+    ports:
+      - "8065:8065"
+    environment:
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://mmuser:mostest@postgres:5432/mattermost?sslmode=disable"
+      MM_BOTACCOUNTENABLED: "true"
+      MM_SERVICESETTINGS_SITEURL: "http://localhost:8065"
+    depends_on:
+      - postgres
+
+  postgres:
+    image: postgres:15
+    container_name: axelr-postgres
+    environment:
+      POSTGRES_USER: mmuser
+      POSTGRES_PASSWORD: mostest
+      POSTGRES_DB: mattermost
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mmuser -d mattermost"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pg_data:

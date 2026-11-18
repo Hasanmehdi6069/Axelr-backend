@@ -1,0 +1,32 @@
+# Litestream production configuration for Cloudflare R2 S3-compatible storage
+# Full documentation: https://litestream.io/reference/config/
+dbs:
+  - path: /app/pb_data/data.db
+    replicas:
+      # Cloudflare R2 bucket configuration
+      - url: s3://${R2_BUCKET_NAME}/litestream
+        endpoint: ${CLOUDFLARE_ACCOUNT_ID}.r2.cloudflarestorage.com
+        region: auto
+        access-key-id: ${R2_ACCESS_KEY_ID}
+        secret-access-key: ${R2_SECRET_ACCESS_KEY}
+        # Synchronous replication to prevent data loss on exit
+        sync-interval: 1s
+        # Retain 7 days of snapshots for point-in-time recovery
+        retention: 168h
+        # Check for new snapshots every 10 minutes to reduce API calls
+        snapshot-interval: 10m
+        # Validate TLS certificates for production security
+        skip-verify: false
+        # Use path-style addressing for R2 compatibility
+        force-path-style: true
+    # Monitor database for changes every 1s
+    monitor-interval: 1s
+    # Ensure Litestream exits if replication fails permanently
+    exit-on-error: true
+# Global logging configuration
+logging:
+  level: info
+  format: json
+# Enable Prometheus metrics for monitoring
+metrics:
+  addr: :9090

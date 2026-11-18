@@ -1,0 +1,47 @@
+{
+  "version": "1.0",
+  "endpoints": {
+    "qstash-webhook": {
+      "url": "${RENDER_BACKEND_URL}/api/qstash/webhook",
+      "max_parallelism": 1,
+      "retries": 3,
+      "timeout": 300,
+      "deduplication_window": 300,
+      "dead_letter_queue": "${RENDER_BACKEND_URL}/api/qstash/dlq",
+      "headers": {
+        "Upstash-Signature": "${UPSTASH_QSTASH_SIGNATURE}",
+        "Content-Type": "application/json"
+      }
+    },
+    "chat-endpoint": {
+      "url": "${RENDER_BACKEND_URL}/api/chat",
+      "max_parallelism": 1,
+      "retries": 2,
+      "timeout": 120,
+      "deduplication_window": 60
+    },
+    "persistence-endpoint": {
+      "url": "${RENDER_BACKEND_URL}/api/persistence",
+      "max_parallelism": 1,
+      "retries": 5,
+      "timeout": 600,
+      "deduplication_window": 600
+    }
+  },
+  "schedules": {
+    "health-ping": {
+      "cron": "*/10 * * * *",
+      "url": "${RENDER_BACKEND_URL}/health",
+      "method": "GET"
+    }
+  },
+  "queue_settings": {
+    "default_max_parallelism": 1,
+    "default_retries": 3,
+    "default_timeout": 300,
+    "rate_limit": {
+      "requests": 100,
+      "period": 60
+    }
+  }
+}

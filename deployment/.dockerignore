@@ -1,0 +1,56 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+
+# Dev / tools
+tools/
+tests/
+test.py
+count_endpoints.py
+fix_truncate.py
+temp_truncate.py
+fix_api.py
+
+# Local-only deployment artifacts (deleted from repo — listed here defensively)
+snapdeploy_app.py
+snapdeploy.yaml
+docker-compose.yml
+bifrost.json
+supervisord.conf
+
+# Local weights / models (downloaded at runtime, not baked into image)
+models/
+*.gguf
+*.safetensors
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Docs / editor
+*.md
+!README.md
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build context noise
+benchmark.json
+weights.json.bak

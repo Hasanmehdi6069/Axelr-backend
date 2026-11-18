@@ -1,0 +1,21 @@
+# Apex Router — routing policy configuration
+policy: latency-first   # latency-first | cost-first | quality-first
+
+policies:
+  latency-first:
+    order: [firebase, local, nebius]
+    confidence_thresholds: { firebase: 0.85, local: 0.75, nebius: 0.0 }
+  cost-first:
+    order: [firebase, local, nebius]
+    confidence_thresholds: { firebase: 0.80, local: 0.70, nebius: 0.0 }
+  quality-first:
+    order: [nebius, local, firebase]
+    confidence_thresholds: { nebius: 0.90, local: 0.75, firebase: 0.0 }
+
+costs:
+  firebase: 0.0          # on-device — free
+  local:    0.00002      # amortized electricity per Gemma call
+  nebius:   0.0007       # spot A100 tier; override via APEX_COST_NEBIUS
+
+classifier:
+  task_types: [receipt, clause, classification, summarization, extraction, general]

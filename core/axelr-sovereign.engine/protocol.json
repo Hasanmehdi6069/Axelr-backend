@@ -1,0 +1,78 @@
+{
+  "protocol": "axelr-ipc",
+  "version": "1.0.0",
+  "transport": {
+    "kind": "websocket",
+    "host": "127.0.0.1",
+    "port": 8765,
+    "path": "/axelr/v1",
+    "encoding": "utf-8 json text frames",
+    "max_frame_bytes": 2097152
+  },
+  "envelope": {
+    "required": ["type", "id", "payload"],
+    "type": "string — command name (c2s) or event name (s2c)",
+    "id": "integer — client-assigned correlation id; server echoes it verbatim",
+    "payload": "object — command arguments or event data (never null; use {})",
+    "ok": "boolean — response only: true=success, false=error",
+    "payload.code": "string — error code (when ok=false)",
+    "payload.message": "string — human-readable error (when ok=false)"
+  },
+  "handshake": {
+    "timeout_ms": 2000,
+    "client_first_frame": {
+      "type": "init",
+      "id": 0,
+      "payload": { "client_version": "4.0.0", "tier": "auto" }
+    },
+    "server_reply": {
+      "type": "ready",
+      "id": 0,
+      "ok": true,
+      "payload": {
+        "session_id": "uuid4",
+        "server_version": "4.0.0",
+        "protocol_version": "1.0.0",
+        "tier": "low_ram|standard|high_end",
+        "exclusive": true,
+        "owner": "python"
+      }
+    }
+  },
+  "commands": {
+    "init":           { "payload": {"client_version":"string","tier":"low_ram|standard|high_end|auto"}, "reply": "ready" },
+    "transcribe":     { "payload": {"log_mel":[["float"]],"sample_rate":"int"}, "reply": "transcript" },
+    "transcribe_pcm": { "payload": {"pcm":["int16"]}, "reply": "transcript" },
+    "correct":        { "payload": {"word":"string"}, "reply": "correct_result" },
+    "calibrate":      { "payload": {"logit":"float"}, "reply": "calibrate_result" },
+    "context":        { "payload": {"window_title":"string","active_text":"string","cursor_position":"int","timestamp":"float"}, "reply": "context_ack" },
+    "drain":          { "payload": {}, "reply": "drain_result" },
+    "ping":           { "payload": {}, "reply": "pong" },
+    "shutdown":       { "payload": {}, "reply": "shutdown_ack" },
+    "resume":         { "payload": {"session_id":"string"}, "reply": "resumed" },
+    "degrade_status": { "payload": {}, "reply": "degrade_status" },
+    "cancel":         { "payload": {"id": "int"}, "reply": "cancelled" },
+    "config":         { "payload": {"tier": "low_ram|standard|high_end"}, "reply": "context_ack" }
+  },
+  "events": {
+    "ready":            { "payload": {"session_id":"string","server_version":"string","protocol_version":"string","tier":"string","exclusive":"bool","owner":"string"} },
+    "transcript":       { "payload": {"text":"string","tokens":[{"text":"string","confidence":"float","token_id":"int"}]} },
+    "correct_result":   { "payload": {"word":"string","corrected":"string","score":"float"} },
+    "calibrate_result": { "payload": {"raw_logit":"float","calibrated":"float","temperature":"float"} },
+    "context_ack":      { "payload": {"domain_hints":["string"],"biasing_terms":["string"],"boost":"float"} },
+    "drain_result":     { "payload": {"text":"string","consumed":"int"} },
+    "pong":             { "payload": {} },
+    "shutdown_ack":     { "payload": {} },
+    "error":            { "payload": {"code":"string","message":"string"} },
+    "resumed":          { "payload": {"session_id":"string"} },
+    "degrade_status":   { "payload": {"shed_count":"int","rungs":[{"name":"string","active":"bool"}]} },
+    "rate_limited":     { "payload": {"retry_after_ms":"int"} },
+    "cancelled":        { "payload": {"cancelled_id": "int"} },
+    "streaming_partial": { "payload": {"text": "string", "cursor": "int", "ts": "float", "seq": "int"} }
+  },
+  "error_codes": [
+    "bad_json", "bad_handshake", "unknown_command", "internal_error",
+    "unsupported_payload", "session_closed", "protocol_mismatch",
+    "rate_limit", "no_provider_available"
+  ]
+}

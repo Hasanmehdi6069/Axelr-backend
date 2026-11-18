@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Axelr Ops Room — Live</title>
+<style>
+:root{
+  --bg:#080a0e;--card:#0f131a;--card2:#161c26;--line:#232b3a;
+  --text:#e9edf4;--dim:#8b95a8;--dim2:#5f6b7f;
+  --green:#10b981;--green-b:#34d399;--amber:#fbbf24;--red:#f87171;--blue:#5b8dff;--violet:#a78bfa;
+  --mono:ui-monospace,'SF Mono',Menlo,monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg);color:var(--text);min-height:100vh;
+  background-image:radial-gradient(1200px 600px at 50% -10%,#0d1420 0%,#080a0e 60%)}
+header{display:flex;align-items:center;gap:12px;padding:12px 24px;
+  border-bottom:1px solid var(--line);background:rgba(8,10,14,.86);backdrop-filter:blur(12px);
+  position:sticky;top:0;z-index:10}
+.brand{font-weight:800;font-size:15px;letter-spacing:-.01em;display:flex;align-items:center;gap:8px}
+.brand span{color:var(--amber)}
+.brand::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--green-b);
+  box-shadow:0 0 8px var(--green-b);animation:live 2.4s infinite}
+@keyframes live{0%,100%{opacity:.4}50%{opacity:1}}
+.spacer{flex:1}
+.pill{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  font-size:11px;font-weight:700;border:1px solid var(--line);background:var(--card);color:var(--dim);
+  transition:all .25s;font-variant-numeric:tabular-nums}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
+.pill.live{color:var(--green-b);border-color:rgba(16,185,129,.35);background:rgba(16,185,129,.1)}
+.pill.live .dot{animation:pulse 1.6s infinite}
+.pill.warn{color:var(--amber);border-color:rgba(251,191,36,.35);background:rgba(251,191,36,.09)}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.85)}}
+.rec-btn{padding:7px 16px;border-radius:999px;font-size:11.5px;font-weight:800;cursor:pointer;
+  border:1px solid rgba(239,68,68,.5);background:rgba(239,68,68,.15);color:#ff6b6b;transition:all .2s}
+.rec-btn:hover:not(:disabled){background:rgba(239,68,68,.25)}
+.rec-btn.live{background:rgba(239,68,68,.3);box-shadow:0 0 0 4px rgba(239,68,68,.1)}
+.rec-btn.done{color:var(--green-b);border-color:rgba(16,185,129,.5);background:rgba(16,185,129,.15)}
+.rec-btn:disabled{opacity:.5;cursor:not-allowed}
+.clock{font-family:var(--mono);font-size:12px;color:var(--dim2)}
+main{max-width:1400px;margin:0 auto;padding:20px 24px;display:grid;gap:16px;
+  grid-template-columns:1fr 1fr;grid-template-rows:auto 1fr}
+.hero{grid-column:1/-1;background:linear-gradient(135deg,rgba(91,141,255,.08),rgba(16,185,129,.05) 55%,transparent);
+  border:1px solid var(--line);border-radius:14px;padding:18px 22px}
+.hero h1{font-size:20px;letter-spacing:-.02em;margin-bottom:6px}
+.hero h1 em{font-style:normal;background:linear-gradient(90deg,var(--green-b),var(--blue));
+  -webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--dim);font-size:13px;max-width:78ch}
+.hero code{background:#050810;padding:1px 5px;border-radius:4px;color:var(--blue);
+  font-family:var(--mono);font-size:12px}
+.stats{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px}
+.stat .k{font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim2);font-weight:700}
+.stat .v{font-family:var(--mono);font-size:16px;font-weight:700;margin-top:2px;transition:color .2s}
+.stat .v.flash{color:#fff}
+.stat .v.ok{color:var(--green-b)}.stat .v.warn{color:var(--amber)}.stat .v.err{color:var(--red)}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px 18px;
+  display:flex;flex-direction:column;min-height:380px}
+.panel h2{font-size:11px;letter-spacing:.11em;text-transform:uppercase;color:var(--dim);
+  font-weight:800;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center}
+.panel h2 .tools{display:flex;gap:6px}
+.tool{padding:3px 8px;border-radius:6px;font-family:var(--mono);font-size:10.5px;font-weight:700;
+  cursor:pointer;background:var(--card2);border:1px solid var(--line);color:var(--dim2);transition:all .15s}
+.tool:hover{color:var(--text);border-color:#2e3a4d}
+.tool.danger{color:var(--red);border-color:rgba(248,113,113,.3)}
+.tool.danger:hover{background:rgba(248,113,113,.12)}
+.log{flex:1;overflow-y:auto;font-family:var(--mono);font-size:12px;line-height:1.55;
+  background:#050810;border:1px solid var(--line);border-radius:8px;padding:6px 10px;max-height:420px;
+  contain:strict}
+.log::-webkit-scrollbar{width:8px}
+.log::-webkit-scrollbar-thumb{background:#232b3a;border-radius:4px}
+.entry{display:grid;grid-template-columns:78px 58px 1fr;gap:10px;padding:6px 4px;
+  border-bottom:1px solid rgba(35,43,58,.5);align-items:baseline}
+.entry:last-child{border-bottom:0}
+.entry.new{animation:fadein .12s linear}
+@keyframes fadein{from{opacity:.3}to{opacity:1}}
+.ts{color:var(--dim2);font-size:11px;font-variant-numeric:tabular-nums}
+.tag{font-size:9.5px;font-weight:800;letter-spacing:.06em;text-align:center;padding:2px 5px;
+  border-radius:4px;background:var(--card2);color:var(--dim)}
+.tag.ok{background:rgba(16,185,129,.15);color:var(--green-b)}
+.tag.err{background:rgba(248,113,113,.15);color:var(--red)}
+.tag.info{background:rgba(91,141,255,.15);color:var(--blue)}
+.tag.system{background:rgba(251,191,36,.15);color:var(--amber)}
+.tag.chaos{background:rgba(167,139,250,.15);color:var(--violet)}
+.msg{color:var(--text);word-break:break-word;line-height:1.45}
+.skeleton{padding:10px 8px}
+.skeleton-row{height:11px;background:linear-gradient(90deg,#131a24 25%,#1a212c 50%,#131a24 75%);
+  background-size:200% 100%;animation:shimmer 1.4s infinite;border-radius:4px;margin:8px 0}
+.skeleton-row:nth-child(1){width:60%}.skeleton-row:nth-child(2){width:85%}
+.skeleton-row:nth-child(3){width:45%}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+.caption{position:fixed;bottom:36px;left:50%;transform:translateX(-50%);
+  background:rgba(8,10,14,.94);border:1px solid var(--green);padding:14px 28px;
+  border-radius:12px;font-size:16px;font-weight:700;text-align:center;max-width:820px;
+  box-shadow:0 24px 70px -20px rgba(16,185,129,.45);z-index:50;
+  opacity:0;transition:opacity .22s ease, border-color .22s ease, box-shadow .22s ease;
+  pointer-events:none}
+.caption.visible{opacity:1}
+.caption[hidden]{display:none}
+.caption.tone-warn{border-color:var(--amber);box-shadow:0 24px 70px -20px rgba(251,191,36,.4)}
+.caption.tone-err{border-color:var(--red);box-shadow:0 24px 70px -20px rgba(248,113,113,.4)}
+.caption .cap-dot{display:inline-block;width:8px;height:8px;border-radius:50%;
+  background:var(--green);margin-right:10px;box-shadow:0 0 10px var(--green);
+  animation:pulse 1.2s infinite;vertical-align:middle}
+.caption.tone-warn .cap-dot{background:var(--amber);box-shadow:0 0 10px var(--amber)}
+.caption.tone-err .cap-dot{background:var(--red);box-shadow:0 0 10px var(--red)}
+.modal{position:fixed;inset:0;background:rgba(8,10,14,.92);backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:center;z-index:100;padding:24px;
+  animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+.modal[hidden]{display:none}
+.modal-card{background:var(--card);border:1px solid rgba(248,113,113,.45);border-radius:14px;
+  padding:28px 32px;max-width:600px;width:100%;box-shadow:0 30px 80px -20px rgba(248,113,113,.3);
+  animation:popIn .25s cubic-bezier(.2,.8,.2,1)}
+@keyframes popIn{from{opacity:0;transform:scale(.94)}to{opacity:1;transform:scale(1)}}
+.modal-card h3{font-size:17px;color:var(--red);margin-bottom:8px;display:flex;align-items:center;gap:10px}
+.modal-card h3::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--red);
+  box-shadow:0 0 12px var(--red);animation:pulse 1s infinite}
+.modal-card p{color:var(--dim);font-size:13px;line-height:1.6;margin-bottom:16px}
+.modal-code{background:#050810;border:1px solid var(--line);border-radius:8px;padding:12px;
+  font-family:var(--mono);font-size:12px;color:var(--amber);white-space:pre-wrap;
+  word-break:break-all;margin-bottom:16px;max-height:180px;overflow-y:auto}
+.modal-card .actions{display:flex;gap:10px;justify-content:flex-end}
+.modal-card button{padding:9px 18px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;
+  border:1px solid var(--line);background:var(--card2);color:var(--text);transition:all .15s}
+.modal-card button.primary{background:rgba(16,185,129,.15);border-color:rgba(16,185,129,.5);color:var(--green-b)}
+.modal-card button:hover{filter:brightness(1.2)}
+.runbook-box{background:var(--card2);border-left:3px solid var(--blue);border-radius:6px;
+  padding:10px 14px;margin:8px 0;font-family:var(--mono);font-size:12px;
+  animation:runbookPulse .8s ease}
+@keyframes runbookPulse{0%{box-shadow:0 0 0 0 rgba(91,141,255,.5)}
+  70%{box-shadow:0 0 0 12px rgba(91,141,255,0)}100%{box-shadow:0 0 0 0 rgba(91,141,255,0)}}
+.runbook-box b{color:var(--blue)}
+@media (max-width:900px){main{grid-template-columns:1fr}.hero{grid-column:1}}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">AXELR <span>OPS ROOM</span></div>
+  <div class="spacer"></div>
+  <span class="pill" id="ws-pill"><span class="dot"></span><span id="ws-text">CONNECTING…</span></span>
+  <button class="pill rec-btn" id="rec-btn" disabled><span id="rec-text">START RECORDING</span></button>
+  <span class="clock" id="clock">--:--:--</span>
+</header>
+
+<main>
+  <div class="hero">
+    <h1>Humans and AI agents, triaging incidents <em>in the same room</em></h1>
+    <p>Every event below is a real WebSocket frame from the Switch agent. Every
+       <code>appwrite</code> entry is a real row written to TablesDB. If Appwrite fails,
+       the workflow still completes — the dashboard shows the degradation honestly.
+       If the engine sends nothing, this page stays silent.</p>
+    <div class="stats">
+      <div class="stat"><div class="k">Elapsed</div><div class="v" id="stat-elapsed">00:00.0</div></div>
+      <div class="stat"><div class="k">Total Events</div><div class="v ok" id="stat-total">0</div></div>
+      <div class="stat"><div class="k">Healthy</div><div class="v ok" id="stat-ok">0</div></div>
+      <div class="stat"><div class="k">Warnings</div><div class="v warn" id="stat-warn">0</div></div>
+      <div class="stat"><div class="k">Errors</div><div class="v err" id="stat-err">0</div></div>
+      <div class="stat"><div class="k">Runbook state</div><div class="v warn" id="stat-runbook">—</div></div>
+    </div>
+  </div>
+
+  <section class="panel">
+    <h2>Switch Event Stream</h2>
+    <div class="log" id="switch-log">
+      <div class="skeleton"><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div></div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Appwrite Persistence + Runbook
+      <span class="tools"><span class="tool danger" id="chaos-btn">CHAOS TEST</span></span>
+    </h2>
+    <div class="log" id="appwrite-log">
+      <div class="skeleton"><div class="skeleton-row"></div><div class="skeleton-row"></div><div class="skeleton-row"></div></div>
+    </div>
+    <div id="runbook-panel"></div>
+  </section>
+</main>
+
+<div class="caption" id="caption" hidden></div>
+
+<div class="modal" id="error-modal" hidden>
+  <div class="modal-card">
+    <h3 id="error-title">Backend unavailable</h3>
+    <p id="error-msg">The engine caught a failure and is isolating it. The chat workflow continues — only this panel is degraded.</p>
+    <div class="modal-code" id="error-code"></div>
+    <div class="actions">
+      <button id="error-close">DISMISS</button>
+      <button class="primary" id="error-retry">RETRY</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+"use strict";
+
+const WS_URL = "ws://127.0.0.1:8765";
+const $ = id => document.getElementById(id);
+
+const S = {
+  ws: null, connected: false,
+  switchLog: null, appwriteLog: null,
+  recording: false, recorder: null, chunks: [], startTime: 0,
+  totalCount: 0, okCount: 0, warnCount: 0, errCount: 0,
+  runbook: null, chaosTriggered: false, chaosRecovered: false,
+  events: [],
+  captionTimer: null,
+  firstEventSeen: false,
+};
+
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const nowTime = () => new Date().toLocaleTimeString("en-GB",{hour12:false});
+const fmtElapsed = ms => { const t=Math.max(0,ms),m=Math.floor(t/60000),
+  s=Math.floor((t%60000)/1000),d=Math.floor((t%1000)/100);
+  return `${String(m).padStart(2,"0")}:${String(s).padStart(2,"0")}.${d}`; };
+
+// ── Single source of truth: bucket every level string into ok | warn | err.
+//    Guarantees: total = ok + warn + err, always.
+const ERR_LEVELS  = new Set(["err", "error", "critical", "fatal"]);
+const WARN_LEVELS = new Set(["warn", "warning"]);
+function classifyLevel(level) {
+  const l = String(level ?? "").toLowerCase().trim();
+  if (ERR_LEVELS.has(l))  return "err";
+  if (WARN_LEVELS.has(l)) return "warn";
+  return "ok";  // ok | success | info | information | unknown → healthy
+}
+
+setInterval(() => $("clock").textContent = new Date().toLocaleTimeString(), 1000);
+setInterval(() => { if (S.startTime) $("stat-elapsed").textContent = fmtElapsed(Date.now() - S.startTime); }, 120);
+
+// ═══════════════════════════════════════════════════════════════════
+// Log rendering — synchronous, no microtasks, no rAF delay
+// ═══════════════════════════════════════════════════════════════════
+function logRow(container, kind, text, level) {
+  if (!container) return;
+  const skel = container.querySelector(".skeleton");
+  if (skel) skel.remove();
+
+  const entry = document.createElement("div");
+  entry.className = "entry new";
+  const tagMap = {switch:"info", appwrite:"ok", system:"system", error:"err", chaos:"chaos"};
+  const b = classifyLevel(level);
+  const tagClass = b === "err" ? "err" : b === "warn" ? "system" : (tagMap[kind] || "info");
+  const tagLabel = kind === "system" ? "SYS" : kind === "appwrite" ? "DB"
+    : kind === "switch" ? "SWITCH" : kind === "chaos" ? "CHAOS" : "ERR";
+  entry.innerHTML =
+    `<span class="ts">${nowTime()}</span>` +
+    `<span class="tag ${tagClass}">${tagLabel}</span>` +
+    `<span class="msg">${esc(text)}</span>`;
+  container.prepend(entry);
+  while (container.children.length > 120) container.lastElementChild.remove();
+  setTimeout(() => entry.classList.remove("new"), 130);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Stats — invariant enforced after every frame
+// ═══════════════════════════════════════════════════════════════════
+function flashStat(id) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.add("flash");
+  setTimeout(() => el.classList.remove("flash"), 180);
+}
+function refreshStats(bucket) {
+  $("stat-total").textContent  = String(S.totalCount);
+  $("stat-ok").textContent     = String(S.okCount);
+  $("stat-warn").textContent   = String(S.warnCount);
+  $("stat-err").textContent    = String(S.errCount);
+  $("stat-runbook").textContent = S.runbook ? S.runbook.status : "—";
+  $("stat-runbook").className  = "v " + (S.runbook?.status === "mitigated" ? "ok" : "warn");
+
+  const sum = S.okCount + S.warnCount + S.errCount;
+  if (sum !== S.totalCount) {
+    console.error("[dashboard] COUNTER INVARIANT VIOLATED",
+      { total: S.totalCount, ok: S.okCount, warn: S.warnCount, err: S.errCount });
+  }
+
+  flashStat("stat-total");
+  if (bucket === "ok")   flashStat("stat-ok");
+  if (bucket === "warn") flashStat("stat-warn");
+  if (bucket === "err")  flashStat("stat-err");
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Runbook panel
+// ═══════════════════════════════════════════════════════════════════
+function renderRunbook() {
+  const el = $("runbook-panel");
+  if (!S.runbook) { el.innerHTML = ""; return; }
+  const status = S.runbook.status || "unknown";
+  const color = status === "mitigated" ? "green-b" : status === "held" ? "amber" : "dim";
+  el.innerHTML = `<div class="runbook-box">
+    <b>${esc(S.runbook.incident_id || "runbook")}</b> — status:
+    <span style="color:var(--${color})">${esc(status)}</span>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Captions — REPLACE (never queue). Adaptive hold. Tone-aware.
+// ═══════════════════════════════════════════════════════════════════
+function pushCaption(text, tone = "ok", holdMs = null) {
+  const cap = $("caption");
+  if (!cap || !text) return;
+  if (!holdMs) holdMs = Math.max(1800, Math.min(4200, 900 + text.length * 42));
+
+  cap.classList.remove("tone-warn", "tone-err");
+  if (tone === "warn") cap.classList.add("tone-warn");
+  else if (tone === "err") cap.classList.add("tone-err");
+
+  cap.innerHTML = `<span class="cap-dot"></span>${esc(text)}`;
+  cap.hidden = false;
+  void cap.offsetWidth;
+  cap.classList.add("visible");
+
+  if (S.captionTimer) clearTimeout(S.captionTimer);
+  S.captionTimer = setTimeout(() => {
+    cap.classList.remove("visible");
+    setTimeout(() => {
+      if (!cap.classList.contains("visible")) cap.hidden = true;
+    }, 240);
+  }, holdMs);
+}
+
+function deriveCaption(evt) {
+  const t   = (evt.text || "").toLowerCase();
+  const raw = evt.text || "";
+
+  if (evt.kind === "system") {
+    if (t.includes("relay listening"))       return { text: "Relay online",                           tone: "ok"   };
+    if (t.includes("dashboard connected"))   return { text: "Dashboard connected",                    tone: "ok"   };
+    if (t.includes("appwrite connected"))    return { text: "Appwrite persistence connected",         tone: "ok"   };
+    if (t.includes("appwrite unavailable"))  return { text: "Appwrite offline — degraded mode",       tone: "warn" };
+    if (t.includes("appwrite recovered"))    return { text: "Appwrite recovered — writes re-enabled", tone: "ok"   };
+    if (t.includes("listening on room"))     return { text: "Engine online — awaiting incidents",     tone: "ok"   };
+    if (t.includes("websocket connected"))   return { text: "WebSocket connected",                    tone: "ok"   };
+    if (t.includes("websocket closed"))      return { text: "WebSocket closed — reconnecting",        tone: "warn" };
+    if (t.includes("stdin mode"))            return { text: "STDIN mode ready",                       tone: "ok"   };
+    if (t.includes("log capture complete"))  return { text: "Log capture complete",                   tone: "ok"   };
+    if (t.includes("final report saved"))    return { text: "Final report saved to disk",             tone: "ok"   };
+    if (t.includes("raw logs saved"))        return { text: "Raw logs exported",                      tone: "ok"   };
+    if (t.includes("screenshot saved"))      return { text: "Dashboard screenshot captured",          tone: "ok"   };
+    if (t.includes("session complete"))      return { text: "Session complete",                       tone: "ok"   };
+    if (t.includes("heartbeat stopped"))     return { text: "Persistence heartbeat halted",           tone: "warn" };
+    return null;
+  }
+
+  if (evt.kind === "switch") {
+    const inc = (raw.match(/INC[-\s]?\d+/i) || [])[0];
+    const incStr = inc ? ` ${inc.toUpperCase().replace(/\s/g,"")}` : "";
+    if (t.includes("replied"))              return { text: `Agent triage plan dispatched${incStr}`,     tone: "ok"   };
+    if (t.includes("approved"))             return { text: `Human approved${incStr} — persisting runbook`, tone: "ok" };
+    if (t.includes("rejected"))             return { text: `Human rejected${incStr} — holding runbook`,  tone: "warn" };
+    if (t.includes("confirmed"))            return { text: `Runbook updated${incStr}`,                  tone: "ok"   };
+    if (t.includes("no incident awaiting")) return { text: "No pending incident",                      tone: "ok"   };
+    if (/incident\s+inc|alice:\s+inc/i.test(raw)) return { text: `New incident received${incStr}`,     tone: "ok"   };
+    return null;
+  }
+
+  if (evt.kind === "incident") {
+    if (t.includes("info:"))        return { text: "Triage drill: latency watch engaged",  tone: "ok" };
+    if (t.includes("acknowledged")) return { text: "Triage drill: on-call engaged",         tone: "ok" };
+    if (t.includes("root cause"))   return { text: "Triage drill: root cause identified",   tone: "ok" };
+    if (t.includes("forward fix"))  return { text: "Triage drill: forward fix applying",   tone: "ok" };
+    if (t.includes("restored"))     return { text: "Triage drill: latency restored",        tone: "ok" };
+    if (t.includes("resolved"))     return { text: "Triage drill: incident resolved",       tone: "ok" };
+    return null;
+  }
+
+  if (evt.kind === "appwrite") {
+    if (t.includes("upserted") && t.includes("hb-"))            return { text: "Persistence heartbeat written",       tone: "ok" };
+    if (t.includes("upserted") && t.includes("audit_events"))   return { text: "Incident persisted to TablesDB",       tone: "ok" };
+    if (t.includes("upserted") && t.includes("axelr_insights")) return { text: "Runbook updated — durable memory",      tone: "ok" };
+    if (t.includes("upserted"))                                 return { text: "Row upserted to TablesDB",              tone: "ok" };
+    if (t.includes("skipped"))                                  return { text: "Appwrite down — write skipped",         tone: "warn" };
+    if (t.includes("error"))                                    return { text: "Appwrite error — isolated",             tone: "err" };
+    return null;
+  }
+
+  if (evt.kind === "chaos")  return { text: "Chaos test — backend failure simulated", tone: "warn" };
+  if (evt.kind === "error")  return { text: "Error caught by dashboard",              tone: "err"  };
+  return null;
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Error modal
+// ═══════════════════════════════════════════════════════════════════
+function showError(title, msg, code) {
+  $("error-title").textContent = title;
+  $("error-msg").textContent = msg;
+  $("error-code").textContent = code || "";
+  $("error-modal").hidden = false;
+}
+function hideError() { $("error-modal").hidden = true; }
+$("error-close").addEventListener("click", hideError);
+$("error-retry").addEventListener("click", () => {
+  hideError();
+  logRow(S.switchLog, "system", "[client] manual retry — reconnecting", "warn");
+  pushCaption("Retry path engaged — reconnecting", "warn", 1600);
+  reconnect();
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Chaos button
+// ═══════════════════════════════════════════════════════════════════
+let chaosDebounce = null;
+$("chaos-btn").addEventListener("click", () => {
+  if (chaosDebounce) return;
+  chaosDebounce = setTimeout(() => chaosDebounce = null, 1200);
+  logRow(S.appwriteLog, "system", "[client] chaos test requested", "warn");
+  if (S.ws && S.ws.readyState === 1) {
+    S.ws.send(JSON.stringify({ event: "chaos", mode: "appwrite" }));
+  } else {
+    logRow(S.appwriteLog, "error", "[client] cannot send chaos — ws not connected", "err");
+  }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Payload normalisation
+// ═══════════════════════════════════════════════════════════════════
+function normalize(p) {
+  const kind = p.kind || (p.runbook ? "appwrite" : "system");
+  const level = p.level || "info";
+  let runbook = p.runbook;
+  if (runbook && typeof runbook === "object" && !runbook.incident_id) {
+    const m = String(p.text || "").match(/INC[-\s]?\d+/i);
+    if (m) runbook = { ...runbook, incident_id: m[0] };
+  }
+  return {
+    kind, level,
+    text: p.text || "",
+    row_id: p.row_id,
+    runbook,
+    chaos: p.chaos,
+    iso: p.iso || new Date().toISOString(),
+    ts: p.ts || Date.now() / 1000,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Event handling — synchronous, bullet-proof counters
+// ═══════════════════════════════════════════════════════════════════
+function handlePayload(raw) {
+  const p = normalize(raw);
+
+  S.events.push({
+    iso: p.iso, kind: p.kind, level: p.level, text: p.text,
+    row_id: p.row_id, runbook: p.runbook, chaos: p.chaos,
+  });
+  if (S.events.length > 500) S.events.shift();
+  if (!S.firstEventSeen) S.firstEventSeen = true;
+
+  // ── REAL COUNTERS: exactly one increment per received frame ──
+  S.totalCount++;
+  const bucket = classifyLevel(p.level);
+  if (bucket === "err")       S.errCount++;
+  else if (bucket === "warn") S.warnCount++;
+  else                        S.okCount++;
+
+  // ── Route to correct panel (counters already correct) ──
+  if (p.kind === "switch") {
+    logRow(S.switchLog, "switch", p.text, p.level);
+  } else if (p.kind === "incident") {
+    logRow(S.switchLog, "switch", p.text, p.level);
+  } else if (p.kind === "appwrite") {
+    logRow(S.appwriteLog, "appwrite", p.text, p.level);
+    if (p.runbook && p.runbook.incident_id && !String(p.runbook.incident_id).startsWith("hb-")) {
+      S.runbook = p.runbook;
+      renderRunbook();
+    }
+  } else if (p.kind === "chaos") {
+    S.chaosTriggered = true;
+    logRow(S.appwriteLog, "chaos", p.text, "warn");
+    showError(
+      "Chaos: Appwrite marked unavailable",
+      "The engine detected backend failure. Chat workflow continues. Runbook writes are skipped. RETRY reconnects the dashboard.",
+      `mode=${p.chaos?.mode || "appwrite"}\nrecover_in_ms=${p.chaos?.recover_in_ms || 3000}\nmessage=${p.chaos?.message || "simulated failure"}`
+    );
+  } else if (p.kind === "error") {
+    logRow(S.switchLog, "error", p.text, "err");
+  } else {
+    logRow(S.switchLog, "system", p.text, p.level);
+    if (p.text.toLowerCase().includes("recovered")) {
+      S.chaosRecovered = true;
+      hideError();
+    }
+  }
+
+  const caption = deriveCaption(p);
+  if (caption) pushCaption(caption.text, caption.tone);
+
+  refreshStats(bucket);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Watchdog — honest diagnostic if engine is silent
+// ═══════════════════════════════════════════════════════════════════
+let watchdogFired = false;
+setTimeout(() => {
+  if (watchdogFired || S.firstEventSeen) return;
+  watchdogFired = true;
+  if (S.connected) {
+    logRow(S.switchLog, "system",
+      "[diagnostic] WS connected but no events after 12s — post an incident or start with --stdin",
+      "warn");
+    pushCaption("Engine silent — post an incident", "warn", 3200);
+  }
+}, 12000);
+
+// ═══════════════════════════════════════════════════════════════════
+// WebSocket lifecycle
+// ═══════════════════════════════════════════════════════════════════
+function reconnect() {
+  if (S.ws) try { S.ws.close(); } catch {}
+  setTimeout(connect, 600);
+}
+
+function connect() {
+  try {
+    S.ws = new WebSocket(WS_URL);
+    S.ws.onopen = () => {
+      S.connected = true;
+      $("ws-pill").className = "pill live";
+      $("ws-text").textContent = "CONNECTED";
+      $("rec-btn").disabled = false;
+      logRow(S.switchLog, "system", `[client] websocket connected to ${WS_URL}`, "ok");
+    };
+    S.ws.onmessage = (e) => {
+      let raw;
+      try { raw = JSON.parse(e.data); }
+      catch (err) {
+        S.totalCount++; S.errCount++;
+        logRow(S.switchLog, "error", `[client] parse failed: ${err.message}`, "err");
+        refreshStats("err");
+        return;
+      }
+      if (!raw || typeof raw !== "object") {
+        S.totalCount++; S.errCount++;
+        logRow(S.switchLog, "error", "[client] malformed payload (not an object)", "err");
+        refreshStats("err");
+        return;
+      }
+      try { handlePayload(raw); }
+      catch (err) {
+        S.totalCount++; S.errCount++;
+        logRow(S.switchLog, "error", `[client] handler failed: ${err.message}`, "err");
+        refreshStats("err");
+        console.error("[dashboard] handlePayload threw:", err);
+      }
+    };
+    S.ws.onclose = () => {
+      S.connected = false;
+      $("ws-pill").className = "pill warn";
+      $("ws-text").textContent = "RECONNECTING…";
+      $("rec-btn").disabled = true;
+      logRow(S.switchLog, "system", "[client] websocket closed — reconnecting", "warn");
+      setTimeout(connect, 1500);
+    };
+    S.ws.onerror = () => {
+      logRow(S.switchLog, "error", "[client] websocket error", "err");
+      $("ws-pill").className = "pill warn";
+      $("ws-text").textContent = "ERROR — retrying";
+    };
+  } catch (err) {
+    logRow(S.switchLog, "error", `[client] ws constructor failed: ${err.message}`, "err");
+    setTimeout(connect, 1500);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Recording
+// ═══════════════════════════════════════════════════════════════════
+let recDebounce = null;
+$("rec-btn").addEventListener("click", async () => {
+  if (recDebounce) return;
+  recDebounce = setTimeout(() => recDebounce = null, 800);
+  if (S.recording) { stopRecording(); return; }
+  await startRecording();
+});
+
+async function startRecording() {
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 60, cursor: "always" }, audio: false,
+    });
+    S.chunks = [];
+    S.recorder = new MediaRecorder(stream, {
+      mimeType: MediaRecorder.isTypeSupported("video/webm;codecs=vp9")
+        ? "video/webm;codecs=vp9" : "video/webm",
+    });
+    S.recorder.ondataavailable = e => { if (e.data.size) S.chunks.push(e.data); };
+    S.recorder.onstop = () => {
+      const blob = new Blob(S.chunks, { type: "video/webm" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `axelr-ops-room-${Date.now()}.webm`;
+      a.click();
+      stream.getTracks().forEach(t => t.stop());
+      S.recording = false;
+      $("rec-btn").className = "pill rec-btn done";
+      $("rec-text").textContent = "RECORDING DONE";
+      logRow(S.switchLog, "system", "[client] recording saved", "ok");
+      pushCaption("Recording saved — submit the .webm file", "ok", 3200);
+    };
+    S.recorder.start();
+    S.recording = true;
+    S.startTime = Date.now();
+    $("rec-btn").className = "pill rec-btn live";
+    $("rec-text").textContent = "● RECORDING";
+    logRow(S.switchLog, "system", "[client] recording started", "ok");
+    pushCaption("Recording — post an incident in Mattermost", "ok", 3200);
+  } catch (err) {
+    logRow(S.switchLog, "error", `[client] recording cancelled: ${err.message || "user abort"}`, "warn");
+    pushCaption("Recording cancelled", "warn", 1800);
+    $("rec-btn").disabled = false;
+  }
+}
+
+function stopRecording() {
+  if (S.recorder && S.recorder.state === "recording") {
+    logRow(S.switchLog, "system", "[client] stopping recording", "ok");
+    S.recorder.stop();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Session export (Ctrl+Shift+E)
+// ═══════════════════════════════════════════════════════════════════
+function exportSession() {
+  const data = {
+    generated_at: new Date().toISOString(),
+    disclaimer: "Session log from a live browser session. Reflects exactly what the engine emitted.",
+    session: {
+      started_at: S.startTime ? new Date(S.startTime).toISOString() : null,
+      ended_at: new Date().toISOString(),
+      duration_ms: S.startTime ? Date.now() - S.startTime : 0,
+    },
+    metrics: {
+      total_events: S.totalCount,
+      healthy: S.okCount,
+      warnings: S.warnCount,
+      errors: S.errCount,
+      invariant_ok: (S.totalCount === S.okCount + S.warnCount + S.errCount),
+      chaos_triggered: S.chaosTriggered,
+      chaos_recovered: S.chaosRecovered,
+    },
+    runbook: S.runbook,
+    websocket_url: WS_URL,
+    websocket_connected: S.connected,
+    events: S.events,
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `axelr-session-${Date.now()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  logRow(S.switchLog, "system", "[client] session exported", "ok");
+  pushCaption("Session log exported", "ok", 1800);
+}
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "e" && e.ctrlKey && e.shiftKey) { e.preventDefault(); exportSession(); }
+});
+
+// ═══════════════════════════════════════════════════════════════════
+// Boot
+// ═══════════════════════════════════════════════════════════════════
+S.switchLog = $("switch-log");
+S.appwriteLog = $("appwrite-log");
+connect();
+})();
+</script>
+</body>
+</html>

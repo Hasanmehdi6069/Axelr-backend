@@ -1,0 +1,34 @@
+{
+  "homophone_words": [
+    "their","there","they're","to","too","two","your","you're","its","it's","then","than","were","we're","where","whose","who's","right","write","rite","hear","here","weather","whether","affect","effect","accept","except","advice","advise","aloud","allowed","brake","break","buy","by","bye","cite","site","sight","complement","compliment","council","counsel","fair","fare","flour","flower","for","four","fore","knew","new","know","no","lead","led","loan","lone","meat","meet","peace","piece","plain","plane","principal","principle","rain","reign","rein","read","reed","role","roll","scene","seen","sea","see","sole","soul","son","sun","stationary","stationery","steal","steel","tail","tale","through","threw","wait","weight","weak","week","wear","ware","which","witch","wood","would","bare","bear","beat","beet","blew","blue","board","bored","cell","sell","cent","scent","sent","cereal","serial","coarse","course","dear","deer","die","dye","dual","duel","faze","phase","feat","feet","fir","fur","flea","flee","foul","fowl","freeze","frieze","grate","great","groan","grown","hale","hail","hall","haul","heal","heel","herd","heard","hoard","horde","hoarse","horse","hole","whole","holy","wholly","hour","our","idle","idol","idyll","knead","need","knight","night","knot","not","leased","least","lessen","lesson","made","maid","mail","male","main","mane","might","mite","miner","minor","moan","mown","moat","mote","oar","or","ore","oh","owe","one","won","pain","pane","pair","pear","pare","peak","peek","pique","peer","pier","pole","poll","pore","pour","pray","prey","prize","pries","profit","prophet","raise","rays","raze","rap","wrap","real","reel","ring","wring","road","rode","rowed","rose","rows","sale","sail","shear","sheer","soar","sore","some","sum","stair","stare","stake","steak","straight","strait","suite","sweet","tide","tied","toe","tow","vain","vane","vein","vale","veil","waist","waste","waive","wave","war","wore","warn","worn","way","weigh","whey","whine","wine","yoke","yolk","you","ewe","yew"
+  ],
+  "homophone_context": {
+    "their":{"is":"there", "are":"there", "was":"there", "were":"there", "has":"there", "have":"there", "will":"there", "would":"there", "they":"their", "them":"their", "we":"their", "our":"their", "over":"there", "out":"there", "in":"there", "at":"there"},
+    "to":{"go":"to", "want":"to", "need":"to", "have":"to", "able":"to", "going":"to", "back":"to", "much":"too", "many":"too", "far":"too", "big":"too"},
+    "too":{"much":"too", "many":"too", "far":"too", "big":"too", "go":"to", "want":"to"},
+    "your":{"you":"you're", "are":"you're", "were":"you're", "going":"you're", "welcome":"you're", "the":"your", "my":"your", "our":"your"},
+    "would":{"of":"have"},
+    "could":{"of":"have"},
+    "its":{"it":"it's", "is":"its", "was":"its", "has":"its", "a":"it's", "the":"it's"},
+    "then":{"better":"than", "more":"than", "less":"than", "rather":"than", "other":"than", "greater":"than", "fewer":"than"},
+    "whose":{"who":"who's", "it":"who's", "he":"who's", "she":"who's"},
+    "right":{"write":"write", "read":"write", "code":"write", "please":"write", "to":"write", "want":"write"},
+    "hear":{"come":"here", "go":"here", "is":"here", "you":"here", "over":"here", "in":"here"},
+    "weather":{"or":"whether", "not":"whether", "if":"whether"},
+    "affect":{"an":"effect", "the":"effect", "side":"effect", "special":"effect"},
+    "effect":{"to":"affect", "will":"affect", "can":"affect", "does":"affect"}
+  },
+  "default_commands": {},
+  "number_words": {},
+  "ordinals": {},
+  "months": ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+  "days": ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+  "letter_freq": {},
+  "common_bigrams": [],
+  "common_trigrams": [],
+  "tier_names": {
+    "js": ["low","standard","high","max"],
+    "py": ["low_ram","standard","high_end"],
+    "map": {"low":"low_ram","standard":"standard","high":"high_end","max":"high_end"}
+  }
+}

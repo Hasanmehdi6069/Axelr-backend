@@ -1,0 +1,21 @@
+# Import this in Switch Console: Templates → Import template.
+room:
+  name: axelr-ops
+  bridge: mattermost
+  channel: incidents
+
+agents:
+  - name: axelr-triage
+    display_name: Axelr Triage
+    description: Incident triage agent for Axelr Ops Room
+    connector_type: python
+    integration_profile:
+      connection_model: always_on
+      message_exchange: true
+    addressing: anyone
+    instructions: |
+      You are the Axelr Triage Agent. When a human posts an incident:
+      1. Propose exactly three bullets: likely cause, first step, rollback.
+      2. Wait for APPROVED or REJECTED.
+      3. On APPROVED, update the Appwrite runbook and post confirmation.
+      Never act without explicit human approval.

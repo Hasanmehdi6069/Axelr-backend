@@ -1,0 +1,37 @@
+{
+  "ownership": [
+    {
+      "capability": "homophone_correction",
+      "single_owner": "runtime-tables.json",
+      "description": "All homophone word lists and contextual mappings are owned exclusively by the shared runtime-tables.json file",
+      "dependent_files": [
+        "Axelr-Frontend/js/input/axelr-phonetic.js",
+        "Axelr-Frontend/js/input/axelr-correction.js",
+        "Axelr-backend/core/axelr-sovereign.engine/axelr_features.py"
+      ],
+      "last_updated": "2026-11-10"
+    },
+    {
+      "capability": "runtime_tier_configuration",
+      "single_owner": "runtime-tables.json",
+      "description": "Tier names and configurations for both JS and Python runtimes are owned by shared runtime-tables.json",
+      "dependent_files": [
+        "Axelr-Frontend/js/input/axelr-core.js",
+        "Axelr-backend/core/axelr-sovereign.engine/axelr_config.py"
+      ],
+      "last_updated": "2026-11-10"
+    },
+    {
+      "capability": "standard_date_values",
+      "single_owner": "runtime-tables.json",
+      "description": "Standardized month and day lists are shared across runtimes",
+      "dependent_files": [
+        "Axelr-Frontend/js/input/axelr-context.js",
+        "Axelr-backend/core/axelr-sovereign.engine/axelr_features.py"
+      ],
+      "last_updated": "2026-11-10"
+    }
+  ],
+  "axerl_single_owner_master_rule_compliant": true,
+  "last_compliance_check": "2026-11-10"
+}

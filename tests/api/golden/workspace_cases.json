@@ -1,0 +1,1816 @@
+[
+  {
+    "prompt": "write code for a button component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build landing page with tailwind css",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a react component with hooks",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a javascript function to sort",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a fullstack web app",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a ui dashboard with dark mode",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write html css code for a navbar",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a responsive website",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a vue app with routing",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program an api endpoint",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop authentication system in python",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a form with validation",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write typescript interface for user",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a next.js application",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a svelte component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a database schema",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a chat interface",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a navigation bar",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a python script to scrape",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a mobile app ui",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "refactor this javascript function",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "debug this html layout",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a css animation",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build an api with node.js",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a shell script for deployment",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "make a graphql server",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a flutter app",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a rust program",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a figma prototype",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a game with unity",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a dockerfile",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a powershell script",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a microservice in go",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a state machine in python",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a logo with svg",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "code a sorting algorithm",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a rest api",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a web scraper",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a discord bot",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a regex pattern",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a landing page hero section",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build an ecommerce site",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a portfolio website",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "code a custom cursor effect",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a chat app with websockets",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a bash script to backup",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a backend in express",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a react native app",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a dark mode toggle",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a script to automate emails",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "analyse data from csv file",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run sql query on database",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse excel spreadsheet",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "create data visualization chart",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse statistics and trends",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run pandas dataframe analysis",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "query database for records",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse csv file contents",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "create graph from data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse machine learning model",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run spark data processing",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse time series data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "create table from dataset",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse correlation between variables",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run regression analysis",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse clustering results",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "create forecast prediction",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse database performance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run data aggregation",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse analytics dashboard",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "clean this csv and remove nulls",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate the mean and median",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "find outliers in this dataset",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "merge these two excel files",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "pivot table by category",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a chi-square test",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse json payload",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "parse this xml data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "extract text from pdf",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "classify this data into segments",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "forecast next quarter sales",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate customer churn",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a/b test analysis",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "clean data and deduplicate",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "generate a report from csv",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a data pipeline",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyze sentiment of reviews",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate roi from campaigns",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run etl process",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "query the sqlite database",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "find missing values in dataframe",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "group by customer id",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "join two tables in sql",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "write a sql query for sum",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyze financial transactions",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate ltv and cac",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "impute missing data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a t-test",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "normalize this dataset",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyze this parquet file",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "hello how are you today?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the meaning of life?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "explain quantum physics",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "tell me a joke",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what time is it?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how to bake a cake?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the weather like?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "explain history of rome",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is your name?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "help me plan my vacation",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "write a poem about trees",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "who is the president?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "summarize this text for me",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is 2+2?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "translate this to spanish",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "give me a recipe for pasta",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what are the benefits of exercise?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how do i learn guitar?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the capital of france?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "tell me a fun fact",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "can you help me write an essay?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the best way to study?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "give me some motivation",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how to improve my sleep?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the meaning of this word?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "recommend a good book",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the difference between cats and dogs?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how to be a better person?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is your favorite color?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "tell me about the universe",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "write code to analyse data",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a python script to parse csv",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a react dashboard for data",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a function to calculate mean",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "I do NOT want to write code, just analyze this data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "do not design a UI, just give me the data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "don't program anything, just explain the concept",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "without writing code, how do I query this?",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyze this",
+    "files": [
+      "data.csv"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "fix this file",
+    "files": [
+      "app.js"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "what is in here?",
+    "files": [
+      "document.pdf"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "refactor this",
+    "files": [
+      "index.html"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "summarize this",
+    "files": [
+      "report.xlsx"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "what is the best way to structure data?",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "how do i style a button?",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "explain how neural networks work",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "give me a list of colors",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "what is a variable?",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a nextjs api route",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a modal dialog component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a websocket server",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a real-time notification system",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a css grid layout",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a form with formik validation",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a redux store",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a jwt authentication flow",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a responsive card grid",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a webpack config file",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a vite plugin",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a tailwind custom plugin",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a database migration script",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a file upload service",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a drag and drop interface",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a react custom hook",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a svelte store",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create an angular service",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a rate limiter middleware",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a toast notification system",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a unit test with jest",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build an integration test with cypress",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a e2e test with playwright",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a caching layer with redis",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a search functionality with elasticsearch",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a pagination component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a graphql resolver",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a rest api with fastapi",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a crud operations endpoint",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a websocket client",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop an authentication middleware",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a sidebar navigation component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a docker compose file",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a kubernetes deployment manifest",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a github actions workflow",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a ci/cd pipeline",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a logging system",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a loading spinner component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a error handling middleware",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a file compression utility",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a pdf generation service",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program an image processing script",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a video transcoding service",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a chart component with d3.js",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a data visualization component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a real-time dashboard",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a notification service",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a background job queue",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a email sending service",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "design a user profile page",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write a password reset flow",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a two factor authentication system",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a social login integration",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a payment processing webhook",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a subscription management system",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a heatmap correlation matrix",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a principal component analysis",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse feature importance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a classification model",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "train a random forest classifier",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "evaluate model accuracy",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate precision recall f1 score",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "plot roc auc curve",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse confusion matrix",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run cross validation",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "tune hyperparameters with grid search",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse feature distribution",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "create a box plot for outliers",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a hypothesis test",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse statistical significance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate p value",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse time series forecasting",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build an arima model",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "train a lstm neural network",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse seasonality and trends",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "create a sales forecast",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse customer segmentation",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run k means clustering",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse cohort retention",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate customer lifetime value",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse funnel conversion rates",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run attribution analysis",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse marketing campaign performance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate conversion rate optimization",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a b test statistical significance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse user behavior data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a recommendation system",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "train a collaborative filtering model",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse product recommendation performance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a sentiment analysis on social media",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse nlp text data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a text classification model",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "train a named entity recognition model",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse topic modeling results",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run a bert model inference",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse embedding similarity scores",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a vector database index",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run similarity search queries",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse data warehouse performance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "optimize sql query performance",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run explain plan on sql query",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse database index usage",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a data lake architecture",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run spark sql queries",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse streaming data with kafka",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a real time analytics pipeline",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "run apache flink stream processing",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse clickstream data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "calculate session duration metrics",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "analyse page view statistics",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a business intelligence dashboard",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "generate automated data reports",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "explain the theory of relativity",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the best way to cook steak?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how to start a business?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what are the best movies to watch?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "explain how to meditate",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the meaning of this quote?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "give me advice on relationships",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how to improve public speaking?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what are the top tourist destinations?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "explain how a car engine works",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "tell me a story about dragons",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the best way to learn a new language?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how to invest in stocks?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "explain the rules of chess",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what are the health benefits of meditation?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "give me tips for productivity",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "how to write a resume?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "explain the concept of mindfulness",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "what is the history of the internet?",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "tell me about ancient egyptian civilization",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "write code to generate charts",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a script to clean data",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build a tool to analyze logs",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a data visualization component",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write code to query database",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a script to process csv files",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "I don't need code, just analyze these numbers",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "no programming please, just summarize the data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "don't build anything, just explain what this means",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "I'm not looking for code, just the data insights",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "skip the implementation, just give me the analysis",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "no need for code, just tell me what the data says",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "look at this",
+    "files": [
+      "script.py"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "explain this",
+    "files": [
+      "dataset.parquet"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "update this",
+    "files": [
+      "styles.css"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "check this",
+    "files": [
+      "query.sql"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "modify this",
+    "files": [
+      "component.tsx"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "how do i organize my dataset?",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "what's the best way to layout a page?",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "explain how machine learning works",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "give me css for a button",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "how do i analyze these numbers?",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a data visualization",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a dashboard for analytics",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write code for a data pipeline",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a machine learning model",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a reporting tool",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "build an analytics platform",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a data analysis script",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "program a chart generator",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "develop a business intelligence tool",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "write code for data processing",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "   ",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "hi",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "code",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "data",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "write a very long detailed description of how to build a full stack application with react node.js postgresql that includes authentication authorization real time notifications file uploads payment processing and a beautiful responsive ui with dark mode support",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "analyze this extremely large dataset with millions of rows containing customer transactions user behavior patterns sales trends marketing campaign performance metrics conversion rates and customer churn statistics to find actionable business insights and predictive patterns",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "explain how to build a button in react: import React from 'react'; const Button = ({onClick, children}) => {return <button onClick={onClick}>{children}</button>}; export default Button;",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "here is some sql: SELECT * FROM customers WHERE signup_date > '2024-01-01' ORDER BY revenue DESC; analyze this query and explain what it returns",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "what is the meaning of the following code: function add(a, b) { return a + b; }",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "explain what this sql does: SELECT COUNT(*) FROM orders GROUP BY status",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "build a chart that shows sales data by month category region customer segment and calculates the average order value conversion rate and customer lifetime value",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "create a dashboard component that displays real time data visualization with line charts bar graphs pie charts and statistical metrics like mean median mode standard deviation variance and correlation coefficients",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "I don't want code, just analyze this",
+    "files": [
+      "data.csv"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "no design needed, just look at the numbers",
+    "files": [
+      "report.xlsx"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "don't explain the code, just fix the bug",
+    "files": [
+      "app.js"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "look at these files",
+    "files": [
+      "app.js",
+      "styles.css"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "analyze these files",
+    "files": [
+      "data.csv",
+      "report.xlsx"
+    ],
+    "expected": "data"
+  },
+  {
+    "prompt": "check these files",
+    "files": [
+      "index.html",
+      "script.js",
+      "styles.css"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "what is this file?",
+    "files": [
+      "README.md"
+    ],
+    "expected": "core"
+  },
+  {
+    "prompt": "explain this",
+    "files": [
+      "requirements.txt"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "look at this",
+    "files": [
+      "package.json"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "analyze this",
+    "files": [
+      "pyproject.toml"
+    ],
+    "expected": "design"
+  },
+  {
+    "prompt": "code this",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "analyze this",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "explain this",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "build this",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "what is this",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "WRITE CODE FOR A BUTTON",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "ANALYZE DATA FROM CSV",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "HELLO HOW ARE YOU",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "BuIlD a ReAcT cOmPoNeNt",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "AnAlYzE sQl QuErY rEsUlTs",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "write code: !@#$%^&*()",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "analyze data: ~`{}[]|\\:;\"'<>?,./",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "hello!!! how are you???",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "12345",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "code 123",
+    "files": [],
+    "expected": "design"
+  },
+  {
+    "prompt": "data 456",
+    "files": [],
+    "expected": "data"
+  },
+  {
+    "prompt": "asdfghjkl",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "qwertyuiop",
+    "files": [],
+    "expected": "core"
+  },
+  {
+    "prompt": "zxcvbnm",
+    "files": [],
+    "expected": "core"
+  }
+]

@@ -1,0 +1,43 @@
+{
+  "endpoint_name": "axelr-ai-write-pipeline",
+  "url": "https://axelr-backend.onrender.com/api/qstash/webhook",
+  "max_parallelism": 1,
+  "timeout": 300,
+  "retries": 3,
+  "retry_backoff": "exponential",
+  "retry_backoff_base": 2,
+  "retry_max_delay": 60,
+  "content_type": "application/json",
+  "method": "POST",
+  "create_topic": true,
+  "topic_name": "axelr-write-serialization-pipeline",
+  "dead_letter_url": "https://axelr-backend.onrender.com/api/qstash/dlq",
+  "log_retention_days": 7,
+  "rate_limit_per_minute": 60,
+  "schema": {
+    "required": ["task_id", "task_type"],
+    "properties": {
+      "task_id": {"type": "string", "description": "Unique UUID for task tracing"},
+      "task_type": {"type": "string", "enum": ["embedding", "inference", "storage", "persistence"], "description": "Task type that determines execution priority"},
+      "payload_stream_url": {"type": "string", "description": "Presigned R2 URL for streaming large payloads to avoid in-heap loading"},
+      "token_chunk": {"type": "array", "items": {"type": "integer"}, "description": "Small inline token batches for lightweight processing"},
+      "metadata": {"type": "object", "description": "Additional metadata for tracing and persistence"}
+    }
+  },
+  "write_operation_filter": {
+    "task_types": ["storage", "persistence"],
+    "enforce_sequential": true,
+    "sqlite_lock_prevention": "enabled"
+  },
+  "monitoring": {
+    "enable_opentelemetry": true,
+    "logfire_integration": true,
+    "alert_on_failure": true,
+    "alert_threshold": 3
+  },
+  "billing": {
+    "free_tier_compliant": true,
+    "max_requests_per_day": 10000,
+    "upstash_free_tier_limit": "10000 requests/day"
+  }
+}

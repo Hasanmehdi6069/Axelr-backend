@@ -1,0 +1,52 @@
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "-p", "pytest_asyncio",
+    "-p", "no:hypothesis",
+]
+markers = [
+    "unit: pure logic, no I/O",
+    "contract: wire/schema shapes",
+    "integration: multi-component",
+    "e2e: full user journeys",
+    "load: performance under stress",
+    "chaos: fault injection",
+    "dr: disaster recovery",
+    "quality: conformance gates",
+    "security: adversarial",
+    "engine: core axelr engine",
+    "gateway: providers and routing",
+    "agents: ghost, twin, bharat, AHE",
+    "insights: insights engine",
+    "ops: ops room",
+    "inbox: inbox organizer",
+    "api: http surface",
+    "payments: money paths",
+    "appwrite: appwrite-specific",
+    "vultr: vultr-specific",
+    "mcp: MCP tool surface",
+    "hackathon: hackathon modules",
+    "slow: > 2s wall-clock",
+    "live: hits real external service",
+    "destructive: mutates real Appwrite/Vultr",
+    "requires_docker: needs docker-compose",
+    "requires_k6: needs k6 binary",
+    "requires_llama_server: needs the llama.cpp binary",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+ignore = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
