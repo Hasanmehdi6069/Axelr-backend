@@ -1,17 +1,15 @@
 ﻿# AXELR AI Backend - PRODUCTION REQUIREMENTS
-# Core runtime dependencies only - no dev/test tools
 # Python 3.11+ required
 
 # Web Framework & API
 fastapi==0.115.0
 uvicorn[standard]==0.32.0
-starlette==0.41.0
+starlette==0.38.2
 pydantic==2.10.0
 
 # HTTP Clients
 httpx==0.27.2
 aiohttp==3.10.10
-certifi==2024.8.30
 requests==2.32.3
 
 # Configuration
@@ -58,5 +56,5 @@ numpy==2.0.0
 psutil==6.0.0
 watchdog==5.0.0
 Pillow==10.4.0
-opencv-python==4.10.0.84
+opencv-python==4.11.0.86
 pypdf==4.3.1
