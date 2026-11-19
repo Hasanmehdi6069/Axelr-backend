@@ -35,7 +35,8 @@ def _try_import_nebius():
     # Strategy 1: module is already importable
     try:
         from axelr_nebius_nvidia.core import (  # type: ignore
-            stream_inference, is_configured,
+            is_configured,
+            stream_inference,
         )
         return stream_inference, is_configured, True
     except ImportError:
@@ -50,7 +51,8 @@ def _try_import_nebius():
             sys.path.insert(0, added)
             try:
                 from axelr_nebius_nvidia.core import (  # type: ignore
-                    stream_inference, is_configured,
+                    is_configured,
+                    stream_inference,
                 )
                 return stream_inference, is_configured, True
             except ImportError:

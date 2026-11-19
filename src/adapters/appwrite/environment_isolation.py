@@ -1,14 +1,15 @@
 import os
 import time
-from typing import Dict, List, Optional, Any
 from datetime import datetime, timedelta
-from pydantic import BaseModel, Field, validator
-from appwrite.client import Client
-from appwrite.services.databases import Databases
-from appwrite.services.functions import Functions
-from appwrite.services.health import Health
-from appwrite.exception import AppwriteException
+from typing import Any, Dict, List, Optional
+
 import requests
+from pydantic import BaseModel, Field, validator
+
+from appwrite.client import Client
+from appwrite.exception import AppwriteException
+from appwrite.services.databases import Databases
+from appwrite.services.health import Health
 
 # Environment configuration
 STAGING_PROJECT_ID = os.getenv("APPWRITE_STAGING_PROJECT_ID", "")
@@ -27,7 +28,7 @@ class EnvironmentCredentials(BaseModel):
     database_id: str
     functions_enabled: bool = True
     ssh_keys: List[str] = Field(default_factory=list)
-    
+
     @validator('ssh_keys')
     def validate_production_ssh_keys(cls, v, values):
         if values.get('environment') == "production" and len(v) < 1:
@@ -46,13 +47,13 @@ class EnvironmentIsolationManager:
         # Initialize separate clients for staging and production
         self.staging_client = self._init_client(STAGING_PROJECT_ID, STAGING_API_KEY)
         self.production_client = self._init_client(PRODUCTION_PROJECT_ID, PRODUCTION_API_KEY)
-        
+
         self.staging_databases = Databases(self.staging_client) if self.staging_client else None
         self.production_databases = Databases(self.production_client) if self.production_client else None
-        
+
         self.staging_health = Health(self.staging_client) if self.staging_client else None
         self.production_health = Health(self.production_client) if self.production_client else None
-        
+
         # Track access grants for audit
         self.access_grants_collection = "environment-access-grants"
         self.monitoring_collection = "instance-health-monitoring"
@@ -77,16 +78,16 @@ class EnvironmentIsolationManager:
         """
         if not self.production_client:
             raise RuntimeError("Production environment not configured")
-        
+
         # Validate expiration (max 7 days per policy)
         if expires_in_days > 7:
             raise ValueError("Production API access cannot exceed 7 days. Must request renewal.")
-        
+
         # Verify user has admin approval (checks for existing approval in database)
         approval = self._verify_admin_approval(user_id, "production_api")
         if not approval:
             raise PermissionError("Production API access requires explicit admin approval. Submit request first.")
-        
+
         # Create restricted API key with minimal permissions
         try:
             # Create API key with only read access to non-sensitive collections
@@ -98,7 +99,7 @@ class EnvironmentIsolationManager:
                 scopes=["databases.read", "functions.read"],  # Restricted to read-only
                 expire=datetime.utcnow() + timedelta(days=expires_in_days)
             )
-            
+
             # Log the access grant
             self._log_access_grant(
                 user_id=user_id,
@@ -107,7 +108,7 @@ class EnvironmentIsolationManager:
                 reason=reason,
                 expires_at=(datetime.utcnow() + timedelta(days=expires_in_days)).isoformat()
             )
-            
+
             return {
                 "status": "granted",
                 "temp_api_key": api_key["secret"],
@@ -121,7 +122,7 @@ class EnvironmentIsolationManager:
         """Verify that the user has explicit admin approval for the requested access"""
         if not self.production_databases:
             return False
-        
+
         try:
             # Check for active approval in the access approvals collection
             approvals = self.production_databases.list_documents(
@@ -130,7 +131,7 @@ class EnvironmentIsolationManager:
                 queries=[
                     f"user_id={user_id}",
                     f"access_type={access_type}",
-                    f"status=approved",
+                    "status=approved",
                     f"expires_at>{datetime.utcnow().isoformat()}"
                 ]
             )
@@ -143,7 +144,7 @@ class EnvironmentIsolationManager:
         client = self.production_databases if environment == "production" else self.staging_databases
         if not client:
             return
-        
+
         try:
             client.create_document(
                 database_id="access-requests",
@@ -176,16 +177,16 @@ class EnvironmentIsolationManager:
             "production": self._check_environment_health("production"),
             "timestamp": datetime.utcnow().isoformat()
         }
-        
+
         # Trigger alerts for any unhealthy instances
         unhealthy = []
         for env, health in results.items():
             if not health.get("healthy", False):
                 unhealthy.append(env)
-        
+
         if unhealthy:
             self._trigger_health_alert(unhealthy, results)
-        
+
         return results
 
     def _check_environment_health(self, environment: str) -> Dict[str, Any]:
@@ -193,19 +194,19 @@ class EnvironmentIsolationManager:
         health_client = self.production_health if environment == "production" else self.staging_health
         if not health_client:
             return {"healthy": False, "reason": f"{environment} environment not configured"}
-        
+
         try:
             # Perform Appwrite health check
             health_status = health_client.get()
             # Extend check to verify all services are up
             all_services_healthy = all(
-                service.get("status") == "healthy" 
+                service.get("status") == "healthy"
                 for service in health_status.get("services", [])
             )
-            
+
             # Log health check result
             self._log_health_event(environment, all_services_healthy, health_status)
-            
+
             return {
                 "healthy": all_services_healthy,
                 "last_check": datetime.utcnow().isoformat(),
@@ -220,7 +221,7 @@ class EnvironmentIsolationManager:
         db_client = self.production_databases if environment == "production" else self.staging_databases
         if not db_client:
             return
-        
+
         try:
             db_client.create_document(
                 database_id="monitoring",
@@ -243,7 +244,7 @@ class EnvironmentIsolationManager:
         alert_webhook = os.getenv("ADMIN_HEALTH_ALERT_WEBHOOK", "")
         if not alert_webhook:
             return
-        
+
         try:
             requests.post(
                 alert_webhook,
@@ -265,7 +266,7 @@ class EnvironmentIsolationManager:
         client = self.production_client if environment == "production" else self.staging_client
         if not client:
             return
-        
+
         # Check last activity timestamp from monitoring logs
         last_activity = self._get_last_instance_activity(environment)
         if not last_activity:
@@ -281,7 +282,7 @@ class EnvironmentIsolationManager:
         db_client = self.production_databases if environment == "production" else self.staging_databases
         if not db_client:
             return None
-        
+
         try:
             logs = db_client.list_documents(
                 database_id="monitoring",
@@ -307,7 +308,7 @@ class EnvironmentIsolationManager:
             "cross_environment_access_blocked": self._check_cross_environment_access(),
             "validation_timestamp": datetime.utcnow().isoformat()
         }
-        
+
         return validation_results
 
     def _validate_staging_isolation(self) -> bool:
@@ -315,7 +316,7 @@ class EnvironmentIsolationManager:
         # Verify staging API key can't access production project
         if not self.staging_client or not self.production_client:
             return True
-        
+
         try:
             # Attempt to list production databases with staging credentials (should fail)
             self.staging_client.set_project(PRODUCTION_PROJECT_ID)
@@ -341,18 +342,18 @@ class EnvironmentIsolationManager:
 def main(context: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Main entry point for scheduled health monitoring and isolation validation"""
     manager = EnvironmentIsolationManager()
-    
+
     try:
         # Run health checks
         health_results = manager.monitor_instances_health()
-        
+
         # Prevent inactivity pauses
         manager.prevent_inactivity_pause("staging")
         manager.prevent_inactivity_pause("production")
-        
+
         # Validate isolation
         isolation_results = manager.validate_environment_isolation()
-        
+
         context.log("Environment health and isolation checks completed successfully")
         return {
             "health": health_results,

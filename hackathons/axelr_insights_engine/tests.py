@@ -14,7 +14,6 @@ import asyncio
 from typing import Any
 
 import pytest
-
 from axelr_insights_engine import (
     AppwriteConfig,
     AppwriteSDK,
@@ -24,10 +23,7 @@ from axelr_insights_engine import (
     InsightsEngine,
     MetricsCollector,
     NotFoundError,
-    QueryFilter,
-    QueryOptions,
     TokenBucket,
-    ValidationFailed,
     VersionConflictError,
     create_engine,
     is_retryable,
@@ -43,7 +39,6 @@ from axelr_insights_engine.resilience import (
     RetryPolicy,
     Semaphore,
 )
-
 
 # ═══════════════════════════════════════════════════════════════════════
 # Mock Appwrite SDK

@@ -40,9 +40,9 @@ from typing import Any, AsyncIterator, Tuple
 
 import httpx
 
-from .foundation import NoProviderAvailable
 from api.state import state
 
+from .foundation import NoProviderAvailable
 
 logger = logging.getLogger("axelr.gateway")
 __version__ = "4.0.0"
@@ -240,11 +240,11 @@ class MCPBackend:
     active_sessions: int = 0
     reader: asyncio.StreamReader | None = None
     writer: asyncio.StreamWriter | None = None
-    
+
     @property
     def is_available(self) -> bool:
         return self.writer is not None and not self.writer.is_closing()
-    
+
     async def get_streams(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         if not self.is_available:
             self.reader, self.writer = await asyncio.open_connection(self.host, self.port)
@@ -345,7 +345,7 @@ class GatewayRouter:
             state.redis_client.delete.return_value = None
         if state.redis_client is not None:
             backend_id = await state.redis_client.get(binding_key)
-        
+
         if backend_id:
             # Handle both bytes (from real Redis) and string (from mocks or other cases)
             if isinstance(backend_id, bytes):
@@ -356,11 +356,11 @@ class GatewayRouter:
                 backend = self._mcp_backends[backend_id_str]
                 if backend.is_available and workspace in backend.workspaces:
                     return await backend.get_streams()
-        
+
         available = [b for b in self._mcp_backends.values() if b.is_available and workspace in b.workspaces]
         if not available:
             raise NoProviderAvailable(f"No MCP backend available for workspace={workspace}")
-        
+
         selected = min(available, key=lambda b: b.active_sessions)
         reader, writer = await selected.get_streams()
         await state.redis_client.setex(binding_key, 300, selected.id)
@@ -382,7 +382,7 @@ class GatewayRouter:
             state.redis_client.get.return_value = None
             state.redis_client.setex.return_value = None
             state.redis_client.delete.return_value = None
-            
+
         async def forward(source: asyncio.StreamReader, destination: asyncio.StreamWriter) -> None:
             try:
                 # Handle mock streams in test environment
@@ -409,7 +409,7 @@ class GatewayRouter:
                     logging.info(f"MCP session closed session={session_id} backend={backend_id} remaining={state.gateway._mcp_backends[backend_id].active_sessions}")
 
         # Only attempt bidirectional forwarding if we're dealing with real pipes
-        if (hasattr(src_reader, 'transport') and src_reader.transport and 
+        if (hasattr(src_reader, 'transport') and src_reader.transport and
             hasattr(dst_writer, 'transport') and dst_writer.transport):
             reverse_reader = dst_writer.transport.get_extra_info('pipe_reader')
             reverse_writer = src_reader.transport.get_extra_info('pipe_writer')
@@ -439,7 +439,7 @@ class GatewayRouter:
             )
             self._mcp_backends[backend.id] = backend
         logging.info(f"Initialized {len(self._mcp_backends)} MCP backend servers")
-        
+
     def mcp_aggregate_tools(self, workspace: str) -> list[dict]:
         """Dynamically aggregate all available tools from MCP backends serving a specific workspace"""
         all_tools = []

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import logging
 import os
 import time
 from contextlib import asynccontextmanager
@@ -15,9 +14,13 @@ from fastapi import FastAPI
 
 from .config import ENABLE_PR_DEFENSE, ORIGIN, WORKSPACE_ROOT, get_http_client
 from .state import (
-    init_db, init_qstash, init_redis,
-    init_redis as init_shared_redis_cache,
+    init_db,
+    init_qstash,
+    init_redis,
     state,
+)
+from .state import (
+    init_redis as init_shared_redis_cache,
 )
 
 logger = structlog.get_logger("axelr.lifecycle")
@@ -35,6 +38,8 @@ _SSE_CONTRACT: dict[str, Any] = {
                 {"event": "thinking", "data": {"stage": "...", "status": "..."}},
                 {"event": "thinking", "data": {"content": "<reasoning>", "source": "llm"}},
                 {"event": "message", "data": {"text": "<chunk>"}},
+                {"event": "message", "data": {"feature_metadata": {}}},
+                {"event": "message", "data": {"watermark": "..."}},
                 {"event": "close", "data": {}},
             ],
         },
@@ -56,6 +61,7 @@ def classify_intent(prompt: str) -> str:
 def _install_hedge_wrap() -> None:
     try:
         from core.elite_orchestrator import hedge_wrap
+
         from . import ai_router as rc
     except Exception as e:
         logger.info("hedge_wrap_deferred reason=%s", e)
@@ -113,7 +119,7 @@ def attach_boot(app: FastAPI) -> None:
 
 
 def _audit_snapshot() -> dict[str, Any]:
-    out: dict[str, Any] = {"boot_installed": _INSTALLED}
+    out: dict[str, Any] = {"boot_installed": _INSTALLED, "version": "1.0.0"}
     with contextlib.suppress(Exception):
         from core.resilience import audit as _res_audit
         out["resilience"] = _res_audit()
@@ -125,8 +131,10 @@ def _audit_snapshot() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 async def background_health_check() -> None:
     from .providers import (
-        ACTIVE_PROVIDER_ENTRIES, PROVIDER_KEY_CHECK,
-        PROVIDER_MODELS, record_provider_result,
+        ACTIVE_PROVIDER_ENTRIES,
+        PROVIDER_KEY_CHECK,
+        PROVIDER_MODELS,
+        record_provider_result,
     )
     while True:
         try:
@@ -227,8 +235,9 @@ async def _keepalive_loop() -> None:
 async def _seed_founder_tiers() -> None:
     if not state.db_available or state.users_col is None:
         return
-    from .config import ADMIN_EMAIL
     from datetime import datetime, timezone
+
+    from .config import ADMIN_EMAIL
     if not ADMIN_EMAIL:
         return
     doc = await state.users_col.find_one({"email": ADMIN_EMAIL})
@@ -265,9 +274,9 @@ async def _initialize_elite_services() -> None:
                 logger.info("thermal_guard_started")
 
         try:
+            from core.code_intel import TestLoop
             from core.memory import Memory
             from core.repo_indexer import RepoIndexer
-            from core.code_intel import TestLoop
             state.conversation_memory = Memory(
                 redis_client=state.redis_client, http_client=get_http_client())
             state.repo_indexer = RepoIndexer(
@@ -379,7 +388,8 @@ async def lifespan(app: FastAPI):
 
     memory_tuner_available = False
     try:
-        from core.memory_tuner import arm as memory_tuner_arm, disarm as memory_tuner_disarm
+        from core.memory_tuner import arm as memory_tuner_arm
+        from core.memory_tuner import disarm as memory_tuner_disarm
         memory_tuner_arm()
         memory_tuner_available = True
     except Exception as e:

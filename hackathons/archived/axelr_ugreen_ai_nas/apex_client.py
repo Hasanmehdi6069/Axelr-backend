@@ -275,7 +275,7 @@ class ApexRouterClient:
             ) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
-        except Exception as exc:
+        except Exception:
             self._failures += 1
             if self._failures >= self.circuit_failures:
                 self._opened_until = time.time() + self.circuit_cooldown_s

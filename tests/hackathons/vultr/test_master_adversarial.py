@@ -20,12 +20,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import pathlib
 import time
 
 import pytest
-from hypothesis import given, settings, strategies as st, HealthCheck
-
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 # ══════════════════════════════════════════════════════════════════════════
 # A. AST shield — parse-time defense

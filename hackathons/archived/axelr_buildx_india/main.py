@@ -1,8 +1,13 @@
 """aiohttp module entrypoint."""
 from __future__ import annotations
+
 import logging
+
 from aiohttp import web
-from .core import health, init as init_core, shutdown as shutdown_core
+
+from .core import health
+from .core import init as init_core
+from .core import shutdown as shutdown_core
 from .routes import setup_routes
 
 logger = logging.getLogger("axelr.buildx_india.main")

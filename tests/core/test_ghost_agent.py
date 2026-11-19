@@ -60,7 +60,11 @@ def test_exports():
 
 
 def test_ops_no_backedge():
-    src = (_HERE / "ghost_agent_ops.py").read_text()
+    from pathlib import Path
+
+    import core
+    ops_path = Path(core.__file__).parent / "ghost_agent_ops.py"
+    src = ops_path.read_text()
     assert "import ghost_agent\n" not in src
     assert "from ghost_agent import" not in src
 

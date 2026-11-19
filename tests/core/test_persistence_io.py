@@ -18,18 +18,16 @@ Fixes:
 from __future__ import annotations
 
 import asyncio
-import hmac
 import hashlib
+import hmac
 import time
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from core import io_pipeline, memory, persistence, pipeline
-from core.persistence import (ChatMessage, PersistenceEngine, _ChatStore,
-                              WAL_ORPHAN_GRACE_S)
-
+from core import io_pipeline, memory, pipeline
+from core.persistence import ChatMessage, PersistenceEngine, _ChatStore
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PART A — MEMORY & PERSISTENCE

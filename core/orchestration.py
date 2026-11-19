@@ -28,17 +28,30 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable
 
+from .adaptive import (
+    adapt_max_tokens,
+    canonical_system,
+    hedge_wrap,
+    record_token_ratio,
+)
 from .pipeline import (
-    AXELR_COGNITION_LEVEL, FAST_TIER_DEADLINE_S, MAX_ROUNDS,
-    PIPELINE_DEADLINE_S, PRO_TIER_DEADLINE_S, RACE_WIDTH,
-    ProviderCascade, ResilientPipeline,
+    AXELR_COGNITION_LEVEL,
+    FAST_TIER_DEADLINE_S,
+    MAX_ROUNDS,
+    PIPELINE_DEADLINE_S,
+    PRO_TIER_DEADLINE_S,
+    RACE_WIDTH,
+    ProviderCascade,
+    ResilientPipeline,
 )
 from .resilience import (
-    TIERS, HotSwapDetector, HotSwapResult, ProviderFunc, Tier,
-    get_hot_swap_detector, ladder_run,
-)
-from .adaptive import (
-    adapt_max_tokens, canonical_system, hedge_wrap, record_token_ratio,
+    TIERS,
+    HotSwapDetector,
+    HotSwapResult,
+    ProviderFunc,
+    Tier,
+    get_hot_swap_detector,
+    ladder_run,
 )
 
 logger = logging.getLogger("axelr.orchestration")
@@ -168,10 +181,15 @@ def get_task_scheduler() -> TaskScheduler:
 # ═══════════════════════════════════════════════════════════════════════════
 try:
     from .utils.misc_utils import (
-        signal_warmup, pacemaker_loop,
-        signal as signal_prewarm,
         cancel as cancel_prewarm,
+    )
+    from .utils.misc_utils import (
+        pacemaker_loop,
         prewarm_snapshot,
+        signal_warmup,
+    )
+    from .utils.misc_utils import (
+        signal as signal_prewarm,
     )
 except ImportError:
     async def signal_warmup(redis_client): return False

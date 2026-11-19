@@ -6,7 +6,6 @@ import os
 
 from aiohttp import web
 
-from .core import init as init_bridge
 from .routes import on_shutdown, on_startup, register_routes
 
 logger = logging.getLogger("axelr.nebius_nvidia.main")

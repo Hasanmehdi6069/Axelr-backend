@@ -11,21 +11,34 @@ import uuid
 from datetime import datetime, timezone
 
 from fastapi import (
-    APIRouter, Depends, Header, HTTPException, Request, status,
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    status,
 )
 from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from .client import (
+    PayPalAPIError,
+    extract_payment_intent,
+    get_paypal_client,
+)
 from .core import (
-    AuditEvent, get_core_module, get_transaction_store,
+    AuditEvent,
+    get_core_module,
+    get_transaction_store,
     log_audit,
 )
-from .client import (
-    PayPalAPIError, extract_payment_intent, get_paypal_client,
-)
 from .schemas import (
-    AIExtractionRequest, CaptureOrderRequest, CreateOrderRequest,
-    PaymentIntent, RefundRequest, TransactionState,
+    AIExtractionRequest,
+    CaptureOrderRequest,
+    CreateOrderRequest,
+    PaymentIntent,
+    RefundRequest,
+    TransactionState,
 )
 from .webhooks import verify_and_dispatch
 
@@ -231,7 +244,7 @@ async def capture_order(
             else f"axelr_cap_{uuid.uuid4().hex[:16]}")
     store = get_transaction_store()
     txn = await store.get_by_paypal_order_id(order_id)
-    
+
     # STATE CHECK BEFORE MONEY MOVEMENT
     if txn is not None and txn.state != TransactionState.APPROVED:
         return _err(
@@ -296,7 +309,7 @@ async def refund_capture(
     idem = body.idempotency_key or f"axelr_refund_{uuid.uuid4().hex[:16]}"
     store = get_transaction_store()
     txn = await store.get_by_paypal_capture_id(body.capture_id)
-    
+
     # STATE CHECK BEFORE MONEY MOVEMENT
     if txn is not None and txn.state != TransactionState.CAPTURED:
         return _err(

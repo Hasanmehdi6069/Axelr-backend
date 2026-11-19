@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import hashlib
 import json
 import logging
@@ -13,7 +12,7 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Awaitable, Callable, Optional, Self
+from typing import Any, Awaitable, Callable, Optional
 
 import httpx
 
@@ -323,7 +322,7 @@ class PredictiveCircuitBreaker:
 
         try:
             result = await fn()
-        except Exception as e:
+        except Exception:
             async with self._lock:
                 self.failures.append(time.monotonic())
                 if len(self.failures) >= self.threshold:
@@ -661,7 +660,7 @@ async def init() -> None:
 class FeatureFlags:
     def __init__(self):
         pass
-    
+
     @staticmethod
     def get_all() -> dict[str, bool]:
         return {
@@ -674,7 +673,7 @@ class FeatureFlags:
             "edge_acceleration": settings.edge_acceleration_enabled,
             "zero_trust": settings.zero_trust_enabled,
         }
-    
+
     @staticmethod
     def is_enabled(name: str) -> bool:
         return FeatureFlags.get_all().get(name, False)

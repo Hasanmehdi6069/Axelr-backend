@@ -51,7 +51,6 @@ class _DummyAsyncCache:
         self._ttl: dict[str, float] = {}
 
     async def get(self, key: str):
-        import time
         if key in self._ttl and time.time() > self._ttl[key]:
             del self._data[key]
             del self._ttl[key]
@@ -59,7 +58,6 @@ class _DummyAsyncCache:
         return self._data.get(key)
 
     async def set(self, key: str, value: Any, ex: int | None = None):
-        import time
         self._data[key] = value
         if ex is not None:
             self._ttl[key] = time.time() + ex
@@ -77,7 +75,6 @@ class _DummyAsyncCache:
         return self._data[key]
 
     async def expire(self, key: str, ttl: int):
-        import time
         if key in self._data:
             self._ttl[key] = time.time() + ttl
 
@@ -89,7 +86,6 @@ class _DummyAsyncCache:
         return [k for k in self._data.keys() if fnmatch.fnmatch(k, pattern)]
 
     async def ttl(self, key: str):
-        import time
         if key not in self._data:
             return -2
         if key not in self._ttl:

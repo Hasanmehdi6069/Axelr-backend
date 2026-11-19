@@ -23,28 +23,34 @@ Groups:
 from __future__ import annotations
 
 import asyncio
-import os
-import random
-import string
 import time
 from typing import Any
 
 import pytest
-
 from axelr_insights_engine import (
-    AppwriteConfig, AppwriteSDK, CircuitBreakerOpenError, InsightsEngine,
-    QueryFilter, QueryOptions, TokenBucket, ValidationFailed,
-    VersionConflictError, create_engine, ensure_table,
-    sanitize_row_id, ensure_valid_row_id, is_valid_row_id, make_row_id,
-    SCHEMA_AUDIT_EVENTS, SCHEMA_AXELR_INSIGHTS,
+    SCHEMA_AUDIT_EVENTS,
+    SCHEMA_AXELR_INSIGHTS,
+    AppwriteConfig,
+    AppwriteSDK,
+    CircuitBreakerOpenError,
+    InsightsEngine,
+    TokenBucket,
+    ValidationFailed,
+    VersionConflictError,
+    ensure_table,
+    is_valid_row_id,
+    make_row_id,
+    sanitize_row_id,
 )
 from axelr_insights_engine.errors import APIError
 from axelr_insights_engine.resilience import (
-    CBState, CircuitBreaker, IdempotencyStore, LocalCache,
+    CBState,
+    CircuitBreaker,
+    IdempotencyStore,
+    LocalCache,
 )
-from axelr_insights_engine.tables import TablesNamespace
-from tests import MockClient, MockTablesDB
 
+from tests import MockClient, MockTablesDB
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
@@ -571,7 +577,7 @@ class TestEnvLoader:
         assert env.effective_mode == "server"
 
     def test_snapshot_redacts_secrets(self) -> None:
-        from axelr_insights_engine.env import AppwriteEnv, Env, SwitchEnv, VultrEnv, PayPalEnv, AuthEnv
+        from axelr_insights_engine.env import AppwriteEnv, AuthEnv, Env, PayPalEnv, SwitchEnv, VultrEnv
         env = Env(
             appwrite=AppwriteEnv(
                 endpoint="https://x", project_id="p", database_id="d",

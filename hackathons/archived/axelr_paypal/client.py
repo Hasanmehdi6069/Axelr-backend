@@ -24,7 +24,9 @@ import httpx
 
 from .core import get_core_module
 from .schemas import (
-    CreateOrderRequest, PaymentIntent, OrderItem,
+    CreateOrderRequest,
+    OrderItem,
+    PaymentIntent,
 )
 
 logger = logging.getLogger("axelr.paypal.client")

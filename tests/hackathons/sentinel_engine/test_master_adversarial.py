@@ -20,11 +20,9 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import pathlib
 import time
 
 import pytest
-
 
 # ══════════════════════════════════════════════════════════════════════════
 # A. AST shield — parse-time defense

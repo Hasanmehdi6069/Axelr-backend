@@ -19,10 +19,10 @@ from __future__ import annotations
 import ast
 import asyncio
 import difflib
-import logging   # noqa: F401 — used by §5 TestLoop
-import os        # noqa: F401 — used by §1 DependencyTracker
+import logging  # noqa: F401 — used by §5 TestLoop
+import os  # noqa: F401 — used by §1 DependencyTracker
 import re
-import time      # noqa: F401 — used by §5 TestLoop.run
+import time  # noqa: F401 — used by §5 TestLoop.run
 from collections.abc import Awaitable, Callable, Iterable, Iterator, Mapping
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone

@@ -357,15 +357,15 @@ async def grant_tier_to_user(data: GrantTierRequest, user: dict = Depends(get_cu
     _require_admin(user)
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
-    
-    from .config import VALID_TIERS, VALID_PERIODS
+
+    from .config import VALID_PERIODS, VALID_TIERS
     if data.tier not in VALID_TIERS or data.period not in VALID_PERIODS:
         raise HTTPException(400, "Invalid tier or period")
-    
+
     ObjectId = get_object_id()
     if not ObjectId or not ObjectId.is_valid(data.user_id):
         raise HTTPException(400, "Invalid user ID")
-    
+
     result = await state.users_col.update_one(
         {"_id": ObjectId(data.user_id)},
         {"$set": {"tier": data.tier, "billing_period": data.period, "tier_granted_at": datetime.utcnow()}}
@@ -385,11 +385,11 @@ async def switch_user_view_tier(data: SwitchViewTierRequest, user: dict = Depend
     _require_admin(user)
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
-    
+
     ObjectId = get_object_id()
     if not ObjectId or not ObjectId.is_valid(data.user_id):
         raise HTTPException(400, "Invalid user ID")
-    
+
     result = await state.users_col.update_one(
         {"_id": ObjectId(data.user_id)},
         {"$set": {"view_tier": data.view_tier}}
@@ -404,12 +404,12 @@ async def list_all_users(page: int = 1, limit: int = 50, user: dict = Depends(ge
     _require_admin(user)
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
-    
+
     skip = (page - 1) * limit
     total = await state.users_col.count_documents({})
     cursor = state.users_col.find({}).skip(skip).limit(limit).sort("createdAt", -1)
     users = await cursor.to_list(length=limit)
-    
+
     return {
         "success": True,
         "users": [{
@@ -436,12 +436,12 @@ async def _seed_founder_tiers() -> None:
     if not state.db_available or not state.users_col:
         logger.warning("founder_seed_skipped database not available")
         return
-    
+
     admin_email = ADMIN_EMAIL
     if not admin_email:
         logger.warning("founder_seed_skipped ADMIN_EMAIL not configured")
         return
-    
+
     # Update admin user to have founder tier if not already set
     result = await state.users_col.update_one(
         {"email": admin_email},

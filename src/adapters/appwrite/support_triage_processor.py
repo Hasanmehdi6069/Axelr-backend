@@ -1,13 +1,16 @@
 """Appwrite Inbound Email Function for AI-driven support ticket triage"""
+import logging
 import os
 import re
-import logging
 from datetime import datetime
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from pydantic import BaseModel, Field, field_validator
+
 from appwrite.client import Client
 from appwrite.services.databases import Databases
 from appwrite.services.messaging import Messaging
-from pydantic import BaseModel, Field, field_validator
+
 from .retry import with_exponential_backoff
 
 logger = logging.getLogger("axelr.support_triage")
@@ -61,19 +64,19 @@ class SupportTriageProcessor:
     3. Logging tickets into Appwrite databases
     4. Triggering automated team notifications to the correct channel
     """
-    
+
     def __init__(self):
         """Initialize Appwrite client and services"""
         self.client = Client()
         self.client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
         self.client.set_key(os.getenv("APPWRITE_API_KEY"))
         self.client.set_endpoint(os.getenv("APPWRITE_ENDPOINT", "https://cloud.appwrite.io/v1"))
-        
+
         self.databases = Databases(self.client)
         self.messaging = Messaging(self.client)
         self.database_id = os.getenv("APPWRITE_DATABASE_ID")
         self.support_tickets_collection = os.getenv("APPWRITE_SUPPORT_COLLECTION", "support_tickets")
-        
+
         # Category classification rules - keywords that indicate specific categories
         self.category_patterns: Dict[str, List[str]] = {
             "billing": [
@@ -93,11 +96,11 @@ class SupportTriageProcessor:
                 r'email', r'confirm', r'reset', r'2fa', r'mfa', r'authenticate'
             ],
             "urgent_critical": [
-                r'urgent', r'emergency', r'critical', r'down', r'outage', 
+                r'urgent', r'emergency', r'critical', r'down', r'outage',
                 r'production', r'immediately', r'asap', r'urgent'
             ]
         }
-        
+
         # Priority keywords - content that indicates higher priority
         self.priority_patterns: Dict[str, List[str]] = {
             "critical": [r'critical', r'emergency', r'production down', r'outage', r'breach'],
@@ -105,7 +108,7 @@ class SupportTriageProcessor:
             "medium": [r'please', r'help', r'question', r'issue'],
             "low": [r'feedback', r'suggestion', r'nice to have', r'future']
         }
-        
+
         # Team routing configuration - which team handles which categories
         self.team_routing: Dict[str, Dict[str, Any]] = {
             "billing": {"team": "finance", "slack_channel": "#billing-support", "email": "billing@axelr.ai"},
@@ -115,11 +118,11 @@ class SupportTriageProcessor:
             "urgent_critical": {"team": "sre", "slack_channel": "#oncall-alerts", "email": "sre@axelr.ai"},
             "general_inquiry": {"team": "support", "slack_channel": "#customer-support", "email": "support@axelr.ai"}
         }
-        
+
         # Appwrite Messaging topics for notifications
         self.notification_topics = {
             "finance": "finance-team",
-            "engineering": "engineering-team", 
+            "engineering": "engineering-team",
             "product": "product-team",
             "support": "support-team",
             "sre": "sre-oncall"
@@ -132,24 +135,24 @@ class SupportTriageProcessor:
         """
         full_text = f"{subject.lower()} {content.lower()}"
         category_scores = {}
-        
+
         for category, patterns in self.category_patterns.items():
             score = 0
             for pattern in patterns:
                 matches = len(re.findall(pattern, full_text, re.IGNORECASE))
                 score += matches
-            
+
             if score > 0:
                 category_scores[category] = score
-        
+
         if not category_scores:
             return "general_inquiry", 1.0
-        
+
         # Find category with highest score
         max_category = max(category_scores.items(), key=lambda x: x[1])
         total = sum(category_scores.values())
         confidence = max_category[1] / total
-        
+
         return max_category[0], confidence
 
     def assign_priority(self, subject: str, content: str, category: str) -> Tuple[str, float]:
@@ -160,26 +163,26 @@ class SupportTriageProcessor:
         # Critical/urgent categories automatically get high priority
         if category == "urgent_critical":
             return "critical", 1.0
-        
+
         full_text = f"{subject.lower()} {content.lower()}"
         priority_scores = {}
-        
+
         for priority, patterns in self.priority_patterns.items():
             score = 0
             for pattern in patterns:
                 matches = len(re.findall(pattern, full_text, re.IGNORECASE))
                 score += matches
-            
+
             if score > 0:
                 priority_scores[priority] = score
-        
+
         if not priority_scores:
             return "medium", 1.0
-        
+
         max_priority = max(priority_scores.items(), key=lambda x: x[1])
         total = sum(priority_scores.values())
         confidence = max_priority[1] / total
-        
+
         return max_priority[0], confidence
 
     def generate_summary(self, content: str, max_length: int = 500) -> str:
@@ -188,7 +191,7 @@ class SupportTriageProcessor:
         cleaned = re.sub(r'\s+', ' ', content.strip())
         if len(cleaned) <= max_length:
             return cleaned
-        
+
         # Truncate and add ellipsis
         return cleaned[:max_length].rsplit(' ', 1)[0] + "..."
 
@@ -221,7 +224,7 @@ class SupportTriageProcessor:
         """Send notification to the appropriate team based on ticket category"""
         routing = self.team_routing.get(ticket.category, self.team_routing["general_inquiry"])
         topic = self.notification_topics.get(routing["team"], self.notification_topics["support"])
-        
+
         summary = self.generate_summary(ticket.content)
         notification = TeamNotification(
             ticket_id=ticket.ticket_id,
@@ -231,7 +234,7 @@ class SupportTriageProcessor:
             subject=ticket.subject,
             summary=summary
         )
-        
+
         # Create message payload for Appwrite Messaging
         message = {
             "topic": topic,
@@ -239,7 +242,7 @@ class SupportTriageProcessor:
             "title": f"[{ticket.priority.upper()}] New {ticket.category.replace('_', ' ').title()} Ticket: {ticket.subject}",
             "body": summary
         }
-        
+
         try:
             self.messaging.create_email(
                 topic=topic,
@@ -261,10 +264,10 @@ class SupportTriageProcessor:
             "urgent_critical": "Your urgent issue has been received and our SRE team is investigating immediately.",
             "general_inquiry": "Thank you for your message. A member of our team will get back to you within 48 hours."
         }
-        
+
         base_response = responses.get(ticket.category, responses["general_inquiry"])
         ticket_id_line = f"Your ticket ID is: {ticket.ticket_id}"
-        
+
         return f"""Thank you for contacting AXELR AI Support!
 
 {base_response}
@@ -296,23 +299,23 @@ The AXELR AI Team
         body = email_payload.get("body", "")
         html_body = email_payload.get("html", "")
         full_content = f"{body}\n{html_body}"
-        
+
         logger.info(f"Processing support ticket from {from_email}: {subject}")
-        
+
         try:
             # Generate unique ticket ID
             import uuid
             ticket_uuid = str(uuid.uuid4())
-            
+
             # Step 1: Classify ticket category and priority
             category, category_confidence = self.classify_category(subject, full_content)
             priority, priority_confidence = self.assign_priority(subject, full_content, category)
-            
+
             logger.info(f"Ticket classification: category={category} ({category_confidence:.2f}), priority={priority} ({priority_confidence:.2f})")
-            
+
             # Step 2: Find associated user if exists
             user_id = self.find_user_by_email(from_email)
-            
+
             # Step 3: Create ticket record
             ticket = SupportTicket(
                 ticket_id=ticket_uuid,
@@ -329,17 +332,17 @@ The AXELR AI Team
                     "email_raw": email_payload
                 }
             )
-            
+
             record_id = self.create_ticket_record(ticket)
             logger.info(f"Created support ticket record: {record_id}")
-            
+
             # Step 4: Send team notification
             self.send_team_notification(ticket)
-            
+
             # Step 5: Send auto-acknowledgment to user
             auto_response = self.generate_auto_response(ticket)
             self.send_auto_response(from_email, ticket_uuid, auto_response)
-            
+
             logger.info(f"Support ticket processing completed successfully: {ticket_uuid}")
             context.success("Support ticket processed successfully")
             return {
@@ -349,7 +352,7 @@ The AXELR AI Team
                 "priority": priority,
                 "user_id": user_id
             }
-            
+
         except Exception as e:
             logger.critical(f"Unexpected error in support triage processing: {e}", exc_info=True)
             context.error(f"Processing failed: {str(e)}")

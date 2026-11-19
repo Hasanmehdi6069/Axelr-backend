@@ -2,28 +2,27 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from .client import VultrClient
 from .core import (
     FeatureFlags,
-    MetricsStore,
     RequestContext,
-    get_logger,
-    get_metrics,
-    cache,
-    retry,
     VultrAPIError,
     VultrNotFoundError,
+    cache,
+    get_logger,
+    get_metrics,
+    retry,
 )
-from .client import VultrClient
 from .schemas import (
-    InstanceState,
+    AutoRecoveryEvent,
+    CostOptimizationReport,
     DeploymentRequest,
     DeploymentStatus,
     HealthStatus,
-    CostOptimizationReport,
-    AutoRecoveryEvent,
+    InstanceState,
 )
 
 logger = get_logger(__name__)
@@ -38,23 +37,23 @@ class InstanceLifecycleManager:
         self.client = client
         self.feature_flags = feature_flags or FeatureFlags()
         self.metrics = get_metrics()
-        
+
         self._deployment_tasks: Dict[str, asyncio.Task] = {}
         self._instance_health_cache: Dict[str, Dict[str, Any]] = {}
         self._recovery_queue: asyncio.Queue = asyncio.Queue()
         self._last_health_check: Dict[str, datetime] = {}
         self._cost_history: List[Dict[str, Any]] = []
-        
+
         self._recovery_worker_task: Optional[asyncio.Task] = None
         self._health_check_task: Optional[asyncio.Task] = None
-        
+
         logger.info("InstanceLifecycleManager initialized")
 
     async def start(self) -> None:
         if self.feature_flags.auto_recovery_enabled:
             self._recovery_worker_task = asyncio.create_task(self._recovery_worker())
             logger.info("Auto-recovery worker started")
-        
+
         if self.feature_flags.observability_enabled:
             self._health_check_task = asyncio.create_task(self._health_check_worker())
             logger.info("Health check worker started")
@@ -66,18 +65,18 @@ class InstanceLifecycleManager:
                 await self._recovery_worker_task
             except asyncio.CancelledError:
                 pass
-        
+
         if self._health_check_task and not self._health_check_task.done():
             self._health_check_task.cancel()
             try:
                 await self._health_check_task
             except asyncio.CancelledError:
                 pass
-        
+
         for task_id, task in list(self._deployment_tasks.items()):
             if not task.done():
                 task.cancel()
-        
+
         logger.info("InstanceLifecycleManager stopped")
 
     async def deploy_instance(
@@ -87,22 +86,22 @@ class InstanceLifecycleManager:
     ) -> DeploymentStatus:
         deployment_id = request.deployment_id or str(uuid4())
         context = context or RequestContext(trace_id=deployment_id)
-        
+
         status = DeploymentStatus(
             deployment_id=deployment_id,
             request=request,
             state=InstanceState.PENDING,
             created_at=datetime.utcnow(),
         )
-        
+
         cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
         self.metrics.increment("deployment.requested", 1, {"plan": request.plan})
-        
+
         task = asyncio.create_task(
             self._deploy_instance_task(deployment_id, request, context)
         )
         self._deployment_tasks[deployment_id] = task
-        
+
         return status
 
     async def _deploy_instance_task(
@@ -119,13 +118,13 @@ class InstanceLifecycleManager:
                 created_at=datetime.utcnow(),
             )
             cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
-            
+
             if self.feature_flags.cost_optimization_enabled:
                 capacity = await self._select_optimal_region(request, context)
                 if capacity:
                     request.region = capacity["region"]
                     logger.info(f"Selected optimal region {request.region} for deployment {deployment_id}")
-            
+
             instance = await self.client.create_instance(
                 region=request.region,
                 plan=request.plan,
@@ -142,22 +141,22 @@ class InstanceLifecycleManager:
                 tag=request.tag,
                 context=context,
             )
-            
+
             instance_id = instance.get("id")
             status.instance_id = instance_id
             status.state =InstanceState.STARTING
             status.provisioned_at = datetime.utcnow()
             cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
-            
+
             await self._wait_for_instance_ready(instance_id, context)
-            
+
             status.state =InstanceState.RUNNING
             status.ready_at = datetime.utcnow()
             cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
-            
+
             self.metrics.increment("deployment.success", 1, {"region": request.region, "plan": request.plan})
             logger.info(f"Deployment {deployment_id} completed successfully, instance {instance_id} running")
-            
+
             if self.feature_flags.auto_recovery_enabled:
                 await self._recovery_queue.put(AutoRecoveryEvent(
                     event_id=str(uuid4()),
@@ -166,14 +165,14 @@ class InstanceLifecycleManager:
                     timestamp=datetime.utcnow(),
                     details={"deployment_id": deployment_id},
                 ))
-        
+
         except Exception as e:
             status.state =InstanceState.FAILED
             status.error_message = str(e)
             cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
             self.metrics.increment("deployment.failure", 1, {"error": type(e).__name__})
             logger.error(f"Deployment {deployment_id} failed: {e}", request_id=context.trace_id)
-        
+
         finally:
             if deployment_id in self._deployment_tasks:
                 del self._deployment_tasks[deployment_id]
@@ -185,7 +184,7 @@ class InstanceLifecycleManager:
     ) -> Optional[Dict[str, Any]]:
         regions = await self.client.list_regions(context=context)
         available_regions = []
-        
+
         for region in regions:
             region_id = region.get("id")
             capacity = await self.client.get_region_capacity(
@@ -193,17 +192,17 @@ class InstanceLifecycleManager:
                 plan=request.plan,
                 context=context,
             )
-            
+
             if capacity.get("plans", {}).get(request.plan, False):
                 available_regions.append({
                     "region": region_id,
                     "score": self._calculate_region_score(region, capacity),
                 })
-        
+
         if not available_regions:
             logger.warning(f"No available regions for plan {request.plan}, using requested region {request.region}")
             return None
-        
+
         available_regions.sort(key=lambda x: x["score"], reverse=True)
         return available_regions[0]
 
@@ -227,11 +226,11 @@ class InstanceLifecycleManager:
     ) -> None:
         instance = await self.client.get_instance(instance_id, context=context)
         status = instance.get("status", "")
-        
+
         if status not in ["active", "running"]:
             logger.debug(f"Instance {instance_id} status: {status}, waiting...")
             raise VultrAPIError(f"Instance not ready: {status}")
-        
+
         logger.info(f"Instance {instance_id} is ready with status: {status}")
 
     async def terminate_instance(
@@ -277,9 +276,9 @@ class InstanceLifecycleManager:
             instance = await self.client.get_instance(instance_id, context=context)
             status = instance.get("status", "unknown")
             power_status = instance.get("power_status", "unknown")
-            
+
             bandwidth = await self.client.get_bandwidth(instance_id, context=context)
-            
+
             health = HealthStatus(
                 instance_id=instance_id,
                 status=status,
@@ -292,10 +291,10 @@ class InstanceLifecycleManager:
                     "region": instance.get("region"),
                 },
             )
-            
+
             self._instance_health_cache[instance_id] = health.dict()
             self._last_health_check[instance_id] = datetime.utcnow()
-            
+
             if not health.is_healthy and self.feature_flags.auto_recovery_enabled:
                 await self._recovery_queue.put(AutoRecoveryEvent(
                     event_id=str(uuid4()),
@@ -304,9 +303,9 @@ class InstanceLifecycleManager:
                     timestamp=datetime.utcnow(),
                     details={"status": status, "power_status": power_status},
                 ))
-            
+
             return health
-        
+
         except VultrNotFoundError:
             return HealthStatus(
                 instance_id=instance_id,
@@ -334,10 +333,10 @@ class InstanceLifecycleManager:
                 for instance in instances:
                     instance_id = instance.get("id")
                     last_check = self._last_health_check.get(instance_id, datetime.min)
-                    
+
                     if datetime.utcnow() - last_check > timedelta(seconds=60):
                         await self.check_instance_health(instance_id)
-                
+
                 await asyncio.sleep(30)
             except asyncio.CancelledError:
                 break
@@ -350,14 +349,14 @@ class InstanceLifecycleManager:
             try:
                 event = await self._recovery_queue.get()
                 logger.info(f"Processing recovery event: {event.event_type} for {event.instance_id}")
-                
+
                 if event.event_type == "unhealthy":
                     await self._handle_unhealthy_instance(event)
                 elif event.event_type == "provisioning_failure":
                     await self._handle_provisioning_failure(event)
                 elif event.event_type == "cost_optimization":
                     await self._handle_cost_optimization(event)
-                
+
                 self._recovery_queue.task_done()
             except asyncio.CancelledError:
                 break
@@ -367,13 +366,13 @@ class InstanceLifecycleManager:
     async def _handle_unhealthy_instance(self, event: AutoRecoveryEvent) -> None:
         instance_id = event.instance_id
         health = await self.check_instance_health(instance_id)
-        
+
         if health.is_healthy:
             logger.info(f"Instance {instance_id} recovered on its own")
             return
-        
+
         logger.warning(f"Attempting recovery for unhealthy instance {instance_id}")
-        
+
         success = await self.client.restart_instance(instance_id)
         if success:
             await asyncio.sleep(30)
@@ -382,7 +381,7 @@ class InstanceLifecycleManager:
                 logger.info(f"Instance {instance_id} recovered successfully after restart")
                 self.metrics.increment("recovery.success", 1)
                 return
-        
+
         logger.error(f"Recovery failed for instance {instance_id}")
         self.metrics.increment("recovery.failure", 1)
 
@@ -396,16 +395,16 @@ class InstanceLifecycleManager:
     async def generate_cost_optimization_report(self) -> CostOptimizationReport:
         instances = await self.client.list_instances()
         cost_estimate = await self.client.get_cost_estimate(instances)
-        
+
         idle_instances = []
         overprovisioned = []
         underutilized = []
-        
+
         for instance in instances:
             instance_id = instance.get("id")
             status = instance.get("status")
             plan = instance.get("plan")
-            
+
             if status != "running":
                 idle_instances.append({
                     "instance_id": instance_id,
@@ -413,16 +412,16 @@ class InstanceLifecycleManager:
                     "region": instance.get("region"),
                     "last_updated": instance.get("date_created"),
                 })
-            
+
             health = self._instance_health_cache.get(instance_id, {})
             metrics = health.get("metrics", {})
-            
+
             if metrics and len(metrics) > 0:
                 bandwidth = metrics.get("bandwidth", {})
                 if bandwidth:
                     in_gb = bandwidth.get("incoming_bytes", 0) / (1024 ** 3)
                     out_gb = bandwidth.get("outgoing_bytes", 0) / (1024 ** 3)
-                    
+
                     if in_gb < 10 and out_gb < 10:
                         underutilized.append({
                             "instance_id": instance_id,
@@ -430,13 +429,13 @@ class InstanceLifecycleManager:
                             "recommended_plan": "smaller",
                             "utilization": {"in_gb": in_gb, "out_gb": out_gb},
                         })
-        
+
         total_savings = 0.0
         for instance in idle_instances:
             total_savings += 10.0
         for instance in underutilized:
             total_savings += 5.0
-        
+
         report = CostOptimizationReport(
             generated_at=datetime.utcnow(),
             total_monthly_cost=cost_estimate["total_monthly_estimate"],
@@ -449,13 +448,13 @@ class InstanceLifecycleManager:
                 f"Downsize {len(underutilized)} underutilized instances",
             ],
         )
-        
+
         self._cost_history.append({
             "timestamp": report.generated_at.isoformat(),
             "total_cost": report.total_monthly_cost,
             "savings": report.potential_savings,
         })
-        
+
         return report
 
     async def get_deployment_status(
@@ -477,7 +476,7 @@ class InstanceLifecycleManager:
                 data = cache.get(key)
                 if data:
                     deployments.append(DeploymentStatus(**data))
-        
+
         deployments.sort(key=lambda x: x.created_at, reverse=True)
         return deployments[:limit]
 
@@ -487,19 +486,19 @@ class InstanceLifecycleManager:
         healthy = 0
         unhealthy = 0
         pending = 0
-        
+
         for instance in instances:
             instance_id = instance.get("id")
             health = self._instance_health_cache.get(instance_id, {})
             is_healthy = health.get("is_healthy", False)
-            
+
             if is_healthy:
                 healthy += 1
             elif instance.get("status") in ["pending", "starting"]:
                 pending += 1
             else:
                 unhealthy += 1
-        
+
         return {
             "total_instances": total,
             "healthy": healthy,

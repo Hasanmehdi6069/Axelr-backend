@@ -18,19 +18,30 @@ from __future__ import annotations
 
 import os
 import time
-from collections import deque, defaultdict
+from collections import defaultdict, deque
 from typing import Any, Callable, Dict, List, Optional
 
-from .workspace_vocab import (
-    DETECTOR_VERSION, WORKSPACES,
-    _VOCAB_DATA_TOKS, _VOCAB_DESIGN_TOKS, _VOCAB_CORE_TOKS,
-    _VOCAB_DATA_WEIGHTS, _VOCAB_DESIGN_WEIGHTS, _VOCAB_CORE_WEIGHTS,
-    _PHRASES_DATA, _PHRASES_DESIGN, _PHRASES_CORE,
-    _VERB_DATA, _VERB_DESIGN, _VERB_CORE,
-)
 from .workspace_engine import (
-    ENGINE_VERSION, compute_full_detection, detect_workspace_core,
+    ENGINE_VERSION,
+    compute_full_detection,
+    detect_workspace_core,
     reset_sessions,
+)
+from .workspace_vocab import (
+    _PHRASES_CORE,
+    _PHRASES_DATA,
+    _PHRASES_DESIGN,
+    _VERB_CORE,
+    _VERB_DATA,
+    _VERB_DESIGN,
+    _VOCAB_CORE_TOKS,
+    _VOCAB_CORE_WEIGHTS,
+    _VOCAB_DATA_TOKS,
+    _VOCAB_DATA_WEIGHTS,
+    _VOCAB_DESIGN_TOKS,
+    _VOCAB_DESIGN_WEIGHTS,
+    DETECTOR_VERSION,
+    WORKSPACES,
 )
 
 _TELEMETRY_ON = os.getenv("AXELR_TELEMETRY", "").lower() in ("1", "true", "yes")

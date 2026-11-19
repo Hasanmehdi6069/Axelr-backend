@@ -10,11 +10,10 @@ to reject obvious code/prose false positives (e.g. `def f():` in Python).
 from __future__ import annotations
 
 import re
-from typing import Dict, Iterable, List, Optional, Pattern
+from typing import Dict, Iterable, List, Pattern
 
 from .bounding import Chunk
 from .schemas import ExtractedClaim
-
 
 # ── Pattern registry ──────────────────────────────────────────────────────
 _PATTERNS: Dict[str, Pattern] = {}

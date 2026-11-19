@@ -339,11 +339,15 @@ class ResilientPipeline:
         try:
             try:
                 from api.prompts import (  # type: ignore
-                    contains_explicit, detect_manipulation, sanitize_input,
+                    contains_explicit,
+                    detect_manipulation,
+                    sanitize_input,
                 )
             except Exception:
                 from ..api.prompts import (  # type: ignore
-                    contains_explicit, detect_manipulation, sanitize_input,
+                    contains_explicit,
+                    detect_manipulation,
+                    sanitize_input,
                 )
             prompt = sanitize_input(prompt)
             prompt = self._mask_pii(session_key, tenant_id, prompt)
@@ -619,14 +623,18 @@ class ResilientPipeline:
             try:
                 from ..api.prompts import _get_system_prompt  # type: ignore
                 from ..api.providers import (  # type: ignore
-                    PROVIDER_FUNC_MAP, PROVIDER_KEY_CHECK, PROVIDER_MODELS,
+                    PROVIDER_FUNC_MAP,
+                    PROVIDER_KEY_CHECK,
+                    PROVIDER_MODELS,
                     get_dynamically_ranked_providers,
                 )
                 from ..api.state import state  # type: ignore
             except Exception:
                 from api.prompts import _get_system_prompt  # type: ignore
                 from api.providers import (  # type: ignore
-                    PROVIDER_FUNC_MAP, PROVIDER_KEY_CHECK, PROVIDER_MODELS,
+                    PROVIDER_FUNC_MAP,
+                    PROVIDER_KEY_CHECK,
+                    PROVIDER_MODELS,
                     get_dynamically_ranked_providers,
                 )
                 from api.state import state  # type: ignore

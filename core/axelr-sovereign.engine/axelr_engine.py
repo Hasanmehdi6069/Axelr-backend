@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
-import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Set, Tuple
@@ -23,7 +22,9 @@ except ImportError:
     aiohttp = None
 
 from axelr_config import (
-    CONFIDENCE_THRESHOLD, CalibrationConfig, HardwareProfile, SamplingConfig,
+    CONFIDENCE_THRESHOLD,
+    CalibrationConfig,
+    HardwareProfile,
 )
 from axelr_utils import get_logger
 
@@ -40,7 +41,6 @@ This file is the single source of truth for phonetic algorithms like Soundex
 and Metaphone. It is designed to be portable to other languages, especially
 JavaScript, for client-side validation or features.
 """
-from typing import Dict, Tuple
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -113,7 +113,7 @@ def metaphone(word: str) -> str:
     result = []
     i = 0
     n = len(word)
-    
+
     # Handle silent leading combinations first
     if n >= 2:
         # 'kn' → silent 'k', only 'n' remains
@@ -134,7 +134,7 @@ def metaphone(word: str) -> str:
         # Keep original 'wr' handling for all words
         elif word[0] == 'w' and word[1] == 'r':
             i = 1  # Skip 'w', start at 'r'
-    
+
     # Process remaining word with core metaphone rules
     while i < n:
         ch = word[i]

@@ -10,7 +10,6 @@ from typing import Iterable
 
 from .primitives import balance_tags, pda_balanced
 
-
 # ═══════════════════════════════════════════════════════════════════
 # RESEARCH
 # ═══════════════════════════════════════════════════════════════════

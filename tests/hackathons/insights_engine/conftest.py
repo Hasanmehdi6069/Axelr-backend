@@ -1,13 +1,11 @@
 """Fixtures for Insights Engine test suites."""
 from __future__ import annotations
 
-import asyncio
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent.parent / "hackathons" / "insights_engine"))
 
-import pytest
 import pytest_asyncio
 
 

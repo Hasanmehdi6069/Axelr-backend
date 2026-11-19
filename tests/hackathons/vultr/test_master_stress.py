@@ -88,7 +88,7 @@ async def test_a3_parallel_workflows_no_cross_contamination(engine):
 @pytest.mark.asyncio
 async def test_a4_audit_no_lost_writes_under_contention(engine):
     """500 concurrent audit writes → 500 complete lines, all valid JSON."""
-    from sentinel_agentic.engine import audit, AUDIT_PATH, flush_audit
+    from sentinel_agentic.engine import AUDIT_PATH, audit, flush_audit
     await asyncio.gather(*[audit({"kind": "stress", "i": i}) for i in range(500)])
     await flush_audit()
     lines = AUDIT_PATH.read_text().strip().split("\n")

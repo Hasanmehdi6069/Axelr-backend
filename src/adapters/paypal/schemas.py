@@ -1,9 +1,11 @@
 """Pydantic v2 schemas for all PayPal module entry points. Strict, forbid extra."""
 from __future__ import annotations
 
+from enum import Enum
 from decimal import Decimal
 from typing import Any, Literal
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator, ValidationError
+
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 Currency = Literal[
     "USD", "EUR", "GBP", "CAD", "AUD", "JPY",
@@ -13,7 +15,6 @@ Currency = Literal[
 IntentType = Literal["CAPTURE", "AUTHORIZE"]
 ItemCategory = Literal["DIGITAL_GOODS", "PHYSICAL_GOODS", "DONATION"]
 
-from enum import Enum
 
 class TransactionState(str, Enum):
     INITIATED = "INITIATED"
@@ -73,14 +74,14 @@ class CreateOrderRequest(BaseModel):
             dec = Decimal(v)
         except Exception as e:
             raise ValueError(f"total amount must be a valid Decimal string: {v}") from e
-            
+
         # Check for NaN or Infinity
         if not dec.is_finite():
             raise ValueError(f"Amount must be finite, got {v}")
-            
+
         if dec <= 0 or dec > Decimal("1000000"):
             raise ValueError(f"Amount must be >0 and <=1000000, got {dec}")
-            
+
         if dec != dec.quantize(Decimal("0.01")):
             raise ValueError("Amount must have at most 2 decimal places")
         return v
@@ -90,10 +91,10 @@ class CreateOrderRequest(BaseModel):
         """Validate sum of items matches total order amount within currency precision"""
         if not self.items:
             return self
-            
+
         order_amount = Decimal(self.amount)
         items_total = sum((item.unit_amount * item.quantity for item in self.items), Decimal("0"))
-        
+
         # Allow for 0.01 currency precision difference
         if abs(items_total - order_amount) > Decimal("0.01"):
             raise ValueError(
@@ -133,14 +134,14 @@ class RefundRequest(BaseModel):
         try:
             dec = Decimal(v)
         except Exception as e:
-            raise ValueError(f"total amount must be a valid Decimal string") from e
-            
+            raise ValueError("total amount must be a valid Decimal string") from e
+
         if not dec.is_finite():
             raise ValueError("Amount must be finite")
-            
+
         if dec <= 0 or dec > Decimal("1000000"):
             raise ValueError(f"Amount must be >0 and <=1000000, got {dec}")
-            
+
         if dec != dec.quantize(Decimal("0.01")):
             raise ValueError("Amount must have at most 2 decimal places")
         return v

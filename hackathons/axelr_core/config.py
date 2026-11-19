@@ -2,8 +2,9 @@
 Centralizes initialization of all external adapters and providers to ensure
 they are reported correctly by the /api/health/ready endpoint.
 """
-import structlog
 from typing import Any, Dict
+
+import structlog
 
 logger = structlog.get_logger("axelr.config")
 
@@ -25,10 +26,10 @@ async def initialize_all() -> None:
 
     # Initialize Appwrite adapter (insights engine)
     await _init_appwrite_adapter()
-    
+
     # Initialize PayPal adapter
     await _init_paypal_adapter()
-    
+
     # Initialize Vultr/Nebius adapter
     await _init_vultr_adapter()
 

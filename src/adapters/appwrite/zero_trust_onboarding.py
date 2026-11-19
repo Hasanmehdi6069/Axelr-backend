@@ -1,14 +1,15 @@
 import os
-import time
-from typing import Dict, List, Optional, Any, Tuple
-from datetime import datetime, timedelta
-from pydantic import BaseModel, Field, EmailStr, validator
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+import requests
+from pydantic import BaseModel, EmailStr, Field, validator
+
 from appwrite.client import Client
+from appwrite.exception import AppwriteException
+from appwrite.services.databases import Databases
 from appwrite.services.teams import Teams
 from appwrite.services.users import Users
-from appwrite.services.databases import Databases
-from appwrite.exception import AppwriteException
-import requests
 
 # Environment configuration (loaded from Appwrite secrets)
 APPWRITE_PROJECT_ID = os.getenv("APPWRITE_PROJECT_ID", "")
@@ -47,7 +48,7 @@ class TeamMember(BaseModel):
     start_date: datetime = Field(default_factory=datetime.utcnow)
     end_date: Optional[datetime] = None  # For contractors, required expiration
     request_reason: str = Field(..., min_length=20, max_length=500, description="Justification for access")
-    
+
     @validator('end_date')
     def validate_contractor_end_date(cls, v, values):
         if values.get('is_contractor') and v is None:
@@ -55,7 +56,7 @@ class TeamMember(BaseModel):
         if v and v < datetime.utcnow():
             raise ValueError("End date must be in the future")
         return v
-    
+
     @validator('role_type')
     def validate_role_type(cls, v):
         valid_roles = list(APPWRITE_TEAM_ROLES.keys())
@@ -75,17 +76,17 @@ class ZeroTrustOnboardingManager:
         self.appwrite_client.set_endpoint(APPWRITE_ENDPOINT)
         self.appwrite_client.set_project(APPWRITE_PROJECT_ID)
         self.appwrite_client.set_key(APPWRITE_API_KEY)
-        
+
         self.teams = Teams(self.appwrite_client)
         self.users = Users(self.appwrite_client)
         self.databases = Databases(self.appwrite_client)
-        
+
         # Vultr API configuration
         self.vultr_headers = {
             "Authorization": f"Bearer {VULTR_API_KEY}",
             "Content-Type": "application/json"
         }
-        
+
         # Approval tracking collection
         self.approval_db_id = os.getenv("APPWRITE_ACCESS_REQUESTS_DB", "access-requests")
         self.approval_collection_id = "access-approvals"
@@ -100,19 +101,19 @@ class ZeroTrustOnboardingManager:
         """
         # Step 1: Validate access request
         self._validate_access_request(member_data)
-        
+
         # Step 2: Check if production access requires approval
         requires_approval = self._check_approval_requirement(member_data)
         if requires_approval:
             return self._create_approval_request(member_data)
-        
+
         # Step 3: Provision access if pre-approved or staging-only
         appwrite_member = self._provision_appwrite_access(member_data)
         vultr_member = self._provision_vultr_access(member_data)
-        
+
         # Step 4: Log access provisioning to audit log
         self._log_access_event("provisioned", member_data, appwrite_member, vultr_member)
-        
+
         return {
             "status": "success",
             "appwrite_member_id": appwrite_member.get("$id"),
@@ -127,11 +128,11 @@ class ZeroTrustOnboardingManager:
         if member_data.environment == "production" and member_data.role_type not in ["admin", "system"]:
             if "write" in APPWRITE_TEAM_ROLES[member_data.role_type]:
                 raise ValueError("Production write access requires explicit admin approval for all non-admin roles")
-        
+
         # Block contractor production access entirely
         if member_data.is_contractor and member_data.environment == "production":
             raise ValueError("Contractors cannot be granted production access under zero-trust policy")
-        
+
         # Validate role is appropriate for environment
         if member_data.environment == "production" and member_data.role_type == "contractor":
             raise ValueError("Contractor role is not permitted in production environment")
@@ -141,12 +142,12 @@ class ZeroTrustOnboardingManager:
         # All production access requires approval
         if member_data.environment == "production":
             return True
-        
+
         # Any elevated role access in staging requires approval
         elevated_roles = ["admin", "billing_admin", "system"]
         if member_data.role_type in elevated_roles and member_data.environment == "staging":
             return True
-        
+
         return False
 
     def _create_approval_request(self, member_data: TeamMember) -> Dict[str, Any]:
@@ -163,7 +164,7 @@ class ZeroTrustOnboardingManager:
             "approved_at": None,
             "expiration_date": member_data.end_date.isoformat() if member_data.end_date else None
         }
-        
+
         # Store approval request in Appwrite database
         try:
             created_request = self.databases.create_document(
@@ -174,10 +175,10 @@ class ZeroTrustOnboardingManager:
                 read=["role:system", "role:admin"],
                 write=["role:system", "role:admin"]
             )
-            
+
             # Trigger admin notification (Slack/email via Appwrite functions)
             self._trigger_admin_alert(approval_request)
-            
+
             return {
                 "status": "pending_approval",
                 "request_id": created_request["$id"],
@@ -190,10 +191,10 @@ class ZeroTrustOnboardingManager:
         """Provision least-privilege access in Appwrite Teams"""
         # Get or create team for the environment
         team_id = self._get_or_create_environment_team(member_data.environment)
-        
+
         # Calculate permissions for the role
         team_roles = self._map_to_appwrite_team_roles(member_data.role_type, member_data.environment)
-        
+
         try:
             # Create team membership with minimal roles
             membership = self.teams.create_membership(
@@ -202,7 +203,7 @@ class ZeroTrustOnboardingManager:
                 roles=team_roles,
                 url=os.getenv("APPWRITE_TEAM_INVITE_URL", "https://axelr.ai/team/invite")
             )
-            
+
             # Schedule access revocation if contractor
             if member_data.is_contractor and member_data.end_date:
                 self._schedule_access_revocation(
@@ -211,7 +212,7 @@ class ZeroTrustOnboardingManager:
                     membership_id=membership["$id"],
                     revoke_at=member_data.end_date
                 )
-            
+
             return membership
         except AppwriteException as e:
             raise RuntimeError(f"Appwrite access provisioning failed: {str(e)}")
@@ -220,10 +221,10 @@ class ZeroTrustOnboardingManager:
         """Provision least-privilege access in Vultr IAM"""
         if not VULTR_API_KEY:
             return {"warning": "Vultr API key not configured, skipping Vultr access provisioning"}
-        
+
         # Map to Vultr IAM policy
         vultr_roles = self._map_to_vultr_iam_roles(member_data.role_type, member_data.environment)
-        
+
         try:
             # Create Vultr IAM user with restricted policy
             response = requests.post(
@@ -237,7 +238,7 @@ class ZeroTrustOnboardingManager:
             )
             response.raise_for_status()
             vultr_user = response.json()
-            
+
             # Schedule revocation for contractors
             if member_data.is_contractor and member_data.end_date:
                 self._schedule_access_revocation(
@@ -245,7 +246,7 @@ class ZeroTrustOnboardingManager:
                     user_id=vultr_user["id"],
                     revoke_at=member_data.end_date
                 )
-            
+
             return vultr_user
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Vultr access provisioning failed: {str(e)}")
@@ -258,17 +259,17 @@ class ZeroTrustOnboardingManager:
             for team in teams["teams"]:
                 if team["name"] == f"axelr-{environment}-team":
                     return team["$id"]
-            
+
             # Create new team if not found
             new_team = self.teams.create(name=f"axelr-{environment}-team")
             team_id = new_team["$id"]
-            
+
             # Set zero-trust team permissions (only system can manage by default)
             self.teams.update(
                 team_id=team_id,
                 name=f"axelr-{environment}-team"
             )
-            
+
             return team_id
         except AppwriteException as e:
             raise RuntimeError(f"Failed to get/create environment team: {str(e)}")
@@ -289,7 +290,7 @@ class ZeroTrustOnboardingManager:
         delay_seconds = (revoke_at - datetime.utcnow()).total_seconds()
         if delay_seconds <= 0:
             raise ValueError("Revocation time must be in the future")
-        
+
         # Store revocation job in Appwrite scheduler
         try:
             self.databases.create_document(
@@ -314,7 +315,7 @@ class ZeroTrustOnboardingManager:
         webhook_url = os.getenv("ADMIN_APPROVAL_WEBHOOK", "")
         if not webhook_url:
             return
-        
+
         try:
             requests.post(
                 webhook_url,
@@ -354,7 +355,7 @@ class ZeroTrustOnboardingManager:
 def main(context: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Main entry point for Appwrite inbound function to process onboarding requests"""
     manager = ZeroTrustOnboardingManager()
-    
+
     try:
         member_data = TeamMember(**payload)
         result = manager.onboard_team_member(member_data)

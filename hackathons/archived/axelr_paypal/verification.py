@@ -11,8 +11,7 @@ import json
 import os
 import sys
 import time
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
 import httpx
 

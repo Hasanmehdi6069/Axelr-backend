@@ -5,10 +5,12 @@ Replaces Wispr Flow's permission system with a modern, trust-first approach.
 Asks users for critical permissions only when needed, maintains full transparency.
 """
 from __future__ import annotations
+
 import os
 import time
 from dataclasses import dataclass, field
 from typing import Any, Iterable
+
 
 def _bool(key: str, default: bool = False) -> bool:
     v = (os.getenv(key, "") or "").lower()
@@ -134,10 +136,10 @@ def check_permissions(consent: UserConsent, required: Iterable[str]) -> tuple[bo
     return len(missing) == 0, missing
 
 import json
-import os
 import threading
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any
+from typing import Dict, Optional, Tuple
+
 
 @dataclass(slots=True)
 class ConsentAuditEntry:

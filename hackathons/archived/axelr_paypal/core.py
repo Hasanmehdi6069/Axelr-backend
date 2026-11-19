@@ -11,7 +11,6 @@ import asyncio
 import json
 import logging
 import os
-import time
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -21,7 +20,8 @@ import httpx
 from pydantic import BaseModel, ConfigDict, Field
 
 from .schemas import (
-    TransactionState, VALID_TRANSITIONS,
+    VALID_TRANSITIONS,
+    TransactionState,
 )
 
 MODULE_VERSION = "1.2.0"

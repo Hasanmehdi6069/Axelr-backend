@@ -16,7 +16,6 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any, Iterable
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # §1 — Intent tree
 # ═══════════════════════════════════════════════════════════════════════════

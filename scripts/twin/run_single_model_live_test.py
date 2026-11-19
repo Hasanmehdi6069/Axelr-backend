@@ -28,13 +28,12 @@ import argparse
 import asyncio
 import gc
 import json
-import os
 import statistics
 import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 BACKEND_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BACKEND_ROOT))
@@ -186,10 +185,10 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
     r = ModelResult(
         model_id=spec.id, model_name=spec.name, tier=spec.category, file=spec.file,
     )
-    print(f"\n══════════════════════════════════════════════════════════════")
+    print("\n══════════════════════════════════════════════════════════════")
     print(f"MODEL: {spec.name}  ({spec.id})")
     print(f"  tier={spec.category}  weights={spec.weights_mb}MB  ctx={spec.ctx}  max_out={spec.max_out}")
-    print(f"══════════════════════════════════════════════════════════════")
+    print("══════════════════════════════════════════════════════════════")
 
     model_path = engine._models_dir / spec.file
     if not model_path.is_file():
@@ -253,7 +252,7 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
                   f"{out[:50]!r}" + (f"  ({reason})" if reason else ""))
 
         # ── TTFT
-        print(f"\n  Measuring time-to-first-token (streaming)…")
+        print("\n  Measuring time-to-first-token (streaming)…")
         try:
             for i in range(3):
                 ttft, text = await _measure_ttft(engine, "Say hi.")
@@ -266,7 +265,7 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
             print(f"    TTFT measurement skipped: {e}")
 
         # ── Determinism
-        print(f"\n  Determinism check (temp=0, same prompt twice)…")
+        print("\n  Determinism check (temp=0, same prompt twice)…")
         a = await engine.infer("core", "core", "Reply with OK.", tier="free")
         b = await engine.infer("core", "core", "Reply with OK.", tier="free")
         r.determinism_samples = [a, b]
@@ -355,7 +354,7 @@ async def main() -> int:
     if not engine.is_available():
         print(f"⚠ Engine unavailable: binary={engine._binary}")
         print(f"  models_dir={engine._models_dir}")
-        print(f"  Nothing to test — every model will SKIP.")
+        print("  Nothing to test — every model will SKIP.")
 
     results: list[ModelResult] = []
     for spec in targets:

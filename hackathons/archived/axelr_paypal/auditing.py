@@ -6,11 +6,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Dict, Optional, List
-from contextlib import asynccontextmanager
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("axelr.billing.auditing")
 
@@ -27,14 +26,14 @@ class AuditEntry:
     success: bool = False
     error: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    
+
     def complete(self, success: bool = True, error: Optional[str] = None) -> None:
         """Mark audit entry as completed with results"""
         self.end_time = datetime.now(timezone.utc)
         self.duration_ms = (self.end_time - self.start_time).total_seconds() * 1000
         self.success = success
         self.error = error
-        
+
         # Log the completed entry
         log_msg = (
             f"AUDIT: {self.operation} | user={self.user_id} | session={self.session_id} | "
@@ -65,14 +64,14 @@ async def AuditTimer(operation: str, user_id: str, session_id: str, **metadata):
         start_time=datetime.now(timezone.utc),
         metadata=metadata
     )
-    
+
     async with _audit_lock:
         _audit_log.append(entry)
-    
+
     logger.debug(
         f"Starting audit: {operation} | user={user_id} | session={session_id}"
     )
-    
+
     try:
         yield entry
         entry.complete(success=True)
@@ -87,12 +86,12 @@ def get_audit_logs(
 ) -> List[AuditEntry]:
     """Query audit logs with optional filtering"""
     results = _audit_log.copy()
-    
+
     if user_id:
         results = [e for e in results if e.user_id == user_id]
     if operation:
         results = [e for e in results if e.operation == operation]
-    
+
     # Return most recent first
     results.sort(key=lambda e: e.start_time, reverse=True)
     return results[:limit]
@@ -110,7 +109,7 @@ def get_audit_stats() -> Dict[str, Any]:
             if entry.operation not in operations:
                 operations[entry.operation] = 0
             operations[entry.operation] += 1
-    
+
     return {
         "total_entries": total_entries,
         "operations": operations,
@@ -130,8 +129,8 @@ async def log_audit_event(event: Dict[str, Any]) -> None:
         metadata=event.get("metadata", {})
     )
     entry.complete(success=True)
-    
+
     async with _audit_lock:
         _audit_log.append(entry)
-    
+
     logger.debug(f"Logged audit event: {entry.operation} | id={entry.id}")

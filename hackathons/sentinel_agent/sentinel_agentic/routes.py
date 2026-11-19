@@ -12,16 +12,17 @@ same audit, same WAL, same engine.
 """
 from __future__ import annotations
 
-from typing import Any
-
+from axelr_vultr.routes import get_vultr_user
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from axelr_vultr.routes import get_vultr_user
-
-from .actions import dispatch
 from .atlassian import (
-    PendingApproval, _QUEUE, approve, list_pending, propose, reject,
+    _QUEUE,
+    PendingApproval,
+    approve,
+    list_pending,
+    propose,
+    reject,
 )
 from .engine import Engine
 

@@ -21,10 +21,8 @@ from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from bharat_agentic.config import EngineConfig
 from bharat_agentic.errors import (
-    ApprovalConflictError,
     BharatAgentError,
     InputTooLargeError,
-    RateLimitExceededError,
 )
 from bharat_agentic.extraction import CaseExtractor
 from bharat_agentic.models import (
@@ -40,6 +38,7 @@ from bharat_agentic.models import (
     ReminderRequest,
     new_reminder_id,
 )
+
 from .reminders import list_receipts, register_reminder_tools
 from .sentinel import Sentinel
 from .summarizer import CaseSummarizer
@@ -696,9 +695,8 @@ async def run_metrics(
     seed_path: str, temp_db: Optional[str] = None,
 ) -> MetricsReport:
     """Run the 20-case harness on a fresh temp DB and return a report."""
-    import os
     from pathlib import Path
-    
+
     # Resolve seed path robustly
     seed_file = Path(seed_path)
     if not seed_file.is_file():
@@ -713,7 +711,7 @@ async def run_metrics(
             if c.is_file():
                 seed_file = c
                 break
-    
+
     cleanup = temp_db is None
     if temp_db is None:
         fd, temp_db = tempfile.mkstemp(suffix=".db", prefix="bharat_metrics_")

@@ -257,7 +257,7 @@ def _classify(prompt: str, history, files):
 
 def _to_goat_profile(complexity) -> Any:
     try:
-        from core.goat_layer import WorkloadProfile, _SHED_PROFILE
+        from core.goat_layer import _SHED_PROFILE, WorkloadProfile
     except Exception:
         return None
     if complexity is None:
@@ -496,7 +496,7 @@ async def _postprocess(ctx: _RunContext, result: dict[str, Any]) -> dict[str, An
 
     # 1. Deterministic prune + AST repair. Zero provider calls.
     try:
-        from core.hardening import prune_system, ast_repair
+        from core.hardening import ast_repair, prune_system
         pruned = prune_system(text)
         repaired, issues = ast_repair(pruned)
         if issues:
@@ -523,7 +523,7 @@ async def _postprocess(ctx: _RunContext, result: dict[str, Any]) -> dict[str, An
     if not ctx.enable_reflection:
         return result
     try:
-        from core.reflection import scan, repair
+        from core.reflection import repair, scan
         r = scan(text)
         if not r.needs_repair:
             ctx.record("reflection_clean")
@@ -600,7 +600,7 @@ async def run(
         tier_deadline = 4.0   # 3-5s total for pro
     else: # free/guest
         tier_deadline = 2.5   # 2-3s total for free
-    
+
     final_deadline = deadline_s if deadline_s is not None else min(_DEADLINE_S, tier_deadline)
 
     provisional_budget = (

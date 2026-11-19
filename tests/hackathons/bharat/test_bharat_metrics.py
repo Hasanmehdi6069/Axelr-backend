@@ -15,9 +15,6 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
-
-import pytest
 
 from bharat_agentic import (
     ApprovalState,
@@ -26,7 +23,6 @@ from bharat_agentic import (
     run_metrics,
 )
 from bharat_agentic.engine import _compare, load_seed_cases
-
 
 # ---------------------------------------------------------------------------
 # 1. Aggregate integrity

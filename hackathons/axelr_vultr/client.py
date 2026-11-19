@@ -3,29 +3,28 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional
 from urllib.parse import urlencode
 
 import aiohttp
 
 from .core import (
     FeatureFlags,
-    MetricsStore,
     RequestContext,
     RequestOptimizer,
+    VultrAPIError,
+    VultrAuthError,
+    VultrNotFoundError,
+    VultrRateLimitError,
+    VultrServerError,
+    VultrTimeoutError,
     ZeroTrustVerifier,
+    cache,
+    circuit_breaker,
     get_logger,
     get_metrics,
     rate_limiter,
-    circuit_breaker,
-    cache,
     retry,
-    VultrAPIError,
-    VultrRateLimitError,
-    VultrNotFoundError,
-    VultrAuthError,
-    VultrServerError,
-    VultrTimeoutError,
 )
 
 logger = get_logger(__name__)
@@ -33,7 +32,7 @@ logger = get_logger(__name__)
 
 class VultrClient:
     BASE_URL = "https://api.vultr.com/v2"
-    
+
     def __init__(
         self,
         api_key: str,
@@ -45,19 +44,19 @@ class VultrClient:
         self.timeout = timeout
         self.max_connections = max_connections
         self.http2_enabled = http2_enabled
-        
+
         self._session: Optional[aiohttp.ClientSession] = None
         self._semaphore = asyncio.Semaphore(max_connections)
         self._optimizer = RequestOptimizer()
         self._security = ZeroTrustVerifier()
         self._metrics = get_metrics()
         self._feature_flags = FeatureFlags()
-        
+
         self._instance_types_cache: Dict[str, Any] = {}
         self._regions_cache: Dict[str, Any] = {}
         self._plans_cache: Dict[str, Any] = {}
         self._last_capacity_check: Dict[str, datetime] = {}
-        
+
         logger.info(f"VultrClient initialized with http2={http2_enabled}, max_conns={max_connections}")
 
     async def _get_session(self) -> aiohttp.ClientSession:
@@ -99,7 +98,7 @@ class VultrClient:
     ) -> Dict[str, Any]:
         request_id = context.request_id if context else "unknown"
         full_url = f"{self.BASE_URL}{path}"
-        
+
         cache_key = None
         if use_cache and method.upper() == "GET":
             cache_key = f"vultr:{method}:{path}:{json.dumps(params or {})}"
@@ -108,26 +107,26 @@ class VultrClient:
                 self._metrics.increment("cache.hit", 1, {"endpoint": path})
                 return cached
             self._metrics.increment("cache.miss", 1, {"endpoint": path})
-        
+
         if self._feature_flags.ai_optimization_enabled:
             optimized = self._optimizer.optimize(path, params or {})
             if optimized.get("batching"):
                 logger.debug(f"AI optimization applied for {path}: batching={optimized['batching']}")
-        
+
         @retry(max_attempts=5, backoff_base=1.0, retry_on=(VultrServerError, VultrTimeoutError))
         @rate_limiter(endpoint=path)
         @circuit_breaker(endpoint=path)
         async def _execute() -> Dict[str, Any]:
             async with self._semaphore:
                 session = await self._get_session()
-                
+
                 start_time = datetime.utcnow()
                 try:
                     if params:
                         full_url_with_params = f"{full_url}?{urlencode(params)}"
                     else:
                         full_url_with_params = full_url
-                    
+
                     async with session.request(
                         method=method,
                         url=full_url_with_params,
@@ -135,49 +134,49 @@ class VultrClient:
                         allow_redirects=True,
                     ) as response:
                         latency = (datetime.utcnow() - start_time).total_seconds()
-                        
+
                         self._metrics.observe("request.latency", latency, {
                             "method": method,
                             "endpoint": path,
                             "status": str(response.status),
                         })
-                        
+
                         response_text = await response.text()
-                        
+
                         if self._feature_flags.zero_trust_enabled:
                             self._security.verify_response(response_text, context)
-                        
+
                         if response.status == 429:
                             retry_after = int(response.headers.get("Retry-After", "60"))
                             raise VultrRateLimitError(f"Rate limited, retry after {retry_after}s", retry_after=retry_after)
-                        
+
                         if response.status == 404:
                             raise VultrNotFoundError(f"Resource not found: {path}")
-                        
+
                         if response.status in (401, 403):
                             raise VultrAuthError(f"Authentication failed: {response.status}")
-                        
+
                         if response.status >= 500:
                             raise VultrServerError(f"Server error: {response.status}", status_code=response.status)
-                        
+
                         if response.status >= 400:
                             raise VultrAPIError(f"API error: {response.status} - {response_text[:200]}", status_code=response.status)
-                        
+
                         try:
                             result = json.loads(response_text)
                         except json.JSONDecodeError as e:
                             raise VultrAPIError(f"Invalid JSON response: {e}", status_code=response.status)
-                        
+
                         if cache_key and method.upper() == "GET":
                             cache.set(cache_key, result, ttl=cache_ttl)
-                        
+
                         self._metrics.increment("request.success", 1, {
                             "method": method,
                             "endpoint": path,
                         })
-                        
+
                         return result
-                        
+
                 except asyncio.TimeoutError:
                     latency = (datetime.utcnow() - start_time).total_seconds()
                     self._metrics.increment("request.timeout", 1, {"endpoint": path})
@@ -186,7 +185,7 @@ class VultrClient:
                     latency = (datetime.utcnow() - start_time).total_seconds()
                     self._metrics.increment("request.error", 1, {"endpoint": path, "error": type(e).__name__})
                     raise VultrAPIError(f"Client error: {e}")
-        
+
         try:
             return await _execute()
         except Exception as e:
@@ -205,12 +204,12 @@ class VultrClient:
     ) -> List[Dict[str, Any]]:
         all_instances = []
         cursor = None
-        
+
         while True:
             params = {"per_page": per_page}
             if cursor:
                 params["cursor"] = cursor
-            
+
             response = await self._request(
                 "GET",
                 "/instances",
@@ -218,16 +217,16 @@ class VultrClient:
                 context=context,
                 cache_ttl=30,
             )
-            
+
             instances = response.get("instances", [])
             all_instances.extend(instances)
-            
+
             links = response.get("links", {})
             cursor = links.get("next")
-            
+
             if not cursor or len(instances) == 0:
                 break
-        
+
         return all_instances
 
     async def get_instance(
@@ -267,7 +266,7 @@ class VultrClient:
             "enable_ipv6": enable_ipv6,
             "backups": backups,
         }
-        
+
         if label:
             data["label"] = label
         if tags:
@@ -284,7 +283,7 @@ class VultrClient:
             data["hostname"] = hostname
         if tag:
             data["tag"] = tag
-        
+
         response = await self._request(
             "POST",
             "/instances",
@@ -292,16 +291,16 @@ class VultrClient:
             context=context,
             use_cache=False,
         )
-        
+
         instance = response.get("instance", {})
         logger.info(f"Created instance {instance.get('id')} in {region} with plan {plan}")
-        
+
         if self._feature_flags.cost_optimization_enabled:
             self._metrics.increment("provisioning.cost", 1, {
                 "region": region,
                 "plan": plan,
             })
-        
+
         return instance
 
     async def delete_instance(
@@ -382,12 +381,12 @@ class VultrClient:
     ) -> List[Dict[str, Any]]:
         all_plans = []
         cursor = None
-        
+
         while True:
             params = {"per_page": 500}
             if cursor:
                 params["cursor"] = cursor
-            
+
             response = await self._request(
                 "GET",
                 "/plans",
@@ -395,16 +394,16 @@ class VultrClient:
                 context=context,
                 cache_ttl=3600,
             )
-            
+
             plans = response.get("plans", [])
             all_plans.extend(plans)
-            
+
             links = response.get("links", {})
             cursor = links.get("next")
-            
+
             if not cursor or len(plans) == 0:
                 break
-        
+
         self._plans_cache = {p["id"]: p for p in all_plans}
         return all_plans
 
@@ -414,12 +413,12 @@ class VultrClient:
     ) -> List[Dict[str, Any]]:
         all_regions = []
         cursor = None
-        
+
         while True:
             params = {"per_page": 500}
             if cursor:
                 params["cursor"] = cursor
-            
+
             response = await self._request(
                 "GET",
                 "/regions",
@@ -427,16 +426,16 @@ class VultrClient:
                 context=context,
                 cache_ttl=3600,
             )
-            
+
             regions = response.get("regions", [])
             all_regions.extend(regions)
-            
+
             links = response.get("links", {})
             cursor = links.get("next")
-            
+
             if not cursor or len(regions) == 0:
                 break
-        
+
         self._regions_cache = {r["id"]: r for r in all_regions}
         return all_regions
 
@@ -447,12 +446,12 @@ class VultrClient:
     ) -> List[Dict[str, Any]]:
         all_images = []
         cursor = None
-        
+
         while True:
             params = {"per_page": per_page}
             if cursor:
                 params["cursor"] = cursor
-            
+
             response = await self._request(
                 "GET",
                 "/images",
@@ -460,16 +459,16 @@ class VultrClient:
                 context=context,
                 cache_ttl=1800,
             )
-            
+
             images = response.get("images", [])
             all_images.extend(images)
-            
+
             links = response.get("links", {})
             cursor = links.get("next")
-            
+
             if not cursor or len(images) == 0:
                 break
-        
+
         return all_images
 
     async def list_ssh_keys(
@@ -478,12 +477,12 @@ class VultrClient:
     ) -> List[Dict[str, Any]]:
         all_keys = []
         cursor = None
-        
+
         while True:
             params = {"per_page": 500}
             if cursor:
                 params["cursor"] = cursor
-            
+
             response = await self._request(
                 "GET",
                 "/ssh-keys",
@@ -491,16 +490,16 @@ class VultrClient:
                 context=context,
                 cache_ttl=300,
             )
-            
+
             keys = response.get("ssh_keys", [])
             all_keys.extend(keys)
-            
+
             links = response.get("links", {})
             cursor = links.get("next")
-            
+
             if not cursor or len(keys) == 0:
                 break
-        
+
         return all_keys
 
     async def get_region_capacity(
@@ -513,11 +512,11 @@ class VultrClient:
         cached = cache.get(cache_key)
         if cached is not None:
             return cached
-        
+
         params = {}
         if plan:
             params["plan"] = plan
-        
+
         response = await self._request(
             "GET",
             f"/regions/{region}/availability",
@@ -525,17 +524,17 @@ class VultrClient:
             context=context,
             cache_ttl=60,
         )
-        
+
         availability = response.get("availability", [])
         result = {
             "region": region,
             "plans": {a["plan"]: a["available"] for a in availability},
             "timestamp": datetime.utcnow().isoformat(),
         }
-        
+
         cache.set(cache_key, result, ttl=60)
         self._last_capacity_check[region] = datetime.utcnow()
-        
+
         return result
 
     async def get_bandwidth(
@@ -570,12 +569,12 @@ class VultrClient:
     ) -> List[Dict[str, Any]]:
         all_groups = []
         cursor = None
-        
+
         while True:
             params = {"per_page": 500}
             if cursor:
                 params["cursor"] = cursor
-            
+
             response = await self._request(
                 "GET",
                 "/firewalls",
@@ -583,16 +582,16 @@ class VultrClient:
                 context=context,
                 cache_ttl=300,
             )
-            
+
             groups = response.get("firewalls", [])
             all_groups.extend(groups)
-            
+
             links = response.get("links", {})
             cursor = links.get("next")
-            
+
             if not cursor or len(groups) == 0:
                 break
-        
+
         return all_groups
 
     async def create_firewall_group(
@@ -643,24 +642,24 @@ class VultrClient:
     ) -> Dict[str, Any]:
         if instances is None:
             instances = await self.list_instances(context=context)
-        
+
         total_monthly = 0.0
         running_count = 0
         stopped_count = 0
-        
+
         plans = await self.list_plans(context=context)
         plan_prices = {p["id"]: float(p.get("monthly_cost", 0)) for p in plans}
-        
+
         for instance in instances:
             plan = instance.get("plan")
             status = instance.get("status", "stopped")
-            
+
             if status == "running":
                 running_count += 1
                 total_monthly += plan_prices.get(plan, 0)
             else:
                 stopped_count += 1
-        
+
         return {
             "total_monthly_estimate": round(total_monthly, 2),
             "running_instances": running_count,
@@ -683,7 +682,7 @@ class VultrClientPool:
         self._clients: List[VultrClient] = []
         self._index = 0
         self._lock = asyncio.Lock()
-        
+
         logger.info(f"VultrClientPool initialized with size={pool_size}")
 
     async def get_client(self) -> VultrClient:
@@ -691,7 +690,7 @@ class VultrClientPool:
             if len(self._clients) < self.pool_size:
                 client = VultrClient(self.api_key, **self.client_kwargs)
                 self._clients.append(client)
-            
+
             client = self._clients[self._index % len(self._clients)]
             self._index += 1
             return client

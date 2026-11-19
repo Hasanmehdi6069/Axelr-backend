@@ -15,7 +15,8 @@ import time
 from pathlib import Path
 
 import pytest
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 GOLDEN_PATH = Path(__file__).parent / "golden" / "workspace_cases.json"
 GOLDEN: list[dict] = json.loads(GOLDEN_PATH.read_text())
@@ -116,8 +117,9 @@ def test_golden_accuracy_meets_baseline():
 
 @pytest.mark.parametrize("case", GOLDEN, ids=[c["prompt"][:40] for c in GOLDEN])
 def test_detector_shim_matches_engine(case):
-    from api.workspace_engine import detect_workspace_core as eng
     from api.workspace_detector import detect_workspace as det
+
+    from api.workspace_engine import detect_workspace_core as eng
     assert eng(case["prompt"], case.get("files", [])) == det(
         case["prompt"], case.get("files", []))
 
@@ -189,7 +191,7 @@ def test_requirements_txt_recognized_as_design():
 
 
 def test_feature_vector_index_layout():
-    from api.workspace_engine import extract_features, FEATURE_DIM
+    from api.workspace_engine import FEATURE_DIM, extract_features
     assert FEATURE_DIM == 9
     f = extract_features("kubernetes", [])
     assert len(f) == 9
@@ -249,7 +251,7 @@ def test_session_ttl_eviction():
 
 
 def test_session_dict_bounded_under_flood():
-    from api.workspace_engine import _SESSIONS, _apply_hysteresis, _SESSIONS_MAX
+    from api.workspace_engine import _SESSIONS, _SESSIONS_MAX, _apply_hysteresis
     _clear_sessions()
     for i in range(_SESSIONS_MAX + 500):
         _apply_hysteresis(f"s-{i}", {"workspace": "core", "confidence": 0.9,
@@ -287,7 +289,9 @@ def test_no_session_id_skips_state():
 
 def test_health_registry_roundtrip():
     from api.workspace_engine import (
-        set_workspace_health, get_workspace_health, check_failover_required,
+        check_failover_required,
+        get_workspace_health,
+        set_workspace_health,
     )
     assert get_workspace_health() == {"core": True, "data": True, "design": True}
     assert check_failover_required() is None
@@ -299,7 +303,7 @@ def test_health_registry_roundtrip():
 
 
 def test_failover_when_core_down_returns_none():
-    from api.workspace_engine import set_workspace_health, check_failover_required
+    from api.workspace_engine import check_failover_required, set_workspace_health
     try:
         set_workspace_health("data", False)
         set_workspace_health("core", False)
@@ -310,7 +314,7 @@ def test_failover_when_core_down_returns_none():
 
 
 def test_set_workspace_health_ignores_unknown():
-    from api.workspace_engine import set_workspace_health, get_workspace_health
+    from api.workspace_engine import get_workspace_health, set_workspace_health
     before = get_workspace_health()
     set_workspace_health("garbage_workspace", False)
     assert get_workspace_health() == before

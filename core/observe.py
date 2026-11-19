@@ -273,7 +273,9 @@ def flush_pending_spans() -> int:
 # ═══════════════════════════════════════════════════════════════════════════
 try:
     from structlog.contextvars import (
-        bind_contextvars, get_contextvars, unbind_contextvars,
+        bind_contextvars,
+        get_contextvars,
+        unbind_contextvars,
     )
     _STRUCTLOG = True
 except Exception:

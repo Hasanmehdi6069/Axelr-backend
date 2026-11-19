@@ -13,25 +13,47 @@ import time
 from dataclasses import dataclass
 from typing import AsyncIterator, Dict, List, Optional
 
+from ._runtime import (
+    CircuitBreaker,
+    QuotaTracker,
+    TokenCaps,
+    bitemporal_stamp,
+    build_audit,
+    conformance_score,
+    intern_str,
+)
+from ._verify import (
+    REASON_NEGATED,
+    ByteTokenizer,
+    LineageIndex,
+    balance_tags,
+    check_arithmetic,
+    contradiction,
+    cross_language_leak,
+    json_fsa_valid,
+    matches_shape,
+    negation_window,
+    pda_balanced,
+    project_budget,
+    py_undefined_names,
+    replay_key,
+    request_fingerprint,
+    sign_root,
+    stable_tie_break,
+    verify_invariants,
+)
 from .agents import AdjudicatorAgent, ExtractorAgent, SkepticAgent
 from .bounding import Chunk, DocumentBuffer, DocumentIngestor, canonicalize
-from ._verify import (
-    balance_tags, ByteTokenizer, matches_shape,
-    pda_balanced, json_fsa_valid, py_undefined_names, cross_language_leak,
-    check_arithmetic, negation_window, contradiction,
-    request_fingerprint, replay_key, chunk_hash, sign_root, project_budget,
-    stable_tie_break, verify_invariants,
-    LineageIndex,
-    REASON_NEGATED,
-)
-from ._runtime import (
-    build_audit, conformance_score, bitemporal_stamp,
-    QuotaTracker, TokenCaps, intern_str, CircuitBreaker,
-)
 from .schemas import (
-    DocumentParseError, ExtractionRequest, SchemaViolationError,
-    UnverifiableDataError, VerifiedClaim, VerifiedPayload, compute_audit_hash,
-    REGISTRY, TierSpec,
+    REGISTRY,
+    DocumentParseError,
+    ExtractionRequest,
+    SchemaViolationError,
+    TierSpec,
+    UnverifiableDataError,
+    VerifiedClaim,
+    VerifiedPayload,
+    compute_audit_hash,
 )
 
 log = logging.getLogger("axelr.ahe.engine")

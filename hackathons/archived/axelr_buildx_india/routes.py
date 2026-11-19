@@ -1,8 +1,10 @@
 """BuildX India API Routes
 Zero-trust protected routes for tenant management and operations."""
-from aiohttp import web
-from .core import get_settings, register_tenant, get_tenant, create_access_token, requires_permission, validate_origin
 import logging
+
+from aiohttp import web
+
+from .core import create_access_token, get_tenant, register_tenant, validate_origin
 
 logger = logging.getLogger("axelr.buildx_india.routes")
 
@@ -51,7 +53,7 @@ async def create_token_handler(request: web.Request) -> web.Response:
     if origin and not validate_origin(origin):
         logger.warning("invalid_origin_blocked origin=%s", origin)
         return web.json_response({"error": "Origin not allowed"}, status=403)
-    
+
     try:
         token = create_access_token(
             user_id=body["user_id"],

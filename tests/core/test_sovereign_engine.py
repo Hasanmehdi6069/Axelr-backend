@@ -40,37 +40,59 @@ if str(_SOVEREIGN_ENGINE) not in sys.path:
 
 # ── Import probes — fail loudly as SKIP, not as silent green ──────────────
 try:
-    from axelr_engine import (
-        PhoneticCorrector, Token, soundex, Metaphone, edit_distance,
-        TrieLexicon, ConfidenceCalibrator, SpeculativeCascadeDecoder,
-        DecoderConfig,
-    )
-    from axelr_config import Tier, select_profile, CalibrationConfig
-    from axelr_ring import ZeroCopyRingBuffer, RingBufferConfig
-    from axelr_pipeline import EnginePipeline, PipelineConfig
-    from axelr_features import CloudConfig
-    from axelr_telemetry import MetricsExporter, SessionStore, new_trace_id, trace_id
-    from axelr_ipc import StressTester
-    from axelr_resource import GracefulFeatureLadder
-    from axelr_utils import TokenBucket
-    from axelr_adapters import ASRConfig, select_adapter, make_local_fn
-    from axelr_elite_v2 import (
-        FrameIntegrityChecker, LatencyBudgetEnforcer, SchemaFingerprint,
-        CrossRequestCache, DeterminismGuard, AudioSilenceDetector,
-        CloudFallbackBudget, WordBoundaryPreserver, SessionResumeVerifier,
-        ConcurrentQuotaGuard, DeterministicReplay, ContractVerifier,
-    )
+    from axelr_adapters import ASRConfig, make_local_fn, select_adapter
+    from axelr_config import CalibrationConfig, Tier, select_profile
     from axelr_devices import (
-        classify, check_feature, select_runtime,
-        user_facing_summary, DeviceTier, DeviceProfile,
+        DeviceProfile,
+        DeviceTier,
+        check_feature,
+        classify,
+        select_runtime,
+        user_facing_summary,
     )
+    from axelr_elite_v2 import (
+        AudioSilenceDetector,
+        CloudFallbackBudget,
+        ConcurrentQuotaGuard,
+        ContractVerifier,
+        CrossRequestCache,
+        DeterminismGuard,
+        DeterministicReplay,
+        FrameIntegrityChecker,
+        LatencyBudgetEnforcer,
+        SchemaFingerprint,
+        SessionResumeVerifier,
+        WordBoundaryPreserver,
+    )
+    from axelr_engine import (
+        ConfidenceCalibrator,
+        DecoderConfig,
+        Metaphone,
+        PhoneticCorrector,
+        SpeculativeCascadeDecoder,
+        Token,
+        TrieLexicon,
+        edit_distance,
+        soundex,
+    )
+    from axelr_features import CloudConfig
+    from axelr_ipc import StressTester
+    from axelr_pipeline import EnginePipeline, PipelineConfig
+    from axelr_resource import GracefulFeatureLadder
+    from axelr_ring import RingBufferConfig, ZeroCopyRingBuffer
+    from axelr_telemetry import MetricsExporter, SessionStore, new_trace_id, trace_id
+    from axelr_utils import TokenBucket
     _SOVEREIGN_OK, _SOVEREIGN_ERR = True, ""
 except ImportError as e:
     _SOVEREIGN_OK, _SOVEREIGN_ERR = False, str(e)
 
 try:
     from core.model_specialization import (
-        TASK_SPECIALISTS, best_for, route as route_model,
+        TASK_SPECIALISTS,
+        best_for,
+    )
+    from core.model_specialization import (
+        route as route_model,
     )
     from core.twin_roster import ROSTER_BY_ID
     _TWIN_OK, _TWIN_ERR = True, ""

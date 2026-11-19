@@ -15,9 +15,7 @@ can be used to:
 """
 from __future__ import annotations
 
-import gc
 import json
-import os
 import sys
 import threading
 import time
@@ -25,9 +23,9 @@ import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Deque, Dict, List, Optional, Tuple
+from typing import Any, Deque, Dict, List, Optional
 
-from axelr_devices import classify, DeviceProfile
+from axelr_devices import DeviceProfile, classify
 from axelr_utils import get_logger
 
 logger = get_logger(__name__)

@@ -15,6 +15,9 @@ markers = [
     "integration: multi-component",
     "e2e: full user journeys",
     "load: performance under stress",
+    "stress: stress testing",
+    "soak: soak testing",
+    "adversarial: adversarial testing",
     "chaos: fault injection",
     "dr: disaster recovery",
     "quality: conformance gates",
@@ -37,6 +40,8 @@ markers = [
     "requires_docker: needs docker-compose",
     "requires_k6: needs k6 binary",
     "requires_llama_server: needs the llama.cpp binary",
+    "hackathon_only: tests that only run during hackathons",
+    "experimental: experimental features",
 ]
 
 [tool.ruff]

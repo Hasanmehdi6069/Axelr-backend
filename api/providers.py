@@ -24,17 +24,34 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .config import (
-    CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY, CLOUDFLARE_MODEL,
-    GEMINI_API_KEY, GEMINI_MODELS, GITHUB_MODEL, GITHUB_MODELS_TOKEN,
-    GROQ_API_KEY, GROQ_MODELS, HF_API_KEY,
-    MISTRAL_API_KEY, MISTRAL_MODELS,
-    MODELSCOPE_API_KEY, MODELSCOPE_MODELS,
-    NARAROUTER_API_KEY, NROUTER_API_KEY, NROUTER_MODEL,
-    OLLAMA_API_KEY, OPENROUTER_API_KEY, OPENROUTER_MODELS,
-    OVHCLOUD_API_KEY, OVHCLOUD_MODELS,
-    REQUESTY_API_KEY, REQUESTY_MODEL,
-    SILICONFLOW_API_KEY, SILICONFLOW_MODELS,
-    TEAMOROUTER_API_KEY, TEAMOROUTER_MODEL,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_API_KEY,
+    CLOUDFLARE_MODEL,
+    GEMINI_API_KEY,
+    GEMINI_MODELS,
+    GITHUB_MODEL,
+    GITHUB_MODELS_TOKEN,
+    GROQ_API_KEY,
+    GROQ_MODELS,
+    HF_API_KEY,
+    MISTRAL_API_KEY,
+    MISTRAL_MODELS,
+    MODELSCOPE_API_KEY,
+    MODELSCOPE_MODELS,
+    NARAROUTER_API_KEY,
+    NROUTER_API_KEY,
+    NROUTER_MODEL,
+    OLLAMA_API_KEY,
+    OPENROUTER_API_KEY,
+    OPENROUTER_MODELS,
+    OVHCLOUD_API_KEY,
+    OVHCLOUD_MODELS,
+    REQUESTY_API_KEY,
+    REQUESTY_MODEL,
+    SILICONFLOW_API_KEY,
+    SILICONFLOW_MODELS,
+    TEAMOROUTER_API_KEY,
+    TEAMOROUTER_MODEL,
     ZAI_API_KEY,
 )
 from .provider_http import PROVIDER_HTTP
@@ -136,18 +153,19 @@ PROVIDER_MODELS: dict[str, list[str]] = {
 ACTIVE_PROVIDER_ENTRIES: list[tuple[str, Any, list[str]]] = [
     (n, PROVIDER_FUNC_MAP[n], PROVIDER_MODELS[n]) for n in (
         "gemini", "groq", "openrouter", "cloudflare", "mistral",
-        "siliconflow", "requesty", "local",
+        "siliconflow", "requesty",
         # All keyless AI gateways promoted to ACTIVE (GREEN) - always available
         "free_llm_gateway", "ninerouter", "teamorouter",
-        "bifrost", "freegpt4_api", "freetheai", "omnigpt_gateway", 
+        "bifrost", "freegpt4_api", "freetheai", "omnigpt_gateway",
         "opencode_zen", "freeflow", "keylessai", "blockrun", "anyapi",
         "aymo", "zerotwo", "aihubmix", "aisure", "proxygatellm",
+        "local",
     )
 ]
 EXPERIMENTAL_PROVIDER_ENTRIES: list[tuple[str, Any, list[str]]] = [
     (n, PROVIDER_FUNC_MAP[n], PROVIDER_MODELS[n]) for n in (
         "modelscope", "ollama_cloud", "nara_router", "huggingface",
-        "zhipuai", "ovhcloud", "agnes_ai", "bazaarlink", "qoder", 
+        "zhipuai", "ovhcloud", "agnes_ai", "bazaarlink", "qoder",
         "manifest", "glama", "chubvenus",
     )
 ]
@@ -163,8 +181,8 @@ def get_healthy_active_providers() -> list[str]:
     """Get all active providers that are healthy (available and have valid keys)."""
     healthy = []
     for p in PROVIDER_TRACKER.values():
-        if (p.name in _ACTIVE_NAMES 
-            and PROVIDER_KEY_CHECK.get(p.name, False) 
+        if (p.name in _ACTIVE_NAMES
+            and PROVIDER_KEY_CHECK.get(p.name, False)
             and p.is_available):
             healthy.append(p.name)
     # Always include local as a fallback if needed
@@ -179,7 +197,7 @@ def filter_providers_by_tier(providers: list[str], tier: str) -> list[str]:
     # Paid tiers get all healthy active providers
     if tier_lower in ("pro", "business", "enterprise"):
         return providers
-    
+
     # Free/guest tiers: ensure at least MIN_FREE_TIER_PROVIDERS are always available
     if len(providers) >= MIN_FREE_TIER_PROVIDERS:
         return providers[:MIN_FREE_TIER_PROVIDERS]
@@ -187,8 +205,8 @@ def filter_providers_by_tier(providers: list[str], tier: str) -> list[str]:
     # Prioritize gateway providers to maintain reliability
     gateway_providers = [
         p.name for p in PROVIDER_TRACKER.values()
-        if (p.name not in providers 
-            and p.is_available 
+        if (p.name not in providers
+            and p.is_available
             and PROVIDER_KEY_CHECK.get(p.name, False)
             and p.name in ("free_llm_gateway", "ninerouter", "teamorouter", "requesty"))
     ]
@@ -255,11 +273,13 @@ def get_provider_order(workspace: str) -> list[str]:
     priority = WORKSPACE_PRIORITY.get(workspace, WORKSPACE_PRIORITY["core"])
     ordered: list[str] = []
     for name in priority:
-        if name in all_names and name not in ordered:
+        if name in all_names and name not in ordered and name != "local":
             ordered.append(name)
     for name in all_names:
-        if name not in ordered:
+        if name not in ordered and name != "local":
             ordered.append(name)
+    if "local" in all_names:
+        ordered.append("local")
     return ordered
 
 
@@ -315,7 +335,9 @@ PROVIDER_TRACKER: dict[str, ProviderMetrics] = {
 
 
 import asyncio
+
 import httpx
+
 
 async def record_provider_result(
     name: str, latency: float, success: bool, is_rate_limit: bool = False,
@@ -359,11 +381,11 @@ async def health_check_provider(name: str, client: httpx.AsyncClient) -> bool:
     p = PROVIDER_TRACKER.get(name)
     if not p:
         return False
-    
+
     # Skip health check if it's already in cooldown (we'll recheck when cooldown ends)
     if not p.is_available:
         return False
-    
+
     try:
         # Gateway providers have standard health endpoints
         if name in ("teamorouter", "requesty", "nara_router", "ollama_cloud"):
@@ -378,7 +400,7 @@ async def health_check_provider(name: str, client: httpx.AsyncClient) -> bool:
             if not base_url:
                 logger.warning(f"Provider {name} has no valid base URL for health check")
                 return False
-                
+
             # Send a lightweight health ping to the gateway
             start_time = time.time()
             response = await client.get(f"{base_url}/health", timeout=10.0)

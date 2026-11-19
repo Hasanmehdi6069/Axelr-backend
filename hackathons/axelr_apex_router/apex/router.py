@@ -3,15 +3,14 @@ from __future__ import annotations
 
 import asyncio
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
 import yaml
 
-from .tiers import BaseTier, FirebaseTier, LocalTier, NebiusTier, TierResult
 from .telemetry import log_route
-
+from .tiers import BaseTier, FirebaseTier, LocalTier, NebiusTier, TierResult
 
 DEFAULT_CONFIG = {
     "policy": "latency-first",

@@ -39,6 +39,7 @@ class DocumentLoader:
         if name.endswith(".pdf"):
             try:
                 import io
+
                 from pypdf import PdfReader  # type: ignore
             except ImportError as exc:
                 raise DocumentLoadError(
@@ -50,6 +51,7 @@ class DocumentLoader:
         if name.endswith((".png", ".jpg", ".jpeg")):
             try:
                 import io
+
                 import pytesseract  # type: ignore
                 from PIL import Image  # type: ignore
             except ImportError as exc:

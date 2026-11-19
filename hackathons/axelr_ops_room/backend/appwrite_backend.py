@@ -10,7 +10,7 @@ import asyncio
 import json
 import sys
 
-from axelr_insights_engine import init, get_engine
+from axelr_insights_engine import get_engine, init
 
 
 async def main() -> None:

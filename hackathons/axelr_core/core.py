@@ -1,7 +1,9 @@
 """AXELR Core Module - Core platform services health and lifecycle"""
+from typing import Any, Dict
+
 import structlog
-from typing import Dict, Any
-from .config import initialize_all, get_adapter_statuses
+
+from .config import get_adapter_statuses, initialize_all
 
 logger = structlog.get_logger("axelr.core")
 __version__ = "1.0.0"
@@ -16,7 +18,7 @@ async def init() -> None:
     if _module_initialized:
         logger.info("core_already_initialized")
         return
-    
+
     logger.info("starting_core_initialization")
     await initialize_all()
     _module_initialized = True
@@ -58,7 +60,7 @@ async def shutdown() -> None:
     global _module_shutdown
     if _module_shutdown:
         return
-    
+
     logger.info("starting_core_shutdown")
     _module_shutdown = True
     logger.info("core_shutdown_complete")

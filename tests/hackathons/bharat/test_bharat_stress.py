@@ -9,18 +9,12 @@ from __future__ import annotations
 import asyncio
 import sqlite3
 import time
-from pathlib import Path
-
-import pytest
 
 from bharat_agentic import (
     ApprovalConflictError,
-    ApprovalState,
     CivicAgent,
-    EngineConfig,
 )
-from conftest import NOTICE, NOTICE_HINDI, make_config
-
+from conftest import NOTICE, make_config
 
 # ---------------------------------------------------------------------------
 # 1. High-volume ingestion

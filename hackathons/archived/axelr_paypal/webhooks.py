@@ -21,7 +21,9 @@ from typing import Any, Awaitable, Callable, Dict
 
 from .client import get_paypal_client
 from .core import (
-    get_core_module, get_transaction_store, log_audit_event,
+    get_core_module,
+    get_transaction_store,
+    log_audit_event,
 )
 from .schemas import TransactionState
 

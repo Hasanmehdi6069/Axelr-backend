@@ -13,8 +13,8 @@ import random
 import sys
 
 from .router import ApexRouter
-from .telemetry import aggregate, reset as reset_telemetry
-
+from .telemetry import aggregate
+from .telemetry import reset as reset_telemetry
 
 PROMPT_MIX = {
     "receipt": lambda i: (f"Receipt {i}: 2x Coffee $8.00, 1x Bagel $4.40. "

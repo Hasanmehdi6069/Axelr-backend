@@ -12,9 +12,17 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional
 
 from .primitives import (  # noqa: F401 — re-exports
-    build_audit, conformance_score, bitemporal_stamp,
-    QuotaTracker, TokenCaps, intern_str, CircuitBreaker,
-    CrossRequestCache, PositionWatermark, merkle_root, crc32_payload,
+    CircuitBreaker,
+    CrossRequestCache,
+    PositionWatermark,
+    QuotaTracker,
+    TokenCaps,
+    bitemporal_stamp,
+    build_audit,
+    conformance_score,
+    crc32_payload,
+    intern_str,
+    merkle_root,
 )
 
 

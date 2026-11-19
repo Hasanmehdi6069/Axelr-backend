@@ -18,13 +18,12 @@ Honest scope
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, Awaitable, Callable, ClassVar, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import jsonschema
 

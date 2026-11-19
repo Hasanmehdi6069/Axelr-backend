@@ -19,7 +19,7 @@ import sys
 from typing import Any, Awaitable, Callable
 
 from .actions import dispatch, list_actions
-from .atlassian import approve, list_pending, propose, reject
+from .atlassian import propose
 from .engine import Engine, audit, tail
 
 VERSION = "1.0.1"

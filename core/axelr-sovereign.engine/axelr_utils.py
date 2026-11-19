@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Optional
+from typing import Dict, List, Optional
 
 _LOGGING_CONFIGURED = False
 _FMT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
@@ -200,8 +200,8 @@ class Clipboard:
 
     @staticmethod
     def set(text: str, timeout_s: float = 0.2) -> bool:
-        import subprocess
         import platform
+        import subprocess
         system = platform.system()
         cmd = None
         if system == "Darwin":

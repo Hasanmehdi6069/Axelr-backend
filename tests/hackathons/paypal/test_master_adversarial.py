@@ -1,9 +1,9 @@
-import pytest
 import asyncio
 import random
 import string
-from typing import Dict, Any
-from datetime import datetime, timedelta
+from datetime import datetime
+
+import pytest
 
 
 class TestPaypalMasterAdversarial:
@@ -34,7 +34,7 @@ class TestPaypalMasterAdversarial:
             {"amount": 100, "currency": "USD", "payment_method": "card", "order_id": "../../../etc/passwd"},
             {"amount": 100, "currency": "USD", "payment_method": "card", "order_id": "\x00\x01\x02\x03\x04\x05"},
         ]
-        
+
         for payload in malicious_payloads:
             try:
                 result = await paypal_engine.process_payment(payload)
@@ -42,7 +42,7 @@ class TestPaypalMasterAdversarial:
                 assert "success" in result, f"Missing success key for payload: {payload}"
             except Exception as e:
                 assert isinstance(e, (ValueError, TypeError, ValidationError)), f"Unexpected exception type for payload {payload}: {type(e)}"
-    
+
     @pytest.mark.asyncio
     async def test_state_injection_attacks(self, paypal_engine):
         invalid_transitions = [
@@ -55,15 +55,15 @@ class TestPaypalMasterAdversarial:
             ("pending", "refunded"),
             ("processing", "created"),
         ]
-        
+
         for from_state, to_state in invalid_transitions:
             try:
                 result = await paypal_engine.transition_payment(f"payment_{random.randint(1, 1000)}", to_state)
                 if result.get("success", False):
                     assert False, f"Invalid transition allowed from {from_state} to {to_state}"
-            except Exception as e:
+            except Exception:
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_webhook_signature_forgery(self, paypal_engine):
         forged_signatures = [
@@ -78,7 +78,7 @@ class TestPaypalMasterAdversarial:
             "hmac=wrong",
             "\x00\x01\x02\x03\x04\x05" * 1000,
         ]
-        
+
         for signature in forged_signatures:
             try:
                 result = await paypal_engine.verify_webhook_signature(
@@ -87,9 +87,9 @@ class TestPaypalMasterAdversarial:
                     int(datetime.utcnow().timestamp())
                 )
                 assert not result.get("valid", True), f"Forged signature accepted: {signature[:50]}"
-            except Exception as e:
+            except Exception:
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_currency_conversion_overflow(self, paypal_engine):
         overflow_values = [
@@ -105,14 +105,14 @@ class TestPaypalMasterAdversarial:
             [],
             {},
         ]
-        
+
         for value in overflow_values:
             try:
                 result = await paypal_engine.convert_currency(value, "USD", "EUR")
                 assert isinstance(result, dict), f"Invalid response for value {value}"
             except Exception as e:
                 assert isinstance(e, (ValueError, TypeError)), f"Unexpected exception for value {value}: {type(e)}"
-    
+
     @pytest.mark.asyncio
     async def test_negative_refund_attacks(self, paypal_engine):
         malicious_refunds = [
@@ -128,34 +128,34 @@ class TestPaypalMasterAdversarial:
             {"payment_id": "../../../etc/passwd"},
             {"payment_id": "' OR '1'='1"},
         ]
-        
+
         for refund in malicious_refunds:
             try:
                 result = await paypal_engine.process_refund(refund)
                 assert isinstance(result, dict), f"Invalid response for refund {refund}"
             except Exception as e:
                 assert isinstance(e, (ValueError, TypeError, ValidationError)), f"Unexpected exception for refund {refund}: {type(e)}"
-    
+
     @pytest.mark.asyncio
     async def test_concurrent_race_conditions(self, paypal_engine):
         payment_id = f"race_payment_{random.randint(1, 1000)}"
         states = ["pending", "processing", "completed", "failed", "refunded", "cancelled"]
-        
+
         async def race_transition():
             return await paypal_engine.transition_payment(payment_id, random.choice(states))
-        
+
         tasks = [race_transition() for _ in range(100)]
         results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         success_results = [r for r in results if isinstance(r, dict) and r.get("success", False)]
         if success_results:
             final_state = success_results[-1].get("state")
             assert final_state in states, f"Invalid final state: {final_state}"
-    
+
     @pytest.mark.asyncio
     async def test_extreme_payload_sizes(self, paypal_engine):
         payload_sizes = [100, 1000, 10000, 100000, 1000000]
-        
+
         for size in payload_sizes:
             large_string = ''.join(random.choice(string.ascii_letters) for _ in range(size))
             payload = {
@@ -164,31 +164,31 @@ class TestPaypalMasterAdversarial:
                 "payment_method": "card",
                 "large_field": large_string
             }
-            
+
             try:
                 result = await paypal_engine.process_payment(payload)
                 assert isinstance(result, dict), f"Failed with payload size {size}"
-            except Exception as e:
+            except Exception:
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_timing_attack_simulation(self, paypal_engine):
         start_times = []
         end_times = []
-        
+
         for _ in range(100):
             start = time.perf_counter()
             await paypal_engine.verify_webhook_signature("test", "wrong_signature", int(time.time()))
             end = time.perf_counter()
             start_times.append(start)
             end_times.append(end)
-        
+
         durations = [end_times[i] - start_times[i] for i in range(len(start_times))]
         avg_duration = sum(durations) / len(durations)
         max_deviation = max(abs(d - avg_duration) for d in durations)
-        
+
         assert max_deviation < avg_duration * 0.5, f"Timing variation too high: {max_deviation} vs {avg_duration}"
-    
+
     @pytest.mark.asyncio
     async def test_sql_injection_patterns(self, paypal_engine):
         injection_patterns = [
@@ -201,7 +201,7 @@ class TestPaypalMasterAdversarial:
             "' OR 'a'='a",
             "'; INSERT INTO payments VALUES (...) --",
         ]
-        
+
         for pattern in injection_patterns:
             try:
                 result = await paypal_engine.process_payment({
@@ -211,9 +211,9 @@ class TestPaypalMasterAdversarial:
                     "order_id": pattern
                 })
                 assert isinstance(result, dict), f"Failed with injection pattern: {pattern[:50]}"
-            except Exception as e:
+            except Exception:
                 pass
-    
+
     @pytest.mark.asyncio
     async def test_xss_payloads(self, paypal_engine):
         xss_payloads = [
@@ -226,7 +226,7 @@ class TestPaypalMasterAdversarial:
             "<a href='javascript:alert(1)'>click</a>",
             "\" onmouseover=alert(1) \"",
         ]
-        
+
         for xss in xss_payloads:
             try:
                 result = await paypal_engine.process_payment({
@@ -236,5 +236,5 @@ class TestPaypalMasterAdversarial:
                     "description": xss
                 })
                 assert isinstance(result, dict), f"Failed with XSS payload: {xss[:50]}"
-            except Exception as e:
+            except Exception:
                 pass

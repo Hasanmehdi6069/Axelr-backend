@@ -35,7 +35,7 @@ from typing import Any, AsyncIterator, Dict, List, Optional
 import aiohttp
 
 # Import elite memory optimizations (using relative import for portability)
-from ...core.elite_memory_optimizer import lazy_module, get_elite_memory_optimizer
+from ...core.elite_memory_optimizer import get_elite_memory_optimizer, lazy_module
 
 logger = logging.getLogger("axelr.nebius_nvidia")
 __version__ = "1.1.0"
@@ -526,7 +526,7 @@ def health() -> Dict[str, Any]:
     out: Dict[str, Any] = {
         "ok": True,
         "details": {
-            "version": __version__, 
+            "version": __version__,
             "configured": s_configured,
             "module_healthy": True,
             "nebius_nvidia_integration_status": "fully_operational",

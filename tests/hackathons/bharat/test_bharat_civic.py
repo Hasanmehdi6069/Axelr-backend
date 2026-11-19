@@ -12,12 +12,9 @@ Fixes versus v1:
 """
 from __future__ import annotations
 
-import asyncio
-import os
 import sqlite3
 
 import pytest
-
 from bharat_agentic import (
     ApprovalState,
     CaseRecord,
@@ -32,9 +29,7 @@ from bharat_agentic.extraction import CaseExtractor
 from bharat_agentic.models import new_case_id
 from bharat_agentic.sentinel import Sentinel
 from bharat_agentic.summarizer import CaseSummarizer
-
 from conftest import NOTICE, NOTICE_FIR_ONLY
-
 
 # ---------------------------------------------------------------------------
 # 1. Extraction edge cases

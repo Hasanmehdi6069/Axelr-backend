@@ -1,10 +1,11 @@
 """Core PayPal module configuration, lifecycle management, and health checks"""
 from __future__ import annotations
 
-import os
 import logging
-from typing import Optional, Dict, Any, List
+import os
 from datetime import datetime
+from typing import Any, Dict, List, Optional
+
 import httpx
 from pydantic import BaseModel, Field
 
@@ -55,7 +56,7 @@ class PayPalCoreModule:
         "APPROVED": 0, "CAPTURED": 0, "REFUNDED": 0
     }
     _audit_logs: List[AuditEvent] = []
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -79,7 +80,7 @@ class PayPalCoreModule:
             environment = os.getenv("PAYPAL_ENVIRONMENT", "sandbox")
             webhook_id = os.getenv("PAYPAL_WEBHOOK_ID")
             redis_url = os.getenv("REDIS_URL")
-            
+
             settings = ModuleSettings(
                 client_id=client_id,
                 client_secret=client_secret,
@@ -87,7 +88,7 @@ class PayPalCoreModule:
                 webhook_id=webhook_id,
                 redis_url=redis_url
             )
-        
+
         self.settings = settings
         self._http_client = httpx.AsyncClient(
             timeout=30.0,
@@ -100,7 +101,7 @@ class PayPalCoreModule:
         """Gracefully shutdown the module and cleanup resources"""
         if not self._initialized:
             return
-            
+
         await self.close_http()
         self._shutdown_time = datetime.utcnow()
         self._initialized = False
@@ -186,4 +187,3 @@ def get_audit_logs(user_id: Optional[str] = None, event_type: Optional[str] = No
         logs = [log for log in logs if log.event_type == event_type]
     return logs
 
-from src.adapters.paypal.transactions import Transaction, TransactionStore, get_transaction_store

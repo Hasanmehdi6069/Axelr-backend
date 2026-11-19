@@ -1,15 +1,16 @@
 """AI-powered payment intent extraction from unstructured text"""
 from __future__ import annotations
 
-import re
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, ValidationError
+from typing import Any, Dict, List, Optional
+
 import httpx
+from pydantic import BaseModel, Field
 
 from .core import get_core_module
 
@@ -87,12 +88,12 @@ def _extract_with_regex(text: str) -> Dict[str, Any]:
         if re.search(symbol, text):
             result["currency"] = curr
             break
-    
+
     # Also check for currency codes in text
     currency_code_match = re.search(r'\b(USD|EUR|GBP|CAD|AUD|JPY|INR|BRL|MXN|SGD|HKD|NZD)\b', text)
     if currency_code_match:
         result["currency"] = currency_code_match.group(1)
-    
+
     amount_matches = re.findall(AMOUNT_PATTERN, text)
     if amount_matches:
         # Take the largest amount as total
@@ -128,7 +129,7 @@ def _extract_with_regex(text: str) -> Dict[str, Any]:
     if re.search(r'subscription|monthly|yearly|recurring', text, re.IGNORECASE):
         result["type"] = "subscription"
         result["confidence"] += 0.05
-        
+
     # Detect payout
     if re.search(r'payout|payment to|pay to', text, re.IGNORECASE):
         result["type"] = "payout"
@@ -141,10 +142,10 @@ async def _extract_with_openai(text: str) -> Optional[Dict[str, Any]]:
     """Extract payment intent using OpenAI API"""
     core = get_core_module()
     openai_key = core.settings.openai_api_key if hasattr(core.settings, 'openai_api_key') else None
-    
+
     if not openai_key:
         logger.warning("OpenAI API key not configured")
-        return None
+        raise ValueError("OpenAI API key not configured")
 
     system_prompt = """Extract payment intent from the provided text. Return ONLY valid JSON with these fields:
 - payer_name: string (name of the person who should pay)
@@ -185,10 +186,10 @@ async def _extract_with_anthropic(text: str) -> Optional[Dict[str, Any]]:
     """Extract payment intent using Anthropic API"""
     core = get_core_module()
     anthropic_key = core.settings.anthropic_api_key if hasattr(core.settings, 'anthropic_api_key') else None
-    
+
     if not anthropic_key:
         logger.warning("Anthropic API key not configured")
-        return None
+        raise ValueError("Anthropic API key not configured")
 
     system_prompt = """Extract payment intent from the provided text. Return ONLY valid JSON with these fields:
 - payer_name: string (name of the person who should pay)
@@ -254,7 +255,7 @@ async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
 
     # Try LLM first
     extracted = await _call_llm(unstructured_text)
-    
+
     # Fall back to regex
     if not extracted:
         extracted_dict = _extract_with_regex(unstructured_text)

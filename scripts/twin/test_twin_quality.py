@@ -31,7 +31,11 @@ from dataclasses import dataclass
 import pytest
 
 from core.model_specialization import (
-    TASK_SPECIALISTS, best_for, route as route_model,
+    TASK_SPECIALISTS,
+    best_for,
+)
+from core.model_specialization import (
+    route as route_model,
 )
 from core.twin_roster import ROSTER_BY_ID
 
@@ -366,7 +370,6 @@ def test_specialization_never_routes_unknown_to_nonexistent_model():
 @pytest.mark.asyncio
 async def test_specialization_under_100_concurrent_routes():
     """100 concurrent route() calls → no exceptions, no data races."""
-    from core.model_specialization import route as route_model
 
     async def _one(i: int) -> str | None:
         task = ["code_generation", "extraction", "math", "reasoning"][i % 4]

@@ -13,8 +13,8 @@ import os
 import time
 from typing import Any
 
+from axelr_insights_engine import get_engine, init
 from switch_client import SwitchAgentClient
-from axelr_insights_engine import init, get_engine
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("workflow")

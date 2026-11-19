@@ -2,16 +2,15 @@
 from __future__ import annotations
 
 import asyncio
-import aiohttp
 import logging
 import os
-import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+import aiohttp
+
 from .retry import inference_retry_wrapper
 from .schemas import (
-    NebiusChatCompletionRequest,
     NebiusChatCompletionResponse,
     validate_inference_request,
 )
@@ -82,7 +81,7 @@ class NebiusSettings:
         """Load settings from environment variables"""
         regions = [r.strip() for r in os.environ.get("NEBIUS_REGIONS", "eu-west-1,us-east-1").split(",") if r.strip()]
         models = [m.strip() for m in os.environ.get("NEBIUS_MODELS", "llama3:70b").split(",") if m.strip()]
-        
+
         return cls(
             api_endpoint=os.environ.get("NEBIUS_API_ENDPOINT", "https://api.studio.nebius.ai/v1"),
             api_key=os.environ.get("NEBIUS_API_KEY", ""),
@@ -96,13 +95,13 @@ class NebiusSettings:
 
 class NebiusInferenceClient:
     """Production inference client for Nebius Cloud with all hardening features"""
-    
+
     _instance: Optional[NebiusInferenceClient] = None
-    
+
     def __init__(self):
         self.settings = NebiusSettings.from_env()
         self.circuit_breakers: Dict[str, RegionCircuitBreaker] = {
-            region: RegionCircuitBreaker(region=region) 
+            region: RegionCircuitBreaker(region=region)
             for region in self.settings.regions
         }
         self.global_semaphore = asyncio.Semaphore(self.settings.max_concurrent_inferences)
@@ -122,7 +121,7 @@ class NebiusInferenceClient:
         """Initialize HTTP session, connections, and background cleanup"""
         if self._initialized:
             return
-            
+
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout),
             headers={
@@ -160,10 +159,10 @@ class NebiusInferenceClient:
                     breaker.success_count,    # Secondary sort key: success rate
                     region
                 ))
-        
+
         if not available_regions:
             return None
-            
+
         # Select region with lowest active requests, then highest success rate
         available_regions.sort(key=lambda x: (x[0], -x[1]))
         selected = available_regions[0][2]
@@ -172,7 +171,7 @@ class NebiusInferenceClient:
 
     @inference_retry_wrapper()
     async def create_chat_completion(
-        self, 
+        self,
         messages: List[Dict[str, str]],
         model: str = "llama3:70b",
         stream: bool = False,
@@ -197,7 +196,7 @@ class NebiusInferenceClient:
                 raise RuntimeError("No available inference regions - all circuits are open")
 
             circuit_breaker = self.circuit_breakers[region]
-            
+
             try:
                 if not self._session:
                     await self.init()
@@ -209,12 +208,12 @@ class NebiusInferenceClient:
                 ) as response:
                     response.raise_for_status()
                     result = await response.json()
-                    
+
                     # Validate response
                     validated_response = NebiusChatCompletionResponse(**result)
                     await circuit_breaker.record_success()
                     logger.debug(f"Inference completed successfully in region {region}")
-                    
+
                     return validated_response.model_dump()
 
             except Exception as e:
@@ -230,7 +229,7 @@ class NebiusInferenceClient:
                 await self._cleanup_task
             except asyncio.CancelledError:
                 pass
-                
+
         if self._session and not self._session.closed:
             await self._session.close()
         logger.info("Nebius inference client resources cleaned up")

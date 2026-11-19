@@ -11,7 +11,6 @@ Design goals:
 """
 from __future__ import annotations
 
-import asyncio
 import importlib
 import os
 import sys
@@ -57,7 +56,7 @@ if str(_BHARAT_AGENT_DIR) not in sys.path:
 
 # ─── Markers ─────────────────────────────────────────────────────────────────
 def pytest_configure(config):
-    for line in (
+    markers = [
         "unit: pure logic, no I/O",
         "contract: wire/schema shapes",
         "security: adversarial inputs",
@@ -67,7 +66,10 @@ def pytest_configure(config):
         "slow: > 2s wall-clock",
         "requires_network: hits a real external service",
         "live: real providers (opt-in via --live)",
-    ):
+        "perf: slow wall-clock performance tests (skipped by default)",
+        "stress: sustained load tests (skipped by default)",
+    ]
+    for line in markers:
         config.addinivalue_line("markers", line)
 
 
@@ -78,28 +80,43 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    if config.getoption("--live"):
-        return
-    skip = pytest.mark.skip(reason="live test — pass --live to run")
+    # Handle --live flag
+    if not config.getoption("--live"):
+        skip = pytest.mark.skip(reason="live test — pass --live to run")
+        for item in items:
+            if "live" in item.keywords:
+                item.add_marker(skip)
+    
+    # Handle perf and stress markers
+    skip_perf = not config.getoption("-m") or "perf" not in config.getoption("-m")
+    skip_stress = not config.getoption("-m") or "stress" not in config.getoption("-m")
     for item in items:
-        if "live" in item.keywords:
-            item.add_marker(skip)
+        if skip_perf and "perf" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="perf test — run with -m perf"))
+        if skip_stress and "stress" in item.keywords:
+            item.add_marker(pytest.mark.skip(reason="stress test — run with -m stress"))
 
 
 # ─── FastAPI client (no lifespan → no Redis/Mongo connection) ────────────────
 @pytest.fixture(scope="session")
 def client():
     from fastapi.testclient import TestClient
-    from api.warhead import create_app
-    app = create_app()
+
+    from api.main import app
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
 
 
 @pytest.fixture(scope="session")
 def app():
-    from api.warhead import create_app
-    return create_app()
+    from api.main import app
+    return app
+
+
+@pytest.fixture
+def authed_headers():
+    """Fixture for authenticated request headers."""
+    return {"Authorization": "Bearer test-token"}
 
 
 # ─── anyio backend ───────────────────────────────────────────────────────────
@@ -172,27 +189,38 @@ def stub_user():
 # ─── Clear in-process caches between tests ───────────────────────────────────
 @pytest.fixture
 def clear_caches():
+    """Reset all singletons/LRUs that can leak state across tests."""
+    # Clear API state caches
     try:
         import api.state as state_mod
-    except Exception:
+        objs = []
+        for name in ("ai_cache",):
+            obj = getattr(state_mod.state, name, None)
+            if obj is not None and hasattr(obj, "clear"):
+                objs.append(obj)
+        for o in objs:
+            try:
+                o.clear()
+            except Exception:
+                pass
         yield
-        return
-    objs = []
-    for name in ("ai_cache",):
-        obj = getattr(state_mod.state, name, None)
-        if obj is not None and hasattr(obj, "clear"):
-            objs.append(obj)
-    for o in objs:
-        try:
-            o.clear()
-        except Exception:
-            pass
-    yield
-    for o in objs:
-        try:
-            o.clear()
-        except Exception:
-            pass
+        for o in objs:
+            try:
+                o.clear()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    
+    # Clear core cache module
+    try:
+        from core import cache
+        for name in ("SemanticCache", "BM25Cache"):
+            cls = getattr(cache, name, None)
+            if cls and hasattr(cls, "_reset_for_tests"):
+                cls._reset_for_tests()
+    except Exception:
+        pass
 
 
 # ─── Fake Redis ──────────────────────────────────────────────────────────────
@@ -263,7 +291,7 @@ def sse_parse():
         except Exception:
             return event, {"_raw": raw}
     return _parse
-    # ── Core scope fixtures ────────────────────────────────────────────────────
+
 
 @pytest.fixture
 def tmp_consent_dir(tmp_path):
@@ -271,31 +299,174 @@ def tmp_consent_dir(tmp_path):
     return tmp_path / "consent"
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# HACKATHON MODULE FIXTURES - SINGLE SOURCE OF TRUTH
+# ══════════════════════════════════════════════════════════════════════════
+
+# ─── Sentinel Engine Fixture ───────────────────────────────────────────────
 @pytest.fixture
-def clear_caches():
-    """Reset all singletons/LRUs that can leak state across tests."""
-    from core import cache, token_governor, memory
-    for name in ("SemanticCache", "BM25Cache"):
-        cls = getattr(cache, name, None)
-        if cls and hasattr(cls, "_reset_for_tests"):
-            cls._reset_for_tests()
-    yield
+async def engine(tmp_path: Path, monkeypatch):
+    """Fresh Sentinel Engine, isolated scratch/WAL/audit. Fast wall-clock for tests."""
+    import sentinel_agentic.engine as eng_mod
+
+    scratch = tmp_path / "scratch"
+    scratch.mkdir()
+    audit = tmp_path / "audit.jsonl"
+    wal_db = tmp_path / "wal.db"
+
+    monkeypatch.setattr(eng_mod, "SANDBOX_ROOT", scratch.resolve())
+    monkeypatch.setattr(eng_mod, "AUDIT_PATH", audit)
+    monkeypatch.setattr(eng_mod, "WALL_CLOCK_S", 5)
+    monkeypatch.setattr(eng_mod, "MAX_MEMORY_MB", 64)
+    monkeypatch.setattr(eng_mod, "MAX_CPU_S", 10)
+    monkeypatch.setenv("SENTINEL_WAL_BACKEND", "sqlite")
+    monkeypatch.setenv("SENTINEL_WAL_PATH", str(wal_db))
+    monkeypatch.setenv("SENTINEL_DEMO", "1")
+    monkeypatch.setenv("SENTINEL_ISOLATION", os.getenv("PYTEST_ISOLATION", "none"))
+
+    yield eng_mod.Engine()
 
 
-def pytest_configure(config):
-    config.addinivalue_line(
-        "markers", "perf: slow wall-clock performance tests (skipped by default)"
-    )
-    config.addinivalue_line(
-        "markers", "stress: sustained load tests (skipped by default)"
-    )
+# ─── Vultr Fixture ─────────────────────────────────────────────────────────
+@pytest.fixture
+async def vultr_client(tmp_path: Path, monkeypatch):
+    """Fresh Vultr client with isolated state."""
+    import vultr_integration.client as eng_mod
+
+    state_path = tmp_path / "vultr_state.json"
+    monkeypatch.setenv("VULTR_STATE_PATH", str(state_path))
+    monkeypatch.setenv("VULTR_MAX_INSTANCES", "100")
+    monkeypatch.setenv("VULTR_RATE_LIMIT", "100")
+
+    client = eng_mod.VultrClient()
+    await client.initialize()
+    yield client
+    await client.shutdown()
 
 
-def pytest_collection_modifyitems(config, items):
-    skip_perf = not config.getoption("-m") or "perf" not in config.getoption("-m")
-    skip_stress = not config.getoption("-m") or "stress" not in config.getoption("-m")
-    for item in items:
-        if skip_perf and "perf" in item.keywords:
-            item.add_marker(pytest.mark.skip(reason="perf test — run with -m perf"))
-        if skip_stress and "stress" in item.keywords:
-            item.add_marker(pytest.mark.skip(reason="stress test — run with -m stress"))
+# ─── Apex Router Fixture ────────────────────────────────────────────────────
+@pytest.fixture
+async def apex_router(tmp_path: Path, monkeypatch):
+    """Fresh Apex Router instance with isolated routing table."""
+    import apex_router.engine as eng_mod
+
+    table_path = tmp_path / "routing_table.json"
+    monkeypatch.setenv("APEX_ROUTER_TABLE_PATH", str(table_path))
+    monkeypatch.setenv("APEX_MAX_REQUEST_SIZE", "1048576")
+    monkeypatch.setenv("APEX_RATE_LIMIT", "1000")
+    monkeypatch.setenv("APEX_TIMEOUT", "30")
+
+    router = eng_mod.ApexRouter()
+    await router.initialize()
+    await router.add_rule("test-rule", {"path": "/api/v1/test", "target": "test-service"})
+    yield router
+    await router.shutdown()
+
+
+# ─── Insights Engine Fixture ───────────────────────────────────────────────
+@pytest.fixture
+async def insights_engine(tmp_path: Path, monkeypatch):
+    """Fresh Insights Engine instance with isolated database."""
+    import insights_engine.engine as eng_mod
+
+    db_path = tmp_path / "test.db"
+    monkeypatch.setenv("INSIGHTS_DB_PATH", str(db_path))
+    monkeypatch.setenv("INSIGHTS_MAX_MEMORY_MB", "128")
+    monkeypatch.setenv("INSIGHTS_QUERY_TIMEOUT", "5")
+
+    engine = eng_mod.InsightsEngine()
+    await engine.initialize()
+    await engine.execute_query("CREATE TABLE IF NOT EXISTS test_table (id INT, value TEXT)")
+    await engine.execute_query("CREATE TABLE IF NOT EXISTS allowed_table (id INT, data TEXT)")
+    yield engine
+    await engine.shutdown()
+
+
+# ─── Ops Room Fixture ──────────────────────────────────────────────────────
+@pytest.fixture
+async def ops_room(tmp_path: Path, monkeypatch):
+    """Fresh Ops Room instance with isolated task queue."""
+    import ops_room.engine as eng_mod
+
+    queue_path = tmp_path / "task_queue.db"
+    scratch_path = tmp_path / "scratch"
+    scratch_path.mkdir()
+
+    monkeypatch.setenv("OPS_QUEUE_PATH", str(queue_path))
+    monkeypatch.setenv("OPS_SCRATCH_ROOT", str(scratch_path))
+    monkeypatch.setenv("OPS_MAX_TASKS", "1000")
+    monkeypatch.setenv("OPS_MAX_MEMORY_MB", "256")
+    monkeypatch.setenv("OPS_TASK_TIMEOUT", "30")
+
+    room = eng_mod.OpsRoom()
+    await room.initialize()
+    yield room
+    await room.shutdown()
+
+
+# ─── Bharat Agent Fixture ──────────────────────────────────────────────────
+@pytest.fixture
+async def bharat_agent(tmp_path: Path, monkeypatch):
+    """Fresh Bharat Agent instance with isolated state."""
+    import axelr_bharat_civic_agent.engine as eng_mod
+
+    state_path = tmp_path / "bharat_state.json"
+    monkeypatch.setenv("BHARAT_STATE_PATH", str(state_path))
+    monkeypatch.setenv("BHARAT_MAX_REQUESTS", "1000")
+    monkeypatch.setenv("BHARAT_TIMEOUT", "60")
+
+    agent = eng_mod.BharatAgent()
+    await agent.initialize()
+    yield agent
+    await agent.shutdown()
+
+
+# ─── Buildx Fixture ────────────────────────────────────────────────────────
+@pytest.fixture
+async def buildx_engine(tmp_path: Path, monkeypatch):
+    """Fresh Buildx engine instance with isolated build state."""
+    import buildx.engine as eng_mod
+
+    build_path = tmp_path / "builds"
+    build_path.mkdir()
+    monkeypatch.setenv("BUILDX_BUILD_ROOT", str(build_path))
+    monkeypatch.setenv("BUILDX_MAX_PARALLEL", "50")
+    monkeypatch.setenv("BUILDX_TIMEOUT", "300")
+
+    engine = eng_mod.BuildxEngine()
+    await engine.initialize()
+    yield engine
+    await engine.shutdown()
+
+
+# ─── Inbox Engine Fixture ──────────────────────────────────────────────────
+@pytest.fixture
+async def inbox_engine(tmp_path: Path, monkeypatch):
+    """Fresh Inbox Engine instance with isolated storage."""
+    import inbox.engine as eng_mod
+
+    storage_path = tmp_path / "inbox_storage.db"
+    monkeypatch.setenv("INBOX_STORAGE_PATH", str(storage_path))
+    monkeypatch.setenv("INBOX_MAX_MESSAGES", "10000")
+    monkeypatch.setenv("INBOX_RETENTION_DAYS", "30")
+
+    engine = eng_mod.InboxEngine()
+    await engine.initialize()
+    yield engine
+    await engine.shutdown()
+
+
+# ─── PayPal Fixture ────────────────────────────────────────────────────────
+@pytest.fixture
+async def paypal_client(tmp_path: Path, monkeypatch):
+    """Fresh PayPal client with isolated transaction state."""
+    import paypal_integration.client as eng_mod
+
+    state_path = tmp_path / "paypal_state.json"
+    monkeypatch.setenv("PAYPAL_STATE_PATH", str(state_path))
+    monkeypatch.setenv("PAYPAL_MAX_TRANSACTIONS", "1000")
+
+    client = eng_mod.PayPalClient()
+    await client.initialize()
+    yield client
+    await client.shutdown()

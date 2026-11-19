@@ -5,7 +5,9 @@ import logging
 
 from aiohttp import web
 
-from .core import health, init as init_core, shutdown as shutdown_core
+from .core import health
+from .core import init as init_core
+from .core import shutdown as shutdown_core
 
 logger = logging.getLogger("axelr.ai_agents.main")
 

@@ -48,16 +48,33 @@ from bisect import bisect_left
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from .workspace_vocab import (
-    DETECTOR_VERSION, WORKSPACES,
-    _DATA_EXTENSIONS, _DESIGN_EXTENSIONS, _CORE_EXTENSIONS,
-    _FILENAME_DATA, _FILENAME_DESIGN, _FILENAME_CORE,
-    _NEUTRAL_FILENAMES, _NEUTRAL_EXTENSIONS,
-    _VOCAB_DATA_TOKS, _VOCAB_DESIGN_TOKS, _VOCAB_CORE_TOKS,
-    _VOCAB_DATA_WEIGHTS, _VOCAB_DESIGN_WEIGHTS, _VOCAB_CORE_WEIGHTS,
-    _PHRASES_DATA, _PHRASES_DESIGN, _PHRASES_CORE,
-    _VERB_DATA, _VERB_DESIGN, _VERB_CORE,
-    stem_word, normalize_word, extract_negated_terms,
-    _quadgrams_of, _fnv32,
+    _CORE_EXTENSIONS,
+    _DATA_EXTENSIONS,
+    _DESIGN_EXTENSIONS,
+    _FILENAME_CORE,
+    _FILENAME_DATA,
+    _FILENAME_DESIGN,
+    _NEUTRAL_EXTENSIONS,
+    _NEUTRAL_FILENAMES,
+    _PHRASES_CORE,
+    _PHRASES_DATA,
+    _PHRASES_DESIGN,
+    _VERB_CORE,
+    _VERB_DATA,
+    _VERB_DESIGN,
+    _VOCAB_CORE_TOKS,
+    _VOCAB_CORE_WEIGHTS,
+    _VOCAB_DATA_TOKS,
+    _VOCAB_DATA_WEIGHTS,
+    _VOCAB_DESIGN_TOKS,
+    _VOCAB_DESIGN_WEIGHTS,
+    DETECTOR_VERSION,
+    WORKSPACES,
+    _fnv32,
+    _quadgrams_of,
+    extract_negated_terms,
+    normalize_word,
+    stem_word,
 )
 
 ENGINE_VERSION = DETECTOR_VERSION  # "17.0.0-TITAN" — API contract version
@@ -707,6 +724,9 @@ def detect_workspace(
     return detect_workspace_core(
         prompt, files, session_id, use_anchors, file_contents
     )
+
+
+detect_workspace_full = compute_full_detection
 
 
 def detect_deterministic(prompt: str) -> Tuple[Optional[str], float, str]:

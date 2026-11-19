@@ -412,7 +412,6 @@ def mask_key(key: str, reveal_last: int = 4) -> str:
 
 def ensure_json_serializable(obj):
     """Convert any object to JSON-serializable format"""
-    import json
     from datetime import datetime
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
@@ -462,7 +461,7 @@ class ChunkedReader:
     def __init__(self, stream):
         self.stream = stream
         self.buffer = b""
-        
+
     async def read(self, size: int = -1) -> bytes:
         while len(self.buffer) < size or size == -1:
             chunk = await self.stream.__anext__()

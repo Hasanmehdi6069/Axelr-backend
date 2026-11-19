@@ -27,7 +27,6 @@ import hashlib
 import json
 import os
 import time
-from asyncio import Lock
 from typing import Any
 
 import structlog
@@ -35,7 +34,7 @@ from fastapi import Request
 
 from core.persistence import PERSIST
 
-from .config import get_http_client
+from .limits import TIER_CONFIG, check_and_update_quota
 from .prompts import (
     PROMPT_VERSION,
     _get_system_prompt,
@@ -53,8 +52,7 @@ from .providers import (
     get_provider_order,
     record_provider_result,
 )
-from .limits import TIER_CONFIG, check_and_update_quota
-from .state import get_redis_cache, set_redis_cache, state
+from .state import state
 
 logger = structlog.get_logger("axelr.ai_router")
 
@@ -253,7 +251,7 @@ async def route_ai_request_sequential(
                 )
                 # Commit the messages to mark them as fully saved
                 await PERSIST.commit_exchange(user_msg_id, ai_msg_id)
-                logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s", 
+                logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
                            session_id, user_msg_id, ai_msg_id)
             except Exception as e:
                 logger.error("failed_to_persist_chat session_id=%s error=%s", session_id, e)
@@ -333,7 +331,7 @@ async def route_ai_request_sequential(
                     )
                     # Commit the messages to mark them as fully saved
                     await PERSIST.commit_exchange(user_msg_id, ai_msg_id)
-                    logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s", 
+                    logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
                                session_id, user_msg_id, ai_msg_id)
                 except Exception as e:
                     logger.error("failed_to_persist_chat session_id=%s error=%s", session_id, e)
@@ -362,7 +360,7 @@ async def route_ai_request_sequential(
         "model_used": resident, "tokens_used": len(fallback_text.split()),
         "latency_ms": round((time.time() - start) * 1000, 2),
     }
-    
+
     # Persist chat message to database if we have user and session info
     if user_id and session_id:
         try:
@@ -377,11 +375,11 @@ async def route_ai_request_sequential(
             )
             # Commit the messages to mark them as fully saved
             await PERSIST.commit_exchange(user_msg_id, ai_msg_id)
-            logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s", 
+            logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
                        session_id, user_msg_id, ai_msg_id)
         except Exception as e:
             logger.error("failed_to_persist_chat session_id=%s error=%s", session_id, e)
-    
+
     # Enforce tier-specific minimum delay to ensure quality checks complete
     elapsed = time.time() - start
     min_delay = TIER_RESPONSE_MIN_DELAY.get(tier.lower(), 1.0)

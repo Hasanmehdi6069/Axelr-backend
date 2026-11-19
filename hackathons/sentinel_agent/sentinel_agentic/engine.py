@@ -27,13 +27,13 @@ import sys
 import threading
 import time
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .hardening import audit_isolation, wrap_command
 from .wal import make_wal
-from .hardening import wrap_command, audit_isolation
 
 CURRENT_WORKFLOW_ID: contextvars.ContextVar[str | None] = (
     contextvars.ContextVar("wf_id", default=None)
@@ -66,7 +66,7 @@ def _flush_audit_buffer() -> None:
             return
         lines = _audit_buffer
         _audit_buffer = []
-    
+
     AUDIT_PATH.parent.mkdir(parents=True, exist_ok=True)
     with _audit_lock:
         with AUDIT_PATH.open("a", encoding="utf-8") as f:
@@ -81,10 +81,10 @@ async def audit(entry: dict) -> dict:
     """Append one JSONL line. Mirror to axelr_vultr.auditing when importable."""
     entry = {"ts": datetime.now(timezone.utc).isoformat(), **entry}
     line = json.dumps(entry, default=str, separators=(",", ":")) + "\n"
-    
+
     with _audit_buffer_lock:
         _audit_buffer.append(line)
-    
+
     try:
         from axelr_vultr.auditing import log_vultr_op
         ok = entry.get("phase") in ("executed", "dry_run")
@@ -104,7 +104,7 @@ async def audit(entry: dict) -> dict:
 async def tail(n: int = 20) -> list[dict]:
     # Flush buffer first to get latest entries
     await flush_audit()
-    
+
     if not AUDIT_PATH.exists():
         return []
     def _r() -> list[dict]:
@@ -224,21 +224,21 @@ class Engine:
             raise ValueError("payload must be a string")
         if len(payload) > 64 * 1024:
             raise ValueError("payload_too_large")
-        
+
         # Fast path: cache results of frequent payloads
         if payload in self._validate_cache:
             return self._validate_cache[payload]
-        
+
         try:
             tree = ast.parse(payload)
         except SyntaxError as e:
             raise ContainmentViolation("syntax_error", str(e)) from e
-        
+
         forbidden_calls = FORBIDDEN_CALLS
         forbidden_modules = FORBIDDEN_MODULES
         forbidden_attrs = FORBIDDEN_ATTRS
         sensitive_literals = SENSITIVE_LITERALS
-        
+
         for node in ast.walk(tree):
             if isinstance(node, ast.Call):
                 f = node.func
@@ -264,7 +264,7 @@ class Engine:
                     if s in val:
                         self.violations += 1
                         raise ContainmentViolation("forbidden_literal", val[:80])
-        
+
         # Cache the result
         result = True
         if len(self._validate_cache) >= self._validate_cache_max:

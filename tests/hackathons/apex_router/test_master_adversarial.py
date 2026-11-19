@@ -5,11 +5,6 @@ Rules for this file:
 """
 from __future__ import annotations
 
-import json
-import os
-import pathlib
-import socket
-
 import pytest
 
 pytestmark = [pytest.mark.slow, pytest.mark.adversarial]

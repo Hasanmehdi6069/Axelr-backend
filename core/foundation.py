@@ -18,14 +18,12 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import json
 import logging
 import os
 import random
-import json
-import threading
-import time
-from dataclasses import dataclass, field, asdict
-from typing import Any, Awaitable, Callable, Optional
+from dataclasses import dataclass, field
+from typing import Any, Awaitable, Callable
 
 logger = logging.getLogger("axelr.foundation")
 
@@ -532,9 +530,8 @@ def get_adapter_statuses() -> dict[str, dict[str, Any]]:
 # ═══════════════════════════════════════════════════════════════════════════
 # §5 — Permissions & Consent
 # ═══════════════════════════════════════════════════════════════════════════
-import json
 from pathlib import Path
-from dataclasses import asdict
+
 
 @dataclass(frozen=True, slots=True)
 class Permission:
@@ -621,7 +618,6 @@ def audit() -> dict[str, Any]:
 
 # Re-export ContextRegistry from infra for test compatibility
 from .infra import ContextRegistry
-
 
 __all__ = [
     # Settings

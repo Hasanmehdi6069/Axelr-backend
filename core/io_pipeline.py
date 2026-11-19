@@ -9,6 +9,7 @@ bounded backoff. Both sign or verify what they send. One file.
     §2 Webhook pipeline   inbound HTTP router + SSRF-protected download
 """
 from __future__ import annotations
+
 import asyncio
 import base64
 import contextlib
@@ -208,7 +209,7 @@ BLOCKED_RANGES = [
 async def _assert_public_url(url: str) -> tuple[str, str]:
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
-        raise HTTPException(status_code=400, detail=f"URL scheme not allowed")
+        raise HTTPException(status_code=400, detail="URL scheme not allowed")
     host = parsed.hostname
     if not host:
         raise HTTPException(status_code=400, detail="URL missing host")
@@ -433,7 +434,7 @@ __all__ = [
 async def _assert_public_url(url: str) -> tuple[str, str]:
     parsed = urlparse(url)
     if parsed.scheme not in _ALLOWED_SCHEMES:
-        raise HTTPException(status_code=400, detail=f"URL scheme not allowed")
+        raise HTTPException(status_code=400, detail="URL scheme not allowed")
     host = parsed.hostname
     if not host:
         raise HTTPException(status_code=400, detail="URL missing host")

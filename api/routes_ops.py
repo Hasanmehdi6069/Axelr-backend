@@ -13,19 +13,26 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import structlog
 from fastapi import (
-    APIRouter, Depends, Header, HTTPException, Request, Response,
+    APIRouter,
+    Depends,
+    Header,
+    HTTPException,
+    Request,
+    Response,
 )
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-import structlog
 
 from .auth import get_current_user
 from .lifecycle import validate_all_providers
 from .providers import get_adapter_statuses
 from .state import (
-    delete_redis_cache, get_object_id, get_redis_cache,
-    set_redis_cache, state,
+    delete_redis_cache,
+    get_redis_cache,
+    set_redis_cache,
+    state,
 )
 
 logger = structlog.get_logger("axelr.routes.ops")
@@ -324,7 +331,8 @@ async def github_webhook(request: Request) -> Response:
     body = await request.body()
     secret = (os.getenv("GITHUB_WEBHOOK_SECRET") or "").strip()
     if secret:
-        import hashlib as _h, hmac as _hm
+        import hashlib as _h
+        import hmac as _hm
         sig = request.headers.get("x-hub-signature-256", "")
         expected = "sha256=" + _hm.new(secret.encode(), body, _h.sha256).hexdigest()
         if not _hm.compare_digest(sig, expected):

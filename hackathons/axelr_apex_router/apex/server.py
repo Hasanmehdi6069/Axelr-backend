@@ -19,9 +19,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field
 
-from .router import ApexRouter
-from .telemetry import aggregate, reset as reset_telemetry, stop as stop_telemetry
 from . import tiers as _tiers
+from .router import ApexRouter
+from .telemetry import aggregate
+from .telemetry import reset as reset_telemetry
+from .telemetry import stop as stop_telemetry
 
 
 class _AppState:

@@ -11,6 +11,7 @@ The four user-facing AI endpoints:
 Plus file validation, schema discovery, and session persistence helpers.
 """
 
+import asyncio
 import base64
 import contextlib
 import csv
@@ -25,6 +26,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from core.gateway import GatewayRouter
 from core.persistence import PERSIST
 
 from .ai_router import (
@@ -33,15 +35,14 @@ from .ai_router import (
 )
 from .auth import get_current_user, validate_mcp_scope
 from .config import WORKSPACE_LLM_CONFIG
-from .prompts import sanitize_input
 from .limits import (
     check_rate_limit,
     estimate_tokens,
 )
+from .prompts import sanitize_input
 from .state import get_object_id, limiter, state
 from .workspace_engine import detect_workspace_core
-from core.gateway import GatewayRouter
-import asyncio
+
 
 def detect_workspace(prompt, files=None, session_id="", use_anchors=False) -> str:
     """Local shim — delegates to the working engine."""
@@ -62,21 +63,21 @@ async def mcp_gateway_stream(
     """MCP gateway endpoint with authentication, session binding, and zero-copy forwarding"""
     session_id = request.headers.get("Mcp-Session-Id", None)
     workspace = request.headers.get("X-Workspace-Id", None)
-    
+
     if not session_id or not workspace:
         raise HTTPException(status_code=400, detail="Missing Mcp-Session-Id or X-Workspace-Id headers")
-    
+
     # Route to appropriate MCP backend
     backend_reader, backend_writer = await state.gateway.mcp_route_stream(session_id, workspace)
-    
+
     # Extract backend ID from Redis to pass to zero-copy forwarder
     backend_id_bytes = await state.redis_client.get(f"mcp:session:{session_id}")
     backend_id = backend_id_bytes.decode() if backend_id_bytes else "unknown"
-    
+
     # Get client stream from request
     client_reader = asyncio.StreamReader()
     client_reader.set_transport(request._transport)
-    
+
     # Spawn zero-copy forwarding task
     asyncio.create_task(
         GatewayRouter.mcp_zero_copy_forward(
@@ -86,7 +87,7 @@ async def mcp_gateway_stream(
             backend_id=backend_id
         )
     )
-    
+
     # Stream backend responses back to client
     async def response_stream():
         while not backend_reader.at_eof():
@@ -94,7 +95,7 @@ async def mcp_gateway_stream(
             if not data:
                 break
             yield data
-    
+
     return StreamingResponse(response_stream(), media_type="application/json-seq")
 
 @mcp_router.get("/tools/list/{workspace}", tags=["mcp"])
@@ -115,16 +116,28 @@ router.include_router(mcp_router)
 # ═══════════════════════════════════════════════════════════════════════════
 # Workspace Detection API Endpoint (v15.2.0 "MAXIMA" Elite Engine)
 # ═══════════════════════════════════════════════════════════════════════════
+from typing import List, Optional
+
 class WorkspaceDetectRequest(BaseModel):
     prompt: str
-    files: list = []
+    files: Optional[List] = None
     session_id: str = ""
+
+async def get_optional_user(request: Request) -> dict | None:
+    from .state import state
+    if not state.db_available:
+        return {"id": "degraded", "tier": "free"}
+    try:
+        from .auth import get_current_user
+        return await get_current_user(request)
+    except Exception:
+        return {"id": "degraded", "tier": "free"}
 
 @router.post("/api/workspace/detect", tags=["AI"])
 @limiter.limit("120/minute")
 async def workspace_detect_endpoint(
     body: WorkspaceDetectRequest, request: Request,
-    user: dict = Depends(get_current_user),
+    user: dict | None = Depends(get_optional_user),
 ):
     """
     Elite backend workspace detection API using v15.2.0 "MAXIMA" engine.
@@ -133,7 +146,7 @@ async def workspace_detect_endpoint(
     from .workspace_detector import detect_workspace_full
     result = detect_workspace_full(
         prompt=body.prompt,
-        files=body.files,
+        files=body.files or [],
         session_id=body.session_id,
         use_anchors=True
     )
@@ -232,7 +245,7 @@ async def get_chat_history(
     """Fetch all chat messages for a given session"""
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     user_id = str(user["_id"])
     try:
         # Get all messages for this session from the database
@@ -270,12 +283,12 @@ async def delete_chat_session(
     """Delete a chat session (only works for guest sessions to comply with your requirement)"""
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")
-    
+
     user_id = str(user["_id"])
     # Only allow deletion if it's a guest session (user_id starts with guest_)
     if not user_id.startswith("guest_"):
         raise HTTPException(status_code=403, detail="Only guest sessions can be manually deleted")
-    
+
     try:
         # Set expire_at to now for all messages in this session so MongoDB TTL purges them
         await PERSIST.chats.delete_guest_session(session_id, user_id)

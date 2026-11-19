@@ -7,9 +7,6 @@ Rules for this file:
 from __future__ import annotations
 
 import asyncio
-import json
-import os
-import pathlib
 import statistics
 import time
 

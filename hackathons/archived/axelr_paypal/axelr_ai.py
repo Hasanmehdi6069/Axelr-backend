@@ -5,16 +5,14 @@ Implements LLM-based extraction with regex fallback, per Goal 3 requirements.
 from __future__ import annotations
 
 import hashlib
-import re
-from datetime import datetime, timedelta
-from decimal import Decimal, InvalidOperation
-from typing import Optional, Dict, Any
 import json
+import re
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict
 
-from pydantic import BaseModel, Field
-
-from .core import get_core_module, log_audit, AuditEvent
-from .schemas import PaymentIntent, OrderItem
+from .core import AuditEvent, get_core_module, log_audit
+from .schemas import OrderItem, PaymentIntent
 
 # Regex patterns for fallback extraction
 AMOUNT_PATTERNS = [
@@ -50,10 +48,10 @@ async def _extract_with_openai(text: str) -> Dict[str, Any]:
     core = get_core_module()
     if not core.settings.openai_api_key:
         raise ValueError("OpenAI API key not configured")
-    
+
     import openai
     client = openai.AsyncOpenAI(api_key=core.settings.openai_api_key)
-    
+
     prompt = """Extract payment intent from the following text. Return ONLY valid JSON with these exact fields:
     {
         "payer_name": "full name of payer",
@@ -67,13 +65,13 @@ async def _extract_with_openai(text: str) -> Dict[str, Any]:
     }
     
     Text to process: """ + text
-    
+
     response = await client.chat.completions.create(
         model="gpt-3.5-turbo-1106",
         response_format={"type": "json_object"},
         messages=[{"role": "user", "content": prompt}]
     )
-    
+
     return json.loads(response.choices[0].message.content)
 
 
@@ -82,10 +80,10 @@ async def _extract_with_anthropic(text: str) -> Dict[str, Any]:
     core = get_core_module()
     if not core.settings.anthropic_api_key:
         raise ValueError("Anthropic API key not configured")
-    
+
     import anthropic
     client = anthropic.Anthropic(api_key=core.settings.anthropic_api_key)
-    
+
     prompt = f"""Extract payment intent from the following text. Return ONLY valid JSON with these exact fields:
     {{
         "payer_name": "full name of payer",
@@ -99,13 +97,13 @@ async def _extract_with_anthropic(text: str) -> Dict[str, Any]:
     }}
     
     Text to process: {text}"""
-    
+
     response = await client.messages.create(
         model="claude-3-sonnet-20240229",
         max_tokens=1000,
         messages=[{"role": "user", "content": prompt}]
     )
-    
+
     return json.loads(response.content[0].text)
 
 
@@ -197,11 +195,11 @@ async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
     """Main extraction function: tries LLM first, falls back to regex"""
     # Create hash of raw input for audit logging
     raw_input_hash = hashlib.sha256(unstructured_text.encode()).hexdigest()
-    
+
     # Try LLM providers first
     core = get_core_module()
     extracted = None
-    
+
     # Try OpenAI first if configured
     if core.settings.openai_api_key:
         try:
@@ -209,7 +207,7 @@ async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
             extracted = PaymentIntent(**llm_result, raw_input_hash=raw_input_hash)
         except Exception as e:
             core.logger.warning(f"OpenAI extraction failed: {str(e)}, trying Anthropic")
-    
+
     # Try Anthropic if OpenAI failed or not configured
     if not extracted and core.settings.anthropic_api_key:
         try:
@@ -217,11 +215,11 @@ async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
             extracted = PaymentIntent(**llm_result, raw_input_hash=raw_input_hash)
         except Exception as e:
             core.logger.warning(f"Anthropic extraction failed: {str(e)}, falling back to regex")
-    
+
     # Fall back to regex if all LLMs failed
     if not extracted:
         extracted = _regex_fallback_extraction(unstructured_text, raw_input_hash)
-    
+
     # Log extraction for audit
     await log_audit(AuditEvent(
         event_type="ai.payment_intent.extracted",
@@ -233,5 +231,5 @@ async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
             "extraction_method": "llm" if core.settings.openai_api_key or core.settings.anthropic_api_key else "regex"
         }
     ))
-    
+
     return extracted

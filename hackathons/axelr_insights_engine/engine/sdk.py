@@ -30,7 +30,6 @@ from appwrite.services.tables_db import TablesDB
 
 from .config import AppwriteConfig
 from .errors import (
-    AppwriteError,
     CircuitBreakerOpenError,
     ClientError,
     TimeoutError_,

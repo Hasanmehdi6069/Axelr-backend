@@ -306,7 +306,7 @@ def pick_local_model(
         spec = ROSTER_BY_ID.get(_pinned)
         if spec is not None and not spec.rejected:
             return spec
-            
+
     low = (prompt or "").lower().strip()
     eligible_cats = category_for_concurrency(max(1, concurrency))
 

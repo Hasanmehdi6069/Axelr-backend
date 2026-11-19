@@ -1,8 +1,9 @@
 """Input Schema Guardrails - Strict validation for all incoming user requests"""
-from pydantic import BaseModel, Field, field_validator, ValidationInfo
-from typing import List, Optional, Dict, Any
-import re
 import logging
+import re
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, Field, field_validator
 
 logger = logging.getLogger("axelr.core.guardrails")
 
@@ -30,13 +31,13 @@ class UserInputRequest(BaseModel):
         # Check length is reasonable
         if len(v.strip()) < 1:
             raise ValueError("Prompt cannot be empty")
-            
+
         # Check for blocked patterns
         for pattern in BLOCKED_PATTERNS:
             if re.search(pattern, v, re.IGNORECASE):
                 logger.warning(f"Blocked pattern detected in prompt: {pattern}")
-                raise ValueError(f"Input contains disallowed content")
-                
+                raise ValueError("Input contains disallowed content")
+
         return v.strip()
 
     @field_validator('model')
@@ -50,9 +51,9 @@ class UserInputRequest(BaseModel):
 
 class InputSchemaGuardrails:
     """Centralized input validation guardrails for all AXELR AI endpoints"""
-    
+
     _instance: Optional["InputSchemaGuardrails"] = None
-    
+
     def __init__(self):
         self.validation_count = 0
         self.blocked_count = 0

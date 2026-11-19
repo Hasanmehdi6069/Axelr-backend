@@ -23,11 +23,11 @@ from datetime import datetime, timezone
 from typing import Any
 
 import websockets
-
 from switch_client import SwitchAgentClient
 
 try:
-    from axelr_insights_engine import init as aw_init, get_engine as aw_get
+    from axelr_insights_engine import get_engine as aw_get
+    from axelr_insights_engine import init as aw_init
     _AW_AVAILABLE = True
 except ImportError:
     _AW_AVAILABLE = False

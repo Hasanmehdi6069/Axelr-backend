@@ -1,7 +1,8 @@
 """Pydantic validation schemas for Appwrite adapter webhooks and data models"""
-from pydantic import BaseModel, Field, field_validator, ValidationInfo, EmailStr
 from datetime import datetime
-from typing import Any, Optional, Dict, List, Union
+from typing import Any, Dict, List, Optional
+
+from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 
 
 class PaymentGateway(str):
@@ -183,7 +184,7 @@ class PayPalWebhookPayload(BaseModel):
     def validate_paypal_event_type(cls, v: str) -> str:
         valid_events = {
             "CHECKOUT.ORDER.APPROVED",
-            "PAYMENT.CAPTURE.COMPLETED", 
+            "PAYMENT.CAPTURE.COMPLETED",
             "PAYMENT.CAPTURE.REFUNDED",
             "PAYMENT.CAPTURE.DENIED"
         }
@@ -192,15 +193,7 @@ class PayPalWebhookPayload(BaseModel):
         return v
 
 
-def validate_webhook_payload(payload: dict, schema: type[BaseModel]) -> BaseModel:
-    """Validate any webhook payload against its Pydantic schema"""
-    try:
-        return schema(**payload)
-    except Exception as e:
-        import logging
-        logger = logging.getLogger("axelr.schemas")
-        logger.error(f"Webhook validation failed: {e}")
-        raise
+
 
 
 # Zero-Trust Security Models

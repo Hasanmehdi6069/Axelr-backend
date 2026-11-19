@@ -1,13 +1,11 @@
 """Fixtures for Apex Router test suites."""
 from __future__ import annotations
 
-import asyncio
 import pathlib
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent.parent.parent.parent / "hackathons" / "apex_router"))
 
-import pytest
 import pytest_asyncio
 
 

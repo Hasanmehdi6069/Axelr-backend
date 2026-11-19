@@ -25,6 +25,7 @@ from urllib.request import Request, urlopen
 
 from .engine import Engine, audit
 
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -245,7 +246,6 @@ def _shared_engine() -> Engine:
 async def approve(proposal_id: str, approver: str = "human",
                   engine: Engine | None = None) -> dict[str, Any]:
     from .actions import dispatch
-    from .engine import Engine as _E
     try:
         p = await _QUEUE.approve(proposal_id, approver)
     except KeyError as e:

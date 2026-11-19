@@ -20,7 +20,7 @@ try:
 except ImportError:
     aiohttp = None
 
-from axelr_utils import get_logger, ProtocolError, IPCNotConnectedError
+from axelr_utils import IPCNotConnectedError, ProtocolError, get_logger
 
 logger = get_logger(__name__)
 

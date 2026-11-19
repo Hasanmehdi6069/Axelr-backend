@@ -7,21 +7,42 @@ provenance completeness) live here.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 from .primitives import (  # noqa: F401 — re-exports for backward compat
-    balance_tags, ByteTokenizer, matches_shape, pda_balanced,
-    json_fsa_valid, py_undefined_names, cross_language_leak,
-    check_arithmetic, negation_window, contradiction,
-    request_fingerprint, replay_key, chunk_hash, sign_root,
-    project_budget, stable_tie_break, verify_invariants,
-    LineageIndex, MinimalPerfectHash,
-    REASON_OK, REASON_CHUNK_NOT_FOUND, REASON_EMPTY_SNIPPET,
-    REASON_SHORT_SNIPPET, REASON_NOT_SUBSTRING,
-    REASON_VALUE_NOT_DERIVABLE, REASON_STRICT_THRESHOLD,
-    REASON_WEAK_VALUE, REASON_QUERY_ECHO, REASON_QUERY_SIMILAR,
-    REASON_NEGATED, REASON_DETERMINISTIC, REASON_VERBATIM,
+    REASON_CHUNK_NOT_FOUND,
+    REASON_DETERMINISTIC,
+    REASON_EMPTY_SNIPPET,
+    REASON_NEGATED,
+    REASON_NOT_SUBSTRING,
+    REASON_OK,
+    REASON_QUERY_ECHO,
+    REASON_QUERY_SIMILAR,
     REASON_SHAPE_MISMATCH,
+    REASON_SHORT_SNIPPET,
+    REASON_STRICT_THRESHOLD,
+    REASON_VALUE_NOT_DERIVABLE,
+    REASON_VERBATIM,
+    REASON_WEAK_VALUE,
+    ByteTokenizer,
+    LineageIndex,
+    MinimalPerfectHash,
+    balance_tags,
+    check_arithmetic,
+    chunk_hash,
+    contradiction,
+    cross_language_leak,
+    json_fsa_valid,
+    matches_shape,
+    negation_window,
+    pda_balanced,
+    project_budget,
+    py_undefined_names,
+    replay_key,
+    request_fingerprint,
+    sign_root,
+    stable_tie_break,
+    verify_invariants,
 )
 
 

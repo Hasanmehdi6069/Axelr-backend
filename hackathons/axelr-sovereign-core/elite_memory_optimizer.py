@@ -31,10 +31,10 @@ import threading
 import time
 import weakref
 from collections import OrderedDict
-from dataclasses import dataclass, field
-from functools import lru_cache, wraps
-from typing import Any, Callable, Generic, TypeVar, Optional, Dict, List, Set
+from dataclasses import dataclass
+from functools import wraps
 from sys import getsizeof
+from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 logger = logging.getLogger("axelr.elite_memory")
 
@@ -91,26 +91,26 @@ class EliteMemoryOptimizer:
     """
     _instance: Optional["EliteMemoryOptimizer"] = None
     _lock: threading.Lock = threading.Lock()
-    
+
     # All tracked modules with weak references
     _modules: Dict[str, TrackedModule] = {}
-    
+
     # LRU cache for frequently accessed data
     _lru_cache: OrderedDict[str, Any] = OrderedDict()
-    
+
     # Weak reference cache for less frequently accessed data
     _weak_cache: Dict[str, weakref.ReferenceType] = {}
-    
+
     # Memory pool for byte buffers to avoid repeated allocations
     _buffer_pool: List[bytearray] = []
     _pool_lock: threading.Lock = threading.Lock()
-    
+
     # Interned strings deduplication
     _interned_strings: weakref.WeakSet[str] = weakref.WeakSet()
-    
+
     # Stats tracking
     _stats: MemoryStats = MemoryStats()
-    
+
     # Background monitor task
     _monitor_task: Optional[asyncio.Task] = None
     _shutdown_event: asyncio.Event = asyncio.Event()
@@ -146,10 +146,10 @@ class EliteMemoryOptimizer:
         # BLOCK ALL HACKATHON MODULES FROM BEING LOADED ON SERVER - enforce client-only execution in production
         if module_type == "hackathon" and os.getenv("AXELR_PRODUCTION") == "1":
             raise RuntimeError(f"HACKATHON MODULE {name} CANNOT BE LOADED ON SERVER: All hackathons execute client-side to protect Render server from OOM")
-            
+
         instance_ref = weakref.ref(instance)
         size = self._calculate_size(instance)
-        
+
         self._modules[name] = TrackedModule(
             name=name,
             instance_ref=instance_ref,
@@ -157,17 +157,17 @@ class EliteMemoryOptimizer:
             size_bytes=size,
             module_type=module_type
         )
-        
+
         self._stats.module_count += 1
         self._stats.current_usage_bytes += size
         if self._stats.current_usage_bytes > self._stats.peak_usage_bytes:
             self._stats.peak_usage_bytes = self._stats.current_usage_bytes
-        
+
         logger.debug(
             "module_registered name=%s type=%s size_kb=%.2f total_mb=%.2f",
             name, module_type, size / 1024, self._stats.current_usage_bytes / (1024*1024)
         )
-        
+
         # Trigger memory check after registration
         self._check_memory_pressure()
 
@@ -253,7 +253,7 @@ class EliteMemoryOptimizer:
         # First, collect all dead weak references
         dead_modules: List[str] = []
         current_time = time.time()
-        
+
         for name, mod in self._modules.items():
             instance = mod.instance_ref()
             if instance is None:
@@ -261,7 +261,7 @@ class EliteMemoryOptimizer:
             elif current_time - mod.last_used > EVICTION_TTL_SECONDS:
                 # Module hasn't been used in a while - mark for eviction
                 dead_modules.append(name)
-                logger.info("module_evicted_for_ttl name=%s idle_seconds=%d", 
+                logger.info("module_evicted_for_ttl name=%s idle_seconds=%d",
                            name, int(current_time - mod.last_used))
 
         # Unregister dead modules
@@ -271,7 +271,7 @@ class EliteMemoryOptimizer:
         # Run garbage collection if memory pressure is high
         current_memory = self._get_current_memory_usage()
         target_bytes = TARGET_MAX_MEMORY_MB * 1024 * 1024
-        
+
         if current_memory > target_bytes * 0.8:  # 80% of target
             logger.warning(
                 "high_memory_pressure current_mb=%.2f target_mb=%d running_gc",
@@ -285,7 +285,7 @@ class EliteMemoryOptimizer:
         """Check if we're under memory pressure and evict if needed"""
         current_memory = self._get_current_memory_usage()
         target_bytes = TARGET_MAX_MEMORY_MB * 1024 * 1024
-        
+
         if current_memory > target_bytes * 0.9:  # 90% of target - aggressive eviction
             logger.critical(
                 "critical_memory_pressure current_mb=%.2f target_mb=%d evicting_lru_modules",
@@ -370,23 +370,23 @@ def lazy_module(module_type: str = "hackathon") -> Callable:
     def decorator(cls: Callable[..., T]) -> Callable[..., T]:
         instance: Optional[T] = None
         module_name = cls.__module__ + "." + cls.__name__
-        
+
         @wraps(cls)
         def wrapper(*args, **kwargs) -> T:
             nonlocal instance
             optimizer = EliteMemoryOptimizer.get_instance()
-            
+
             # Check if instance exists and is still alive
             if instance is not None:
                 # Touch the module to update its last used time
                 optimizer.touch_module(module_name)
                 return instance
-            
+
             # Create new instance
             instance = cls(*args, **kwargs)
             optimizer.register_module(module_name, instance, module_type)
             return instance
-            
+
         return wrapper
     return decorator
 

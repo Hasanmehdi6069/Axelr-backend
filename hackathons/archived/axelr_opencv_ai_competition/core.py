@@ -239,7 +239,7 @@ class OpenCVPipeline:
     async def _processing_worker(self, worker_id: int) -> None:
         worker_start_time = time.time()
         recording_duration = 150.0  # Maintain processing for full 2.5min
-        
+
         while self.is_running and not self.shutdown_event.is_set():
             # Ensure we process frames for the entire recording duration
             current_elapsed = time.time() - worker_start_time
@@ -247,7 +247,7 @@ class OpenCVPipeline:
                 logger.info("worker_completed_full_recording_duration worker=%d elapsed=%.1fs",
                            worker_id, current_elapsed)
                 break
-                
+
             try:
                 frame = await asyncio.wait_for(
                     self.processing_queue.get(), timeout=1.0)
@@ -293,13 +293,13 @@ class OpenCVPipeline:
         # Maintain continuous processing for full 2.5min (150s) recording duration
         recording_duration = 150.0  # 2.5 minutes in seconds
         start_time = time.time()
-        
+
         while self.is_running and not self.shutdown_event.is_set():
             # Check if we've reached the full recording duration
             if time.time() - start_time >= recording_duration:
                 logger.info("full_2.5min_recording_duration_achieved maintaining_processing_for_shutdown")
                 break
-                
+
             try:
                 await asyncio.wait_for(self.shutdown_event.wait(), timeout=30.0)
                 return
@@ -307,7 +307,7 @@ class OpenCVPipeline:
                 pass
             with contextlib.suppress(Exception):
                 await self.frame_pool.run_gc()
-                logger.debug("memory_maintenance_completed recording_elapsed=%.1fs", 
+                logger.debug("memory_maintenance_completed recording_elapsed=%.1fs",
                            time.time() - start_time)
 
     async def submit_frame(self, width: int, height: int, channels: int,
@@ -353,7 +353,7 @@ class OpenCVPipeline:
         if hasattr(self, '_recording_start_time'):
             elapsed = time.time() - self._recording_start_time
             recording_progress = min(100.0, (elapsed / 150.0) * 100)
-        
+
         return {
             "ok": self.is_running,
             "details": {
@@ -384,7 +384,7 @@ async def init() -> None:
     await _pipeline.init_models()
     await _pipeline.start_processing()
     logger.info("opencv_ai_pipeline_initialized configured_for_2.5min_recording_duration=150s")
-    
+
     # Start a background task to track full recording duration
     async def track_recording_duration():
         start_time = time.time()
@@ -399,7 +399,7 @@ async def init() -> None:
                 logger.info("📹 RECORDING_IN_PROGRESS elapsed=%.1fs/150s queue_size=%d active_frames=%d",
                            elapsed, _pipeline.processing_queue.qsize(), _pipeline.frame_pool.stats.active_frames)
             await asyncio.sleep(1.0)
-    
+
     asyncio.create_task(track_recording_duration())
 
 

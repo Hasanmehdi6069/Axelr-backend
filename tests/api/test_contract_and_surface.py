@@ -454,6 +454,7 @@ def test_no_duplicate_public_functions_across_modules():
 
 def test_workspace_detector_is_a_shim():
     import api.workspace_detector as det
+
     import api.workspace_engine as eng
     assert det.compute_full_detection is eng.compute_full_detection
 
@@ -501,7 +502,10 @@ def test_provider_chain_is_deterministic():
 
 def test_provider_catalog_cross_consistency():
     from api.providers import (
-        PROVIDER_CHAIN, PROVIDER_FUNC_MAP, PROVIDER_KEY_CHECK, PROVIDER_MODELS,
+        PROVIDER_CHAIN,
+        PROVIDER_FUNC_MAP,
+        PROVIDER_KEY_CHECK,
+        PROVIDER_MODELS,
     )
     for name, _ in PROVIDER_CHAIN:
         assert name in PROVIDER_FUNC_MAP, f"{name} missing FUNC_MAP"
@@ -517,8 +521,10 @@ def test_provider_models_is_list_or_empty():
 
 def test_dynamic_ranking_never_includes_unkeyed():
     import asyncio
+
     from api.providers import (
-        PROVIDER_KEY_CHECK, get_dynamically_ranked_providers,
+        PROVIDER_KEY_CHECK,
+        get_dynamically_ranked_providers,
     )
     for ws in ("data", "design", "core"):
         ranked = asyncio.run(get_dynamically_ranked_providers(ws))
@@ -556,6 +562,7 @@ def test_bifrost_marked_keyless():
 def test_all_provider_models_build_openai_payload():
     """Every model for every provider must build a valid OpenAI payload."""
     from core.gateway_translate import build_payload
+
     from api.providers import PROVIDER_MODELS
     for provider, models in PROVIDER_MODELS.items():
         for model in models[:2]:
@@ -619,8 +626,8 @@ def test_extract_stream_rejects_bad_auth(client):
 
 
 def test_boot_attach_adds_contract_and_audit_routes():
-    from fastapi import FastAPI
     from api._boot import attach
+    from fastapi import FastAPI
     app = FastAPI()
     attach(app)
     paths = {r.path for r in app.routes}

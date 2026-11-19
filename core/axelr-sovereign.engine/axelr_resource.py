@@ -16,7 +16,7 @@ import threading
 import time
 import tracemalloc
 from dataclasses import dataclass
-from typing import Callable, List, Optional, Protocol, Dict
+from typing import Callable, Dict, List, Optional, Protocol
 
 from axelr_utils import get_logger
 

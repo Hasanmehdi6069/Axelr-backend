@@ -5,9 +5,9 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any, List
 from enum import Enum
-from decimal import Decimal
+from typing import Any, Dict, List, Optional
+
 import redis.asyncio as redis
 from pydantic import BaseModel, ConfigDict
 
@@ -36,7 +36,7 @@ VALID_TRANSITIONS = {
 class Transaction(BaseModel):
     """Model representing a single payment transaction with full audit trail"""
     model_config = ConfigDict(extra="forbid")
-    
+
     id: str
     state: TransactionState
     paypal_order_id: Optional[str] = None
@@ -56,7 +56,7 @@ class Transaction(BaseModel):
 class TransactionStore:
     """Pluggable transaction store with in-memory and Redis implementations"""
     _instance: Optional["TransactionStore"] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -75,10 +75,10 @@ class TransactionStore:
         """Initialize storage backend (Redis or in-memory) only after core is initialized"""
         if self._storage_initialized:
             return
-            
+
         if not self.core._initialized:
             raise RuntimeError("Core module must be initialized before accessing transaction store")
-            
+
         # Initialize Redis if URL is provided
         if self.core.settings.redis_url:
             try:
@@ -89,7 +89,7 @@ class TransactionStore:
                 self.redis = None
         else:
             logger.warning("Redis URL not configured, using in-memory transaction store (not for production)")
-            
+
         self._storage_initialized = True
 
     @classmethod
@@ -103,7 +103,7 @@ class TransactionStore:
         self._initialize_storage()
         txn_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat() + "Z"
-        
+
         txn = Transaction(
             id=txn_id,
             state=TransactionState.INITIATED,
@@ -127,7 +127,7 @@ class TransactionStore:
         txn = await self.get_transaction(txn_id)
         if not txn:
             raise ValueError(f"Transaction {txn_id} not found")
-            
+
         if not txn.can_transition_to(new_state):
             error = f"Invalid state transition from {txn.state} to {new_state} for transaction {txn_id}"
             logger.error(error)
@@ -138,7 +138,7 @@ class TransactionStore:
         txn.state = new_state
         txn.updated_at = now
         txn.history.append({"state": new_state, "timestamp": now, "reason": reason, "previous_state": old_state})
-        
+
         await self._save(txn)
         # Update core counters (thread-safe)
         if old_state in self.core._transaction_counts and self.core._transaction_counts[old_state] > 0:

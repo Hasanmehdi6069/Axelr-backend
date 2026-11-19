@@ -22,31 +22,42 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-import numpy as np
-
+from axelr_adapters import ASRConfig, make_local_fn, select_adapter
 from axelr_audio import (
-    AudioCapturePipeline, DSPConfig, Hotkey, HotkeyInterceptor,
-    MOD_CONTROL, MOD_SHIFT, PermissionType, ZeroTrustPermissionManager,
+    MOD_CONTROL,
+    MOD_SHIFT,
+    AudioCapturePipeline,
+    Hotkey,
+    HotkeyInterceptor,
+    PermissionType,
+    ZeroTrustPermissionManager,
 )
 from axelr_config import (
-    Tier, HARDWARE_PROFILES, apply_env_overrides, budget_for,
-    profile_summary, select_profile, validate_all_profiles,
+    HARDWARE_PROFILES,
+    Tier,
+    apply_env_overrides,
+    budget_for,
+    profile_summary,
+    select_profile,
+    validate_all_profiles,
 )
-from axelr_engine import DecoderConfig, Token
+from axelr_devices import (
+    DeviceTier,
+    FeatureUnavailableError,
+    classify,
+    require_feature,
+    user_facing_summary,
+)
+from axelr_engine import DecoderConfig
 from axelr_features import CloudConfig
 from axelr_pipeline import BackpressureController, EnginePipeline, PipelineConfig
+from axelr_resource import (
+    ColdStartProfiler,
+    MemoryPressureMonitor,
+    PressureConfig,
+)
 from axelr_ring import RingBufferConfig, ZeroCopyRingBuffer
 from axelr_utils import MetricsCollector, get_logger
-from axelr_resource import (
-    GracefulFeatureLadder, MemoryPressureMonitor, PressureConfig,
-    ColdStartProfiler,
-)
-from axelr_adapters import ASRConfig, select_adapter, make_local_fn
-from axelr_devices import (
-    classify, select_runtime, require_feature,
-    FeatureUnavailableError, user_facing_summary, check_feature,
-    DeviceTier,
-)
 
 logger = get_logger(__name__)
 
@@ -96,8 +107,8 @@ class PreflightChecker:
         profile = classify()
         if profile.tier == DeviceTier.MOBILE:
             r.fail("device_tier",
-                   f"Mobile-tier device — standalone Python mode not supported. "
-                   f"Use --mode browser-only.")
+                   "Mobile-tier device — standalone Python mode not supported. "
+                   "Use --mode browser-only.")
             return
         if profile.tier < DeviceTier.STANDARD:
             r.pass_("device_tier",
@@ -225,7 +236,7 @@ async def _drain_loop(
 async def _run(mode: str, tier: Optional[Tier], dry_run: bool = False) -> None:
     device = classify()
     print(user_facing_summary(device))
-    
+
     profile = select_profile(tier)
     profile = apply_env_overrides(profile)
     budget = budget_for(profile.tier)

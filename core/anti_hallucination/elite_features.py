@@ -18,7 +18,6 @@ Coverage:
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 import unicodedata
 from collections import defaultdict

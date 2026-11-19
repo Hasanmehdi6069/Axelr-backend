@@ -20,7 +20,6 @@ import json
 
 import pytest
 
-
 # ═══════════════════════════════════════════════════════════════════════════
 # PART A — TOOLS
 # ═══════════════════════════════════════════════════════════════════════════
@@ -29,8 +28,9 @@ import pytest
 
 @pytest.mark.asyncio
 async def test_hard_timeout_raises_504_on_slow_handler():
-    from api.routes_tools import hard_timeout
     from fastapi import HTTPException
+
+    from api.routes_tools import hard_timeout
 
     @hard_timeout(seconds=0.05)
     async def slow():
@@ -388,6 +388,7 @@ def test_payload_model_is_write_operation():
 @pytest.mark.parametrize("bad_type", ["", "not_real", "STORAGE", "Storage!"])
 def test_payload_model_rejects_bad_type(bad_type):
     from pydantic import ValidationError
+
     from api.qstash_webhook import QStashTaskPayload
     with pytest.raises(ValidationError):
         QStashTaskPayload(task_id="t", task_type=bad_type)
@@ -406,6 +407,7 @@ def test_openai_compat_no_extra_headers_does_not_crash():
     pytest.importorskip("respx")
     import respx
     from httpx import Response
+
     from api.provider_http import _openai_compat
 
     with respx.mock:

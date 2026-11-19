@@ -1,10 +1,10 @@
 """AXELR Core Package"""
 from .core import (
     __version__,
+    get_adapter_statuses,
+    health,
     init,
     shutdown,
-    health,
-    get_adapter_statuses,
 )
 
 # Maintain backward compatibility with verification scripts expecting health_probe

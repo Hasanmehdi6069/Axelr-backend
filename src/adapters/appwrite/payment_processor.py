@@ -4,25 +4,27 @@ validates them, and updates user subscriptions/credits in Appwrite.
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
-import logging
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional, Tuple
-from appwrite.client import Client
-from appwrite.services.databases import Databases
-from appwrite.id import ID
+from typing import Any, Dict, Optional, Tuple
+
 from pydantic import ValidationError
 
-from .schemas import Transaction, TransactionStatus, PaymentGateway, Subscription
+from appwrite.client import Client
+from appwrite.id import ID
+from appwrite.services.databases import Databases
+
 from .retry import with_exponential_backoff
+from .schemas import PaymentGateway, Subscription, Transaction, TransactionStatus
 
 logger = logging.getLogger("axelr.payment_processor")
 
 # Environment variables - configured in Appwrite Function
 REQUIRED_ENV_VARS = {
     "APPWRITE_ENDPOINT",
-    "APPWRITE_PROJECT_ID", 
+    "APPWRITE_PROJECT_ID",
     "APPWRITE_API_KEY",
     "APPWRITE_DATABASE_ID",
     "TRANSACTIONS_COLLECTION_ID",
@@ -52,7 +54,7 @@ def init_appwrite_client() -> Tuple[Client, Databases]:
     client.set_endpoint(os.getenv("APPWRITE_ENDPOINT"))
     client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
     client.set_key(os.getenv("APPWRITE_API_KEY"))
-    
+
     return client, Databases(client)
 
 def parse_email_content(subject: str, body: str, from_email: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
@@ -66,7 +68,7 @@ def parse_email_content(subject: str, body: str, from_email: str) -> Tuple[Optio
     # Determine gateway from sender email
     paytm_senders = set(os.getenv("PAYTM_ALLOWED_SENDERS", "").split(","))
     upi_senders = set(os.getenv("UPI_ALLOWED_SENDERS", "").split(","))
-    
+
     if from_email in paytm_senders:
         transaction_data["gateway"] = PaymentGateway.PAYTM_QR
     elif from_email in upi_senders:
@@ -95,7 +97,7 @@ def parse_email_content(subject: str, body: str, from_email: str) -> Tuple[Optio
     payer_match = PAYER_VPA_PATTERN.search(body)
     if payer_match:
         transaction_data["payer_vpa"] = payer_match.group(1).strip()
-    
+
     # Verify our merchant VPA is in the email (payment was to us)
     merchant_vpa = os.getenv("MERCHANT_VPA")
     if merchant_vpa and merchant_vpa not in body:
@@ -117,7 +119,7 @@ def parse_email_content(subject: str, body: str, from_email: str) -> Tuple[Optio
                     break
                 except ValueError:
                     continue
-    
+
     if not transaction_time:
         # Fallback to current time if we can't parse
         transaction_time = datetime.now(timezone.utc)
@@ -149,7 +151,7 @@ async def create_transaction(databases: Databases, transaction_data: Dict[str, A
     try:
         # Validate with Pydantic
         transaction = Transaction(**transaction_data)
-        
+
         # Create in Appwrite
         result = databases.create_document(
             database_id=os.getenv("APPWRITE_DATABASE_ID"),
@@ -202,13 +204,13 @@ async def update_user_subscription(databases: Databases, user_id: str, transacti
             # Update existing subscription
             subscription_doc = result["documents"][0]
             subscription = Subscription(**subscription_doc)
-            
+
             # Example logic: add credits or extend subscription based on amount
             # In production, this would map amount to specific plans/credits
             credits_to_add = transaction.amount / 100  # ₹100 = 1 credit - example mapping
             current_credits = subscription.credits_remaining or 0
             updated_credits = current_credits + credits_to_add
-            
+
             databases.update_document(
                 database_id=os.getenv("APPWRITE_DATABASE_ID"),
                 collection_id=os.getenv("SUBSCRIPTIONS_COLLECTION_ID"),
@@ -229,7 +231,7 @@ async def update_user_subscription(databases: Databases, user_id: str, transacti
                 last_payment_transaction_id=transaction.transaction_id,
                 end_date=datetime.now(timezone.utc).isoformat()  # No expiration for paygo
             )
-            
+
             databases.create_document(
                 database_id=os.getenv("APPWRITE_DATABASE_ID"),
                 collection_id=os.getenv("SUBSCRIPTIONS_COLLECTION_ID"),
@@ -249,16 +251,16 @@ async def main(context: Any, email_payload: Dict[str, Any]) -> Dict[str, Any]:
     email_payload structure: https://appwrite.io/docs/functions/email#payload
     """
     logger.info("Received incoming email for payment processing")
-    
+
     try:
         # Initialize Appwrite client
         _, databases = init_appwrite_client()
-        
+
         # Extract email data
         from_email = email_payload.get("from", "")
         subject = email_payload.get("subject", "")
         body = email_payload.get("html", "") or email_payload.get("text", "")
-        
+
         if not body:
             logger.error("Empty email body received")
             return {"success": False, "error": "Empty email body"}
@@ -283,7 +285,7 @@ async def main(context: Any, email_payload: Dict[str, Any]) -> Dict[str, Any]:
 
         # Mark transaction as verified
         await mark_transaction_verified(databases, transaction_id)
-        
+
         # Retrieve the full transaction object
         transaction_doc = databases.get_document(
             database_id=os.getenv("APPWRITE_DATABASE_ID"),

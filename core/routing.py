@@ -20,7 +20,6 @@ import re
 import time
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
-from typing import Any
 
 logger = logging.getLogger("axelr.routing")
 

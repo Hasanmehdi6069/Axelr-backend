@@ -11,23 +11,27 @@ from __future__ import annotations
 import asyncio
 import re
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-
-from axelr_config import GLOBAL_COMMON_WORDS, HardwareProfile
-from axelr_devices import classify, DeviceProfile
-from axelr_telemetry import get_ghost_telemetry, start_telemetry, stop_telemetry
+from axelr_config import GLOBAL_COMMON_WORDS
 from axelr_engine import (
-    DecoderConfig, LocalInferenceFn, PhoneticCorrector,
+    DecoderConfig,
+    PhoneticCorrector,
     SpeculativeCascadeDecoder,
 )
 from axelr_features import (
-    CloudConfig, CloudRouter, EvictingKVCache, StreamingLogitBiasing,
-    StreamingNGramReranker, StructuredRepair, TokenRescoringLoop,
+    CloudConfig,
+    CloudRouter,
+    EvictingKVCache,
+    StreamingLogitBiasing,
+    StreamingNGramReranker,
+    StructuredRepair,
+    TokenRescoringLoop,
     ZeroLatencyContextInjector,
 )
+from axelr_telemetry import get_ghost_telemetry, start_telemetry, stop_telemetry
 from axelr_utils import get_logger, normalize_text
 
 logger = get_logger(__name__)

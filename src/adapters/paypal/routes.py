@@ -1,17 +1,19 @@
 """FastAPI routes for PayPal module with proper auth, idempotency, and state management"""
 from __future__ import annotations
 
+import json
 import logging
-from typing import Optional, Dict, Any
-from fastapi import APIRouter, Request, Depends, HTTPException
+from typing import Any, Dict, Optional
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from .core import get_core_module, HealthStatus
-from .client import get_paypal_client
-from .schemas import CreateOrderRequest, RefundRequest
-from .transactions import get_transaction_store, TransactionState, Transaction
-from .axelr_ai import extract_payment_intent, PaymentIntent
 from .auditing import get_audit_logger
+from .axelr_ai import extract_payment_intent
+from .client import get_paypal_client
+from .core import HealthStatus, get_core_module
+from .schemas import CreateOrderRequest, RefundRequest
+from .transactions import Transaction, TransactionState, get_transaction_store
 from .webhooks import get_webhook_handler
 
 logger = logging.getLogger("axelr.paypal.routes")
@@ -84,7 +86,7 @@ async def create_order(request: CreateOrderRequest, _=Depends(require_auth)):
     client = get_paypal_client()
     store = get_transaction_store()
     audit = get_audit_logger()
-    
+
     try:
         # Create transaction and transition through states
         txn = await store.create_transaction(
@@ -94,28 +96,28 @@ async def create_order(request: CreateOrderRequest, _=Depends(require_auth)):
             metadata={"description": request.description}
         )
         await store.transition_state(txn.id, TransactionState.VALIDATED, "Input validation passed")
-        
+
         # Create PayPal order
         paypal_order = await client.create_order(request.model_dump())
         await store.transition_state(
-            txn.id, 
-            TransactionState.PAYPAL_CREATED, 
+            txn.id,
+            TransactionState.PAYPAL_CREATED,
             f"PayPal order created: {paypal_order['id']}"
         )
-        
+
         # Update transaction with PayPal ID
         txn_data = await store.get_transaction(txn.id)
         if txn_data:
             txn_data.paypal_order_id = paypal_order["id"]
             await store._save(txn_data)
-            
+
         audit.log_money_movement(
             operation="order_created",
             transaction_id=txn.id,
             amount=request.amount,
             currency=request.currency
         )
-        
+
         return {
             "transaction_id": txn.id,
             "paypal_order_id": paypal_order["id"],
@@ -146,7 +148,7 @@ async def capture_order(txn_id: str, request: CaptureOrderRequest, _=Depends(req
     client = get_paypal_client()
     store = get_transaction_store()
     audit = get_audit_logger()
-    
+
     # Look up transaction by PayPal order ID (txn_id in route is PayPal order ID)
     txn = await store.get_by_paypal_order_id(txn_id)
     if not txn:
@@ -154,20 +156,20 @@ async def capture_order(txn_id: str, request: CaptureOrderRequest, _=Depends(req
         txn = await store.get_transaction(txn_id)
         if not txn:
             raise HTTPException(status_code=404, detail="Transaction not found")
-        
+
     if txn.state != TransactionState.APPROVED:
         raise HTTPException(status_code=400, detail=f"Cannot capture transaction in state {txn.state}, must be APPROVED")
-    
+
     try:
         capture = await client.capture_order(txn.paypal_order_id, request.idempotency_key)
         await store.transition_state(txn.id, TransactionState.CAPTURED, "PayPal capture completed")
-        
+
         # Update transaction with capture ID
         txn_data = await store.get_transaction(txn.id)
         if txn_data:
             txn_data.paypal_capture_id = capture["id"]
             await store._save(txn_data)
-            
+
         audit.log_money_movement(
             operation="order_captured",
             transaction_id=txn.id,
@@ -186,10 +188,10 @@ async def create_refund(request: RefundRequest, _=Depends(require_auth)):
     client = get_paypal_client()
     store = get_transaction_store()
     audit = get_audit_logger()
-    
+
     if not request.confirm:
         raise HTTPException(status_code=400, detail="Refund requires confirm=True to execute")
-    
+
     # Find transaction by capture ID (simplified)
     txn = None
     if store.redis:
@@ -206,17 +208,17 @@ async def create_refund(request: RefundRequest, _=Depends(require_auth)):
             if data.get("paypal_capture_id") == request.capture_id:
                 txn = Transaction(**data)
                 break
-    
+
     if not txn:
         raise HTTPException(status_code=404, detail="No transaction found with that capture ID")
-        
+
     if txn.state != TransactionState.CAPTURED:
         raise HTTPException(status_code=400, detail=f"Cannot refund transaction in state {txn.state}, must be CAPTURED")
-    
+
     try:
         refund = await client.create_refund(request.model_dump())
         await store.transition_state(txn.id, TransactionState.REFUNDED, f"PayPal refund created: {refund['id']}")
-        
+
         audit.log_money_movement(
             operation="refund_initiated",
             transaction_id=txn.id,
@@ -227,6 +229,3 @@ async def create_refund(request: RefundRequest, _=Depends(require_auth)):
     except Exception as e:
         logger.error(f"Refund failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Failed to create refund: {str(e)}")
-
-# Add missing json import
-import json

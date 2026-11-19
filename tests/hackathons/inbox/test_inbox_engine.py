@@ -8,13 +8,20 @@ import socket
 from pathlib import Path
 
 import pytest
-
 from axelr.apex_client import (
-    ApexRouterClient, CloudCallForbidden, _is_local_host, normalize_metadata,
+    ApexRouterClient,
+    CloudCallForbidden,
+    _is_local_host,
+    normalize_metadata,
 )
 from axelr.core import (
-    DailySummary, DocumentMetadata, ProcessingResult, UndoEntry, UndoLog,
-    _safe_segment, _target_path,
+    DailySummary,
+    DocumentMetadata,
+    ProcessingResult,
+    UndoEntry,
+    UndoLog,
+    _safe_segment,
+    _target_path,
 )
 
 

@@ -9,17 +9,17 @@ from __future__ import annotations
 import asyncio
 import json
 import re
-import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from enum import Enum
-from typing import Callable, Dict, List, Optional, Set, Tuple
 from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
-
 from axelr_config import (
-    CONTEXTUAL_WINDOW_SIZE, DOMAIN_CONFIGS, DOMAIN_PATTERNS, GLOBAL_COMMON_WORDS,
+    CONTEXTUAL_WINDOW_SIZE,
+    DOMAIN_CONFIGS,
+    DOMAIN_PATTERNS,
+    GLOBAL_COMMON_WORDS,
 )
 from axelr_utils import get_logger
 
@@ -285,8 +285,7 @@ class StreamingLogitBiasing:
 
 # ---------- Circuit Breaker #18 -----------------------------------------
 
-from axelr_utils import CircuitBreaker, CircuitState
-
+from axelr_utils import CircuitBreaker
 
 # ---------- Structured Repair #21 --------------------------------------
 

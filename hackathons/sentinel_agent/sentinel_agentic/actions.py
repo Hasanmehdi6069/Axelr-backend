@@ -18,7 +18,11 @@ from typing import Any, Awaitable, Callable
 from urllib.request import Request, urlopen
 
 from .engine import (
-    ContainmentViolation, Engine, audit, minify, sha16,
+    ContainmentViolation,
+    Engine,
+    audit,
+    minify,
+    sha16,
 )
 
 Params = dict[str, Any]

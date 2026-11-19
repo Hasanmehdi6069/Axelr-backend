@@ -8,9 +8,11 @@ Reads the same env vars; adds validation + a single audit() surface.
 Design: pure stdlib. No pydantic required. Read once at import.
 """
 from __future__ import annotations
+
 import os
 from dataclasses import dataclass, field
 from typing import Any
+
 
 def _int(key: str, default: int) -> int:
     try: return int(os.getenv(key, str(default)))
@@ -139,9 +141,9 @@ def audit() -> dict[str, Any]:
 
 
 # ── Adapter initialization & status tracking ──────────────────────────────────
-import logging
 import asyncio
-from typing import Any, Dict
+import logging
+from typing import Dict
 
 logger = logging.getLogger("axelr.core.config")
 _ADAPTER_STATUSES: Dict[str, Dict[str, Any]] = {}

@@ -20,8 +20,15 @@ from typing import Any
 from fastapi import FastAPI
 
 from .core import (
-    MODULE_VERSION, ModuleSettings,
-    get_core_module, init as core_init, shutdown as core_shutdown,
+    MODULE_VERSION,
+    ModuleSettings,
+    get_core_module,
+)
+from .core import (
+    init as core_init,
+)
+from .core import (
+    shutdown as core_shutdown,
 )
 from .routes import router as paypal_router
 
@@ -31,17 +38,34 @@ logger = logging.getLogger("axelr.paypal.main")
 
 # Re-export public API — this file doubles as the package entry.
 from .client import (  # noqa: E402
-    PayPalAPIError, PayPalClient, get_paypal_client,
+    PayPalAPIError,
+    PayPalClient,
     extract_payment_intent,
+    get_paypal_client,
 )
 from .core import (  # noqa: E402
-    AuditEvent, HealthStatus, PayPalCoreModule, Transaction, TransactionStore,
-    get_audit_logs, get_audit_stats, get_transaction_store,
-    health_probe, is_healthy, log_audit, log_audit_event,
+    AuditEvent,
+    HealthStatus,
+    PayPalCoreModule,
+    Transaction,
+    TransactionStore,
+    get_audit_logs,
+    get_audit_stats,
+    get_transaction_store,
+    health_probe,
+    is_healthy,
+    log_audit,
+    log_audit_event,
 )
 from .schemas import (  # noqa: E402
-    AIExtractionRequest, CaptureOrderRequest, CreateOrderRequest,
-    OrderItem, PaymentIntent, RefundRequest, TransactionState, WebhookEvent,
+    AIExtractionRequest,
+    CaptureOrderRequest,
+    CreateOrderRequest,
+    OrderItem,
+    PaymentIntent,
+    RefundRequest,
+    TransactionState,
+    WebhookEvent,
 )
 from .webhooks import verify_and_dispatch  # noqa: E402
 

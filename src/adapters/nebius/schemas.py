@@ -1,13 +1,14 @@
 """Strict Pydantic validation schemas for Nebius Cloud inference API"""
-from pydantic import BaseModel, Field, field_validator, ValidationError
-from typing import List, Optional, Dict, Any, Union
+from typing import Any, Dict, List
+
+from pydantic import BaseModel, Field, ValidationError, field_validator
 
 
 class ChatMessage(BaseModel):
     """Chat message format for Llama 3 inference"""
     role: str = Field(..., description="Message role (system, user, assistant)")
     content: str = Field(..., min_length=1, description="Message content")
-    
+
     @field_validator('role')
     def validate_role(cls, v: str) -> str:
         valid_roles = {"system", "user", "assistant"}
@@ -26,7 +27,7 @@ class NebiusChatCompletionRequest(BaseModel):
     stream: bool = Field(False, description="Enable streaming responses")
     presence_penalty: float = Field(0.0, ge=-2.0, le=2.0)
     frequency_penalty: float = Field(0.0, ge=-2.0, le=2.0)
-    
+
     @field_validator('model')
     def validate_model(cls, v: str) -> str:
         valid_models = {"llama3:8b", "llama3:70b", "llama3.1:405b", "mistral:8x7b"}

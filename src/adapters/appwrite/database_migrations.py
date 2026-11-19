@@ -1,11 +1,11 @@
 """Appwrite database migration scripts to create required collections for payments and support"""
-import os
-from typing import Dict, Any, List
-from appwrite.client import Client
-from appwrite.services.databases import Databases
-from appwrite.services.storage import Storage
-from appwrite.exception import AppwriteException
 import logging
+import os
+from typing import Any, Dict, List
+
+from appwrite.client import Client
+from appwrite.exception import AppwriteException
+from appwrite.services.databases import Databases
 
 logger = logging.getLogger("axelr.db_migrations")
 
@@ -15,21 +15,21 @@ class DatabaseMigrator:
     for our payment automation and support triage systems. Creates collections
     with gateway-agnostic schemas that support future migration to Juspay/Hyperswitch.
     """
-    
+
     def __init__(self):
         """Initialize Appwrite client"""
         self.client = Client()
         self.client.set_project(os.getenv("APPWRITE_PROJECT_ID"))
         self.client.set_key(os.getenv("APPWRITE_API_KEY"))
         self.client.set_endpoint(os.getenv("APPWRITE_ENDPOINT", "https://cloud.appwrite.io/v1"))
-        
+
         self.databases = Databases(self.client)
         self.database_id = os.getenv("APPWRITE_DATABASE_ID")
-        
+
         # Collection IDs that will be created
         self.collections = {
             "transactions": "transactions",
-            "subscriptions": "subscriptions", 
+            "subscriptions": "subscriptions",
             "support_tickets": "support_tickets",
             "audit_logs": "audit_logs"
         }
@@ -111,9 +111,9 @@ class DatabaseMigrator:
         if self.collection_exists(collection_id):
             logger.info(f"Collection {collection_id} already exists, skipping creation")
             return
-        
+
         logger.info(f"Creating collection: {collection_id}")
-        
+
         # Create the collection
         self.databases.create_collection(
             database_id=self.database_id,
@@ -123,7 +123,7 @@ class DatabaseMigrator:
             read=["role:system"],  # Strict least-privilege: only system can read by default
             write=["role:system"]   # Strict least-privilege: only system can write by default
         )
-        
+
         # Add all attributes
         for attr in attributes:
             logger.debug(f"Adding attribute {attr['key']} to {collection_id}")
@@ -176,7 +176,7 @@ class DatabaseMigrator:
             # Common indexes for all collections
             {"key": "created_at_idx", "type": "key", "attributes": ["$createdAt"], "orders": ["DESC"]},
         ]
-        
+
         # Collection-specific indexes
         if collection_id == "transactions":
             indexes.extend([
@@ -207,7 +207,7 @@ class DatabaseMigrator:
                 {"key": "timestamp_idx", "type": "key", "attributes": ["timestamp"], "orders": ["DESC"]},
                 {"key": "resource_id_idx", "type": "key", "attributes": ["resource_id"], "orders": ["ASC"]}
             ])
-        
+
         # Create all indexes
         for idx in indexes:
             try:
@@ -234,7 +234,7 @@ class DatabaseMigrator:
         # Base permissions - system role always has full access
         read_permissions = ["role:system"]
         write_permissions = ["role:system"]
-        
+
         # Add appropriate roles based on collection
         if collection_id in ["transactions", "subscriptions"]:
             # Finance and billing team can read payment data
@@ -250,7 +250,7 @@ class DatabaseMigrator:
             read_permissions.extend(["role:security", "role:compliance"])
             # No one can modify audit logs - immutable
             write_permissions = ["role:system"]  # Only system can write, no modifications
-        
+
         # Update collection permissions
         try:
             self.databases.update_collection(
@@ -271,7 +271,7 @@ class DatabaseMigrator:
             "collections_skipped": [],
             "errors": []
         }
-        
+
         # Collections to create with their configurations
         collection_configs = [
             {
@@ -295,7 +295,7 @@ class DatabaseMigrator:
                 "attributes": self.get_audit_logs_attributes()
             }
         ]
-        
+
         for config in collection_configs:
             try:
                 if not self.collection_exists(config["id"]):
@@ -315,7 +315,7 @@ class DatabaseMigrator:
                 logger.error(error_msg)
                 results["errors"].append(error_msg)
                 results["success"] = False
-        
+
         return results
 
 
@@ -324,7 +324,7 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     migrator = DatabaseMigrator()
     results = migrator.run_migrations()
-    
+
     if results["success"]:
         logger.info("All migrations completed successfully!")
         logger.info(f"Created: {results['collections_created']}")

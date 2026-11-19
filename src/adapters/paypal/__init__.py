@@ -1,7 +1,7 @@
 """PayPal payment processing adapter for AXELR AI monorepo"""
-from .webhooks import PayPalWebhookHandler, get_webhook_handler
-from .schemas import PayPalWebhookPayload, validate_paypal_webhook
 from .client import PayPalClient, get_paypal_client
+from .schemas import PayPalWebhookPayload, validate_paypal_webhook
+from .webhooks import PayPalWebhookHandler, get_webhook_handler
 
 __all__ = [
     "PayPalWebhookHandler",

@@ -50,7 +50,6 @@ import subprocess
 import sys
 import time
 from collections import deque
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -65,7 +64,11 @@ except ImportError:                       # pragma: no cover
 
 try:
     from prometheus_client import (  # type: ignore[import-not-found]
-        Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST,
+        CONTENT_TYPE_LATEST,
+        Counter,
+        Gauge,
+        Histogram,
+        generate_latest,
     )
     _HAS_PROM = True
 except ImportError:                       # pragma: no cover
@@ -74,9 +77,13 @@ except ImportError:                       # pragma: no cover
     CONTENT_TYPE_LATEST = "text/plain"  # type: ignore[assignment]
     _HAS_PROM = False
 from .twin_roster import (
-    MAX_RESIDENT_MB, MODEL_ROSTER, ROSTER_BY_ID, ModelSpec,
-    _ELITE_PREFERENCE, _FAST_PREFERENCE, pick_local_model,
-    ELITE_MODELS, FAST_MODELS, BLITZ_MODELS, SOLO_MODELS,
+    _ELITE_PREFERENCE,
+    _FAST_PREFERENCE,
+    MAX_RESIDENT_MB,
+    MODEL_ROSTER,
+    ROSTER_BY_ID,
+    ModelSpec,
+    pick_local_model,
 )
 
 logger = logging.getLogger("Axelr-insight.local_inference")
@@ -894,7 +901,7 @@ class TwinEngine:
             if not found:
                 logger.warning("twin_no_local_binary_falling_back_to_gateways slot=%s", slot)
                 return  # Fall back to cloud AI gateways automatically
-        
+
         try:
             proc = await asyncio.create_subprocess_exec(
                 *args,

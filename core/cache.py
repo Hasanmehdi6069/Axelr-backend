@@ -22,16 +22,14 @@ import math
 import os
 import re
 import sqlite3
-import struct
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass, field
-from typing import Any, Callable, Iterable
+from typing import Any, Callable
 
 import httpx
 
-from .foundation import load as _cfg
 from .infra import cf_embed_batch, get_redis_client
 
 logger = logging.getLogger("axelr.cache")

@@ -26,8 +26,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
 import numpy as np
-
-from axelr_engine import edit_distance, soundex, metaphone
+from axelr_engine import edit_distance, metaphone, soundex
 from axelr_utils import get_logger
 
 logger = get_logger(__name__)

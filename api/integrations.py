@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import time
 from typing import Any
 
 import boto3
@@ -21,13 +22,15 @@ import cloudflare
 import httpx
 from fastapi import HTTPException
 
-import time
 from .config import (
-    CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_KEY,
-    CLOUDFLARE_R2_ACCESS_KEY_ID, CLOUDFLARE_R2_BUCKET,
+    CLOUDFLARE_ACCOUNT_ID,
+    CLOUDFLARE_API_KEY,
+    CLOUDFLARE_R2_ACCESS_KEY_ID,
     CLOUDFLARE_R2_SECRET_ACCESS_KEY,
+    PAYPAL_API_BASE,
+    PAYPAL_CLIENT_ID,
+    PAYPAL_CLIENT_SECRET,
     get_http_client,
-    PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_API_BASE
 )
 from .state import state
 
@@ -89,11 +92,11 @@ async def _get_paypal_access_token() -> str:
     """Get valid PayPal access token, refreshing if expired."""
     if not PAYPAL_CLIENT_ID or not PAYPAL_CLIENT_SECRET:
         raise RuntimeError("PAYPAL_CLIENT_ID or PAYPAL_CLIENT_SECRET not configured")
-    
+
     # Check if current token is still valid (add 60s buffer)
     if state.paypal_access_token and state.paypal_token_expiry > time.time() + 60:
         return state.paypal_access_token
-    
+
     client = get_http_client()
     auth = httpx.BasicAuth(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET)
     try:
@@ -123,7 +126,7 @@ async def paypal_api_request(method: str, path: str, **kwargs: Any) -> dict[str,
             headers = kwargs.pop("headers", {})
             headers["Authorization"] = f"Bearer {token}"
             headers["Content-Type"] = "application/json"
-            
+
             resp = await client.request(
                 method, f"{PAYPAL_API_BASE}{path}",
                 headers=headers, timeout=30.0, **kwargs,
@@ -174,7 +177,7 @@ async def capture_paypal_order(order_id: str, idempotency_key: str) -> dict[str,
     """Capture a PayPal order after user approval."""
     if not enforce_idempotency(idempotency_key):
         raise HTTPException(status_code=409, detail="Order already captured")
-    
+
     headers = {"PayPal-Request-Id": idempotency_key}
     return await paypal_api_request("POST", f"/v2/checkout/orders/{order_id}/capture", headers=headers)
 
@@ -185,7 +188,7 @@ async def verify_paypal_webhook(body: bytes, headers: dict[str, str]) -> bool:
     if not webhook_id:
         logger.warning("paypal_webhook_verification_skipped webhook_id not configured")
         return True  # Skip verification in dev if not set
-    
+
     client = get_http_client()
     token = await _get_paypal_access_token()
     payload = {
@@ -216,9 +219,8 @@ import hmac as _hmac
 import time as _time
 
 from .config import (
-    PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET, PAYPAL_WEBHOOK_SECRET,
+    PAYPAL_WEBHOOK_SECRET,
 )
-from .state import state
 
 _PAYPAL_API_BASE = os.getenv("PAYPAL_API_BASE", "https://api-m.sandbox.paypal.com")
 _PAYPAL_IDEMPOTENCY_TTL = int(os.getenv("PAYPAL_IDEMPOTENCY_TTL", "3600"))

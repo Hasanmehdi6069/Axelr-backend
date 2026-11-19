@@ -402,8 +402,9 @@ def _identity_from_request(request: Request) -> tuple[str, str] | None:
     except Exception:
         pass
     try:
-        from google.oauth2 import id_token as _gid
         from google.auth.transport import requests as _greq
+        from google.oauth2 import id_token as _gid
+
         from .config import GOOGLE_CLIENT_ID
         info = _gid.verify_oauth2_token(token, _greq.Request(), GOOGLE_CLIENT_ID)
         return (f"g:{info['sub']}", "free")

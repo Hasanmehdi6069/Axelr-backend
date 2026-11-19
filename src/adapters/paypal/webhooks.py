@@ -3,14 +3,14 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Optional, Dict, Any
-from fastapi import Request, HTTPException
-from datetime import datetime
+from typing import Any, Dict, Optional
 
-from .core import get_core_module
+from fastapi import HTTPException, Request
+
 from .client import get_paypal_client
-from .transactions import get_transaction_store, TransactionState
-from .schemas import validate_paypal_webhook, PayPalWebhookPayload
+from .core import get_core_module
+from .schemas import PayPalWebhookPayload, validate_paypal_webhook
+from .transactions import TransactionState, get_transaction_store
 
 logger = logging.getLogger("axelr.paypal.webhooks")
 
@@ -21,7 +21,7 @@ _LOCAL_IDEM = processed_webhooks
 class PayPalWebhookHandler:
     """Handles all PayPal webhook events with full validation and state management"""
     _instance: Optional["PayPalWebhookHandler"] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -45,12 +45,12 @@ class PayPalWebhookHandler:
         if not webhook_id:
             logger.warning("Webhook received without transmission ID")
             raise HTTPException(status_code=400, detail="Missing required PayPal headers")
-            
+
         # Check for duplicate processing (idempotency)
         if webhook_id in processed_webhooks:
             logger.info(f"Webhook {webhook_id} already processed, skipping")
             return {"success": True, "skipped": True, "reason": "already processed"}
-            
+
         # Check body size (1MB limit)
         body = await request.body()
         if len(body) > 1 * 1024 * 1024:  # 1MB
@@ -98,11 +98,11 @@ class PayPalWebhookHandler:
         """Handle CHECKOUT.ORDER.APPROVED event - transition transaction to APPROVED state"""
         paypal_order_id = payload["resource"]["id"]
         txn = await self.store.get_by_paypal_order_id(paypal_order_id)
-        
+
         if not txn:
             logger.warning(f"No transaction found for approved PayPal order: {paypal_order_id}")
             return
-            
+
         await self.store.transition_state(txn.id, TransactionState.APPROVED, "PayPal order approved by payer")
 
     async def _handle_refund_completed(self, payload: Dict[str, Any]) -> None:
@@ -126,7 +126,7 @@ class PayPalWebhookHandler:
                 if data.get("paypal_capture_id") == paypal_capture_id:
                     await self.store.transition_state(data["id"], TransactionState.REFUNDED, "PayPal refund completed")
                     return
-                    
+
         logger.warning(f"No transaction found for refunded PayPal capture: {paypal_capture_id}")
 
 def get_webhook_handler() -> PayPalWebhookHandler:
@@ -136,7 +136,6 @@ def get_webhook_handler() -> PayPalWebhookHandler:
 async def process_webhook_event(headers: Optional[Dict[str, Any]] = None, body: Optional[bytes] = None, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Process a webhook event without HTTP request context for testing"""
     handler = get_webhook_handler()
-    from fastapi import Request
     # Handle different argument patterns from tests
     if isinstance(headers, dict) and body is None and payload is None:
         # Single argument: payload dict
@@ -152,17 +151,17 @@ async def process_webhook_event(headers: Optional[Dict[str, Any]] = None, body: 
         req_headers = headers or {}
         req_body = body or json.dumps(payload or {}).encode()
         payload_data = payload or json.loads(req_body.decode())
-    
+
     class MockRequest:
         def __init__(self, headers_dict, body_bytes):
             self.headers = headers_dict
             self._body = body_bytes
         async def body(self):
             return self._body
-    
+
     # Add required transmission ID header if missing
     if "PAYPAL-TRANSMISSION-ID" not in req_headers:
         req_headers["PAYPAL-TRANSMISSION-ID"] = payload_data.get("id", "test-id")
-    
+
     mock_req = MockRequest(req_headers, req_body)
     return await handler.process_webhook(mock_req)

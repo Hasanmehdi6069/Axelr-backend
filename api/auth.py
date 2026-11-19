@@ -27,7 +27,6 @@ import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from typing import Any, Callable
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token
 from jwt import InvalidTokenError as JWTError
@@ -48,9 +47,11 @@ from .config import (
     get_http_client,
 )
 from .state import (
-    delete_redis_cache, get_redis_cache, set_redis_cache, state,
+    delete_redis_cache,
+    get_redis_cache,
+    set_redis_cache,
+    state,
 )
-from .integrations import get_kv_client
 
 logger = logging.getLogger("axelr.auth")
 security = HTTPBearer()

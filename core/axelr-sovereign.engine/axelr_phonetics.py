@@ -2,7 +2,7 @@
 # Phonetic algorithms for AXELR: Soundex + Metaphone + PhoneticEnsemble
 # Single source implementation for both Python and JS porting
 # ═══════════════════════════════════════════════════════════════════════════
-from typing import Tuple, Dict
+from typing import Dict, Tuple
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Phoneme to Grapheme mapping for normalization
@@ -74,7 +74,7 @@ def metaphone(word: str) -> str:
     result = []
     i = 0
     n = len(word)
-    
+
     # Handle silent leading combinations first
     if n >= 2:
         # 'kn' → silent 'k', only 'n' remains
@@ -95,7 +95,7 @@ def metaphone(word: str) -> str:
         # Keep original 'wr' handling for all words
         elif word[0] == 'w' and word[1] == 'r':
             i = 1  # Skip 'w', start at 'r'
-    
+
     # Process remaining word with core metaphone rules
     while i < n:
         ch = word[i]

@@ -17,13 +17,11 @@ Memory: model file is mmap'd; hot set is bounded by `preload_fraction`.
 from __future__ import annotations
 
 import os
-import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Protocol
 
 import numpy as np
-
 from axelr_engine import Token
 from axelr_utils import get_logger
 
@@ -305,7 +303,8 @@ def ensure_model_present(size: str = "tiny",
     target.parent.mkdir(parents=True, exist_ok=True)
     logger.info("model_auto_download size=%s url=%s", size, info["url"])
 
-    import hashlib, urllib.request
+    import hashlib
+    import urllib.request
     sha = hashlib.sha256()
     tmp = target.with_suffix(".tmp")
     try:

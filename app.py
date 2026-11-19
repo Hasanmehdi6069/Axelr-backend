@@ -45,8 +45,8 @@ from api.middleware import (
 )
 from api.routes_admin import router as admin_router
 from api.routes_chat import router as chat_router
-from api.routes_tools import router as tools_router
 from api.routes_ops import router as ops_router
+from api.routes_tools import router as tools_router
 from api.state import state
 
 

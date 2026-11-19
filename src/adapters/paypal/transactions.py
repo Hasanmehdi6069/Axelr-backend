@@ -5,9 +5,9 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Optional, Dict, Any, List
 from enum import Enum
-from decimal import Decimal
+from typing import Any, Dict, List, Optional
+
 import redis.asyncio as redis
 from pydantic import BaseModel
 
@@ -46,7 +46,7 @@ class Transaction(BaseModel):
     updated_at: str
     history: List[Dict[str, Any]]  # State change history
     metadata: Optional[Dict[str, Any]] = None
-    
+
     model_config = {
         "use_enum_values": True
     }
@@ -58,13 +58,16 @@ class Transaction(BaseModel):
 class TransactionStore:
     """Pluggable transaction store with in-memory and Redis implementations"""
     _instance: Optional["TransactionStore"] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
+        # Only initialize once - singleton pattern
+        if hasattr(self, '_initialized') and self._initialized:
+            return
         self.core = get_core_module()
         # Initialize core module if not already initialized
         if not hasattr(self.core, 'settings'):
@@ -82,7 +85,8 @@ class TransactionStore:
         self._order_index: Dict[str, str] = {}  # paypal_order_id -> txn_id
         self._capture_index: Dict[str, str] = {}  # paypal_capture_id -> txn_id
         self._processed_webhook_ids: set[str] = set()
-        
+        self._initialized = True
+
         # Initialize Redis if URL is provided
         if hasattr(self.core, 'settings') and self.core.settings and hasattr(self.core.settings, 'redis_url') and self.core.settings.redis_url:
             try:
@@ -104,7 +108,7 @@ class TransactionStore:
         """Create a new transaction in INITIATED state"""
         txn_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat() + "Z"
-        
+
         txn = Transaction(
             id=txn_id,
             state=TransactionState.INITIATED,
@@ -127,10 +131,10 @@ class TransactionStore:
         txn = await self.get_transaction(txn_id)
         if not txn:
             raise ValueError(f"Transaction {txn_id} not found")
-            
+
         # Handle case where txn.state is a string instead of enum
         current_state = TransactionState(txn.state) if isinstance(txn.state, str) else txn.state
-            
+
         if not self._can_transition(current_state, new_state):
             error = f"invalid state transition from {current_state.value} to {new_state.value}"
             logger.error(error)
@@ -141,14 +145,14 @@ class TransactionStore:
         txn.state = new_state
         txn.updated_at = now
         txn.history.append({"state": new_state, "timestamp": now, "reason": reason, "previous_state": old_state.value})
-        
+
         await self._save(txn)
         # Update core counters
         self.core._transaction_counts[old_state] -= 1
         self.core._transaction_counts[new_state] += 1
         logger.info(f"Transaction {txn_id} transitioned from {old_state.value} to {new_state.value}: {reason}")
         return txn
-        
+
     def _can_transition(self, current_state: TransactionState, new_state: TransactionState) -> bool:
         """Check if a state transition is valid"""
         return new_state in VALID_TRANSITIONS.get(current_state, set())
@@ -164,10 +168,8 @@ class TransactionStore:
             txn_dict = self.in_memory_store.get(f"txn:{txn_id}")
             if not txn_dict:
                 return None
-        
-        # Ensure state is properly deserialized as TransactionState enum
-        if isinstance(txn_dict.get("state"), str):
-            txn_dict["state"] = TransactionState(txn_dict["state"])
+
+        # Pydantic will automatically deserialize the string to TransactionState enum
         return Transaction(**txn_dict)
 
     async def _save(self, txn: Transaction) -> None:
@@ -239,28 +241,6 @@ class TransactionStore:
                     transactions.append(Transaction(**json.loads(data)))
         else:
             for data in self.in_memory_store.values():
-                transactions.append(Transaction(**data))
-        return transactions
-
-    async def add_paypal_order_index(self, paypal_order_id: str, txn_id: str) -> None:
-        """Add order ID to index for fast lookups"""
-        self._order_index[paypal_order_id] = txn_id
-        
-    async def add_paypal_capture_index(self, paypal_capture_id: str, txn_id: str) -> None:
-        """Add capture ID to index for fast lookups"""
-        self._capture_index[paypal_capture_id] = txn_id
-        
-    async def list_transactions(self) -> List[Transaction]:
-        """List all transactions"""
-        transactions = []
-        if self.redis:
-            all_keys = await self.redis.keys("txn:*")
-            for key in all_keys:
-                data = await self.redis.get(key)
-                if data:
-                    transactions.append(Transaction(**json.loads(data)))
-        else:
-            for key, data in self.in_memory_store.items():
                 transactions.append(Transaction(**data))
         return transactions
 

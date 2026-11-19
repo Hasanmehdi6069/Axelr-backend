@@ -44,8 +44,9 @@ from datetime import datetime, timezone
 import websockets
 
 try:
+    from axelr_insights_engine import get_engine as aw_get
+    from axelr_insights_engine import init as aw_init
     from switch_client import SwitchAgentClient
-    from axelr_insights_engine import init as aw_init, get_engine as aw_get
     _HAS_SWITCH = True
 except ImportError:
     _HAS_SWITCH = False

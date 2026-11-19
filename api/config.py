@@ -12,7 +12,6 @@ Prompt construction lives in ``api.prompts`` — do not re-add it here.
 """
 from __future__ import annotations
 
-import json as _json
 import logging
 import os
 import re as _re
@@ -324,7 +323,7 @@ __all__ = [
     "get_http_client",
     # supabase
     "SUPABASE_URL", "SUPABASE_KEY", "SUPABASE_BUCKET",
-    
+
     "TIER_LABELS", "VALID_TIERS", "VALID_SUBTIERS", "VALID_PERIODS",
     # nebius
     "NEBIUS_API_KEY", "NEBIUS_MODELS",

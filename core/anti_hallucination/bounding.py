@@ -27,9 +27,11 @@ except ImportError:
     _fast_json = None
 
 from .schemas import (
-    BoundingBox, DocumentParseError, ExtractionRequest, SourceCoordinate,
+    BoundingBox,
+    DocumentParseError,
+    ExtractionRequest,
+    SourceCoordinate,
 )
-
 
 _NO_PDF = os.environ.get("AXELR_NO_PDF", "").lower() in ("1", "true", "yes")
 
@@ -249,7 +251,7 @@ class DocumentIngestor:
             )
         try:
             import pdfplumber  # type: ignore
-            import PyPDF2      # type: ignore
+            import PyPDF2  # type: ignore
         except ImportError as e:
             raise DocumentParseError(
                 "pdfplumber and PyPDF2 are required for PDF ingestion"

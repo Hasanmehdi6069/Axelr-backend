@@ -10,14 +10,12 @@ Usage:
 """
 from __future__ import annotations
 
-import asyncio
 import time
 from typing import Any, AsyncIterator
 
 from .config import AppwriteConfig, resolve_config
 from .errors import (
     AppwriteError,
-    ConfigurationError,
     NotFoundError,
     ValidationFailed,
 )
@@ -202,7 +200,6 @@ class InsightsEngine:
         **kw: Any,
     ) -> list[dict[str, Any]]:
         """Query rows scoped to a user."""
-        from .models import QueryFilter
         opts = _merge_user_filter(options, kw, user_id)
         return await self._tables.query(table, opts)
 
@@ -213,7 +210,6 @@ class InsightsEngine:
         options: QueryOptions | dict[str, Any] | None = None,
         **kw: Any,
     ) -> int:
-        from .models import QueryFilter
         opts = _merge_user_filter(options, kw, user_id)
         return await self._tables.count(table, opts)
 

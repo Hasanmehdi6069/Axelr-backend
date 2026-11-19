@@ -356,7 +356,7 @@ async def _liveness(request: Request):
     if request.method in ("HEAD", "OPTIONS"):
         return _no_body_ok()
     return _StarletteResponse(
-        status_code=200, content=b"ok",
+        status_code=200, content=b"pong",
         media_type="text/plain; charset=utf-8",
         headers={"Cache-Control": "no-store, no-cache, must-revalidate",
                  "X-Robots-Tag": "noindex"},
@@ -496,11 +496,18 @@ def register_monitor_routes(app: FastAPI) -> None:
                       methods=["GET", "HEAD", "OPTIONS"],
                       include_in_schema=False, name="root_probe")
     app.add_api_route("/api/debug/echo", _debug_echo,
-                      methods=["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"],
+                      methods=["GET", "HEAD", "OPTIONS"],
                       include_in_schema=False, name="debug_echo")
     app.add_api_route("/api/_monitor_probe", _monitor_probe,
                       methods=["GET", "HEAD", "OPTIONS"],
                       include_in_schema=False, name="monitor_probe")
+    
+    # Prometheus metrics endpoint
+    from prometheus_client import generate_latest
+    async def metrics_endpoint():
+        return Response(content=generate_latest(), media_type="text/plain")
+    app.add_api_route("/metrics", metrics_endpoint,
+                      methods=["GET"], include_in_schema=False, name="metrics")
 
 
 __all__ = [

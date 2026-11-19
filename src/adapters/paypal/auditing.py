@@ -1,10 +1,10 @@
 """Audit logging for all PayPal module operations with secure redaction"""
 from __future__ import annotations
 
+import json
 import logging
-import hashlib
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any, Dict, Optional
 
 from .core import get_core_module
 
@@ -13,7 +13,7 @@ logger = logging.getLogger("axelr.paypal.audit")
 class AuditLogger:
     """Secure audit logger that redacts secrets and tracks all money-moving operations"""
     _instance: Optional["AuditLogger"] = None
-    
+
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -94,8 +94,8 @@ class AuditLogger:
         else:
             logger.info(f"AUDIT: {json.dumps(log_data)}")
 
-# Add json import at module level since we use json.dumps
-import json
+
+
 
 def get_audit_logger() -> AuditLogger:
     return AuditLogger.get_instance()

@@ -2,19 +2,18 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional, Dict, Any
-from decimal import Decimal
+from typing import Any, Dict, Optional
+
 import httpx
 
 from .core import get_core_module
+from .retry import paypal_retry_wrapper
 from .schemas import (
     CreateOrderRequest,
-    CaptureOrderRequest,
+    PayPalWebhookPayload,
     RefundRequest,
     validate_paypal_webhook,
-    PayPalWebhookPayload
 )
-from .retry import paypal_retry_wrapper
 
 logger = logging.getLogger("axelr.paypal.client")
 
@@ -37,7 +36,8 @@ def _hash_raw_input(input_str: str) -> str:
 def _regex_fallback_extraction(input_str: str, raw_input_hash: str) -> Any:
     """Fallback regex extraction for payment intent when parsing fails"""
     import re
-    from .schemas import PaymentIntent, OrderItem
+
+    from .schemas import OrderItem, PaymentIntent
     amount_pattern = r'\$?(\d+(?:\.\d{1,2})?)'
     currency_pattern = r'(USD|EUR|GBP|INR|CAD|AUD|JPY|BRL|MXN|SGD|HKD|NZD)'
     amounts = re.findall(amount_pattern, input_str)
@@ -97,15 +97,15 @@ async def extract_payment_intent(input_str: str) -> Any:
 
 class PayPalClient:
     """Production-grade PayPal API client with automatic retries and validation"""
-    
+
     _instance: Optional["PayPalClient"] = None
-    
+
     def __init__(self):
         self.core = get_core_module()
         self.base_url = "https://api-m.paypal.com" if self.core.settings.environment == "live" else "https://api-m.sandbox.paypal.com"
         self.access_token: Optional[str] = None
         self._initialized = False
-        
+
         if not self.core.settings.client_id or not self.core.settings.client_secret:
             logger.warning("PayPal credentials not set - client cannot make real API calls")
         else:
@@ -122,7 +122,7 @@ class PayPalClient:
         """Authenticate with PayPal to get access token"""
         if not self.core.settings.client_id or not self.core.settings.client_secret:
             raise RuntimeError("Cannot authenticate without PayPal credentials")
-            
+
         auth = httpx.BasicAuth(self.core.settings.client_id, self.core.settings.client_secret)
         response = await self.core._http_client.post(
             f"{self.base_url}/v1/oauth2/token",
@@ -138,7 +138,7 @@ class PayPalClient:
         """Initialize the client and authenticate if credentials exist"""
         if self._initialized:
             return
-            
+
         if self.core.settings.client_id and self.core.settings.client_secret:
             await self._authenticate()
         self._initialized = True
@@ -148,7 +148,7 @@ class PayPalClient:
     async def create_order(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Create a PayPal order with full validation"""
         validated = CreateOrderRequest(**payload)
-        
+
         # Build PayPal API-compliant payload
         paypal_payload = {
             "intent": validated.intent,
@@ -178,10 +178,10 @@ class PayPalClient:
         }
 
         logger.info(f"Creating PayPal order: amount={validated.amount} {validated.currency}")
-        
+
         if not self.access_token:
             raise RuntimeError("Client not authenticated - cannot create order")
-            
+
         response = await self.core._http_client.post(
             f"{self.base_url}/v2/checkout/orders",
             json=paypal_payload,
@@ -189,25 +189,25 @@ class PayPalClient:
         )
         response.raise_for_status()
         order_data = response.json()
-        
+
         # Extract approve URL
         approve_url = next((link["href"] for link in order_data["links"] if link["rel"] == "approve"), None)
         order_data["approve_url"] = approve_url
-        
+
         return order_data
 
     @paypal_retry_wrapper()
     async def capture_order(self, order_id: str, idempotency_key: Optional[str] = None) -> Dict[str, Any]:
         """Capture an existing PayPal order"""
         logger.info(f"Capturing PayPal order: {order_id}")
-        
+
         if not self.access_token:
             raise RuntimeError("Client not authenticated - cannot capture order")
-            
+
         headers = {"Authorization": f"Bearer {self.access_token}"}
         if idempotency_key:
             headers["PayPal-Request-Id"] = idempotency_key
-            
+
         response = await self.core._http_client.post(
             f"{self.base_url}/v2/checkout/orders/{order_id}/capture",
             headers=headers
@@ -221,12 +221,12 @@ class PayPalClient:
         validated = RefundRequest(**payload)
         if not validated.confirm:
             raise ValueError("Refund requires confirm=True to execute")
-            
+
         logger.info(f"Creating PayPal refund for capture: {validated.capture_id}, amount={validated.amount} {validated.currency}")
-        
+
         if not self.access_token:
             raise RuntimeError("Client not authenticated - cannot create refund")
-            
+
         refund_payload = {
             "amount": {
                 "currency_code": validated.currency,
@@ -234,11 +234,11 @@ class PayPalClient:
             },
             "note_to_payer": validated.reason
         }
-        
+
         headers = {"Authorization": f"Bearer {self.access_token}"}
         if payload.get("idempotency_key"):
             headers["PayPal-Request-Id"] = payload["idempotency_key"]
-            
+
         response = await self.core._http_client.post(
             f"{self.base_url}/v2/payments/captures/{validated.capture_id}/refund",
             json=refund_payload,
@@ -253,10 +253,10 @@ class PayPalClient:
         if not self.core.settings.webhook_id:
             logger.warning("Webhook ID not set - signature verification failed")
             return False
-            
+
         if not self.access_token:
             raise RuntimeError("Client not authenticated - cannot verify webhook")
-            
+
         verify_payload = {
             "auth_algo": headers.get("PAYPAL-AUTH-ALGO"),
             "cert_url": headers.get("PAYPAL-CERT-URL"),
@@ -266,7 +266,7 @@ class PayPalClient:
             "webhook_id": self.core.settings.webhook_id,
             "webhook_event": body
         }
-        
+
         response = await self.core._http_client.post(
             f"{self.base_url}/v1/notifications/verify-webhook-signature",
             json=verify_payload,
@@ -279,7 +279,7 @@ class PayPalClient:
     async def process_webhook(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """Process and validate an incoming PayPal webhook"""
         validated: PayPalWebhookPayload = validate_paypal_webhook(payload)
-        
+
         logger.info(f"Processing PayPal webhook: {validated.event_type}")
         return {
             "success": True,

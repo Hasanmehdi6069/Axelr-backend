@@ -17,9 +17,7 @@ import time
 
 import pytest
 
-from core import (orchestration, routing, consensus, goat_layer,
-                  hardening, condenser, pipeline)
-
+from core import condenser, consensus, goat_layer, hardening, orchestration, pipeline, routing
 
 # ═══════════════════════════════════════════════════════════════════════════
 # §1 Path selection

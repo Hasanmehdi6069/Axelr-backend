@@ -17,16 +17,15 @@ Design:
 """
 from __future__ import annotations
 
-import os
 import asyncio
-import contextlib
 import logging
+import os
 import statistics
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, Awaitable, Callable
 
 from .foundation import load as _cfg
 
@@ -532,6 +531,30 @@ class WaveRacer:
 RACER = WaveRacer()
 
 
+def audit() -> dict[str, Any]:
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            return {
+                "breaker": {},
+                "hotswap": get_hot_swap_detector().snapshot() if get_hot_swap_detector() else None,
+                "racer": RACER.snapshot(),
+            }
+        else:
+            return {
+                "breaker": asyncio.get_event_loop().run_until_complete(BREAKER.snapshot()),
+                "hotswap": get_hot_swap_detector().snapshot() if get_hot_swap_detector() else None,
+                "racer": RACER.snapshot(),
+            }
+    except Exception:
+        return {
+            "breaker": {},
+            "hotswap": get_hot_swap_detector().snapshot() if get_hot_swap_detector() else None,
+            "racer": RACER.snapshot(),
+        }
+
+
 __all__ = [
     # Circuit breaker
     "CircuitBreaker", "BREAKER", "get_breaker",
@@ -541,4 +564,6 @@ __all__ = [
     "ProviderFunc", "HotSwapResult", "HotSwapDetector", "get_hot_swap_detector",
     # Wave racer
     "WaveRacer", "RACER",
+    # Audit
+    "audit",
 ]

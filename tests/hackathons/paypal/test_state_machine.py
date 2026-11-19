@@ -5,23 +5,28 @@ covered by `verification.py` against sandbox.
 """
 from __future__ import annotations
 
-import asyncio
 import json
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from src.adapters.paypal.core import (
-    AuditEvent, PayPalCoreModule, Transaction, TransactionStore,
-    get_audit_logs, get_core_module, get_transaction_store, log_audit,
-)
 from src.adapters.paypal.client import (
-    PayPalAPIError, _hash_raw_input, _regex_fallback_extraction,
-    extract_payment_intent, get_paypal_client,
+    _regex_fallback_extraction,
+    extract_payment_intent,
+    get_paypal_client,
 )
+from src.adapters.paypal.core import (
+    get_audit_logs,
+    get_core_module,
+    log_audit,
+)
+from src.adapters.paypal.transactions import get_transaction_store
 from src.adapters.paypal.schemas import (
-    CreateOrderRequest, OrderItem, PaymentIntent, RefundRequest,
+    CreateOrderRequest,
+    OrderItem,
+    PaymentIntent,
+    RefundRequest,
     TransactionState,
 )
 from src.adapters.paypal.webhooks import _LOCAL_IDEM, process_webhook_event
@@ -80,9 +85,8 @@ async def test_webhook_duplicate_event_processed_once():
     txn = await store.create_transaction(amount="100.00", currency="USD", items=[])
     await store.transition_state(txn.id, TransactionState.VALIDATED)
     await store.transition_state(txn.id, TransactionState.PAYPAL_CREATED)
-    txn_data = txn.model_dump()
-    txn_data["paypal_order_id"] = "TEST-ORDER-123"
-    await store._save(type(txn)(**txn_data))
+    txn.paypal_order_id = "TEST-ORDER-123"
+    await store._save(txn)
     await store.add_paypal_order_index("TEST-ORDER-123", txn.id)
 
     event = {
@@ -92,7 +96,7 @@ async def test_webhook_duplicate_event_processed_once():
     }
     body = json.dumps(event).encode()
     with patch(
-        "axelr_paypal.client.PayPalClient.verify_webhook_signature",
+        "src.adapters.paypal.client.PayPalClient.verify_webhook_signature",
         new=AsyncMock(return_value=True),
     ):
         r1 = await process_webhook_event({"x": "y"}, body)
@@ -134,7 +138,7 @@ async def test_ai_extraction_returns_valid_json():
 @pytest.mark.asyncio
 async def test_capture_rejected_before_money_moves():
     """If txn exists and state != APPROVED, PayPal must NOT be called."""
-    from src.adapters.paypal.routes import capture_order
+    from src.adapters.paypal.routes import capture_order, CaptureOrderRequest
     store = get_transaction_store()
     txn = await store.create_transaction(amount="1.00", currency="USD", items=[])
     await store.add_paypal_order_index("ORD-BAD", txn.id)  # INITIATED, not APPROVED
@@ -142,15 +146,17 @@ async def test_capture_rejected_before_money_moves():
         mock_client = MagicMock()
         mock_client.capture_order = AsyncMock()
         mock_get.return_value = mock_client
-        resp = await capture_order("ORD-BAD", None, {"_id": "u1"})
-        assert resp.status_code == 400
+        req = CaptureOrderRequest(idempotency_key=None)
+        with pytest.raises(Exception) as excinfo:
+            await capture_order("ORD-BAD", req, {"_id": "u1"})
+        assert "Cannot capture transaction in state" in str(excinfo.value)
         mock_client.capture_order.assert_not_called()
 
 
 @pytest.mark.asyncio
 async def test_capture_persists_CAPTURED_state():
     """Regression: capture must leave txn CAPTURED (not roll back to APPROVED)."""
-    from src.adapters.paypal.routes import capture_order
+    from src.adapters.paypal.routes import capture_order, CaptureOrderRequest
     store = get_transaction_store()
     txn = await store.create_transaction(amount="1.00", currency="USD", items=[])
     await store.transition_state(txn.id, TransactionState.VALIDATED)
@@ -164,7 +170,8 @@ async def test_capture_persists_CAPTURED_state():
             "purchase_units": [{"payments": {"captures": [{"id": "CAP-1"}]}}],
         })
         mock_get.return_value = mock_client
-        await capture_order("ORD-OK", None, {"_id": "u1"})
+        req = CaptureOrderRequest(idempotency_key=None)
+        await capture_order("ORD-OK", req, {"_id": "u1"})
     fresh = await store.get_transaction(txn.id)
     assert fresh.state == TransactionState.CAPTURED
     assert fresh.paypal_capture_id == "CAP-1"
@@ -199,11 +206,11 @@ async def test_multi_llm_failover():
         raw_input_hash="a" * 64,
         raw_input="test input", extracted_from="test",
     )
-    with patch("src.adapters.paypal.client._extract_with_openai",
+    with patch("src.adapters.paypal.axelr_ai._extract_with_openai",
                side_effect=Exception("down")) as oa, \
-         patch("src.adapters.paypal.client._extract_with_anthropic",
+         patch("src.adapters.paypal.axelr_ai._extract_with_anthropic",
                new=AsyncMock(return_value=good)) as an, \
-         patch("src.adapters.paypal.client.get_core_module") as mock_core:
+         patch("src.adapters.paypal.axelr_ai.get_core_module") as mock_core:
         inst = MagicMock()
         inst.settings.openai_api_key = "k1"
         inst.settings.anthropic_api_key = "k2"
@@ -223,7 +230,7 @@ async def test_webhook_signature_false_when_webhook_id_missing():
 @pytest.mark.asyncio
 async def test_audit_log_redacts_secrets():
     await log_audit(
-        event_type="test.event", 
+        event_type="test.event",
         user_id="u1",
         timestamp="2024-01-01T00:00:00Z",
         metadata={"k": "v", "client_secret": "SHOULD_BE_REDACTED"},

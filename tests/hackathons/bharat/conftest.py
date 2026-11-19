@@ -19,9 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pytest
-
 from bharat_agentic import CivicAgent, EngineConfig
-
 
 # ---------------------------------------------------------------------------
 # Canonical documents — reused across every test module

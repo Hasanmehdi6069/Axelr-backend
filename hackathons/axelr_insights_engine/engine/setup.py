@@ -9,8 +9,7 @@ import logging
 import sys
 from typing import Any
 
-from .models import (ALL_SCHEMAS, AttributeSpec, IndexSpec, SchemaDefinition,
-                     SCHEMAS_BY_ID)
+from .models import ALL_SCHEMAS, AttributeSpec, IndexSpec, SchemaDefinition
 from .sdk import AppwriteSDK
 
 _log = logging.getLogger("axelr_insights_engine.setup")

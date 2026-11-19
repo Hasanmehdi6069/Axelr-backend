@@ -1,13 +1,11 @@
 import asyncio
 import os
 import threading
-import time
-from collections import OrderedDict
 from pathlib import Path
 
 import pytest
 
-from core import foundation, infra, cache, guards
+from core import cache, foundation, guards, infra
 
 
 @pytest.fixture(autouse=True)
@@ -144,7 +142,6 @@ def test_retry_policy_jitter_within_15_percent():
 
 @pytest.mark.asyncio
 async def test_retry_policy_cancelled_error_propagates():
-    import asyncio
     policy = foundation.RetryPolicy(max_attempts=5)
     calls = []
     @policy

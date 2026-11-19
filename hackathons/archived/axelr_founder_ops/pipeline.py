@@ -29,7 +29,6 @@ from .core import (
     NotFound,
     PayloadTooLarge,
     Unsupported,
-    ValidationFailed,
     connect,
     list_audit,
     new_id,

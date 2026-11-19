@@ -9,7 +9,6 @@ import asyncio
 import json
 import logging
 import re
-import sys
 from typing import Dict, List, Optional
 
 try:
@@ -19,21 +18,33 @@ except ImportError:
 
 from pydantic import ValidationError
 
+from ._runtime import CircuitBreaker, intern_str
+from ._verify import (
+    REASON_CHUNK_NOT_FOUND,
+    REASON_DETERMINISTIC,
+    REASON_EMPTY_SNIPPET,
+    REASON_NOT_SUBSTRING,
+    REASON_QUERY_ECHO,
+    REASON_QUERY_SIMILAR,
+    REASON_SHORT_SNIPPET,
+    REASON_STRICT_THRESHOLD,
+    REASON_VALUE_NOT_DERIVABLE,
+    REASON_VERBATIM,
+    REASON_WEAK_VALUE,
+    LineageIndex,
+)
 from .bounding import Chunk, DocumentBuffer, canonicalize
 from .deterministic import DeterministicExtractor
-from ._verify import (
-    LineageIndex, contradiction, negation_window,
-    REASON_OK, REASON_CHUNK_NOT_FOUND, REASON_EMPTY_SNIPPET,
-    REASON_SHORT_SNIPPET, REASON_NOT_SUBSTRING, REASON_VALUE_NOT_DERIVABLE,
-    REASON_STRICT_THRESHOLD, REASON_WEAK_VALUE, REASON_QUERY_ECHO,
-    REASON_QUERY_SIMILAR, REASON_NEGATED, REASON_DETERMINISTIC,
-    REASON_VERBATIM,
-)
-from ._runtime import CircuitBreaker, intern_str
 from .schemas import (
-    ExtractedClaim, NoProviderAvailableError, SchemaViolationError,
-    SourceCoordinate, UnverifiableDataError, VerificationResult,
-    VerifiedClaim, VerifiedPayload, compute_audit_hash,
+    ExtractedClaim,
+    NoProviderAvailableError,
+    SchemaViolationError,
+    SourceCoordinate,
+    UnverifiableDataError,
+    VerificationResult,
+    VerifiedClaim,
+    VerifiedPayload,
+    compute_audit_hash,
 )
 
 log = logging.getLogger("axelr.ahe.agents")
@@ -142,8 +153,11 @@ class ExtractorAgent:
                         *, workspace: str, tier: str) -> str:
         try:
             from api.providers import (  # type: ignore
-                PROVIDER_FUNC_MAP, PROVIDER_KEY_CHECK, PROVIDER_MODELS,
-                get_dynamically_ranked_providers, record_provider_result,
+                PROVIDER_FUNC_MAP,
+                PROVIDER_KEY_CHECK,
+                PROVIDER_MODELS,
+                get_dynamically_ranked_providers,
+                record_provider_result,
             )
         except Exception as e:  # noqa: BLE001
             log.warning("providers_unavailable error=%s", e)

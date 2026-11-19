@@ -13,7 +13,6 @@ from enum import Enum
 from typing import Callable, Dict, List, Optional, Set, Tuple
 
 import numpy as np
-
 from axelr_config import HardwareProfile, VadConfig
 from axelr_ring import WatermarkState, ZeroCopyRingBuffer
 from axelr_utils import get_logger

@@ -65,7 +65,7 @@ models/**/*.pb
 .env
 .env.*
 !.env.example
-
+requirements-dev.txt
 # Test coverage
 .coverage
 htmlcov/

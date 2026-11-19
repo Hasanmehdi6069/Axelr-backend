@@ -9,14 +9,23 @@ distinct concerns (chat recall vs codebase index).
 Public: RepoIndexer, IndexStats, CodeChunk
 """
 from __future__ import annotations
-import ast, base64, contextlib, hashlib, json, logging, os, re, time, asyncio
+
+import ast
+import asyncio
+import base64
+import contextlib
+import json
+import logging
+import os
+import re
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
 import httpx
 
-from .memory import _VectorizeClient, _sha
+from .memory import _sha, _VectorizeClient
 
 logger = logging.getLogger("axelr.repo_indexer")
 
