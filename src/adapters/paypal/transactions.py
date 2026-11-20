@@ -166,6 +166,7 @@ class TransactionStore:
             txn_dict = json.loads(data)
         else:
             txn_dict = self.in_memory_store.get(f"txn:{txn_id}")
+            logger.info(f"Retrieved txn_dict from store: {txn_dict}")
             if not txn_dict:
                 return None
 

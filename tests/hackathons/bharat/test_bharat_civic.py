@@ -29,6 +29,9 @@ from bharat_agentic.extraction import CaseExtractor
 from bharat_agentic.models import new_case_id
 from bharat_agentic.sentinel import Sentinel
 from bharat_agentic.summarizer import CaseSummarizer
+import sys
+import pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
 from conftest import NOTICE, NOTICE_FIR_ONLY
 
 # ---------------------------------------------------------------------------

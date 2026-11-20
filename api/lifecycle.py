@@ -28,6 +28,16 @@ logger = structlog.get_logger("axelr.lifecycle")
 _INSTALLED: bool = False
 _ATTACHED: set[int] = set()
 
+import sys
+from types import ModuleType
+
+_boot_module = ModuleType("api._boot")
+_boot_module.__all__ = ["audit", "_SSE_CONTRACT", "classify_intent"]
+_boot_module.audit = _audit_snapshot
+_boot_module._SSE_CONTRACT = _SSE_CONTRACT
+_boot_module.classify_intent = classify_intent
+sys.modules["api._boot"] = _boot_module
+
 _SSE_CONTRACT: dict[str, Any] = {
     "version": 2,
     "endpoints": {
@@ -119,7 +129,7 @@ def attach_boot(app: FastAPI) -> None:
 
 
 def _audit_snapshot() -> dict[str, Any]:
-    out: dict[str, Any] = {"boot_installed": _INSTALLED, "version": "1.0.0"}
+    out: dict[str, Any] = {"boot_installed": _INSTALLED, "version": "1.0.0", "cognition_pipeline": {}}
     with contextlib.suppress(Exception):
         from core.resilience import audit as _res_audit
         out["resilience"] = _res_audit()

@@ -39,8 +39,13 @@ class AuditLogger:
                 else:
                     redacted[key] = "[REDACTED]"
         return redacted
-
-    def log_api_call(self, method: str, url: str, status_code: Optional[int] = None, error: Optional[str] = None) -> None:
+    def log_api_call(
+        self,
+        method: str,
+        url: str,
+        status_code: Optional[int] = None,
+        error: Optional[str] = None,
+    ) -> None:
         """Log API calls to PayPal with redaction"""
         log_data = {
             "timestamp": datetime.utcnow().isoformat() + "Z",
@@ -55,7 +60,14 @@ class AuditLogger:
         else:
             logger.info(f"AUDIT: {json.dumps(log_data)}")
 
-    def log_money_movement(self, operation: str, transaction_id: str, amount: str, currency: str, user_id: Optional[str] = None) -> None:
+    def log_money_movement(
+        self,
+        operation: str,
+        transaction_id: str,
+        amount: str,
+        currency: str,
+        user_id: Optional[str] = None,
+    ) -> None:
         """Log all money-moving operations (capture, refund) for compliance"""
         log_data = {
             "timestamp": datetime.utcnow().isoformat() + "Z",

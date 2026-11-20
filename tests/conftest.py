@@ -367,7 +367,11 @@ async def apex_router(tmp_path: Path, monkeypatch):
 @pytest.fixture
 async def insights_engine(tmp_path: Path, monkeypatch):
     """Fresh Insights Engine instance with isolated database."""
-    import insights_engine.engine as eng_mod
+    import sys
+    insights_dir = Path(__file__).parent.parent / "hackathons" / "axelr_insights_engine"
+    if str(insights_dir) not in sys.path:
+        sys.path.insert(0, str(insights_dir))
+    import engine.engine as eng_mod
 
     db_path = tmp_path / "test.db"
     monkeypatch.setenv("INSIGHTS_DB_PATH", str(db_path))
@@ -375,18 +379,19 @@ async def insights_engine(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("INSIGHTS_QUERY_TIMEOUT", "5")
 
     engine = eng_mod.InsightsEngine()
-    await engine.initialize()
-    await engine.execute_query("CREATE TABLE IF NOT EXISTS test_table (id INT, value TEXT)")
-    await engine.execute_query("CREATE TABLE IF NOT EXISTS allowed_table (id INT, data TEXT)")
+    await engine.init()
     yield engine
-    await engine.shutdown()
 
 
 # ─── Ops Room Fixture ──────────────────────────────────────────────────────
 @pytest.fixture
 async def ops_room(tmp_path: Path, monkeypatch):
     """Fresh Ops Room instance with isolated task queue."""
-    import ops_room.engine as eng_mod
+    import sys
+    ops_dir = Path(__file__).parent.parent / "hackathons" / "axelr_ops_room"
+    if str(ops_dir) not in sys.path:
+        sys.path.insert(0, str(ops_dir))
+    import agent.engine as eng_mod
 
     queue_path = tmp_path / "task_queue.db"
     scratch_path = tmp_path / "scratch"
@@ -398,27 +403,26 @@ async def ops_room(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("OPS_MAX_MEMORY_MB", "256")
     monkeypatch.setenv("OPS_TASK_TIMEOUT", "30")
 
-    room = eng_mod.OpsRoom()
-    await room.initialize()
+    room = eng_mod.OpsEngine()
+    await room.init()
     yield room
-    await room.shutdown()
 
 
 # ─── Bharat Agent Fixture ──────────────────────────────────────────────────
 @pytest.fixture
 async def bharat_agent(tmp_path: Path, monkeypatch):
     """Fresh Bharat Agent instance with isolated state."""
-    import axelr_bharat_civic_agent.engine as eng_mod
+    import bharat_agentic.engine as eng_mod
 
     state_path = tmp_path / "bharat_state.json"
     monkeypatch.setenv("BHARAT_STATE_PATH", str(state_path))
     monkeypatch.setenv("BHARAT_MAX_REQUESTS", "1000")
     monkeypatch.setenv("BHARAT_TIMEOUT", "60")
 
-    agent = eng_mod.BharatAgent()
-    await agent.initialize()
+    agent = eng_mod.CivicAgent(node_id="test")
+    await agent.__aenter__()
     yield agent
-    await agent.shutdown()
+    await agent.__aexit__(None, None, None)
 
 
 # ─── Buildx Fixture ────────────────────────────────────────────────────────

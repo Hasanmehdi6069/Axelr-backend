@@ -21,6 +21,7 @@ _LOCAL_IDEM = processed_webhooks
 class PayPalWebhookHandler:
     """Handles all PayPal webhook events with full validation and state management"""
     _instance: Optional["PayPalWebhookHandler"] = None
+    _initialized: bool = False
 
     def __new__(cls):
         if cls._instance is None:
@@ -28,9 +29,12 @@ class PayPalWebhookHandler:
         return cls._instance
 
     def __init__(self):
+        if self._initialized:
+            return
         self.core = get_core_module()
         self.client = get_paypal_client()
         self.store = get_transaction_store()
+        self._initialized = True
 
     @classmethod
     def get_instance(cls) -> "PayPalWebhookHandler":
