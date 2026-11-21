@@ -39,11 +39,14 @@ def detect_workspace_str(prompt: str, files: list | None, session_id: str) -> st
 
 # from core.gateway_router import get_gateway_router
 
+
 def get_gateway_router():
     class MockGateway:
         def snapshot(self):
             return []
+
     return MockGateway()
+
 
 # Configure logging
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")

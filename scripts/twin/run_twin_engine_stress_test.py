@@ -52,8 +52,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
-# ── Path bootstrap (unchanged mechanism, but robust) ─────────────────────
-BACKEND_ROOT = Path(__file__).resolve().parent.parent
+# ── Path bootstrap (fixed path) ─────────────────────
+BACKEND_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BACKEND_ROOT))
 
 import importlib.util

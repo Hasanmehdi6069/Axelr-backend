@@ -282,7 +282,7 @@ async def test_signature_accepts_in_dev_when_key_missing(monkeypatch):
 # ── B2. DLQ auth ───────────────────────────────────────────────────────────
 
 
-def test_dlq_requires_signature(client):
+def test_dlq_requires_signature(client, signing_key):
     r = client.post("/api/qstash/dlq", content=b'{"malicious":"payload"}', headers={"Content-Type": "application/json"})
     assert r.status_code != 200, f"DLQ accepted unsigned request: {r.status_code}"
 

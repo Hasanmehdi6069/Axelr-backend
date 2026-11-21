@@ -41,6 +41,55 @@ os.environ.setdefault("AXELR_LOCAL_ROUTER", "on")
 os.environ.setdefault("AXELR_LOCAL_VERIFY", "on")
 os.environ.setdefault("AXELR_CHAOS_ENABLED", "false")
 
+NOTICE = (
+    "IN THE COURT OF THE CHIEF JUDICIAL MAGISTRATE, PATNA\n"
+    "Case No. 412/2024\n"
+    "State of Bihar vs. Ramesh Kumar\n"
+    "You are hereby directed to appear in person on 15/11/2026 at 10:30 AM."
+)
+
+NOTICE_FIR_ONLY = (
+    "IN THE COURT OF THE CHIEF JUDICIAL MAGISTRATE, PATNA\n"
+    "Case No. 412/2024\n"
+    "State of Bihar vs. Ramesh Kumar\n"
+    "FIR registered on 01/01/2024."
+)
+
+
+def make_config(db_path: str, **kwargs):
+    from bharat_agentic import EngineConfig
+    defaults = {
+        "node_id": "test-node",
+        "db_path": db_path,
+        "max_text_bytes": 64 * 1024,
+        "max_file_bytes": 128 * 1024,
+        "max_text_chars": 10_000,
+        "tool_timeout_seconds": 2.0,
+        "health_timeout_seconds": 1.0,
+        "sync_timeout_seconds": 1.0,
+        "sync_max_retries": 3,
+        "sync_backoff_base": 0.01,
+        "rate_limit_per_second": 10_000.0,
+        "audit_verify_cache_seconds": 0.0,
+    }
+    defaults.update(kwargs)
+    cfg = EngineConfig(**defaults)
+    cfg.validate()
+    return cfg
+
+
+@pytest.fixture()
+def db_path(tmp_path):
+    import os
+    path = str(tmp_path / "civic.db")
+    yield path
+    for suffix in ("", "-wal", "-shm"):
+        try:
+            os.remove(path + suffix)
+        except OSError:
+            pass
+
+
 _ROOT = Path(__file__).resolve().parent.parent
 _SOVEREIGN_ENGINE = _ROOT / "core" / "axelr-sovereign.engine"
 _HACKATHONS_DIR = _ROOT / "hackathons"
@@ -332,9 +381,12 @@ def tmp_consent_dir(tmp_path):
 
 # ─── Sentinel Engine Fixture ───────────────────────────────────────────────
 @pytest.fixture
-async def engine(tmp_path: Path, monkeypatch):
+async def sentinel_engine(tmp_path: Path, monkeypatch):
     """Fresh Sentinel Engine, isolated scratch/WAL/audit. Fast wall-clock for tests."""
-    import sentinel_agentic.engine as eng_mod
+    try:
+        import sentinel_agentic.engine as eng_mod
+    except ImportError:
+        pytest.skip("sentinel_agentic module not available")
 
     scratch = tmp_path / "scratch"
     scratch.mkdir()

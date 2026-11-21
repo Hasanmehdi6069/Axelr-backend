@@ -170,7 +170,10 @@ async def _http_err(request: Request, exc: StarletteHTTPException):
         if request.method in ("HEAD", "OPTIONS"):
             return Response(status_code=200)
         if request.method in ("DELETE", "POST", "PUT", "PATCH"):
-            return JSONResponse(status_code=exc.status_code, content={"success": False, "code": f"HTTP_{exc.status_code}", "message": exc.detail})
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"success": False, "code": f"HTTP_{exc.status_code}", "message": exc.detail},
+            )
         return JSONResponse(
             status_code=200,
             content={

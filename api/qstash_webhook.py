@@ -45,10 +45,12 @@ class QStashTaskPayload(BaseModel):
 
 async def verify_qstash_signature(request: Request) -> bool:
     key = (os.getenv("UPSTASH_QSTASH_CURRENT_SIGNING_KEY") or "").strip()
+    path = request.url.path
+    is_dlq = path.endswith("/dlq")
     if not key:
         env = (os.getenv("ENVIRONMENT") or "development").lower()
-        if env == "production":
-            logger.error("qstash_signing_key_missing_in_prod")
+        if env == "production" or is_dlq:
+            logger.error("qstash_signing_key_missing_prod_or_dlq")
             return False
         logger.warning("qstash_signing_key_missing_dev_mode")
         return True
@@ -63,6 +65,41 @@ async def verify_qstash_signature(request: Request) -> bool:
     except Exception as e:
         logger.warning("qstash_signature_verify_failed error=%s", e)
         return False
+
+
+def _is_url_allowed(url: str) -> bool:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in ("https",):
+        return False
+    host = parsed.hostname or ""
+    private_subnets = [
+        "10.",
+        "192.168.",
+        "172.16.",
+        "172.17.",
+        "172.18.",
+        "172.19.",
+        "172.20.",
+        "172.21.",
+        "172.22.",
+        "172.23.",
+        "172.24.",
+        "172.25.",
+        "172.26.",
+        "172.27.",
+        "172.28.",
+        "172.29.",
+        "172.30.",
+        "172.31.",
+        "127.",
+        "169.254.",
+        "localhost",
+    ]
+    if any(host.startswith(prefix) for prefix in private_subnets):
+        return False
+    return True
 
 
 async def stream_token_chunks(stream_url: str) -> AsyncIterator[list[int]]:
@@ -145,8 +182,15 @@ async def qstash_webhook(
         raw = await request.body()
         if len(raw) > MAX_PAYLOAD_SIZE:
             raise HTTPException(413, "Payload too large")
-        payload = QStashTaskPayload(**json.loads(raw))
+        try:
+            payload = QStashTaskPayload(**json.loads(raw))
+        except Exception as e:
+            logger.error("invalid_payload error=%s", e)
+            raise HTTPException(422, str(e)[:200])
         logger.info("qstash_task_received task_id=%s type=%s", payload.task_id, payload.task_type)
+        if payload.payload_stream_url and not _is_url_allowed(payload.payload_stream_url):
+            logger.warning("ssrf_attempt_blocked url=%s", payload.payload_stream_url)
+            raise HTTPException(400, "Invalid payload stream URL")
         result = await execute_ai_task(payload)
         return Response(
             content=json.dumps(result),
@@ -164,7 +208,11 @@ async def qstash_webhook(
 
 
 @router.post("/api/qstash/dlq", tags=["qstash", "webhooks"])
-async def qstash_dlq(request: Request) -> Response:
+async def qstash_dlq(request: Request, verified: bool = Depends(verify_qstash_signature)) -> Response:
+    if not verified:
+        client_ip = request.client.host if request.client else "unknown"
+        logger.warning("invalid_qstash_signature client_ip=%s", client_ip)
+        raise HTTPException(status_code=403, detail="Invalid request signature")
     raw = await request.body()
     logger.error("qstash_dlq_received payload=%s", raw.decode("utf-8", errors="replace")[:500])
     return Response(status_code=200, content=json.dumps({"status": "received"}))
