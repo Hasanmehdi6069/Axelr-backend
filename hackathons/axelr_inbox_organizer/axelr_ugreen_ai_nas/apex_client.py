@@ -8,6 +8,7 @@ skill at a public host raises CloudCallForbidden at construction time.
 All inference runs on-device through Apex Router's local tier. No prompt,
 document, or extracted metadata ever leaves the NAS.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -45,10 +46,10 @@ _PRIVATE_NETS = (
     ipaddress.ip_network("10.0.0.0/8"),
     ipaddress.ip_network("172.16.0.0/12"),
     ipaddress.ip_network("192.168.0.0/16"),
-    ipaddress.ip_network("169.254.0.0/16"),   # link-local
+    ipaddress.ip_network("169.254.0.0/16"),  # link-local
     ipaddress.ip_network("::1/128"),
-    ipaddress.ip_network("fc00::/7"),         # unique local
-    ipaddress.ip_network("fe80::/10"),        # link-local v6
+    ipaddress.ip_network("fc00::/7"),  # unique local
+    ipaddress.ip_network("fe80::/10"),  # link-local v6
 )
 
 
@@ -155,8 +156,11 @@ def normalize_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     if category not in _CATEGORIES:
         # map by document type when the model picked a bad category
         category = {
-            "invoice": "Invoices", "receipt": "Receipts", "email": "Emails",
-            "contract": "Contracts", "statement": "Statements",
+            "invoice": "Invoices",
+            "receipt": "Receipts",
+            "email": "Emails",
+            "contract": "Contracts",
+            "statement": "Statements",
         }.get(doc_type, "Other")
     currency = payload.get("currency")
     if isinstance(currency, str):
@@ -182,8 +186,12 @@ def _fallback_metadata(filename: str) -> dict[str, Any]:
     lower = filename.lower()
     doc_type = "invoice" if "invoice" in lower else "receipt" if "receipt" in lower else "other"
     return {
-        "document_type": doc_type, "date": None, "sender": None,
-        "total_amount": None, "currency": None, "due_date": None,
+        "document_type": doc_type,
+        "date": None,
+        "sender": None,
+        "total_amount": None,
+        "currency": None,
+        "due_date": None,
         "category": {"invoice": "Invoices", "receipt": "Receipts"}.get(doc_type, "Other"),
         "confidence": 0.0,
     }
@@ -244,7 +252,8 @@ class ApexRouterClient:
             )
         logger.info(
             "apex_router_local_only endpoint=%s model=%s verified_local=True",
-            self.endpoint, self.model,
+            self.endpoint,
+            self.model,
         )
 
     async def _ensure_session(self) -> aiohttp.ClientSession:
@@ -258,9 +267,7 @@ class ApexRouterClient:
     async def _chat(self, prompt: str) -> str:
         now = time.time()
         if now < self._opened_until:
-            raise RuntimeError(
-                f"apex_router_circuit_open retry_in={self._opened_until - now:.1f}s"
-            )
+            raise RuntimeError(f"apex_router_circuit_open retry_in={self._opened_until - now:.1f}s")
         session = await self._ensure_session()
         body = {
             "model": self.model,
@@ -270,9 +277,7 @@ class ApexRouterClient:
             "options": {"temperature": 0.0, "num_predict": 512},
         }
         try:
-            async with session.post(
-                f"{self.endpoint.rstrip('/')}/api/generate", json=body
-            ) as resp:
+            async with session.post(f"{self.endpoint.rstrip('/')}/api/generate", json=body) as resp:
                 resp.raise_for_status()
                 data = await resp.json()
         except Exception:
@@ -281,7 +286,8 @@ class ApexRouterClient:
                 self._opened_until = time.time() + self.circuit_cooldown_s
                 logger.error(
                     "apex_router_circuit_opened failures=%d cooldown=%.0fs",
-                    self._failures, self.circuit_cooldown_s,
+                    self._failures,
+                    self.circuit_cooldown_s,
                 )
             raise
         self._failures = 0
@@ -303,10 +309,12 @@ class ApexRouterClient:
                 last_err = exc
                 logger.warning(
                     "apex_extract_attempt_failed file=%s attempt=%d err=%s",
-                    filename, attempt + 1, exc,
+                    filename,
+                    attempt + 1,
+                    exc,
                 )
                 if attempt < self.max_retries:
-                    await asyncio.sleep(self.backoff_base_s * (2 ** attempt))
+                    await asyncio.sleep(self.backoff_base_s * (2**attempt))
         logger.error("apex_extract_exhausted file=%s err=%s", filename, last_err)
         return _fallback_metadata(filename)
 

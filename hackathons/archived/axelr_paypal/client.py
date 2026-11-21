@@ -9,6 +9,7 @@ Honest note: we use `httpx` directly for both. We do NOT import the
 `openai` or `anthropic` SDKs — that's why they're not in requirements.
 If you swap to SDKs later, update requirements.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -83,8 +84,7 @@ class PayPalClient:
             return
         await self._ensure_token()
         self._initialized = True
-        logger.info("PayPal client initialized env=%s",
-                    get_core_module().settings.environment)
+        logger.info("PayPal client initialized env=%s", get_core_module().settings.environment)
 
     async def _ensure_token(self) -> str:
         now = time.time()
@@ -104,15 +104,17 @@ class PayPalClient:
                     data={"grant_type": "client_credentials"},
                 )
             if r.status_code >= 400:
-                raise PayPalAPIError(f"auth failed status={r.status_code}",
-                                     status=r.status_code)
+                raise PayPalAPIError(f"auth failed status={r.status_code}", status=r.status_code)
             body = r.json()
             self._token = body["access_token"]
             self._token_expires_at = now + float(body.get("expires_in", 3600))
             return self._token
 
     async def _request(
-        self, method: str, path: str, *,
+        self,
+        method: str,
+        path: str,
+        *,
         json_body: Optional[Dict[str, Any]] = None,
         idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
@@ -125,16 +127,22 @@ class PayPalClient:
         for attempt in range(3):
             try:
                 r = await self._http.request(
-                    method, f"{self._base_url}{path}",
-                    json=json_body, headers=headers,
+                    method,
+                    f"{self._base_url}{path}",
+                    json=json_body,
+                    headers=headers,
                 )
             except httpx.HTTPError as e:
                 last_err = e
                 if attempt < 2:
-                    await _sleep(delay); delay *= 2; continue
+                    await _sleep(delay)
+                    delay *= 2
+                    continue
                 raise PayPalAPIError(f"network error: {e}") from e
             if r.status_code in _RETRYABLE and attempt < 2:
-                await _sleep(delay); delay *= 2; continue
+                await _sleep(delay)
+                delay *= 2
+                continue
             if r.status_code >= 400:
                 raise PayPalAPIError(
                     f"PayPal {r.status_code}: {r.text[:300]}",
@@ -175,11 +183,12 @@ class PayPalClient:
                 **({"return_url": validated.return_url} if validated.return_url else {}),
                 **({"cancel_url": validated.cancel_url} if validated.cancel_url else {}),
             }
-        logger.info("create_order amount=%s %s",
-                    validated.amount, validated.currency)
+        logger.info("create_order amount=%s %s", validated.amount, validated.currency)
         data = await self._request(
-            "POST", "/v2/checkout/orders",
-            json_body=body, idempotency_key=validated.idempotency_key,
+            "POST",
+            "/v2/checkout/orders",
+            json_body=body,
+            idempotency_key=validated.idempotency_key,
         )
         approve = next(
             (l["href"] for l in data.get("links", []) if l.get("rel") == "approve"),
@@ -192,17 +201,23 @@ class PayPalClient:
         return await self._request("GET", f"/v2/checkout/orders/{order_id}")
 
     async def capture_order(
-        self, order_id: str, idempotency_key: Optional[str] = None,
+        self,
+        order_id: str,
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         return await self._request(
-            "POST", f"/v2/checkout/orders/{order_id}/capture",
+            "POST",
+            f"/v2/checkout/orders/{order_id}/capture",
             idempotency_key=idempotency_key,
         )
 
     async def create_refund(
-        self, payload: Dict[str, Any], idempotency_key: Optional[str] = None,
+        self,
+        payload: Dict[str, Any],
+        idempotency_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         from .schemas import RefundRequest
+
         validated = RefundRequest(**payload)
         body = {
             "amount": {
@@ -212,12 +227,16 @@ class PayPalClient:
             **({"note_to_payer": validated.reason} if validated.reason else {}),
         }
         return await self._request(
-            "POST", f"/v2/payments/captures/{validated.capture_id}/refund",
-            json_body=body, idempotency_key=idempotency_key,
+            "POST",
+            f"/v2/payments/captures/{validated.capture_id}/refund",
+            json_body=body,
+            idempotency_key=idempotency_key,
         )
 
     async def verify_webhook_signature(
-        self, headers: Dict[str, str], body: str,
+        self,
+        headers: Dict[str, str],
+        body: str,
     ) -> bool:
         """Returns False if webhook_id missing — NEVER True to skip verification."""
         settings = get_core_module().settings
@@ -227,8 +246,11 @@ class PayPalClient:
         # Header normalization: lowercase keys per PayPal docs.
         low = {k.lower(): v for k, v in headers.items()}
         required = [
-            "paypal-auth-algo", "paypal-cert-url", "paypal-transmission-id",
-            "paypal-transmission-sig", "paypal-transmission-time",
+            "paypal-auth-algo",
+            "paypal-cert-url",
+            "paypal-transmission-id",
+            "paypal-transmission-sig",
+            "paypal-transmission-time",
         ]
         if any(k not in low for k in required):
             logger.warning("webhook missing required headers")
@@ -259,6 +281,7 @@ class PayPalClient:
 
 async def _sleep(s: float) -> None:
     import asyncio
+
     await asyncio.sleep(s)
 
 
@@ -283,8 +306,7 @@ NAME_PATTERN = re.compile(
     r"(?:from|payer|customer|bill to|invoice to|pay to)[:\s]+([A-Za-z][A-Za-z .'-]{1,60})",
     re.IGNORECASE,
 )
-DATE_PATTERN = re.compile(r"(?:due(?:\s+by)?|pay\s+by|deadline)[:\s]+(\d{4}-\d{2}-\d{2})",
-                          re.IGNORECASE)
+DATE_PATTERN = re.compile(r"(?:due(?:\s+by)?|pay\s+by|deadline)[:\s]+(\d{4}-\d{2}-\d{2})", re.IGNORECASE)
 
 _SUB_KW = ("subscription", "monthly", "annual", "recurring", "subscribe")
 _INV_KW = ("invoice", "bill", "payment due", "amount owed")
@@ -329,16 +351,22 @@ def _regex_fallback_extraction(text: str, raw_hash: str) -> PaymentIntent:
         ptype = "invoice"
 
     return PaymentIntent(
-        payer_name=payer_name, payer_email=payer_email,
-        amount=amount, currency=currency,
+        payer_name=payer_name,
+        payer_email=payer_email,
+        amount=amount,
+        currency=currency,
         items=[OrderItem(name="Extracted line", quantity=1, unit_amount=amount)],
-        due_date=due_date, type=ptype, confidence=0.5,
+        due_date=due_date,
+        type=ptype,
+        confidence=0.5,
         raw_input_hash=raw_hash,
     )
 
 
 async def _extract_with_openai(
-    text: str, api_key: str, raw_hash: str,
+    text: str,
+    api_key: str,
+    raw_hash: str,
 ) -> PaymentIntent:
     prompt = (
         "Extract a JSON object with keys: payer_name, payer_email, amount "
@@ -367,7 +395,9 @@ async def _extract_with_openai(
 
 
 async def _extract_with_anthropic(
-    text: str, api_key: str, raw_hash: str,
+    text: str,
+    api_key: str,
+    raw_hash: str,
 ) -> PaymentIntent:
     async with httpx.AsyncClient(timeout=30.0) as c:
         r = await c.post(
@@ -380,15 +410,17 @@ async def _extract_with_anthropic(
             json={
                 "model": "claude-3-haiku-20240307",
                 "max_tokens": 1024,
-                "messages": [{
-                    "role": "user",
-                    "content": (
-                        f"Extract payment JSON from: {text}\n"
-                        "Schema: payer_name, payer_email, amount (Decimal string), "
-                        "currency (3-letter), items[{name,quantity,unit_amount}], "
-                        "due_date, type, confidence. Return ONLY JSON."
-                    ),
-                }],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": (
+                            f"Extract payment JSON from: {text}\n"
+                            "Schema: payer_name, payer_email, amount (Decimal string), "
+                            "currency (3-letter), items[{name,quantity,unit_amount}], "
+                            "due_date, type, confidence. Return ONLY JSON."
+                        ),
+                    }
+                ],
             },
         )
     if r.status_code != 200:
@@ -412,19 +444,20 @@ async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
                 out = await _extract_with_openai(unstructured_text, key, raw_hash)
             else:
                 out = await _extract_with_anthropic(unstructured_text, key, raw_hash)
-            ai_logger.info("extraction success provider=%s confidence=%s hash=%s",
-                           name, out.confidence, raw_hash[:16])
+            ai_logger.info("extraction success provider=%s confidence=%s hash=%s", name, out.confidence, raw_hash[:16])
             return out
         except Exception as e:
             ai_logger.warning("%s failed, trying next: %s", name, e)
     out = _regex_fallback_extraction(unstructured_text, raw_hash)
-    ai_logger.info("regex fallback confidence=%.2f hash=%s",
-                   out.confidence, raw_hash[:16])
+    ai_logger.info("regex fallback confidence=%.2f hash=%s", out.confidence, raw_hash[:16])
     return out
 
 
 __all__ = [
-    "PayPalClient", "PayPalAPIError", "get_paypal_client",
-    "extract_payment_intent", "_regex_fallback_extraction",
+    "PayPalClient",
+    "PayPalAPIError",
+    "get_paypal_client",
+    "extract_payment_intent",
+    "_regex_fallback_extraction",
     "_hash_raw_input",
 ]

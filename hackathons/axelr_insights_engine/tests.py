@@ -8,6 +8,7 @@ Design:
   * Tests every error path.
   * Tests every resilience primitive independently.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,6 +44,7 @@ from axelr_insights_engine.resilience import (
 # ═══════════════════════════════════════════════════════════════════════
 # Mock Appwrite SDK
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class MockTablesDB:
     """In-memory mock of the Appwrite TablesDB service."""
@@ -204,6 +206,7 @@ class MockClient:
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def _cfg(**overrides: Any) -> AppwriteConfig:
     base = {
         "endpoint": "https://test.local/v1",
@@ -251,9 +254,11 @@ async def engine(sdk: AppwriteSDK) -> InsightsEngine:
 # Error tests
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestErrors:
     def test_base_error(self) -> None:
         from axelr_insights_engine.errors import AppwriteError
+
         e = AppwriteError("boom")
         assert e.status == 500
         assert e.code == "appwrite_error"
@@ -289,15 +294,19 @@ class TestErrors:
 # Config tests
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestConfig:
     def test_required_fields(self) -> None:
         from axelr_insights_engine.errors import ConfigurationError
+
         with pytest.raises(ConfigurationError):
             AppwriteConfig(endpoint="", project_id="p", database_id="d")
 
     def test_mode_detection_api_key(self) -> None:
         c = AppwriteConfig(
-            endpoint="https://x/v1", project_id="p", database_id="d",
+            endpoint="https://x/v1",
+            project_id="p",
+            database_id="d",
             api_key="k",
         )
         assert c.mode == "server"
@@ -305,7 +314,9 @@ class TestConfig:
 
     def test_mode_detection_session(self) -> None:
         c = AppwriteConfig(
-            endpoint="https://x/v1", project_id="p", database_id="d",
+            endpoint="https://x/v1",
+            project_id="p",
+            database_id="d",
             session_secret="s",
         )
         assert c.mode == "session"
@@ -318,7 +329,9 @@ class TestConfig:
 
     def test_redaction(self) -> None:
         c = AppwriteConfig(
-            endpoint="https://x/v1", project_id="p", database_id="d",
+            endpoint="https://x/v1",
+            project_id="p",
+            database_id="d",
             api_key="secret_key",
         )
         safe = c.to_safe_dict()
@@ -329,6 +342,7 @@ class TestConfig:
 # ═══════════════════════════════════════════════════════════════════════
 # Resilience tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestTokenBucket:
     @pytest.mark.asyncio
@@ -468,6 +482,7 @@ class TestRetryPolicy:
 # SDK tests
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestSDK:
     @pytest.mark.asyncio
     async def test_retries_retryable_errors(self, sdk: AppwriteSDK, mock_tables: MockTablesDB) -> None:
@@ -532,6 +547,7 @@ class TestSDK:
 # ═══════════════════════════════════════════════════════════════════════
 # Tables tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestTables:
     @pytest.mark.asyncio
@@ -609,6 +625,7 @@ class TestTables:
     @pytest.mark.asyncio
     async def test_permissions_for_user(self) -> None:
         from axelr_insights_engine import TablesNamespace
+
         perms = TablesNamespace.permissions_for_user("user_123")
         assert len(perms) == 3
 
@@ -616,6 +633,7 @@ class TestTables:
 # ═══════════════════════════════════════════════════════════════════════
 # Engine tests
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestEngine:
     @pytest.mark.asyncio

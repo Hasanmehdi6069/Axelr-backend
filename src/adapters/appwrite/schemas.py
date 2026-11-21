@@ -1,4 +1,5 @@
 """Pydantic validation schemas for Appwrite adapter webhooks and data models"""
+
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -7,6 +8,7 @@ from pydantic import BaseModel, EmailStr, Field, ValidationInfo, field_validator
 
 class PaymentGateway(str):
     """Gateway-agnostic payment processor type"""
+
     PAYTM_QR = "paytm_qr"
     UPI = "upi"
     JUSPAY = "juspay"
@@ -32,6 +34,7 @@ class TransactionStatus(str):
 
 class Transaction(BaseModel):
     """Gateway-agnostic transaction schema for Appwrite - works with Paytm, Juspay, Hyperswitch"""
+
     transaction_id: str = Field(..., min_length=5, max_length=255, description="Unique transaction/UTR ID")
     user_id: str = Field(..., min_length=1, max_length=255, description="Associated user ID")
     amount: float = Field(..., gt=0, description="Payment amount in INR")
@@ -42,19 +45,23 @@ class Transaction(BaseModel):
     payer_vpa: Optional[str] = Field(None, max_length=255, description="Payer's UPI VPA")
     payee_vpa: Optional[str] = Field(None, max_length=255, description="Merchant's UPI VPA")
     transaction_timestamp: datetime = Field(..., description="Original transaction timestamp")
-    email_received_at: datetime = Field(default_factory=datetime.utcnow, description="When we received the confirmation email")
+    email_received_at: datetime = Field(
+        default_factory=datetime.utcnow, description="When we received the confirmation email"
+    )
     verified_at: Optional[datetime] = Field(None, description="When we verified the payment")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Gateway-specific metadata")
-    email_source: Optional[str] = Field(None, max_length=255, description="Source email address (e.g., noreply@paytm.com)")
+    email_source: Optional[str] = Field(
+        None, max_length=255, description="Source email address (e.g., noreply@paytm.com)"
+    )
     email_subject: Optional[str] = Field(None, max_length=512, description="Original email subject")
 
-    @field_validator('gateway')
+    @field_validator("gateway")
     def validate_gateway(cls, v: str) -> str:
         if v not in PaymentGateway.valid_gateways():
             raise ValueError(f"Invalid payment gateway: {v}. Must be one of {PaymentGateway.valid_gateways()}")
         return v
 
-    @field_validator('status')
+    @field_validator("status")
     def validate_status(cls, v: str) -> str:
         if v not in TransactionStatus.valid_statuses():
             raise ValueError(f"Invalid transaction status: {v}. Must be one of {TransactionStatus.valid_statuses()}")
@@ -74,18 +81,21 @@ class SubscriptionPlan(str):
 
 class Subscription(BaseModel):
     """User subscription schema - gateway agnostic"""
+
     user_id: str = Field(..., min_length=1, max_length=255)
     plan: str = Field(..., description="Subscription plan tier")
     status: str = Field(default="active", description="Subscription status (active, expired, canceled)")
     start_date: datetime = Field(default_factory=datetime.utcnow)
     end_date: datetime = Field(..., description="Subscription expiration date")
-    last_payment_transaction_id: Optional[str] = Field(None, max_length=255, description="Reference to last successful transaction")
+    last_payment_transaction_id: Optional[str] = Field(
+        None, max_length=255, description="Reference to last successful transaction"
+    )
     credits_remaining: Optional[float] = Field(None, description="Pay-as-you-go credits remaining")
     auto_renew: bool = Field(default=False, description="Whether subscription auto-renews")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
-    @field_validator('plan')
+    @field_validator("plan")
     def validate_plan(cls, v: str) -> str:
         if v not in SubscriptionPlan.valid_plans():
             raise ValueError(f"Invalid subscription plan: {v}. Must be one of {SubscriptionPlan.valid_plans()}")
@@ -94,6 +104,7 @@ class Subscription(BaseModel):
 
 class SupportTicket(BaseModel):
     """Customer support ticket schema for inbound emails"""
+
     ticket_id: str = Field(..., min_length=1, max_length=255)
     user_email: str = Field(..., description="Customer's email address")
     user_id: Optional[str] = Field(None, max_length=255, description="Associated user ID if identified")
@@ -108,7 +119,7 @@ class SupportTicket(BaseModel):
     messages: List[Dict[str, Any]] = Field(default_factory=list, description="Conversation history")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
-    @field_validator('category')
+    @field_validator("category")
     def validate_category(cls, v: str) -> str:
         valid_categories = {"billing", "bug_report", "feature_request", "other"}
         if v not in valid_categories:
@@ -118,6 +129,7 @@ class SupportTicket(BaseModel):
 
 class AppwriteAuditEvent(BaseModel):
     """Pydantic schema for Appwrite audit events with strict validation"""
+
     kind: str = Field(..., min_length=1, max_length=64, description="Type of audit event")
     ts: datetime = Field(..., description="Timestamp of the event")
     user_id: Optional[str] = Field(None, max_length=255)
@@ -127,11 +139,12 @@ class AppwriteAuditEvent(BaseModel):
     payload: Optional[str] = Field(None, max_length=65535)
     day: Optional[str] = Field(None, max_length=10)
 
-    @field_validator('payload')
+    @field_validator("payload")
     def validate_payload_json(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
             try:
                 import json
+
                 json.loads(v)
             except json.JSONDecodeError:
                 raise ValueError("Payload must be valid JSON string")
@@ -140,16 +153,18 @@ class AppwriteAuditEvent(BaseModel):
 
 class AppwriteDocument(BaseModel):
     """Pydantic schema for indexed documents stored in Appwrite"""
+
     doc_id: str = Field(..., min_length=1, max_length=255)
     content: str = Field(..., min_length=1, max_length=1048576)
     meta: Optional[str] = Field(None, max_length=65535)
     ts: datetime = Field(...)
 
-    @field_validator('meta')
+    @field_validator("meta")
     def validate_meta_json(cls, v: Optional[str]) -> Optional[str]:
         if v is not None:
             try:
                 import json
+
                 json.loads(v)
             except json.JSONDecodeError:
                 raise ValueError("Metadata must be valid JSON string")
@@ -158,6 +173,7 @@ class AppwriteDocument(BaseModel):
 
 class AppwriteWebhookPayload(BaseModel):
     """Strict Pydantic validation for incoming Appwrite webhooks"""
+
     event: str = Field(..., min_length=1, max_length=128)
     id: str = Field(..., min_length=1, max_length=255, alias="$id")
     createdAt: datetime = Field(..., alias="$createdAt")
@@ -167,12 +183,13 @@ class AppwriteWebhookPayload(BaseModel):
 
     model_config = {
         "populate_by_name": True,
-        "extra": "forbid"  # Strictly reject unexpected fields
+        "extra": "forbid",  # Strictly reject unexpected fields
     }
 
 
 class PayPalWebhookPayload(BaseModel):
     """Strict Pydantic validation for PayPal webhook payloads"""
+
     id: str = Field(..., min_length=1, max_length=255)
     event_type: str = Field(..., min_length=1, max_length=128)
     resource: Dict[str, Any] = Field(...)
@@ -180,25 +197,23 @@ class PayPalWebhookPayload(BaseModel):
     create_time: Optional[datetime] = None
     links: Optional[List[Dict[str, Any]]] = None
 
-    @field_validator('event_type')
+    @field_validator("event_type")
     def validate_paypal_event_type(cls, v: str) -> str:
         valid_events = {
             "CHECKOUT.ORDER.APPROVED",
             "PAYMENT.CAPTURE.COMPLETED",
             "PAYMENT.CAPTURE.REFUNDED",
-            "PAYMENT.CAPTURE.DENIED"
+            "PAYMENT.CAPTURE.DENIED",
         }
         if v not in valid_events:
             raise ValueError(f"Unsupported PayPal event type: {v}. Must be one of {valid_events}")
         return v
 
 
-
-
-
 # Zero-Trust Security Models
 class TeamMember(BaseModel):
     """Team member model for zero-trust onboarding"""
+
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=100)
     role_type: str = Field(..., description="Requested role type")
@@ -208,17 +223,26 @@ class TeamMember(BaseModel):
     end_date: Optional[datetime] = None  # For contractors, required expiration
     request_reason: str = Field(..., min_length=20, max_length=500, description="Justification for access")
 
-    @field_validator('end_date')
+    @field_validator("end_date")
     def validate_contractor_end_date(cls, v: Optional[datetime], values: ValidationInfo) -> Optional[datetime]:
-        if values.data.get('is_contractor') and v is None:
+        if values.data.get("is_contractor") and v is None:
             raise ValueError("Contractors must have an end date for access expiration")
         if v and v < datetime.utcnow():
             raise ValueError("End date must be in the future")
         return v
 
-    @field_validator('role_type')
+    @field_validator("role_type")
     def validate_role_type(cls, v: str) -> str:
-        valid_roles = {"system", "admin", "billing_admin", "finance", "developer_staging", "developer_production", "support", "contractor"}
+        valid_roles = {
+            "system",
+            "admin",
+            "billing_admin",
+            "finance",
+            "developer_staging",
+            "developer_production",
+            "support",
+            "contractor",
+        }
         if v not in valid_roles:
             raise ValueError(f"Invalid role type. Must be one of: {valid_roles}")
         return v
@@ -226,6 +250,7 @@ class TeamMember(BaseModel):
 
 class AccessApprovalRequest(BaseModel):
     """Model for tracking access approval requests"""
+
     member_email: EmailStr
     requested_role: str
     requested_environment: str
@@ -240,6 +265,7 @@ class AccessApprovalRequest(BaseModel):
 
 class EnvironmentCredentials(BaseModel):
     """Model for isolated environment credentials"""
+
     project_id: str
     api_key: str
     environment: str = Field(..., pattern="^(staging|production)$")
@@ -247,15 +273,16 @@ class EnvironmentCredentials(BaseModel):
     functions_enabled: bool = True
     ssh_keys: List[str] = Field(default_factory=list)
 
-    @field_validator('ssh_keys')
+    @field_validator("ssh_keys")
     def validate_production_ssh_keys(cls, v: List[str], values: ValidationInfo) -> List[str]:
-        if values.data.get('environment') == "production" and len(v) < 1:
+        if values.data.get("environment") == "production" and len(v) < 1:
             raise ValueError("Production environment requires explicit SSH key registration")
         return v
 
 
 class HealthCheckLog(BaseModel):
     """Model for logging instance health checks"""
+
     environment: str
     is_healthy: bool
     check_timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -264,6 +291,7 @@ class HealthCheckLog(BaseModel):
 
 class AccessGrantLog(BaseModel):
     """Model for logging environment access grants"""
+
     user_id: str
     environment: str
     access_type: str
@@ -275,6 +303,7 @@ class AccessGrantLog(BaseModel):
 # MCP Integration Models
 class MCPSchemaInspectionRequest(BaseModel):
     """Model for MCP schema inspection requests"""
+
     database_id: str
     collection_ids: Optional[List[str]] = None
     include_permissions: bool = Field(default=True)
@@ -283,6 +312,7 @@ class MCPSchemaInspectionRequest(BaseModel):
 
 class MCPDatabaseMigration(BaseModel):
     """Model for MCP database migration requests"""
+
     migration_name: str
     environment: str = Field(..., pattern="^(staging|production)$")
     collections_to_create: List[Dict[str, Any]] = Field(default_factory=list)
@@ -292,6 +322,7 @@ class MCPDatabaseMigration(BaseModel):
 
 class MCPHealthAuditRequest(BaseModel):
     """Model for MCP health audit requests"""
+
     check_appwrite: bool = True
     check_vultr: bool = True
     check_resources: List[str] = Field(default_factory=lambda: ["instances", "databases", "storage"])
@@ -300,6 +331,7 @@ class MCPHealthAuditRequest(BaseModel):
 
 class MCPAuditEvent(BaseModel):
     """Model for logging MCP events"""
+
     event_type: str
     details: Dict[str, Any]
     timestamp: datetime = Field(default_factory=datetime.utcnow)
@@ -311,6 +343,7 @@ def validate_webhook_payload(payload: dict, schema: type[BaseModel]) -> BaseMode
         return schema(**payload)
     except Exception as e:
         import logging
+
         logger = logging.getLogger("axelr.schemas")
         logger.error(f"Webhook validation failed: {e}")
         raise

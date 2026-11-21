@@ -11,6 +11,7 @@ from core import cache, foundation, guards, infra
 @pytest.fixture(autouse=True)
 def clear_cache_singletons():
     import core.cache
+
     core.cache._LOCAL_SINGLETON = None
     core.cache._BM25_SINGLETON = None
     core.cache._SEMANTIC = None
@@ -25,12 +26,15 @@ def test_settings_frozen():
     assert hasattr(cfg, "default_model")
 
 
-@pytest.mark.parametrize("env_var,value,field,expected", [
-    ("AXELR_MAX_TOKENS", "8192", "max_tokens", 8192),
-    ("AXELR_TEMPERATURE", "0.7", "temperature", 0.7),
-    ("AXELR_DEBUG", "true", "debug", True),
-    ("AXELR_DEFAULT_MODEL", "gpt-4o", "default_model", "gpt-4o"),
-])
+@pytest.mark.parametrize(
+    "env_var,value,field,expected",
+    [
+        ("AXELR_MAX_TOKENS", "8192", "max_tokens", 8192),
+        ("AXELR_TEMPERATURE", "0.7", "temperature", 0.7),
+        ("AXELR_DEBUG", "true", "debug", True),
+        ("AXELR_DEFAULT_MODEL", "gpt-4o", "default_model", "gpt-4o"),
+    ],
+)
 def test_settings_env_override(env_var, value, field, expected):
     old = os.environ.get(env_var)
     os.environ[env_var] = value
@@ -69,12 +73,15 @@ def test_settings_audit_shape():
     assert "default_model" in settings
 
 
-@pytest.mark.parametrize("error_cls", [
-    foundation.AxelrError,
-    foundation.RetryableError,
-    foundation.ValidationError,
-    foundation.NotFoundError,
-])
+@pytest.mark.parametrize(
+    "error_cls",
+    [
+        foundation.AxelrError,
+        foundation.RetryableError,
+        foundation.ValidationError,
+        foundation.NotFoundError,
+    ],
+)
 def test_error_subclasses_have_required_interface(error_cls):
     err = error_cls("test message")
     assert hasattr(err, "message")
@@ -111,10 +118,12 @@ def test_error_to_result_never_raises():
 def test_retry_policy_exhausts_and_raises():
     policy = foundation.RetryPolicy(max_attempts=3, retry_on=(ValueError,))
     calls = []
+
     @policy
     def always_fails():
         calls.append(1)
         raise ValueError("fail")
+
     with pytest.raises(ValueError):
         always_fails()
     assert len(calls) == 3
@@ -122,9 +131,11 @@ def test_retry_policy_exhausts_and_raises():
 
 def test_retry_policy_should_retry_respects_retry_on():
     policy = foundation.RetryPolicy(max_attempts=3, retry_on=(ValueError,))
+
     @policy
     def raises_type_error():
         raise TypeError("not retryable")
+
     with pytest.raises(TypeError):
         raises_type_error()
 
@@ -144,10 +155,12 @@ def test_retry_policy_jitter_within_15_percent():
 async def test_retry_policy_cancelled_error_propagates():
     policy = foundation.RetryPolicy(max_attempts=5)
     calls = []
+
     @policy
     async def cancelled():
         calls.append(1)
         raise asyncio.CancelledError()
+
     with pytest.raises(asyncio.CancelledError):
         await cancelled()
 
@@ -155,12 +168,14 @@ async def test_retry_policy_cancelled_error_propagates():
 def test_with_retry_succeeds_on_nth_attempt():
     policy = foundation.RetryPolicy(max_attempts=5)
     calls = []
+
     @policy
     def succeeds_on_3rd():
         calls.append(1)
         if len(calls) < 3:
             raise ValueError("fail")
         return "success"
+
     result = succeeds_on_3rd()
     assert result == "success"
     assert len(calls) == 3
@@ -168,23 +183,29 @@ def test_with_retry_succeeds_on_nth_attempt():
 
 def test_with_retry_raises_after_max_attempts():
     policy = foundation.RetryPolicy(max_attempts=2)
+
     @policy
     def always_fails():
         raise ValueError("fail")
+
     with pytest.raises(ValueError):
         always_fails()
 
 
 def test_with_retry_on_retry_callback_fires_per_attempt():
     calls = []
+
     def on_retry(attempt, exc):
         calls.append(attempt)
+
     policy = foundation.RetryPolicy(max_attempts=3, on_retry=on_retry)
+
     @policy
     def fails_twice():
         if len(calls) < 2:
             raise ValueError("fail")
         return "ok"
+
     fails_twice()
     assert calls == [1, 2]
 
@@ -218,6 +239,7 @@ def test_consent_store_write_reload():
     tmp_dir = Path(__file__).parent / "test_consent_store"
     if tmp_dir.exists():
         import shutil
+
         shutil.rmtree(tmp_dir)
     store1 = foundation.ConsentStore(path=tmp_dir)
     store1.grant("u1", "p1")
@@ -225,6 +247,7 @@ def test_consent_store_write_reload():
     assert store2.is_granted("u1", "p1") is True
     if tmp_dir.exists():
         import shutil
+
         shutil.rmtree(tmp_dir)
 
 
@@ -239,6 +262,7 @@ def test_consent_store_forget_wipes_files():
     tmp_dir = Path(__file__).parent / "test_forget_store"
     if tmp_dir.exists():
         import shutil
+
         shutil.rmtree(tmp_dir)
     store = foundation.ConsentStore(path=tmp_dir)
     store.grant("u1", "p1")
@@ -246,6 +270,7 @@ def test_consent_store_forget_wipes_files():
     assert store.is_granted("u1", "p1") is False
     if tmp_dir.exists():
         import shutil
+
         shutil.rmtree(tmp_dir)
 
 
@@ -492,8 +517,10 @@ def test_bm25_stats_includes_add_count():
 
 def test_bm25_singleton_thread_safety():
     instances = []
+
     def get_instance():
         instances.append(id(cache.get_bm25_index()))
+
     threads = [threading.Thread(target=get_instance) for _ in range(100)]
     for t in threads:
         t.start()

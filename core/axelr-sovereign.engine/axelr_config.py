@@ -7,6 +7,7 @@ profile validation on top of the previous static config.
 Memory budget: ~215 KB (frozen dataclasses + keyword tables).
 Dependencies: axelr_utils.
 """
+
 from __future__ import annotations
 
 import os
@@ -113,17 +114,37 @@ class HardwareProfile:
 
 HARDWARE_PROFILES: Dict[Tier, HardwareProfile] = {
     Tier.LOW: HardwareProfile(
-        Tier.LOW, 85, QuantizationFormat.INT4, "tiny", 16000, 8192,
-        8.0, 32768,
+        Tier.LOW,
+        85,
+        QuantizationFormat.INT4,
+        "tiny",
+        16000,
+        8192,
+        8.0,
+        32768,
         FeatureFlags(cloud_fallback=False, warm_up=True),
     ),
     Tier.STANDARD: HardwareProfile(
-        Tier.STANDARD, 115, QuantizationFormat.INT8, "base", 16000, 16384,
-        20.0, 65536, FeatureFlags(),
+        Tier.STANDARD,
+        115,
+        QuantizationFormat.INT8,
+        "base",
+        16000,
+        16384,
+        20.0,
+        65536,
+        FeatureFlags(),
     ),
     Tier.HIGH: HardwareProfile(
-        Tier.HIGH, 150, QuantizationFormat.INT8, "small", 16000, 32768,
-        30.0, 131072, FeatureFlags(),
+        Tier.HIGH,
+        150,
+        QuantizationFormat.INT8,
+        "small",
+        16000,
+        32768,
+        30.0,
+        131072,
+        FeatureFlags(),
     ),
 }
 
@@ -153,22 +174,21 @@ def map_js_tier_to_python(js_tier: str) -> Tier:
         "low_ram": Tier.LOW,
         "standard": Tier.STANDARD,
         "high": Tier.HIGH,
-        "high_end": Tier.HIGH
+        "high_end": Tier.HIGH,
     }
     if js_tier not in mapping:
         raise ValueError(f"unknown JS tier: {js_tier}. Valid tiers: low, standard, high")
     return mapping[js_tier]
 
+
 def map_python_tier_to_js(py_tier: Tier) -> str:
     """Map Python Tier enum to JS tier names ("low", "standard", "high")."""
-    mapping = {
-        Tier.LOW: "low",
-        Tier.STANDARD: "standard",
-        Tier.HIGH: "high"
-    }
+    mapping = {Tier.LOW: "low", Tier.STANDARD: "standard", Tier.HIGH: "high"}
     return mapping[py_tier]
 
+
 # Moved to final __all__ assignment at end of file
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Profile selection + validation
@@ -301,26 +321,60 @@ class DomainConfig:
 
 
 DOMAIN_CONFIGS: Dict[str, DomainConfig] = {
-    "medical": DomainConfig("medical", TokenBiasing(
-        ("diagnosis", "treatment", "patient", "symptom", "prescription"), 2.5)),
-    "legal": DomainConfig("legal", TokenBiasing(
-        ("contract", "agreement", "plaintiff", "defendant", "clause"), 2.5)),
-    "financial": DomainConfig("financial", TokenBiasing(
-        ("transaction", "payment", "invoice", "ledger", "reconciliation", "compliance"), 2.5)),
-    "scientific": DomainConfig("scientific", TokenBiasing(
-        ("hypothesis", "experiment", "analysis", "methodology", "empirical"), 2.5)),
-    "programming": DomainConfig("programming", TokenBiasing(
-        ("function", "class", "return", "async", "await", "import", "export",
-         "const", "let", "var", "if", "else", "for", "while", "try", "catch",
-         "throw", "new", "this", "null", "undefined"), 2.5)),
-    "devops": DomainConfig("devops", TokenBiasing(
-        ("kubernetes", "docker", "deployment", "pipeline", "container",
-         "namespace", "helm", "terraform"), 2.5)),
-    "data_science": DomainConfig("data_science", TokenBiasing(
-        ("dataframe", "numpy", "pandas", "regression", "classification",
-         "feature", "model", "training"), 2.5)),
-    "education": DomainConfig("education", TokenBiasing(
-        ("assignment", "lecture", "curriculum", "grade", "student", "syllabus"), 2.5)),
+    "medical": DomainConfig(
+        "medical", TokenBiasing(("diagnosis", "treatment", "patient", "symptom", "prescription"), 2.5)
+    ),
+    "legal": DomainConfig("legal", TokenBiasing(("contract", "agreement", "plaintiff", "defendant", "clause"), 2.5)),
+    "financial": DomainConfig(
+        "financial", TokenBiasing(("transaction", "payment", "invoice", "ledger", "reconciliation", "compliance"), 2.5)
+    ),
+    "scientific": DomainConfig(
+        "scientific", TokenBiasing(("hypothesis", "experiment", "analysis", "methodology", "empirical"), 2.5)
+    ),
+    "programming": DomainConfig(
+        "programming",
+        TokenBiasing(
+            (
+                "function",
+                "class",
+                "return",
+                "async",
+                "await",
+                "import",
+                "export",
+                "const",
+                "let",
+                "var",
+                "if",
+                "else",
+                "for",
+                "while",
+                "try",
+                "catch",
+                "throw",
+                "new",
+                "this",
+                "null",
+                "undefined",
+            ),
+            2.5,
+        ),
+    ),
+    "devops": DomainConfig(
+        "devops",
+        TokenBiasing(
+            ("kubernetes", "docker", "deployment", "pipeline", "container", "namespace", "helm", "terraform"), 2.5
+        ),
+    ),
+    "data_science": DomainConfig(
+        "data_science",
+        TokenBiasing(
+            ("dataframe", "numpy", "pandas", "regression", "classification", "feature", "model", "training"), 2.5
+        ),
+    ),
+    "education": DomainConfig(
+        "education", TokenBiasing(("assignment", "lecture", "curriculum", "grade", "student", "syllabus"), 2.5)
+    ),
 }
 
 DOMAIN_PATTERNS: Dict[str, Tuple[str, ...]] = {
@@ -334,24 +388,114 @@ DOMAIN_PATTERNS: Dict[str, Tuple[str, ...]] = {
     "sql": (r"SELECT\s+", r"INSERT\s+", r"UPDATE\s+"),
 }
 
-GLOBAL_COMMON_WORDS: FrozenSet[str] = frozenset({
-    "the", "a", "an", "and", "or", "but", "is", "are", "was", "were", "be", "been",
-    "being", "have", "has", "had", "do", "does", "did", "will", "would", "could",
-    "should", "may", "might", "must", "can", "i", "you", "he", "she", "it", "we",
-    "they", "me", "him", "her", "us", "them", "my", "your", "his", "its", "our",
-    "their", "this", "that", "these", "those", "to", "of", "in", "on", "at", "for",
-    "with", "by", "from", "as", "into", "about", "like", "not", "no", "yes", "so",
-    "if", "then", "than", "there", "here", "they're", "you're", "we're", "it's",
-})
+GLOBAL_COMMON_WORDS: FrozenSet[str] = frozenset(
+    {
+        "the",
+        "a",
+        "an",
+        "and",
+        "or",
+        "but",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "been",
+        "being",
+        "have",
+        "has",
+        "had",
+        "do",
+        "does",
+        "did",
+        "will",
+        "would",
+        "could",
+        "should",
+        "may",
+        "might",
+        "must",
+        "can",
+        "i",
+        "you",
+        "he",
+        "she",
+        "it",
+        "we",
+        "they",
+        "me",
+        "him",
+        "her",
+        "us",
+        "them",
+        "my",
+        "your",
+        "his",
+        "its",
+        "our",
+        "their",
+        "this",
+        "that",
+        "these",
+        "those",
+        "to",
+        "of",
+        "in",
+        "on",
+        "at",
+        "for",
+        "with",
+        "by",
+        "from",
+        "as",
+        "into",
+        "about",
+        "like",
+        "not",
+        "no",
+        "yes",
+        "so",
+        "if",
+        "then",
+        "than",
+        "there",
+        "here",
+        "they're",
+        "you're",
+        "we're",
+        "it's",
+    }
+)
 
 
 __all__ = [
-    "Tier", "QuantizationFormat", "QuantSpec", "QUANT_SPEC",
-    "FeatureFlags", "SamplingConfig", "VadConfig", "CalibrationConfig",
-    "HardwareProfile", "HARDWARE_PROFILES", "MemoryBudget", "MEMORY_BUDGETS",
-    "budget_for", "select_profile", "validate_profile", "validate_all_profiles",
-    "apply_env_overrides", "profile_to_dict", "profile_diff", "profile_summary",
-    "TokenBiasing", "DomainConfig", "DOMAIN_CONFIGS", "DOMAIN_PATTERNS",
+    "Tier",
+    "QuantizationFormat",
+    "QuantSpec",
+    "QUANT_SPEC",
+    "FeatureFlags",
+    "SamplingConfig",
+    "VadConfig",
+    "CalibrationConfig",
+    "HardwareProfile",
+    "HARDWARE_PROFILES",
+    "MemoryBudget",
+    "MEMORY_BUDGETS",
+    "budget_for",
+    "select_profile",
+    "validate_profile",
+    "validate_all_profiles",
+    "apply_env_overrides",
+    "profile_to_dict",
+    "profile_diff",
+    "profile_summary",
+    "TokenBiasing",
+    "DomainConfig",
+    "DOMAIN_CONFIGS",
+    "DOMAIN_PATTERNS",
     "GLOBAL_COMMON_WORDS",
-    "MAX_MODEL_SIZE_MB", "CONFIDENCE_THRESHOLD", "CONTEXTUAL_WINDOW_SIZE",
+    "MAX_MODEL_SIZE_MB",
+    "CONFIDENCE_THRESHOLD",
+    "CONTEXTUAL_WINDOW_SIZE",
 ]

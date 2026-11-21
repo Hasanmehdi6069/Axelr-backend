@@ -19,6 +19,7 @@ Timing contract (this revision):
     400 ms, the fallback providers fire in parallel. The whole request is
     capped at 15 s (free) / 30 s (pro) wall-clock.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -84,9 +85,11 @@ except Exception as _e:
         @staticmethod
         def snapshot() -> dict:
             return {"resident": "unavailable", "weights_loads": 0, "rss_mb": 0}
+
         async def start(self) -> None: ...
         async def shutdown(self) -> None: ...
-        async def infer(self, *a, **kw) -> str: return ""
+        async def infer(self, *a, **kw) -> str:
+            return ""
 
     def get_hot_swap_engine() -> _StubEngine:
         return _StubEngine()
@@ -102,9 +105,6 @@ def is_stub_response(text: str) -> bool:
     except Exception:
         return False
     return isinstance(j, dict) and bool(j.get("_stub"))
-
-
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -123,10 +123,18 @@ except Exception as _e:
         logger.warning("core_package_missing_using_stubs error=%s", _e)
 
     class _NoCache:
-        async def get(self, *a, **kw): return None
-        async def set(self, *a, **kw): return None
-        async def clear(self): return None
-        async def _ensure_model(self): return None
+        async def get(self, *a, **kw):
+            return None
+
+        async def set(self, *a, **kw):
+            return None
+
+        async def clear(self):
+            return None
+
+        async def _ensure_model(self):
+            return None
+
     _semantic_cache = _NoCache()
     state.semantic_cache = _semantic_cache
 
@@ -136,13 +144,16 @@ except Exception as _e:
                 syntax_ok = True
                 score = 100
                 findings = []
+
             return _R()
+
     state.code_guard = _StubCodeGuard()
 
 
 try:
     from core.io_pipeline import execute_code_on_worker
 except Exception:
+
     async def execute_code_on_worker(language, code, timeout=8):
         return {"success": False, "output": "", "error": "worker_unavailable"}
 
@@ -151,11 +162,20 @@ except Exception:
 # Cascade wrapper
 # ═══════════════════════════════════════════════════════════════════════════
 async def generate_with_cascade(
-    workspace: str, task_type: str, prompt: str,
-    *, history=None, files=None, max_tokens=2048, temp=0.4,
-    tier: str = "free", user: dict | None = None,
-    context: str = "", user_id: str | None = None,
-    session_id: str | None = None, want_elite: bool = False,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    *,
+    history=None,
+    files=None,
+    max_tokens=2048,
+    temp=0.4,
+    tier: str = "free",
+    user: dict | None = None,
+    context: str = "",
+    user_id: str | None = None,
+    session_id: str | None = None,
+    want_elite: bool = False,
     request: Request | None = None,
 ) -> dict[str, Any]:
     # Extract user email for unlimited access
@@ -163,16 +183,33 @@ async def generate_with_cascade(
     cascade = getattr(state, "provider_cascade", None)
     if cascade is None:
         return await route_ai_request_parallel(
-            workspace, task_type, prompt, history, files,
-            max_tokens, temp, tier, user, context, request,
+            workspace,
+            task_type,
+            prompt,
+            history,
+            files,
+            max_tokens,
+            temp,
+            tier,
+            user,
+            context,
+            request,
             user_email=user_email,
         )
     return await cascade.generate(
-        workspace=workspace, task_type=task_type, prompt=prompt,
+        workspace=workspace,
+        task_type=task_type,
+        prompt=prompt,
         user_id=user_id or (str(user["_id"]) if user else None),
-        session_id=session_id, history=history, files=files,
-        max_tokens=max_tokens, temp=temp, tier=tier, user=user,
-        context=context, want_elite=want_elite,
+        session_id=session_id,
+        history=history,
+        files=files,
+        max_tokens=max_tokens,
+        temp=temp,
+        tier=tier,
+        user=user,
+        context=context,
+        want_elite=want_elite,
     )
 
 
@@ -180,34 +217,47 @@ async def generate_with_cascade(
 # Tier-specific response time guarantees (user requirements)
 # ═══════════════════════════════════════════════════════════════════════════
 TIER_RESPONSE_MIN_DELAY = {
-    "free": 1.0,      # Free users: 1s minimum (decent quality)
-    "pro": 3.0,       # Pro: 3s minimum (3-5s range as requested)
+    "free": 1.0,  # Free users: 1s minimum (decent quality)
+    "pro": 3.0,  # Pro: 3s minimum (3-5s range as requested)
     "business": 5.0,  # Business:5s minimum (5-6s range as requested)
-    "enterprise": 5.5 # Enterprise:5.5s minimum
+    "enterprise": 5.5,  # Enterprise:5.5s minimum
 }
 TIER_RESPONSE_MAX_DELAY = {
-    "free": 2.0,      # Free: max 2s (not enterprise level)
-    "pro": 5.0,       # Pro: max 5s
+    "free": 2.0,  # Free: max 2s (not enterprise level)
+    "pro": 5.0,  # Pro: max 5s
     "business": 6.0,  # Business: max 6s
-    "enterprise": 6.5 # Enterprise: max6.5s
+    "enterprise": 6.5,  # Enterprise: max6.5s
 }
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Sequential router
 # ═══════════════════════════════════════════════════════════════════════════
 async def route_ai_request_sequential(
-    workspace: str, task_type: str, prompt: str,
-    history: list[dict] | None, files: list[dict] | None,
-    max_tokens: int, temp: float, tier: str,
-    user: dict | None = None, context: str = "",
-    user_id: str | None = None, session_id: str | None = None,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: list[dict] | None,
+    files: list[dict] | None,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None = None,
+    context: str = "",
+    user_id: str | None = None,
+    session_id: str | None = None,
 ) -> dict[str, Any]:
     start = time.time()
     prompt = sanitize_input(prompt)
     if detect_manipulation(prompt) or contains_explicit(prompt):
-        return {"success": False, "text": "⚠️ Security violation.",
-                "provider": "security", "model_used": "filter",
-                "tokens_used": 0, "latency_ms": 0}
+        return {
+            "success": False,
+            "text": "⚠️ Security violation.",
+            "provider": "security",
+            "model_used": "filter",
+            "tokens_used": 0,
+            "latency_ms": 0,
+        }
 
     history_text = ""
     if history:
@@ -232,9 +282,7 @@ async def route_ai_request_sequential(
 
     normalized = " ".join(prompt.lower().split())
     ctx_hash = hashlib.sha256(context.encode()).hexdigest() if context else ""
-    cache_key = hashlib.sha256(
-        f"{workspace}:{task_type}:{normalized}:{history_text}:{ctx_hash}".encode()
-    ).hexdigest()
+    cache_key = hashlib.sha256(f"{workspace}:{task_type}:{normalized}:{history_text}:{ctx_hash}".encode()).hexdigest()
     if cache_key in state.ai_cache:
         response = {**state.ai_cache[cache_key], "cached": True}
         # Persist chat message to database if we have user and session info
@@ -247,12 +295,16 @@ async def route_ai_request_sequential(
                     user_prompt=prompt,
                     assistant_reply=response["text"],
                     workspace=workspace,
-                    is_guest=is_guest
+                    is_guest=is_guest,
                 )
                 # Commit the messages to mark them as fully saved
                 await PERSIST.commit_exchange(user_msg_id, ai_msg_id)
-                logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
-                           session_id, user_msg_id, ai_msg_id)
+                logger.info(
+                    "chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
+                    session_id,
+                    user_msg_id,
+                    ai_msg_id,
+                )
             except Exception as e:
                 logger.error("failed_to_persist_chat session_id=%s error=%s", session_id, e)
         # Enforce tier-specific minimum delay to ensure quality checks complete
@@ -262,7 +314,9 @@ async def route_ai_request_sequential(
         if elapsed < min_delay:
             # If response was too fast, add artificial delay to ensure quality checks complete
             await asyncio.sleep(min_delay - elapsed)
-            logger.info(f"Added quality guarantee delay for {tier} user: added {(min_delay - elapsed):.2f}s, total {time.time()-start:.2f}s")
+            logger.info(
+                f"Added quality guarantee delay for {tier} user: added {(min_delay - elapsed):.2f}s, total {time.time() - start:.2f}s"
+            )
         elif elapsed > max_delay:
             logger.warning(f"Response exceeded max delay for {tier} user: {elapsed:.2f}s (max {max_delay}s)")
         return response
@@ -303,9 +357,14 @@ async def route_ai_request_sequential(
                         if state.circuit_breaker is not None:
                             await state.circuit_breaker.record_failure(ident, is_rate_limit=True)
                         break
-                    logger.warning("provider_attempt_failed provider=%s model=%s attempt=%s error=%s",
-                                   provider_name, model, attempt + 1, e)
-                    await asyncio.sleep(2 ** attempt)
+                    logger.warning(
+                        "provider_attempt_failed provider=%s model=%s attempt=%s error=%s",
+                        provider_name,
+                        model,
+                        attempt + 1,
+                        e,
+                    )
+                    await asyncio.sleep(2**attempt)
                     if state.circuit_breaker is not None:
                         await state.circuit_breaker.record_failure(ident)
             if provider_success:
@@ -313,8 +372,11 @@ async def route_ai_request_sequential(
         if provider_success:
             # Success case - add persistence for successful provider responses
             response = {
-                "success": True, "text": resp_text, "provider": provider_name,
-                "model_used": model, "tokens_used": len(resp_text.split()),
+                "success": True,
+                "text": resp_text,
+                "provider": provider_name,
+                "model_used": model,
+                "tokens_used": len(resp_text.split()),
                 "latency_ms": round((time.time() - start) * 1000, 2),
             }
             # Persist chat message to database if we have user and session info
@@ -327,12 +389,16 @@ async def route_ai_request_sequential(
                         user_prompt=prompt,
                         assistant_reply=response["text"],
                         workspace=workspace,
-                        is_guest=is_guest
+                        is_guest=is_guest,
                     )
                     # Commit the messages to mark them as fully saved
                     await PERSIST.commit_exchange(user_msg_id, ai_msg_id)
-                    logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
-                               session_id, user_msg_id, ai_msg_id)
+                    logger.info(
+                        "chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
+                        session_id,
+                        user_msg_id,
+                        ai_msg_id,
+                    )
                 except Exception as e:
                     logger.error("failed_to_persist_chat session_id=%s error=%s", session_id, e)
             # Enforce tier-specific minimum delay to ensure quality checks complete
@@ -341,7 +407,9 @@ async def route_ai_request_sequential(
             max_delay = TIER_RESPONSE_MAX_DELAY.get(tier.lower(), 2.0)
             if elapsed < min_delay:
                 await asyncio.sleep(min_delay - elapsed)
-                logger.info(f"Added quality guarantee delay for {tier} user: added {(min_delay - elapsed):.2f}s, total {time.time()-start:.2f}s")
+                logger.info(
+                    f"Added quality guarantee delay for {tier} user: added {(min_delay - elapsed):.2f}s, total {time.time() - start:.2f}s"
+                )
             elif elapsed > max_delay:
                 logger.warning(f"Response exceeded max delay for {tier} user: {elapsed:.2f}s (max {max_delay}s)")
             return response
@@ -356,8 +424,11 @@ async def route_ai_request_sequential(
         resident = "stub"
     provider = "local_stub" if is_stub_response(fallback_text) else "local_hot_swap"
     response = {
-        "success": True, "text": fallback_text, "provider": provider,
-        "model_used": resident, "tokens_used": len(fallback_text.split()),
+        "success": True,
+        "text": fallback_text,
+        "provider": provider,
+        "model_used": resident,
+        "tokens_used": len(fallback_text.split()),
         "latency_ms": round((time.time() - start) * 1000, 2),
     }
 
@@ -371,12 +442,13 @@ async def route_ai_request_sequential(
                 user_prompt=prompt,
                 assistant_reply=response["text"],
                 workspace=workspace,
-                is_guest=is_guest
+                is_guest=is_guest,
             )
             # Commit the messages to mark them as fully saved
             await PERSIST.commit_exchange(user_msg_id, ai_msg_id)
-            logger.info("chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s",
-                       session_id, user_msg_id, ai_msg_id)
+            logger.info(
+                "chat_messages_persisted session_id=%s user_msg_id=%s ai_msg_id=%s", session_id, user_msg_id, ai_msg_id
+            )
         except Exception as e:
             logger.error("failed_to_persist_chat session_id=%s error=%s", session_id, e)
 
@@ -386,7 +458,9 @@ async def route_ai_request_sequential(
     max_delay = TIER_RESPONSE_MAX_DELAY.get(tier.lower(), 2.0)
     if elapsed < min_delay:
         await asyncio.sleep(min_delay - elapsed)
-        logger.info(f"Added quality guarantee delay for {tier} user: added {(min_delay - elapsed):.2f}s, total {time.time()-start:.2f}s")
+        logger.info(
+            f"Added quality guarantee delay for {tier} user: added {(min_delay - elapsed):.2f}s, total {time.time() - start:.2f}s"
+        )
     elif elapsed > max_delay:
         logger.warning(f"Response exceeded max delay for {tier} user: {elapsed:.2f}s (max {max_delay}s)")
     return response
@@ -396,28 +470,42 @@ async def route_ai_request_sequential(
 # Parallel router (primary + parallel fallback race)
 # ═══════════════════════════════════════════════════════════════════════════
 async def route_ai_request_parallel(
-    workspace: str, task_type: str, prompt: str,
-    history: list[dict] | None, files: list[dict] | None,
-    max_tokens: int, temp: float, tier: str,
-    user: dict | None = None, context: str = "", request: Request | None = None,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: list[dict] | None,
+    files: list[dict] | None,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None = None,
+    context: str = "",
+    request: Request | None = None,
     user_email: str | None = None,
 ) -> dict[str, Any]:
     await check_and_update_quota(user, workspace, task_type)
     start = time.time()
     prompt = sanitize_input(prompt)
     if detect_manipulation(prompt) or contains_explicit(prompt):
-        return {"success": False, "text": "⚠️ Security violation.",
-                "provider": "security", "model_used": "filter",
-                "tokens_used": 0, "latency_ms": 0}
+        return {
+            "success": False,
+            "text": "⚠️ Security violation.",
+            "provider": "security",
+            "model_used": "filter",
+            "tokens_used": 0,
+            "latency_ms": 0,
+        }
 
     cache_context = ""
     if history and len(history) >= 2:
         recent_context = history[-2:]
-        cache_context = "\n".join([
-            f"{m.get('role', 'user')}: {m.get('text', '')}"
-            for m in recent_context
-            if isinstance(m, dict) and m.get("text")
-        ])
+        cache_context = "\n".join(
+            [
+                f"{m.get('role', 'user')}: {m.get('text', '')}"
+                for m in recent_context
+                if isinstance(m, dict) and m.get("text")
+            ]
+        )
     contextualized_prompt = f"{cache_context}\nCurrent request: {prompt}" if cache_context else prompt
     system_prompt = _get_system_prompt(workspace, task_type)
     cache_input = f"{PROMPT_VERSION}::{system_prompt}::{contextualized_prompt}"
@@ -427,17 +515,24 @@ async def route_ai_request_parallel(
     except Exception:
         cached_response = None
     if cached_response:
-        return {"success": True, "text": cached_response,
-                "provider": "semantic_cache", "model_used": "cache",
-                "tokens_used": len(cached_response.split()),
-                "latency_ms": round((time.time() - start) * 1000, 2),
-                "cached": True}
+        return {
+            "success": True,
+            "text": cached_response,
+            "provider": "semantic_cache",
+            "model_used": "cache",
+            "tokens_used": len(cached_response.split()),
+            "latency_ms": round((time.time() - start) * 1000, 2),
+            "cached": True,
+        }
     full_prompt = f"{system_prompt}\n\n"
     if context:
         full_prompt += f"Context: {context}\n\n"
     if history:
-        recent = [f"{m.get('role', 'user')}: {m.get('text', '')}"
-                  for m in history[-4:] if isinstance(m, dict) and m.get("text")]
+        recent = [
+            f"{m.get('role', 'user')}: {m.get('text', '')}"
+            for m in history[-4:]
+            if isinstance(m, dict) and m.get("text")
+        ]
         if recent:
             full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
     full_prompt += f"User request: {prompt}"
@@ -453,8 +548,8 @@ async def route_ai_request_parallel(
 
     if not available:
         return await route_ai_request_sequential(
-            workspace, task_type, prompt, history, files,
-            max_tokens, temp, tier, user, context)
+            workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context
+        )
 
     primary_provider = available[0]
     fallback_providers = available[1:]
@@ -498,10 +593,15 @@ async def route_ai_request_parallel(
     primary_result = None
     # Local AI providers need longer TTFT threshold (3s instead of 400ms)
     is_local_provider = primary_provider == "local"
-    primary_ttft_ms = int(os.getenv("PIPELINE_LOCAL_TTFT_MS", "3000")) if is_local_provider else int(os.getenv("PIPELINE_PRIMARY_TTFT_MS", "400"))
+    primary_ttft_ms = (
+        int(os.getenv("PIPELINE_LOCAL_TTFT_MS", "3000"))
+        if is_local_provider
+        else int(os.getenv("PIPELINE_PRIMARY_TTFT_MS", "400"))
+    )
     try:
         done, _ = await asyncio.wait(
-            [primary_task], timeout=primary_ttft_ms / 1000.0,
+            [primary_task],
+            timeout=primary_ttft_ms / 1000.0,
             return_when=asyncio.FIRST_COMPLETED,
         )
         if done:
@@ -513,7 +613,8 @@ async def route_ai_request_parallel(
         else:
             logger.warning(
                 "primary_ttft_exceeded provider=%s threshold_ms=%d — awaiting completion",
-                primary_provider, primary_ttft_ms,
+                primary_provider,
+                primary_ttft_ms,
             )
             # Even if we exceeded TTFT, still await the primary task to complete
             if not primary_task.done():
@@ -528,15 +629,20 @@ async def route_ai_request_parallel(
         raise
 
     if primary_result is not None:
-        final_text = sanitize_ai_output(primary_result["text"]) + \
-            f"\n\n---\n*Generated through Axelr in {primary_result['latency']:.2f} seconds*"
+        final_text = (
+            sanitize_ai_output(primary_result["text"])
+            + f"\n\n---\n*Generated through Axelr in {primary_result['latency']:.2f} seconds*"
+        )
         with contextlib.suppress(Exception):
             await _semantic_cache.set(contextualized_prompt, final_text)
-        return {"success": True, "text": final_text,
-                "provider": primary_result["provider"],
-                "model_used": primary_result["model"],
-                "tokens_used": len(final_text.split()),
-                "latency_ms": round(primary_result["latency"] * 1000, 2)}
+        return {
+            "success": True,
+            "text": final_text,
+            "provider": primary_result["provider"],
+            "model_used": primary_result["model"],
+            "tokens_used": len(final_text.split()),
+            "latency_ms": round(primary_result["latency"] * 1000, 2),
+        }
 
     # ── Parallel fallback wave ────────────────────────────────────────
     # All candidates race together. Whichever returns a valid response
@@ -556,7 +662,8 @@ async def route_ai_request_parallel(
     if fallback_tasks:
         try:
             for fut in asyncio.as_completed(
-                fallback_tasks, timeout=remaining_s,
+                fallback_tasks,
+                timeout=remaining_s,
             ):
                 try:
                     res = await fut
@@ -571,15 +678,16 @@ async def route_ai_request_parallel(
                     primary_task.cancel()
                     await asyncio.gather(primary_task, return_exceptions=True)
                 final_text = (
-                    sanitize_ai_output(res["text"])
-                    + f"\n\n---\n*Generated through Axelr in "
-                      f"{res['latency']:.2f} seconds*"
+                    sanitize_ai_output(res["text"]) + f"\n\n---\n*Generated through Axelr in "
+                    f"{res['latency']:.2f} seconds*"
                 )
                 with contextlib.suppress(Exception):
                     await _semantic_cache.set(contextualized_prompt, final_text)
                 return {
-                    "success": True, "text": final_text,
-                    "provider": res["provider"], "model_used": res["model"],
+                    "success": True,
+                    "text": final_text,
+                    "provider": res["provider"],
+                    "model_used": res["model"],
                     "tokens_used": len(final_text.split()),
                     "latency_ms": round(res["latency"] * 1000, 2),
                 }
@@ -597,21 +705,34 @@ async def route_ai_request_parallel(
 
     # Always show a user-friendly message instead of "All services are closed"
     fallback = build_local_fallback_response(workspace, "core", prompt)
-    friendly_fallback = fallback + "\n\nWe are still routing your request to our AI agent, you will get your response soon. Thank you for your patience."
-    return {"success": True, "text": friendly_fallback,
-            "provider": "local-hotswap", "model_used": "hotswap-recovery",
-            "tokens_used": len(friendly_fallback.split()),
-            "latency_ms": round((time.time() - start) * 1000, 2)}
+    friendly_fallback = (
+        fallback
+        + "\n\nWe are still routing your request to our AI agent, you will get your response soon. Thank you for your patience."
+    )
+    return {
+        "success": True,
+        "text": friendly_fallback,
+        "provider": "local-hotswap",
+        "model_used": "hotswap-recovery",
+        "tokens_used": len(friendly_fallback.split()),
+        "latency_ms": round((time.time() - start) * 1000, 2),
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Streaming router
 # ═══════════════════════════════════════════════════════════════════════════
 async def stream_ai_response(
-    workspace: str, task_type: str, prompt: str,
-    history: list[dict] | None, files: list[dict] | None,
-    max_tokens: int, temp: float, tier: str,
-    user: dict | None = None, context: str = "",
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: list[dict] | None,
+    files: list[dict] | None,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None = None,
+    context: str = "",
 ):
     """Forward the resilient pipeline as Server-Sent Events."""
     from core.resilience import stream_pipeline
@@ -620,10 +741,17 @@ async def stream_ai_response(
     fast_tier = (tier or "free") == "free" and user is None
 
     async for kind, payload in stream_pipeline(
-        workspace=workspace, task_type=task_type, prompt=prompt,
-        history=history, files=files,
-        max_tokens=max_tokens, temp=temp, tier=tier,
-        user=user, context=context, fast_tier=fast_tier,
+        workspace=workspace,
+        task_type=task_type,
+        prompt=prompt,
+        history=history,
+        files=files,
+        max_tokens=max_tokens,
+        temp=temp,
+        tier=tier,
+        user=user,
+        context=context,
+        fast_tier=fast_tier,
     ):
         if kind == "thinking":
             # FIX B3 — pass the pipeline's thinking payload through
@@ -642,8 +770,9 @@ async def stream_ai_response(
                     buf.clear()
                     await asyncio.sleep(0)
             elapsed = time.time() - started
-            watermark = (f"\n\n---\n*{payload.get('provider','axelr')} · "
-                         f"{payload.get('model_used','')} · {elapsed:.2f}s*")
+            watermark = (
+                f"\n\n---\n*{payload.get('provider', 'axelr')} · {payload.get('model_used', '')} · {elapsed:.2f}s*"
+            )
             yield f"data: {json.dumps({'watermark': watermark})}\n\n"
             return
 

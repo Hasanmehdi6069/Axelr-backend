@@ -11,6 +11,7 @@ Client-side design:
 A missing required field is a hard error — never a silent default for
 credentials.
 """
+
 from __future__ import annotations
 
 import os
@@ -29,6 +30,7 @@ _REQUIRED_ENV = {
 
 
 # ── Env readers ───────────────────────────────────────────────────────
+
 
 def _env(name: str) -> str | None:
     v = os.environ.get(name)
@@ -78,6 +80,7 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 # ── Config ────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True, slots=True)
 class AppwriteConfig:
@@ -145,9 +148,7 @@ class AppwriteConfig:
 
         # Validate mode
         if self.mode not in ("server", "session", "anonymous"):
-            raise ConfigurationError(
-                f"invalid mode {self.mode!r}; must be 'server', 'session', or 'anonymous'"
-            )
+            raise ConfigurationError(f"invalid mode {self.mode!r}; must be 'server', 'session', or 'anonymous'")
 
         # Validate mode-auth consistency
         if self.mode == "server" and not self.api_key:
@@ -174,6 +175,7 @@ class AppwriteConfig:
     def from_env(cls) -> "AppwriteConfig":
         """Read every field from environment variables."""
         from .env import env as _env
+
         a = _env.appwrite
         return cls(
             endpoint=a.endpoint,

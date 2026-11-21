@@ -8,10 +8,22 @@ from typing import Dict, Tuple
 # Phoneme to Grapheme mapping for normalization
 # ═══════════════════════════════════════════════════════════════════════════
 PHONEME_GRAPHEME_MAP: Dict[str, str] = {
-    "ah": "a", "eh": "e", "ih": "i", "oh": "o", "uh": "u",
-    "ae": "ai", "ee": "ea", "ie": "ei", "oo": "ou",
-    "ck": "c", "ks": "x", "kw": "qu", "sh": "ti", "zh": "si",
-    "ksh": "ction", "shun": "tion",
+    "ah": "a",
+    "eh": "e",
+    "ih": "i",
+    "oh": "o",
+    "uh": "u",
+    "ae": "ai",
+    "ee": "ea",
+    "ie": "ei",
+    "oo": "ou",
+    "ck": "c",
+    "ks": "x",
+    "kw": "qu",
+    "sh": "ti",
+    "zh": "si",
+    "ksh": "ction",
+    "shun": "tion",
 }
 
 
@@ -37,12 +49,24 @@ def soundex(word: str) -> str:
         return ""
     # Mapping of letters to Soundex codes
     codes = {
-        "b": "1", "f": "1", "p": "1", "v": "1",
-        "c": "2", "g": "2", "j": "2", "k": "2", "q": "2", "s": "2", "x": "2", "z": "2",
-        "d": "3", "t": "3",
+        "b": "1",
+        "f": "1",
+        "p": "1",
+        "v": "1",
+        "c": "2",
+        "g": "2",
+        "j": "2",
+        "k": "2",
+        "q": "2",
+        "s": "2",
+        "x": "2",
+        "z": "2",
+        "d": "3",
+        "t": "3",
         "l": "4",
-        "m": "5", "n": "5",
-        "r": "6"
+        "m": "5",
+        "n": "5",
+        "r": "6",
     }
     # Process first character
     word = word.lower()
@@ -78,135 +102,135 @@ def metaphone(word: str) -> str:
     # Handle silent leading combinations first
     if n >= 2:
         # 'kn' → silent 'k', only 'n' remains
-        if word[0] == 'k' and word[1] == 'n':
+        if word[0] == "k" and word[1] == "n":
             i = 1  # Skip 'k', start at 'n'
         # 'gn' → silent 'g', only 'n' remains
-        elif word[0] == 'g' and word[1] == 'n':
+        elif word[0] == "g" and word[1] == "n":
             i = 1  # Skip 'g', start at 'n'
         # 'ps' → silent 'p', only 's' remains
-        elif word[0] == 'p' and word[1] == 's':
+        elif word[0] == "p" and word[1] == "s":
             i = 1  # Skip 'p', start at 's'
         # 'rh' → silent 'h', only 'r' remains (rhyme → rime)
-        elif word[0] == 'r' and word[1] == 'h':
+        elif word[0] == "r" and word[1] == "h":
             i = 1  # Skip 'h', start at 'r'
         # 'wh' → silent 'w', only 'h' remains (what → hat)
-        elif word[0] == 'w' and word[1] == 'h':
+        elif word[0] == "w" and word[1] == "h":
             i = 1  # Skip 'w', start at 'h'
         # Keep original 'wr' handling for all words
-        elif word[0] == 'w' and word[1] == 'r':
+        elif word[0] == "w" and word[1] == "r":
             i = 1  # Skip 'w', start at 'r'
 
     # Process remaining word with core metaphone rules
     while i < n:
         ch = word[i]
         # Align all other 'ei' and 'ie' cases phonetically
-        if i+1 < n:
-            if word[i] == 'e' and word[i+1] == 'i':
-                result.append('i')
+        if i + 1 < n:
+            if word[i] == "e" and word[i + 1] == "i":
+                result.append("i")
                 i += 2
                 continue
-            elif word[i] == 'i' and word[i+1] == 'e':
-                result.append('i')
+            elif word[i] == "i" and word[i + 1] == "e":
+                result.append("i")
                 i += 2
                 continue
         # Handle simple mappings first
-        if ch in 'aeiou':
+        if ch in "aeiou":
             if i == 0:  # Keep initial vowels
                 result.append(ch)
             i += 1
-        elif ch == 'b':
-            result.append('b')
+        elif ch == "b":
+            result.append("b")
             i += 1
-        elif ch == 'c':
+        elif ch == "c":
             # Handle 'ch', 'ci', 'ce' cases
-            if i+1 < n and word[i+1] == 'h':
-                result.append('x')
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("x")
                 i += 2
-            elif i+1 < n and word[i+1] in 'iey':
-                result.append('s')
-                i += 2
-            else:
-                result.append('k')
-                i += 1
-        elif ch == 'd':
-            if i+1 < n and word[i+1] == 'g':
-                result.append('j')
+            elif i + 1 < n and word[i + 1] in "iey":
+                result.append("s")
                 i += 2
             else:
-                result.append('t')
+                result.append("k")
                 i += 1
-        elif ch == 'f':
-            result.append('f')
-            i += 1
-        elif ch == 'g':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('k')
+        elif ch == "d":
+            if i + 1 < n and word[i + 1] == "g":
+                result.append("j")
                 i += 2
             else:
-                result.append('g')
+                result.append("t")
                 i += 1
-        elif ch == 'h':
-            if i == 0 or (i > 0 and word[i-1] not in 'aeiou'):
-                result.append('h')
+        elif ch == "f":
+            result.append("f")
             i += 1
-        elif ch == 'j':
-            result.append('j')
-            i += 1
-        elif ch == 'k':
-            result.append('k')
-            i += 1
-        elif ch == 'l':
-            result.append('l')
-            i += 1
-        elif ch == 'm':
-            result.append('m')
-            i += 1
-        elif ch == 'n':
-            result.append('n')
-            i += 1
-        elif ch == 'p':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('f')
+        elif ch == "g":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("k")
                 i += 2
             else:
-                result.append('p')
+                result.append("g")
                 i += 1
-        elif ch == 'q':
-            result.append('k')
+        elif ch == "h":
+            if i == 0 or (i > 0 and word[i - 1] not in "aeiou"):
+                result.append("h")
             i += 1
-        elif ch == 'r':
-            result.append('r')
+        elif ch == "j":
+            result.append("j")
             i += 1
-        elif ch == 's':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('x')
+        elif ch == "k":
+            result.append("k")
+            i += 1
+        elif ch == "l":
+            result.append("l")
+            i += 1
+        elif ch == "m":
+            result.append("m")
+            i += 1
+        elif ch == "n":
+            result.append("n")
+            i += 1
+        elif ch == "p":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("f")
                 i += 2
             else:
-                result.append('s')
+                result.append("p")
                 i += 1
-        elif ch == 't':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('0')
+        elif ch == "q":
+            result.append("k")
+            i += 1
+        elif ch == "r":
+            result.append("r")
+            i += 1
+        elif ch == "s":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("x")
                 i += 2
             else:
-                result.append('t')
+                result.append("s")
                 i += 1
-        elif ch == 'v':
-            result.append('f')
+        elif ch == "t":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("0")
+                i += 2
+            else:
+                result.append("t")
+                i += 1
+        elif ch == "v":
+            result.append("f")
             i += 1
-        elif ch == 'w':
-            if i+1 < n and word[i+1] in 'aeiou':
-                result.append('w')
+        elif ch == "w":
+            if i + 1 < n and word[i + 1] in "aeiou":
+                result.append("w")
             i += 1
-        elif ch == 'x':
-            result.append('k')
+        elif ch == "x":
+            result.append("k")
             i += 1
-        elif ch == 'y':
-            if i+1 < n and word[i+1] in 'aeiou':
-                result.append('y')
+        elif ch == "y":
+            if i + 1 < n and word[i + 1] in "aeiou":
+                result.append("y")
             i += 1
-        elif ch == 'z':
-            result.append('s')
+        elif ch == "z":
+            result.append("s")
             i += 1
         else:
             i += 1
@@ -221,6 +245,7 @@ def metaphone(word: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 class PhoneticEnsemble:
     """Combined phonetic algorithms. Single source for JS porting."""
+
     __slots__ = ()
 
     @staticmethod
@@ -244,10 +269,4 @@ class PhoneticEnsemble:
 # ═══════════════════════════════════════════════════════════════════════════
 # Export all symbols
 # ═══════════════════════════════════════════════════════════════════════════
-__all__ = [
-    "PhonemeGraphemeNormalizer",
-    "soundex",
-    "metaphone",
-    "PhoneticEnsemble",
-    "PHONEME_GRAPHEME_MAP"
-]
+__all__ = ["PhonemeGraphemeNormalizer", "soundex", "metaphone", "PhoneticEnsemble", "PHONEME_GRAPHEME_MAP"]

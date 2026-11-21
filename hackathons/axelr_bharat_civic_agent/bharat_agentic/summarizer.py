@@ -4,6 +4,7 @@ Never calls a language model. Composes exactly three sentences per language
 from the structured fields returned by :mod:`bharat_agentic.extraction`. If a
 critical field is uncertain, the summary says so explicitly.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -12,12 +13,32 @@ from typing import Dict
 from .models import CaseRecord, CaseSummary, Confidence
 
 _EN_MONTHS = [
-    "January", "February", "March", "April", "May", "June",
-    "July", "August", "September", "October", "November", "December",
+    "January",
+    "February",
+    "March",
+    "April",
+    "May",
+    "June",
+    "July",
+    "August",
+    "September",
+    "October",
+    "November",
+    "December",
 ]
 _HI_MONTHS = [
-    "जनवरी", "फ़रवरी", "मार्च", "अप्रैल", "मई", "जून",
-    "जुलाई", "अगस्त", "सितंबर", "अक्टूबर", "नवंबर", "दिसंबर",
+    "जनवरी",
+    "फ़रवरी",
+    "मार्च",
+    "अप्रैल",
+    "मई",
+    "जून",
+    "जुलाई",
+    "अगस्त",
+    "सितंबर",
+    "अक्टूबर",
+    "नवंबर",
+    "दिसंबर",
 ]
 
 _EN_ACTIONS: Dict[str, str] = {
@@ -39,11 +60,9 @@ _HI_ACTIONS: Dict[str, str] = {
     "furnish bond": "कृपया सुनवाई से पहले आवश्यक बॉन्ड प्रस्तुत करें।",
 }
 
-_EN_REVIEW = ("Some fields are uncertain — please verify them against the "
-              "original document.")
+_EN_REVIEW = "Some fields are uncertain — please verify them against the original document."
 _HI_REVIEW = "कुछ विवरण अनिश्चित हैं — कृपया मूल दस्तावेज़ से सत्यापित करें।"
-_EN_CLOSING = ("Keep this summary and the original notice together for "
-               "your records.")
+_EN_CLOSING = "Keep this summary and the original notice together for your records."
 _HI_CLOSING = "कृपया यह सारांश और मूल नोटिस साथ में सुरक्षित रखें।"
 
 
@@ -83,8 +102,11 @@ class CaseSummarizer:
         subject = self._subject_en(record)
         hearing_date = (
             _format_en(_safe_date(record.next_hearing.value))
-            if record.next_hearing.value and _safe_date(record.next_hearing.value) and record.next_hearing.level is not Confidence.LOW
-            else None)
+            if record.next_hearing.value
+            and _safe_date(record.next_hearing.value)
+            and record.next_hearing.level is not Confidence.LOW
+            else None
+        )
         if hearing_date:
             s1 = f"{subject} is listed for its next hearing on {hearing_date}."
         else:
@@ -116,8 +138,11 @@ class CaseSummarizer:
         subject = self._subject_hi(record)
         hearing_date = (
             _format_hi(_safe_date(record.next_hearing.value))
-            if record.next_hearing.value and _safe_date(record.next_hearing.value) and record.next_hearing.level is not Confidence.LOW
-            else None)
+            if record.next_hearing.value
+            and _safe_date(record.next_hearing.value)
+            and record.next_hearing.level is not Confidence.LOW
+            else None
+        )
         if hearing_date:
             s1 = f"{subject} विचाराधीन है और अगली सुनवाई {hearing_date} को निर्धारित है।"
         else:

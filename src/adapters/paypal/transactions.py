@@ -1,4 +1,5 @@
 """Transaction state machine and storage with pluggable backends (in-memory + Redis)"""
+
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ from .core import get_core_module
 
 logger = logging.getLogger("axelr.paypal.transactions")
 
+
 class TransactionState(str, Enum):
     INITIATED = "INITIATED"
     VALIDATED = "VALIDATED"
@@ -23,6 +25,7 @@ class TransactionState(str, Enum):
     CAPTURED = "CAPTURED"
     REFUNDED = "REFUNDED"
 
+
 # Valid state transitions
 VALID_TRANSITIONS = {
     TransactionState.INITIATED: {TransactionState.VALIDATED},
@@ -30,11 +33,13 @@ VALID_TRANSITIONS = {
     TransactionState.PAYPAL_CREATED: {TransactionState.APPROVED},
     TransactionState.APPROVED: {TransactionState.CAPTURED},
     TransactionState.CAPTURED: {TransactionState.REFUNDED},
-    TransactionState.REFUNDED: set()  # Terminal state
+    TransactionState.REFUNDED: set(),  # Terminal state
 }
+
 
 class Transaction(BaseModel):
     """Model representing a single payment transaction with full audit trail"""
+
     id: str
     state: TransactionState
     paypal_order_id: Optional[str] = None
@@ -47,16 +52,16 @@ class Transaction(BaseModel):
     history: List[Dict[str, Any]]  # State change history
     metadata: Optional[Dict[str, Any]] = None
 
-    model_config = {
-        "use_enum_values": True
-    }
+    model_config = {"use_enum_values": True}
 
     def can_transition_to(self, new_state: TransactionState) -> bool:
         """Check if a state transition is valid"""
         return new_state in VALID_TRANSITIONS.get(self.state, set())
 
+
 class TransactionStore:
     """Pluggable transaction store with in-memory and Redis implementations"""
+
     _instance: Optional["TransactionStore"] = None
 
     def __new__(cls):
@@ -66,18 +71,15 @@ class TransactionStore:
 
     def __init__(self):
         # Only initialize once - singleton pattern
-        if hasattr(self, '_initialized') and self._initialized:
+        if hasattr(self, "_initialized") and self._initialized:
             return
         self.core = get_core_module()
         # Initialize core module if not already initialized
-        if not hasattr(self.core, 'settings'):
+        if not hasattr(self.core, "settings"):
             from .core import ModuleSettings
+
             # Initialize with default test settings if not already set
-            self.core.init(settings=ModuleSettings(
-                client_id="test",
-                client_secret="test",
-                environment="sandbox"
-            ))
+            self.core.init(settings=ModuleSettings(client_id="test", client_secret="test", environment="sandbox"))
         # Initialize all indexes and stores FIRST before checking Redis
         self.redis: Optional[redis.Redis] = None
         self.in_memory_store: Dict[str, Dict[str, Any]] = {}
@@ -88,7 +90,12 @@ class TransactionStore:
         self._initialized = True
 
         # Initialize Redis if URL is provided
-        if hasattr(self.core, 'settings') and self.core.settings and hasattr(self.core.settings, 'redis_url') and self.core.settings.redis_url:
+        if (
+            hasattr(self.core, "settings")
+            and self.core.settings
+            and hasattr(self.core.settings, "redis_url")
+            and self.core.settings.redis_url
+        ):
             try:
                 self.redis = redis.from_url(self.core.settings.redis_url)
                 logger.info("Redis transaction store initialized")
@@ -104,7 +111,9 @@ class TransactionStore:
             cls._instance = cls()
         return cls._instance
 
-    async def create_transaction(self, amount: str, currency: str, items: List[Dict[str, Any]], metadata: Optional[Dict] = None) -> Transaction:
+    async def create_transaction(
+        self, amount: str, currency: str, items: List[Dict[str, Any]], metadata: Optional[Dict] = None
+    ) -> Transaction:
         """Create a new transaction in INITIATED state"""
         txn_id = str(uuid.uuid4())
         now = datetime.utcnow().isoformat() + "Z"
@@ -118,7 +127,7 @@ class TransactionStore:
             created_at=now,
             updated_at=now,
             history=[{"state": TransactionState.INITIATED, "timestamp": now, "reason": "Transaction created"}],
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         await self._save(txn)
@@ -126,7 +135,9 @@ class TransactionStore:
         logger.info(f"Created new transaction {txn_id} in state INITIATED")
         return txn
 
-    async def transition_state(self, txn_id: str, new_state: TransactionState, reason: str = "State updated") -> Transaction:
+    async def transition_state(
+        self, txn_id: str, new_state: TransactionState, reason: str = "State updated"
+    ) -> Transaction:
         """Transition a transaction to a new state, if valid"""
         txn = await self.get_transaction(txn_id)
         if not txn:
@@ -244,6 +255,7 @@ class TransactionStore:
             for data in self.in_memory_store.values():
                 transactions.append(Transaction(**data))
         return transactions
+
 
 def get_transaction_store() -> TransactionStore:
     return TransactionStore.get_instance()

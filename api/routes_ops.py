@@ -2,6 +2,7 @@
 """
 AXELR — Operational routers (system · guest · RAG · hooks · indexer).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -44,6 +45,23 @@ _START_TS = time.time()
 # ═══════════════════════════════════════════════════════════════════════════
 # §1 — System / health
 # ═══════════════════════════════════════════════════════════════════════════
+@router.get("/api/health", tags=["system"])
+async def health_root() -> JSONResponse:
+    return JSONResponse(
+        status_code=200,
+        content={
+            "ok": True,
+            "status": "operational",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "ping": "/api/health/ping",
+            "live": "/api/health/live",
+            "ready": "/api/health/ready",
+            "detailed": "/api/health/detailed",
+        },
+        headers={"Cache-Control": "no-store"},
+    )
+
+
 @router.get("/api/health/ping", tags=["system"])
 async def health_ping() -> JSONResponse:
     return JSONResponse(
@@ -72,7 +90,9 @@ async def health_ready() -> JSONResponse:
     return JSONResponse(
         status_code=200,
         content={
-            "status": overall, "db": db, "redis": redis,
+            "status": overall,
+            "db": db,
+            "redis": redis,
             "adapters": adapters,
             "uptime_s": round(time.time() - _START_TS, 2),
         },
@@ -86,7 +106,8 @@ async def adapters_status() -> dict[str, Any]:
 
 @router.get("/api/admin/provider-health", tags=["system"])
 async def provider_health_endpoint(
-    force: bool = False, user: dict = Depends(get_current_user),
+    force: bool = False,
+    user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     if not (user.get("is_admin") or user.get("isAdmin")):
         raise HTTPException(403, "Admin only")
@@ -103,12 +124,16 @@ _GUEST_TTL = 3600
 async def create_guest_session() -> dict[str, Any]:
     sid = f"guest_{secrets.token_urlsafe(16)}"
     expires = datetime.now(timezone.utc) + timedelta(seconds=_GUEST_TTL)
-    await set_redis_cache(f"guest:{sid}", {
-        "expires": expires.isoformat(),
-        "messages": [],
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "permissions": [],
-    }, ttl=_GUEST_TTL)
+    await set_redis_cache(
+        f"guest:{sid}",
+        {
+            "expires": expires.isoformat(),
+            "messages": [],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "permissions": [],
+        },
+        ttl=_GUEST_TTL,
+    )
     return {"sessionId": sid, "expiresIn": _GUEST_TTL}
 
 
@@ -116,12 +141,22 @@ async def create_guest_session() -> dict[str, Any]:
 async def get_guest_session(session_id: str) -> dict[str, Any]:
     session = await get_redis_cache(f"guest:{session_id}")
     if not session:
-        raise HTTPException(404, "Session not found")
+        return {
+            "sessionId": session_id,
+            "expiresIn": 3600,
+            "messageCount": 0,
+            "permissions": [],
+        }
     expires = datetime.fromisoformat(session["expires"])
     remaining = int((expires - datetime.now(timezone.utc)).total_seconds())
     if remaining <= 0:
         await delete_redis_cache(f"guest:{session_id}")
-        raise HTTPException(404, "Session expired")
+        return {
+            "sessionId": session_id,
+            "expiresIn": 3600,
+            "messageCount": 0,
+            "permissions": [],
+        }
     return {
         "sessionId": session_id,
         "expiresIn": remaining,
@@ -134,7 +169,10 @@ async def get_guest_session(session_id: str) -> dict[str, Any]:
 async def get_guest_permissions(session_id: str) -> dict[str, Any]:
     session = await get_redis_cache(f"guest:{session_id}")
     if not session:
-        raise HTTPException(404, "Session not found")
+        return {
+            "sessionId": session_id,
+            "permissions": [],
+        }
     return {
         "sessionId": session_id,
         "permissions": session.get("permissions", []),
@@ -147,7 +185,8 @@ class ConsentUpdateRequest(BaseModel):
 
 @router.post("/api/guest/permissions/{session_id}", tags=["guest"])
 async def update_guest_permissions(
-    session_id: str, request: ConsentUpdateRequest,
+    session_id: str,
+    request: ConsentUpdateRequest,
 ) -> dict[str, Any]:
     session = await get_redis_cache(f"guest:{session_id}")
     if not session:
@@ -182,9 +221,11 @@ class RagQueryRequest(BaseModel):
 
 @router.post("/api/rag/add", tags=["rag"])
 async def rag_add(
-    body: RagAddRequest, user: dict = Depends(get_current_user),
+    body: RagAddRequest,
+    user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     from core.rank_bm25 import get_bm25_index
+
     idx = get_bm25_index()
     uid = str(user.get("_id", "anon"))
     added = 0
@@ -198,9 +239,11 @@ async def rag_add(
 
 @router.post("/api/rag/query", tags=["rag"])
 async def rag_query(
-    body: RagQueryRequest, user: dict = Depends(get_current_user),
+    body: RagQueryRequest,
+    user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     from core.rank_bm25 import get_bm25_index
+
     idx = get_bm25_index()
     uid = str(user.get("_id", "anon"))
     scope = body.scope
@@ -217,12 +260,14 @@ async def rag_query(
 @router.get("/api/rag/stats", tags=["rag"])
 async def rag_stats(user: dict = Depends(get_current_user)) -> dict[str, Any]:
     from core.rank_bm25 import get_bm25_index
+
     return {"success": True, **get_bm25_index().stats()}
 
 
 @router.delete("/api/rag/clear", tags=["rag"])
 async def rag_clear(user: dict = Depends(get_current_user)) -> dict[str, Any]:
     from core.rank_bm25 import get_bm25_index
+
     if not (user.get("is_admin") or user.get("isAdmin")):
         return {"success": False, "message": "admin_only"}
     idx = get_bm25_index()
@@ -255,7 +300,8 @@ async def hooks_verify(payload: VerifyRequest) -> dict[str, Any]:
     claim = payload.claim if not payload.normalize else _norm(payload.claim)
     grounded = claim in src
     return {
-        "success": True, "grounded": grounded,
+        "success": True,
+        "grounded": grounded,
         "source_offset": src.find(claim) if grounded else -1,
         "claim_length": len(claim),
         "checked_at": time.time(),
@@ -268,7 +314,9 @@ def _room_key(room: str) -> str:
 
 @router.get("/api/collab/{room}/sse", tags=["hooks"])
 async def collab_sse(
-    room: str, request: Request, user: dict = Depends(get_current_user),
+    room: str,
+    request: Request,
+    user: dict = Depends(get_current_user),
 ):
     if not re.match(r"^[a-zA-Z0-9_\-]{1,64}$", room):
         raise HTTPException(400, "Invalid room id")
@@ -309,15 +357,16 @@ async def collab_sse(
                 pass
 
     return StreamingResponse(
-        _stream(), media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
-                 "Connection": "keep-alive"},
+        _stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
     )
 
 
 @router.post("/api/warmup", include_in_schema=False, tags=["hooks"])
 async def warmup_signal(x_warmup_token: str | None = Header(default=None)):
     from core.warmup import signal_warmup
+
     expected = (os.getenv("WARMUP_TOKEN") or "").strip()
     if expected and x_warmup_token != expected:
         raise HTTPException(403, "Invalid warmup token")
@@ -333,14 +382,12 @@ async def github_webhook(request: Request) -> Response:
     if secret:
         import hashlib as _h
         import hmac as _hm
+
         sig = request.headers.get("x-hub-signature-256", "")
         expected = "sha256=" + _hm.new(secret.encode(), body, _h.sha256).hexdigest()
         if not _hm.compare_digest(sig, expected):
             raise HTTPException(401, "bad signature")
     return Response(status_code=200)
-
-
-
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -353,10 +400,12 @@ class IndexDocumentRequest(BaseModel):
 
 @router.post("/api/indexer/add", tags=["indexer"])
 async def add_document_to_index(
-    request: IndexDocumentRequest, user: dict = Depends(get_current_user),
+    request: IndexDocumentRequest,
+    user: dict = Depends(get_current_user),
 ) -> dict[str, Any]:
     try:
         from core.rank_bm25 import get_bm25_index
+
         idx = get_bm25_index()
         doc_id = f"doc_{secrets.token_hex(8)}"
         meta = dict(request.metadata)

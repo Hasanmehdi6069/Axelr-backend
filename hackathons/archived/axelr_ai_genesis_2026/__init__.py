@@ -1,4 +1,5 @@
 """AI Genesis 2026 Model Abstraction Layer — v1.1.0"""
+
 from .core import (
     BaseInferenceModel,
     MemoryProfile,
@@ -12,6 +13,13 @@ from .core import (
 )
 
 __all__ = [
-    "__version__", "init", "shutdown", "health", "get_registry",
-    "ModelRegistry", "MemoryProfile", "BaseInferenceModel", "NullModel",
+    "__version__",
+    "init",
+    "shutdown",
+    "health",
+    "get_registry",
+    "ModelRegistry",
+    "MemoryProfile",
+    "BaseInferenceModel",
+    "NullModel",
 ]

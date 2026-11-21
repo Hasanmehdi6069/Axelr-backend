@@ -4,6 +4,7 @@ Expanded from a shim into a substantive module: primitives remain
 re-exported for backward compatibility, and runtime-specific services
 (metrics, rate limit, memory budget, snapshot) live here.
 """
+
 from __future__ import annotations
 
 import threading
@@ -139,8 +140,7 @@ class MemoryBudget:
             if self._used + n > self.limit_bytes:
                 return False
             self._used += n
-            if (not self._warned and self._on_warn is not None
-                    and self._used / self.limit_bytes >= self.warn_at):
+            if not self._warned and self._on_warn is not None and self._used / self.limit_bytes >= self.warn_at:
                 self._warned = True
                 try:
                     self._on_warn(self._used, self.limit_bytes)
@@ -190,6 +190,7 @@ class RequestQueue:
 
     def __init__(self, max_size: int = 1000) -> None:
         from collections import deque
+
         self.max_size = max_size
         self._q: deque = deque(maxlen=max_size)
         self._lock = threading.Lock()
@@ -228,10 +229,22 @@ def aggregate_health(*components: Dict[str, Any]) -> Dict[str, Any]:
 
 
 __all__ = [
-    "build_audit", "conformance_score", "bitemporal_stamp",
-    "QuotaTracker", "TokenCaps", "intern_str", "CircuitBreaker",
-    "CrossRequestCache", "PositionWatermark", "merkle_root", "crc32_payload",
+    "build_audit",
+    "conformance_score",
+    "bitemporal_stamp",
+    "QuotaTracker",
+    "TokenCaps",
+    "intern_str",
+    "CircuitBreaker",
+    "CrossRequestCache",
+    "PositionWatermark",
+    "merkle_root",
+    "crc32_payload",
     # v1.7 additions
-    "RuntimeMetrics", "RateLimiter", "MemoryBudget",
-    "RuntimeSnapshot", "RequestQueue", "aggregate_health",
+    "RuntimeMetrics",
+    "RateLimiter",
+    "MemoryBudget",
+    "RuntimeSnapshot",
+    "RequestQueue",
+    "aggregate_health",
 ]

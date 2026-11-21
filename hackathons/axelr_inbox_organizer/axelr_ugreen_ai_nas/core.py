@@ -4,6 +4,7 @@ Pipeline: inbox watcher → Apex Router local extraction → safe file
 organization (Year/Month/Category) → 50-entry undo log → daily summary.
 Everything runs on-device. Zero cloud calls.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,14 +33,24 @@ logger = logging.getLogger("axelr.ugreen_ai_nas.core")
 __version__ = "2.0.0"
 
 __all__ = [
-    "DocumentSkill", "DocumentMetadata", "UndoEntry", "ProcessingResult",
-    "Settings", "get_skill", "init", "shutdown", "health", "is_healthy",
-    "compute_hash", "extract_text",
+    "DocumentSkill",
+    "DocumentMetadata",
+    "UndoEntry",
+    "ProcessingResult",
+    "Settings",
+    "get_skill",
+    "init",
+    "shutdown",
+    "health",
+    "is_healthy",
+    "compute_hash",
+    "extract_text",
 ]
 
 try:
     from watchdog.events import FileSystemEventHandler
     from watchdog.observers import Observer
+
     WATCHDOG_AVAILABLE = True
 except ImportError:  # pragma: no cover
     FileSystemEventHandler = object  # type: ignore[assignment,misc]
@@ -125,14 +136,17 @@ class ProcessingResult:
 
 # ─── Content helpers ────────────────────────────────────────────────────
 
+
 async def compute_hash(path: str | Path) -> str:
     """SHA-256 of file bytes, computed off the event loop."""
+
     def _run() -> str:
         h = hashlib.sha256()
         with open(path, "rb") as fh:
             for chunk in iter(lambda: fh.read(65536), b""):
                 h.update(chunk)
         return h.hexdigest()
+
     try:
         return await asyncio.to_thread(_run)
     except OSError as exc:
@@ -167,11 +181,10 @@ def _eml_header_text(path: Path) -> str:
     try:
         from email import policy
         from email.parser import BytesParser
+
         with open(path, "rb") as fh:
             msg = BytesParser(policy=policy.default).parse(fh)
-        return "\n".join(
-            f"{key}: {msg.get(key, '')}" for key in ("From", "Date", "Subject", "To")
-        )
+        return "\n".join(f"{key}: {msg.get(key, '')}" for key in ("From", "Date", "Subject", "To"))
     except Exception:
         return ""
 
@@ -220,6 +233,7 @@ def _target_path(library: Path, meta: DocumentMetadata, original: Path) -> Path:
 
 
 # ─── Undo log ───────────────────────────────────────────────────────────
+
 
 class UndoLog:
     """Persisted ring buffer of the last N move operations, as JSONL."""
@@ -278,6 +292,7 @@ class UndoLog:
 
 # ─── Daily summary ──────────────────────────────────────────────────────
 
+
 class DailySummary:
     """JSONL sidecar + rendered markdown for each day's processed documents."""
 
@@ -307,6 +322,7 @@ class DailySummary:
         }
         jsonl_path, md_path = self._paths()
         async with self._lock:
+
             def _write() -> None:
                 with jsonl_path.open("a", encoding="utf-8") as fh:
                     fh.write(json.dumps(record, default=str) + "\n")
@@ -318,12 +334,15 @@ class DailySummary:
                         except json.JSONDecodeError:
                             continue
                 md_path.write_text(_render_summary(entries), encoding="utf-8")
+
             await asyncio.to_thread(_write)
 
     async def render(self, when: Optional[float] = None) -> str:
         jsonl_path, _ = self._paths(when)
         if not jsonl_path.exists():
-            return f"# What's new — {time.strftime('%Y-%m-%d', time.localtime(when))}\n\n_No documents processed yet._\n"
+            return (
+                f"# What's new — {time.strftime('%Y-%m-%d', time.localtime(when))}\n\n_No documents processed yet._\n"
+            )
 
         def _read() -> list[dict[str, Any]]:
             entries = []
@@ -334,6 +353,7 @@ class DailySummary:
                     except json.JSONDecodeError:
                         continue
             return entries
+
         return _render_summary(await asyncio.to_thread(_read), when)
 
 
@@ -379,6 +399,7 @@ def _render_summary(entries: list[dict[str, Any]], when: Optional[float] = None)
 
 # ─── Watcher bridge (thread → asyncio) ──────────────────────────────────
 
+
 class _WatchHandler(FileSystemEventHandler):
     """Watchdog callbacks run on a foreign thread — never touch asyncio here."""
 
@@ -395,6 +416,7 @@ class _WatchHandler(FileSystemEventHandler):
 
 
 # ─── The orchestrator ───────────────────────────────────────────────────
+
 
 @dataclass
 class DocumentSkill:
@@ -433,7 +455,9 @@ class DocumentSkill:
         skill._load_processed()
         logger.info(
             "skill_created inbox=%s library=%s model=%s offline=True",
-            inbox, library, s.apex_model,
+            inbox,
+            library,
+            s.apex_model,
         )
         return skill
 
@@ -498,6 +522,7 @@ class DocumentSkill:
     async def _scan_backlog(self) -> None:
         def _walk() -> list[Path]:
             return [p for p in self.inbox.rglob("*") if p.is_file()]
+
         for path in await asyncio.to_thread(_walk):
             self.enqueue(path, immediate=True)
         logger.info("backlog_scanned count=%d", len(await asyncio.to_thread(_walk)))
@@ -558,28 +583,41 @@ class DocumentSkill:
             target = _target_path(self.library, meta, path)
             final = await asyncio.to_thread(self._move, path, target)
             entry = UndoEntry(
-                op_id=str(uuid.uuid4()), timestamp=time.time(),
-                src=str(path), dst=str(final), filename=path.name,
-                category=meta.category, content_hash=digest,
+                op_id=str(uuid.uuid4()),
+                timestamp=time.time(),
+                src=str(path),
+                dst=str(final),
+                filename=path.name,
+                category=meta.category,
+                content_hash=digest,
                 metadata=payload,
             )
             await self.undo_log.record(entry)
             self._processed.add(digest)
             await asyncio.to_thread(self._persist_processed)
             result = ProcessingResult(
-                source=str(path), source_name=path.name, destination=str(final),
-                metadata=meta, elapsed_ms=(time.perf_counter() - started) * 1000,
+                source=str(path),
+                source_name=path.name,
+                destination=str(final),
+                metadata=meta,
+                elapsed_ms=(time.perf_counter() - started) * 1000,
             )
             await self.summary.append(result)
             logger.info(
                 "document_filed src=%s dst=%s type=%s category=%s confidence=%.2f",
-                path.name, final, meta.document_type, meta.category, meta.confidence,
+                path.name,
+                final,
+                meta.document_type,
+                meta.category,
+                meta.confidence,
             )
             return result
         except Exception as exc:
             logger.exception("processing_failed path=%s err=%s", path, exc)
             return ProcessingResult(
-                source=str(path), source_name=path.name, error=str(exc),
+                source=str(path),
+                source_name=path.name,
+                error=str(exc),
                 elapsed_ms=(time.perf_counter() - started) * 1000,
             )
 

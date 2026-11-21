@@ -20,6 +20,7 @@ Honest scope
   not a fixed sleep. Prevents one fast producer from starving readers
   without introducing artificial latency.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -60,30 +61,22 @@ class NebiusSettings:
 
     @classmethod
     def from_env(cls) -> "NebiusSettings":
-        regions = [r.strip() for r in os.environ.get(
-            "NEBIUS_REGIONS", "eu-west-1,us-east-1").split(",") if r.strip()]
-        models = [m.strip() for m in os.environ.get(
-            "NVIDIA_MODELS", "llama3:70b,mistral:8x7b").split(",") if m.strip()]
+        regions = [r.strip() for r in os.environ.get("NEBIUS_REGIONS", "eu-west-1,us-east-1").split(",") if r.strip()]
+        models = [m.strip() for m in os.environ.get("NVIDIA_MODELS", "llama3:70b,mistral:8x7b").split(",") if m.strip()]
         return cls(
-            NEBIUS_API_ENDPOINT=os.environ.get(
-                "NEBIUS_API_ENDPOINT", "https://api.studio.nebius.ai/v1"),
+            NEBIUS_API_ENDPOINT=os.environ.get("NEBIUS_API_ENDPOINT", "https://api.studio.nebius.ai/v1"),
             NEBIUS_API_KEY=os.environ.get("NEBIUS_API_KEY", ""),
             NEBIUS_REGIONS=regions or ["eu-west-1"],
             NVIDIA_MODEL_NAMES=models or ["llama3:70b"],
-            RATE_LIMIT_TOKENS_PER_MINUTE=int(
-                os.environ.get("RATE_LIMIT_TPM", "100000")),
+            RATE_LIMIT_TOKENS_PER_MINUTE=int(os.environ.get("RATE_LIMIT_TPM", "100000")),
             MAX_CONCURRENT_INFERENCES=int(os.environ.get("MAX_CONCURRENT", "16")),
             STREAMING_CHUNK_SIZE=int(os.environ.get("CHUNK_SIZE", "4")),
             GPU_MEMORY_FRACTION=float(os.environ.get("GPU_MEM_FRAC", "0.9")),
-            COMPLETIONS_PATH=os.environ.get(
-                "NEBIUS_COMPLETIONS_PATH", "/chat/completions"),
+            COMPLETIONS_PATH=os.environ.get("NEBIUS_COMPLETIONS_PATH", "/chat/completions"),
             HEALTH_PATH=os.environ.get("NEBIUS_HEALTH_PATH", "/health"),
-            HEALTH_CHECK_INTERVAL_S=float(
-                os.environ.get("NEBIUS_HEALTH_INTERVAL_S", "60")),
-            CONNECTION_WAIT_TIMEOUT_S=float(
-                os.environ.get("NEBIUS_CONN_WAIT_S", "30")),
-            REQUEST_TIMEOUT_S=float(
-                os.environ.get("NEBIUS_REQUEST_TIMEOUT_S", "300")),
+            HEALTH_CHECK_INTERVAL_S=float(os.environ.get("NEBIUS_HEALTH_INTERVAL_S", "60")),
+            CONNECTION_WAIT_TIMEOUT_S=float(os.environ.get("NEBIUS_CONN_WAIT_S", "30")),
+            REQUEST_TIMEOUT_S=float(os.environ.get("NEBIUS_REQUEST_TIMEOUT_S", "300")),
         )
 
 
@@ -121,8 +114,7 @@ class RegionCircuitBreaker:
             if self.failure_count >= self.threshold:
                 self.is_open = True
                 self.last_failure_time = time.time()
-                logger.critical("region_circuit_opened region=%s failures=%d",
-                                self.region, self.failure_count)
+                logger.critical("region_circuit_opened region=%s failures=%d", self.region, self.failure_count)
             return self.is_open
 
     async def allow_request(self) -> bool:
@@ -157,8 +149,7 @@ class TokenBucketRateLimiter:
             if self.current_tokens >= tokens:
                 self.current_tokens -= tokens
                 return True
-            logger.warning("rate_limit_exhausted requested=%d available=%.2f",
-                           tokens, self.current_tokens)
+            logger.warning("rate_limit_exhausted requested=%d available=%.2f", tokens, self.current_tokens)
             return False
 
     async def force_acquire(self, tokens: int) -> None:
@@ -239,8 +230,7 @@ class ConnectionPool:
         session = aiohttp.ClientSession(
             base_url=f"{s.NEBIUS_API_ENDPOINT}/{region}",
             headers={"Authorization": f"Bearer {s.NEBIUS_API_KEY}"},
-            timeout=aiohttp.ClientTimeout(
-                total=s.REQUEST_TIMEOUT_S, sock_connect=10.0),
+            timeout=aiohttp.ClientTimeout(total=s.REQUEST_TIMEOUT_S, sock_connect=10.0),
         )
         model = random.choice(s.NVIDIA_MODEL_NAMES)
         conn = InferenceConnection(session=session, region=region, model=model)
@@ -248,7 +238,8 @@ class ConnectionPool:
         return conn
 
     async def get_connection(
-        self, preferred_region: Optional[str] = None,
+        self,
+        preferred_region: Optional[str] = None,
     ) -> InferenceConnection:
         async with self.lock:
             for conn in self.connections:
@@ -261,8 +252,9 @@ class ConnectionPool:
             if len(self.connections) < self.max_connections:
                 conn = await self._new_connection(preferred_region)
                 self.connections.append(conn)
-                logger.info("created_connection region=%s model=%s total=%d",
-                            conn.region, conn.model, len(self.connections))
+                logger.info(
+                    "created_connection region=%s model=%s total=%d", conn.region, conn.model, len(self.connections)
+                )
                 return conn
 
         # At capacity — wait for a free slot with a bounded timeout.
@@ -277,9 +269,7 @@ class ConnectionPool:
                                 conn.in_use = True
                                 conn.last_used = time.time()
                                 return conn
-        raise TimeoutError(
-            f"connection pool exhausted after {get_settings().CONNECTION_WAIT_TIMEOUT_S}s"
-        )
+        raise TimeoutError(f"connection pool exhausted after {get_settings().CONNECTION_WAIT_TIMEOUT_S}s")
 
     async def release_connection(self, conn: InferenceConnection) -> None:
         async with conn.lock:
@@ -306,8 +296,7 @@ def get_connection_pool() -> ConnectionPool:
     global _connection_pool
     if _connection_pool is None:
         s = get_settings()
-        _connection_pool = ConnectionPool(
-            max_connections=s.MAX_CONCURRENT_INFERENCES)
+        _connection_pool = ConnectionPool(max_connections=s.MAX_CONCURRENT_INFERENCES)
     return _connection_pool
 
 
@@ -341,8 +330,7 @@ async def stream_inference(
         async with conn.session.post(s.COMPLETIONS_PATH, json=payload) as resp:
             if not resp.ok:
                 body = await resp.text()
-                raise RuntimeError(
-                    f"inference_failed status={resp.status} body={body[:300]}")
+                raise RuntimeError(f"inference_failed status={resp.status} body={body[:300]}")
             buffer: List[str] = []
             async for raw in resp.content:
                 line = raw.decode("utf-8", errors="replace").strip()
@@ -357,8 +345,7 @@ async def stream_inference(
                 # Support both OpenAI-shape (choices[0].delta.content) and
                 # text-completion shape (choices[0].text).
                 choice = (chunk.get("choices") or [{}])[0]
-                token = (choice.get("delta") or {}).get("content") \
-                    or choice.get("text") or ""
+                token = (choice.get("delta") or {}).get("content") or choice.get("text") or ""
                 if not token:
                     continue
                 buffer.append(token)
@@ -370,8 +357,7 @@ async def stream_inference(
             if buffer:
                 yield "".join(buffer)
         await pool.release_connection(conn)
-        logger.info("inference_completed model=%s region=%s",
-                    selected_model, conn.region)
+        logger.info("inference_completed model=%s region=%s", selected_model, conn.region)
     except Exception as e:
         await pool.record_connection_failure(conn)
         logger.error("inference_failed region=%s err=%s", conn.region, e)
@@ -421,7 +407,8 @@ async def _nebius_health_check() -> None:
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(
-                        url, headers={"Authorization": f"Bearer {s.NEBIUS_API_KEY}"},
+                        url,
+                        headers={"Authorization": f"Bearer {s.NEBIUS_API_KEY}"},
                         timeout=aiohttp.ClientTimeout(total=10.0),
                     ) as resp:
                         if resp.ok:
@@ -446,8 +433,7 @@ async def _model_optimization_worker() -> None:
         try:
             await optimize_nvidia_model(model)
         except NotImplementedError as e:
-            logger.info(
-                "optimization_worker_disabled reason=%s — no further attempts", e)
+            logger.info("optimization_worker_disabled reason=%s — no further attempts", e)
             return
         except Exception as e:
             logger.error("optimization_failed model=%s err=%s", model, e)
@@ -484,7 +470,8 @@ async def init() -> None:
 
     logger.info(
         "nebius_nvidia_bridge_initialized regions=%d models=%d",
-        len(s.NEBIUS_REGIONS), len(s.NVIDIA_MODEL_NAMES),
+        len(s.NEBIUS_REGIONS),
+        len(s.NVIDIA_MODEL_NAMES),
     )
 
 
@@ -492,8 +479,7 @@ async def shutdown() -> None:
     global _health_check_task, _optimization_task, _connection_pool, _rate_limiter, _settings
     _shutdown_event.set()
 
-    for name, task in (("health", _health_check_task),
-                       ("optimization", _optimization_task)):
+    for name, task in (("health", _health_check_task), ("optimization", _optimization_task)):
         if task is not None and not task.done():
             task.cancel()
             try:
@@ -530,17 +516,15 @@ def health() -> Dict[str, Any]:
             "configured": s_configured,
             "module_healthy": True,
             "nebius_nvidia_integration_status": "fully_operational",
-            "circuit_breakers_healthy": _connection_pool is not None
+            "circuit_breakers_healthy": _connection_pool is not None,
         },
     }
     if _connection_pool is not None:
         out["details"]["regions"] = {
-            r: {"is_open": cb.is_open, "failures": cb.failure_count,
-                "successes": cb.success_count}
+            r: {"is_open": cb.is_open, "failures": cb.failure_count, "successes": cb.success_count}
             for r, cb in _connection_pool.circuit_breakers.items()
         }
-        out["details"]["active_connections"] = sum(
-            1 for c in _connection_pool.connections if c.in_use)
+        out["details"]["active_connections"] = sum(1 for c in _connection_pool.connections if c.in_use)
         out["details"]["total_connections"] = len(_connection_pool.connections)
         out["details"]["max_connections"] = _connection_pool.max_connections
     return out

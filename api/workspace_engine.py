@@ -39,6 +39,7 @@ prompts ("build a data pipeline"), expect 8.0–8.5. Keyword matching
 honestly plateaus here; >90% on ambiguous prompts requires LLM fallback
 for method="fallback_ambiguous".
 """
+
 from __future__ import annotations
 
 import re
@@ -83,98 +84,478 @@ TOKEN_RE = re.compile(r"\b[a-zA-Z][a-zA-Z0-9_]{1,}\b")
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. DETERMINISTIC KEYWORDS
 # ═══════════════════════════════════════════════════════════════════════════
-_DESIGN_KEYWORDS: frozenset[str] = frozenset({
-    "code", "coding", "program", "programming", "developer", "development",
-    "function", "class", "variable", "script", "scripting", "algorithm",
-    "framework", "library", "package", "dependency",
-    "create", "write",
-    "frontend", "backend", "fullstack", "javascript", "typescript",
-    "python", "react", "vue", "angular", "svelte", "node", "nextjs",
-    "nuxt", "html", "css", "scss", "sass", "tailwind", "bootstrap",
-    "component", "ui", "ux", "interface", "page", "pages", "website",
-    "webapp", "application", "app", "browser",
-    "api", "apis", "endpoint", "endpoints", "route", "routes", "handler",
-    "middleware", "request", "requests", "response", "responses",
-    "server", "client", "service", "microservice", "grpc", "rest",
-    "graphql", "websocket",
-    "docker", "container", "kubernetes", "deploy", "deployment",
-    "ci", "cd", "workflow", "bash", "shell", "cli", "terminal",
-    "button", "input", "modal", "dialog", "form", "layout", "grid",
-    "flex", "responsive", "mobile", "desktop", "tablet", "animation",
-    "transition", "hover", "click", "interaction", "accessibility",
-    "a11y", "aria", "style", "theme", "color", "font", "icon", "image",
-    "svg", "asset", "landing", "hero", "navbar", "sidebar", "footer",
-    "header", "card", "carousel", "gallery",
-    "test", "testing", "unit", "integration", "e2e", "assert", "mock",
-    "stub", "coverage", "debug", "bug", "fix",
-    "auth", "authentication", "authorization", "login", "logout",
-    "register", "signup", "password", "encrypt", "decrypt", "validate",
-    "validation", "sanitize", "security", "vulnerability", "exploit", "cve",
-    "architecture", "design", "pattern", "singleton", "factory",
-    "observer", "strategy", "decorator", "adapter", "repository",
-    "mvc", "mvvm", "solid", "dry", "kiss", "yagni",
-    "git", "commit", "branch", "merge", "push", "pull", "fetch",
-    "clone", "repository", "repo", "refactor", "refactoring",
-    "webpack", "vite", "rollup", "babel",
-    "django", "flask", "fastapi", "express", "nestjs", "spring",
-    "rails", "laravel", "aspnet", "golang", "rust", "kotlin", "swift",
-    "ios", "android", "flutter", "swiftui",
-    "array", "object", "tuple", "dictionary", "hash", "stack", "queue",
-    "tree", "graph", "node", "edge", "pointer", "reference", "memory",
-    "heap", "allocation", "garbage", "gc",
-    "npm", "yarn", "pip", "cargo", "gradle", "maven", "make", "cmake",
-    "build", "compile", "bundle", "minify", "transpile",
-    "json", "xml", "yaml", "toml", "config", "configuration", "setup",
-    "install", "execute", "environment", "env", "dotenv", "secret",
-    "key", "token", "log", "logger", "logging", "console", "print",
-})
+_DESIGN_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "code",
+        "coding",
+        "program",
+        "programming",
+        "developer",
+        "development",
+        "function",
+        "class",
+        "variable",
+        "script",
+        "scripting",
+        "algorithm",
+        "framework",
+        "library",
+        "package",
+        "dependency",
+        "create",
+        "write",
+        "frontend",
+        "backend",
+        "fullstack",
+        "javascript",
+        "typescript",
+        "python",
+        "react",
+        "vue",
+        "angular",
+        "svelte",
+        "node",
+        "nextjs",
+        "nuxt",
+        "html",
+        "css",
+        "scss",
+        "sass",
+        "tailwind",
+        "bootstrap",
+        "component",
+        "ui",
+        "ux",
+        "interface",
+        "page",
+        "pages",
+        "website",
+        "webapp",
+        "application",
+        "app",
+        "browser",
+        "api",
+        "apis",
+        "endpoint",
+        "endpoints",
+        "route",
+        "routes",
+        "handler",
+        "middleware",
+        "request",
+        "requests",
+        "response",
+        "responses",
+        "server",
+        "client",
+        "service",
+        "microservice",
+        "grpc",
+        "rest",
+        "graphql",
+        "websocket",
+        "docker",
+        "container",
+        "kubernetes",
+        "deploy",
+        "deployment",
+        "ci",
+        "cd",
+        "workflow",
+        "bash",
+        "shell",
+        "cli",
+        "terminal",
+        "button",
+        "input",
+        "modal",
+        "dialog",
+        "form",
+        "layout",
+        "grid",
+        "flex",
+        "responsive",
+        "mobile",
+        "desktop",
+        "tablet",
+        "animation",
+        "transition",
+        "hover",
+        "click",
+        "interaction",
+        "accessibility",
+        "a11y",
+        "aria",
+        "style",
+        "theme",
+        "color",
+        "font",
+        "icon",
+        "image",
+        "svg",
+        "asset",
+        "landing",
+        "hero",
+        "navbar",
+        "sidebar",
+        "footer",
+        "header",
+        "card",
+        "carousel",
+        "gallery",
+        "test",
+        "testing",
+        "unit",
+        "integration",
+        "e2e",
+        "assert",
+        "mock",
+        "stub",
+        "coverage",
+        "debug",
+        "bug",
+        "fix",
+        "auth",
+        "authentication",
+        "authorization",
+        "login",
+        "logout",
+        "register",
+        "signup",
+        "password",
+        "encrypt",
+        "decrypt",
+        "validate",
+        "validation",
+        "sanitize",
+        "security",
+        "vulnerability",
+        "exploit",
+        "cve",
+        "architecture",
+        "design",
+        "pattern",
+        "singleton",
+        "factory",
+        "observer",
+        "strategy",
+        "decorator",
+        "adapter",
+        "repository",
+        "mvc",
+        "mvvm",
+        "solid",
+        "dry",
+        "kiss",
+        "yagni",
+        "git",
+        "commit",
+        "branch",
+        "merge",
+        "push",
+        "pull",
+        "fetch",
+        "clone",
+        "repository",
+        "repo",
+        "refactor",
+        "refactoring",
+        "webpack",
+        "vite",
+        "rollup",
+        "babel",
+        "django",
+        "flask",
+        "fastapi",
+        "express",
+        "nestjs",
+        "spring",
+        "rails",
+        "laravel",
+        "aspnet",
+        "golang",
+        "rust",
+        "kotlin",
+        "swift",
+        "ios",
+        "android",
+        "flutter",
+        "swiftui",
+        "array",
+        "object",
+        "tuple",
+        "dictionary",
+        "hash",
+        "stack",
+        "queue",
+        "tree",
+        "graph",
+        "node",
+        "edge",
+        "pointer",
+        "reference",
+        "memory",
+        "heap",
+        "allocation",
+        "garbage",
+        "gc",
+        "npm",
+        "yarn",
+        "pip",
+        "cargo",
+        "gradle",
+        "maven",
+        "make",
+        "cmake",
+        "build",
+        "compile",
+        "bundle",
+        "minify",
+        "transpile",
+        "json",
+        "xml",
+        "yaml",
+        "toml",
+        "config",
+        "configuration",
+        "setup",
+        "install",
+        "execute",
+        "environment",
+        "env",
+        "dotenv",
+        "secret",
+        "key",
+        "token",
+        "log",
+        "logger",
+        "logging",
+        "console",
+        "print",
+    }
+)
 
-_DATA_KEYWORDS: frozenset[str] = frozenset({
-    "data", "dataset", "datasets", "database", "databases", "db",
-    "dataframe", "dataframes", "table", "tables", "column", "columns",
-    "row", "rows", "record", "records", "entry", "entries", "field",
-    "fields", "schema",
-    "csv", "tsv", "parquet", "json", "excel", "xlsx", "sql", "xml",
-    "query", "queries", "join", "aggregate", "aggregation", "groupby",
-    "pivot", "unpivot", "pivot_table", "transpose",
-    "etl", "extract", "transform", "load", "pipeline", "pipelines",
-    "ingest", "ingestion", "stream",
-    "analysis", "analyze", "analyse", "analytics", "insight", "insights",
-    "trend", "trends", "pattern", "patterns", "correlation",
-    "visualization", "visualize", "chart", "charts", "plot",
-    "dashboard", "report", "reports", "reporting",
-    "statistics", "statistical", "mean", "median", "mode", "variance",
-    "deviation", "distribution", "frequency", "percentile", "quantile",
-    "hypothesis", "significance", "regression", "coefficient",
-    "test", "testing", "validation", "validate",
-    "machine", "learning", "ml", "ai", "model", "models", "train",
-    "training", "predict", "prediction", "forecast", "forecasting",
-    "classification", "clustering", "feature", "features", "label",
-    "labels", "accuracy", "precision", "recall", "roc", "auc",
-    "overfitting", "underfitting", "neural", "network", "deep",
-    "tensorflow", "pytorch", "keras", "sklearn", "pandas", "numpy",
-    "scipy", "matplotlib", "seaborn", "plotly", "jupyter", "notebook",
-    "torch", "kaggle", "colab",
-    "spark", "hadoop", "pyspark", "kafka", "flink", "airflow", "dbt",
-    "snowflake", "bigquery", "redshift", "databricks",
-    "nlp", "sentiment", "embedding", "embeddings", "tf-idf",
-    "word2vec", "bert",
-    "outlier", "outliers", "anomaly", "imputation", "normalization",
-    "standardization", "encoding",
-})
+_DATA_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "data",
+        "dataset",
+        "datasets",
+        "database",
+        "databases",
+        "db",
+        "dataframe",
+        "dataframes",
+        "table",
+        "tables",
+        "column",
+        "columns",
+        "row",
+        "rows",
+        "record",
+        "records",
+        "entry",
+        "entries",
+        "field",
+        "fields",
+        "schema",
+        "csv",
+        "tsv",
+        "parquet",
+        "json",
+        "excel",
+        "xlsx",
+        "sql",
+        "xml",
+        "query",
+        "queries",
+        "join",
+        "aggregate",
+        "aggregation",
+        "groupby",
+        "pivot",
+        "unpivot",
+        "pivot_table",
+        "transpose",
+        "etl",
+        "extract",
+        "transform",
+        "load",
+        "pipeline",
+        "pipelines",
+        "ingest",
+        "ingestion",
+        "stream",
+        "analysis",
+        "analyze",
+        "analyse",
+        "analytics",
+        "insight",
+        "insights",
+        "trend",
+        "trends",
+        "pattern",
+        "patterns",
+        "correlation",
+        "visualization",
+        "visualize",
+        "chart",
+        "charts",
+        "plot",
+        "dashboard",
+        "report",
+        "reports",
+        "reporting",
+        "statistics",
+        "statistical",
+        "mean",
+        "median",
+        "mode",
+        "variance",
+        "deviation",
+        "distribution",
+        "frequency",
+        "percentile",
+        "quantile",
+        "hypothesis",
+        "significance",
+        "regression",
+        "coefficient",
+        "test",
+        "testing",
+        "validation",
+        "validate",
+        "machine",
+        "learning",
+        "ml",
+        "ai",
+        "model",
+        "models",
+        "train",
+        "training",
+        "predict",
+        "prediction",
+        "forecast",
+        "forecasting",
+        "classification",
+        "clustering",
+        "feature",
+        "features",
+        "label",
+        "labels",
+        "accuracy",
+        "precision",
+        "recall",
+        "roc",
+        "auc",
+        "overfitting",
+        "underfitting",
+        "neural",
+        "network",
+        "deep",
+        "tensorflow",
+        "pytorch",
+        "keras",
+        "sklearn",
+        "pandas",
+        "numpy",
+        "scipy",
+        "matplotlib",
+        "seaborn",
+        "plotly",
+        "jupyter",
+        "notebook",
+        "torch",
+        "kaggle",
+        "colab",
+        "spark",
+        "hadoop",
+        "pyspark",
+        "kafka",
+        "flink",
+        "airflow",
+        "dbt",
+        "snowflake",
+        "bigquery",
+        "redshift",
+        "databricks",
+        "nlp",
+        "sentiment",
+        "embedding",
+        "embeddings",
+        "tf-idf",
+        "word2vec",
+        "bert",
+        "outlier",
+        "outliers",
+        "anomaly",
+        "imputation",
+        "normalization",
+        "standardization",
+        "encoding",
+    }
+)
 
-_CORE_KEYWORDS: frozenset[str] = frozenset({
-    "hello", "hi", "hey", "greetings",
-    "what", "why", "how", "when", "where", "who", "which",
-    "explain", "describe", "tell", "show", "help", "assist", "support",
-    "guide", "summarize", "summarise", "outline", "clarify", "compare",
-    "contrast", "define", "list", "enumerate", "identify", "classify",
-    "categorize", "recommend", "suggest", "propose", "advise", "opinion",
-    "yes", "no", "ok", "okay", "sure", "thanks",
-    "conversation", "chat", "talk", "discuss", "ask", "answer",
-    "question", "response", "reply", "message", "comment",
-    "yourself", "capabilities", "limitations", "features",
-})
+_CORE_KEYWORDS: frozenset[str] = frozenset(
+    {
+        "hello",
+        "hi",
+        "hey",
+        "greetings",
+        "what",
+        "why",
+        "how",
+        "when",
+        "where",
+        "who",
+        "which",
+        "explain",
+        "describe",
+        "tell",
+        "show",
+        "help",
+        "assist",
+        "support",
+        "guide",
+        "summarize",
+        "summarise",
+        "outline",
+        "clarify",
+        "compare",
+        "contrast",
+        "define",
+        "list",
+        "enumerate",
+        "identify",
+        "classify",
+        "categorize",
+        "recommend",
+        "suggest",
+        "propose",
+        "advise",
+        "opinion",
+        "yes",
+        "no",
+        "ok",
+        "okay",
+        "sure",
+        "thanks",
+        "conversation",
+        "chat",
+        "talk",
+        "discuss",
+        "ask",
+        "answer",
+        "question",
+        "response",
+        "reply",
+        "message",
+        "comment",
+        "yourself",
+        "capabilities",
+        "limitations",
+        "features",
+    }
+)
 
 
 def _split_keywords(kws: frozenset[str]) -> Tuple[frozenset[str], frozenset[str]]:
@@ -251,12 +632,18 @@ def score_file(filename: str) -> Tuple[float, float, float]:
     base = _base_name(filename)
     ext = _ext_of(filename)
     d = g = c = 0.0
-    if ext in _DATA_EXTENSIONS:   d += 2.5
-    if ext in _DESIGN_EXTENSIONS: g += 2.5
-    if ext in _CORE_EXTENSIONS:   c += 2.5
-    if base in _FILENAME_DATA:    d += 2.0
-    if base in _FILENAME_DESIGN:  g += 2.0
-    if base in _FILENAME_CORE:    c += 2.0
+    if ext in _DATA_EXTENSIONS:
+        d += 2.5
+    if ext in _DESIGN_EXTENSIONS:
+        g += 2.5
+    if ext in _CORE_EXTENSIONS:
+        c += 2.5
+    if base in _FILENAME_DATA:
+        d += 2.0
+    if base in _FILENAME_DESIGN:
+        g += 2.0
+    if base in _FILENAME_CORE:
+        c += 2.0
     return d, g, c
 
 
@@ -295,12 +682,18 @@ def _score_contents(file_contents: Any) -> Tuple[float, float, float]:
         if not text or not text.strip():
             continue
         snippet = text[:2000]
-        if _CODE_PATTERN.search(snippet): g += 3.0
-        if _SQL_PATTERN.search(snippet):  d += 3.0
-        if _PANDAS_PATTERN.search(snippet): d += 2.5
-        if _JSX_PATTERN.search(snippet):  g += 2.0
-        if _CSS_PATTERN.search(snippet):  g += 2.0
-        if _JSON_PATTERN.search(snippet): d += 1.5
+        if _CODE_PATTERN.search(snippet):
+            g += 3.0
+        if _SQL_PATTERN.search(snippet):
+            d += 3.0
+        if _PANDAS_PATTERN.search(snippet):
+            d += 2.5
+        if _JSX_PATTERN.search(snippet):
+            g += 2.0
+        if _CSS_PATTERN.search(snippet):
+            g += 2.0
+        if _JSON_PATTERN.search(snippet):
+            d += 1.5
         if snippet.count(",") > 5 and snippet.count("\n") > 3:
             d += 2.0
     return d, g, 0.0
@@ -370,8 +763,10 @@ def _lookup_weight(tok: str, toks: Tuple[str, ...], weights: Tuple[int, ...]) ->
 
 
 def _hits(
-    tokens: Set[str], text_lower: str,
-    tok_set: frozenset[str], phrase_set: frozenset[str],
+    tokens: Set[str],
+    text_lower: str,
+    tok_set: frozenset[str],
+    phrase_set: frozenset[str],
 ) -> int:
     n = sum(1 for t in tokens if t in tok_set)
     for p in phrase_set:
@@ -382,17 +777,17 @@ def _hits(
 
 def _verb_votes(tokens: Set[str]) -> Dict[str, int]:
     return {
-        "data":   sum(1 for t in tokens if t in _VERB_DATA),
+        "data": sum(1 for t in tokens if t in _VERB_DATA),
         "design": sum(1 for t in tokens if t in _VERB_DESIGN),
-        "core":   sum(1 for t in tokens if t in _VERB_CORE),
+        "core": sum(1 for t in tokens if t in _VERB_CORE),
     }
 
 
 def _phrase_hits(text_lower: str) -> Dict[str, int]:
     return {
-        "data":   sum(1 for p in _PHRASES_DATA   if p in text_lower),
+        "data": sum(1 for p in _PHRASES_DATA if p in text_lower),
         "design": sum(1 for p in _PHRASES_DESIGN if p in text_lower),
-        "core":   sum(1 for p in _PHRASES_CORE   if p in text_lower),
+        "core": sum(1 for p in _PHRASES_CORE if p in text_lower),
     }
 
 
@@ -410,12 +805,18 @@ def _vocab_score(text: str) -> Dict[str, float]:
     for w in words:
         for q in _quadgrams_of(w):
             h = _fnv32(q) & _CHAR4_MASK
-            if _DATA_CHAR4_BITS & (1 << h):   dh += 1
-            if _DESIGN_CHAR4_BITS & (1 << h): gh += 1
-            if _CORE_CHAR4_BITS & (1 << h):   ch += 1
-    if dh >= _CHAR4_MIN_HITS: d += dh * _CHAR4_WEIGHT
-    if gh >= _CHAR4_MIN_HITS: g += gh * _CHAR4_WEIGHT
-    if ch >= _CHAR4_MIN_HITS: c += ch * _CHAR4_WEIGHT
+            if _DATA_CHAR4_BITS & (1 << h):
+                dh += 1
+            if _DESIGN_CHAR4_BITS & (1 << h):
+                gh += 1
+            if _CORE_CHAR4_BITS & (1 << h):
+                ch += 1
+    if dh >= _CHAR4_MIN_HITS:
+        d += dh * _CHAR4_WEIGHT
+    if gh >= _CHAR4_MIN_HITS:
+        g += gh * _CHAR4_WEIGHT
+    if ch >= _CHAR4_MIN_HITS:
+        c += ch * _CHAR4_WEIGHT
     return {"data": d, "design": g, "core": c}
 
 
@@ -439,7 +840,9 @@ def extract_features(prompt: str, files: Optional[List[str]] = None) -> Tuple[fl
     fd = fg = fc = 0.0
     for f in files:
         a, b, c = score_file(f)
-        fd += a; fg += b; fc += c
+        fd += a
+        fg += b
+        fc += c
     return (pd, pg, fd, fg, 0.0, 0.0, pc, fc, 0.0)
 
 
@@ -458,7 +861,9 @@ def _levenshtein(a: str, b: str) -> int:
 
 
 def fuzzy_match(
-    word: str, vocab: Tuple[str, ...], max_distance: int = 2,
+    word: str,
+    vocab: Tuple[str, ...],
+    max_distance: int = 2,
 ) -> Optional[int]:
     word = word.lower()
     idx = bisect_left(vocab, word)
@@ -483,8 +888,7 @@ _SWITCH_THRESHOLD = 0.70
 
 
 def _evict_locked(now: float) -> None:
-    expired = [k for k, v in _SESSIONS.items()
-               if now - v.get("ts", 0.0) > _SESSION_TTL_S]
+    expired = [k for k, v in _SESSIONS.items() if now - v.get("ts", 0.0) > _SESSION_TTL_S]
     for k in expired:
         _SESSIONS.pop(k, None)
     if len(_SESSIONS) > _SESSIONS_MAX:
@@ -545,13 +949,13 @@ def check_failover_required() -> Optional[str]:
 # 10. UNIFIED SCORING PIPELINE
 # ═══════════════════════════════════════════════════════════════════════════
 _WEIGHTS = {
-    "keyword":    1.0,
-    "verb":       0.8,
-    "phrase":     1.5,
-    "anchor":     3.0,
-    "file":       1.0,
-    "content":    1.0,
-    "vocab":      0.5,
+    "keyword": 1.0,
+    "verb": 0.8,
+    "phrase": 1.5,
+    "anchor": 3.0,
+    "file": 1.0,
+    "content": 1.0,
+    "vocab": 0.5,
     "code_fence": 5.0,
 }
 _DECISION_THRESHOLD = 0.5
@@ -559,16 +963,19 @@ _CORE_BASELINE = 0.1
 
 
 def _signal_breakdown(
-    prompt: str, tokens: Set[str], text_lower: str,
-    files: List[str], file_contents: Any,
+    prompt: str,
+    tokens: Set[str],
+    text_lower: str,
+    files: List[str],
+    file_contents: Any,
 ) -> Dict[str, Dict[str, float]]:
     neg = extract_negated_terms(text_lower)
     tokens = tokens - neg
 
     kw = {
-        "data":   float(_hits(tokens, text_lower, _A_TOKS, _A_PHRS)),
+        "data": float(_hits(tokens, text_lower, _A_TOKS, _A_PHRS)),
         "design": float(_hits(tokens, text_lower, _D_TOKS, _D_PHRS)),
-        "core":   float(_hits(tokens, text_lower, _C_TOKS, _C_PHRS)),
+        "core": float(_hits(tokens, text_lower, _C_TOKS, _C_PHRS)),
     }
     vb = {k: float(v) for k, v in _verb_votes(tokens).items()}
     ph = {k: float(v) for k, v in _phrase_hits(text_lower).items()}
@@ -581,7 +988,9 @@ def _signal_breakdown(
     fd = fg = fc = 0.0
     for f in files:
         a, b, c = score_file(f)
-        fd += a; fg += b; fc += c
+        fd += a
+        fg += b
+        fc += c
     fil = {"data": fd, "design": fg, "core": fc}
 
     cd, cg, cc = _score_contents(file_contents)
@@ -594,13 +1003,13 @@ def _signal_breakdown(
     code_boost = _WEIGHTS["code_fence"] if _has_code_fence(prompt) else 0.0
 
     return {
-        "keyword":    kw,
-        "verb":       vb,
-        "phrase":     ph,
-        "anchor":     anc,
-        "file":       fil,
-        "content":    cnt,
-        "vocab":      vs,
+        "keyword": kw,
+        "verb": vb,
+        "phrase": ph,
+        "anchor": anc,
+        "file": fil,
+        "content": cnt,
+        "vocab": vs,
         "code_fence": {"data": 0.0, "design": code_boost, "core": 0.0},
     }
 
@@ -631,12 +1040,12 @@ def _dominant_method(signals: Dict[str, Dict[str, float]], winner: str) -> str:
         return "fallback_ambiguous"
     mapping = {
         "keyword": f"deterministic_{winner}",
-        "verb":    f"verb_{winner}",
-        "phrase":  f"phrase_{winner}",
-        "anchor":  "anchor",
-        "file":    "file_evidence",
+        "verb": f"verb_{winner}",
+        "phrase": f"phrase_{winner}",
+        "anchor": "anchor",
+        "file": "file_evidence",
         "content": "content_evidence",
-        "vocab":   f"fused_{winner}",
+        "vocab": f"fused_{winner}",
     }
     return mapping.get(top_sig, f"fused_{winner}")
 
@@ -709,9 +1118,7 @@ def detect_workspace_core(
     use_anchors: bool = False,
     file_contents: Any = None,
 ) -> str:
-    return compute_full_detection(
-        prompt, files or [], file_contents, session_id, use_anchors
-    )["workspace"]
+    return compute_full_detection(prompt, files or [], file_contents, session_id, use_anchors)["workspace"]
 
 
 def detect_workspace(
@@ -721,9 +1128,7 @@ def detect_workspace(
     use_anchors: bool = False,
     file_contents: Any = None,
 ) -> str:
-    return detect_workspace_core(
-        prompt, files, session_id, use_anchors, file_contents
-    )
+    return detect_workspace_core(prompt, files, session_id, use_anchors, file_contents)
 
 
 detect_workspace_full = compute_full_detection
@@ -769,14 +1174,34 @@ def run_diagnostics() -> Dict[str, Any]:
 
 
 __all__ = [
-    "ENGINE_VERSION", "DETECTOR_VERSION", "WORKSPACES", "TOKEN_RE",
-    "FEATURE_DIM", "extract_features",
-    "detect_deterministic", "check_anchors", "score_file", "score_text",
-    "is_neutral_file", "fuzzy_match", "_levenshtein",
-    "compute_full_detection", "detect_workspace", "detect_workspace_core",
-    "run_diagnostics", "reset_sessions",
-    "set_workspace_health", "get_workspace_health", "check_failover_required",
-    "_apply_hysteresis", "_decide", "_SESSIONS", "_SESSIONS_LOCK",
-    "_DECISION_THRESHOLD", "_CORE_BASELINE", "_SWITCH_THRESHOLD",
-    "_WEIGHTS", "_signal_breakdown",
+    "ENGINE_VERSION",
+    "DETECTOR_VERSION",
+    "WORKSPACES",
+    "TOKEN_RE",
+    "FEATURE_DIM",
+    "extract_features",
+    "detect_deterministic",
+    "check_anchors",
+    "score_file",
+    "score_text",
+    "is_neutral_file",
+    "fuzzy_match",
+    "_levenshtein",
+    "compute_full_detection",
+    "detect_workspace",
+    "detect_workspace_core",
+    "run_diagnostics",
+    "reset_sessions",
+    "set_workspace_health",
+    "get_workspace_health",
+    "check_failover_required",
+    "_apply_hysteresis",
+    "_decide",
+    "_SESSIONS",
+    "_SESSIONS_LOCK",
+    "_DECISION_THRESHOLD",
+    "_CORE_BASELINE",
+    "_SWITCH_THRESHOLD",
+    "_WEIGHTS",
+    "_signal_breakdown",
 ]

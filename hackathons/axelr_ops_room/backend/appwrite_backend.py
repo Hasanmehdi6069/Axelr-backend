@@ -4,6 +4,7 @@ The Switch agent runs `python backend/appwrite_backend.py get-incident <id>`
 and reads JSON from stdout. This keeps the agent harness simple and lets
 the same engine be reused by Sentinel, PayPal Agent, etc.
 """
+
 from __future__ import annotations
 
 import asyncio

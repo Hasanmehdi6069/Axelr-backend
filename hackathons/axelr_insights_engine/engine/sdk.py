@@ -19,6 +19,7 @@ Auth modes (client-side):
 This module is transport-agnostic — it does not know about tables.
 `tables.py` composes on top of it.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -190,7 +191,12 @@ class AppwriteSDK:
             await self._semaphore.acquire()
             try:
                 return await self._run_with_retry(
-                    operation, fn, corr_id, log, timeout_s, bypass_circuit,
+                    operation,
+                    fn,
+                    corr_id,
+                    log,
+                    timeout_s,
+                    bypass_circuit,
                 )
             finally:
                 self._semaphore.release()
@@ -256,7 +262,10 @@ class AppwriteSDK:
                         message=err.message,
                     )
                     raise wrap_sdk_error(
-                        err, operation=operation, attempt=attempt, corr_id=corr_id,
+                        err,
+                        operation=operation,
+                        attempt=attempt,
+                        corr_id=corr_id,
                     ) from raw_err
 
                 delay = self._policy_delay(attempt)
@@ -309,8 +318,10 @@ class AppwriteSDK:
     ) -> Any:
         """Cacheable, deduped read."""
         return await self.call(
-            operation, fn,
-            cache_parts=cache_parts, cacheable=True,
+            operation,
+            fn,
+            cache_parts=cache_parts,
+            cacheable=True,
             dedup_key=f"{operation}:{cache_parts}",
             timeout_s=timeout_s,
         )

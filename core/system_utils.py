@@ -2,6 +2,7 @@
 System Utilities Module
 Provides ultra-fast IPC, clipboard operations, text normalizers, and logging setup
 """
+
 import ctypes
 import ctypes.wintypes
 import logging
@@ -12,25 +13,24 @@ from pathlib import Path
 from typing import Optional
 
 # Configure root logger
-log_dir = Path.home() / '.axelr' / 'logs'
+log_dir = Path.home() / ".axelr" / "logs"
 log_dir.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(log_dir / 'axelr.log'),
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(log_dir / "axelr.log"), logging.StreamHandler(sys.stdout)],
 )
+
 
 @dataclass(slots=True)
 class ClipboardWindows:
     """Windows native clipboard access for zero-overhead text operations"""
+
     user32: ctypes.WinDLL = None
 
     def __post_init__(self):
         if platform.system() == "Windows":
-            self.user32 = ctypes.WinDLL('user32', use_last_error=True)
+            self.user32 = ctypes.WinDLL("user32", use_last_error=True)
             self.user32.OpenClipboard.restype = ctypes.wintypes.BOOL
             self.user32.CloseClipboard.restype = ctypes.wintypes.BOOL
             self.user32.SetClipboardData.restype = ctypes.wintypes.HANDLE
@@ -46,7 +46,7 @@ class ClipboardWindows:
 
         try:
             self.user32.EmptyClipboard()
-            text_bytes = text.encode('utf-16le')
+            text_bytes = text.encode("utf-16le")
             h_mem = ctypes.windll.kernel32.GlobalAlloc(0x0042, len(text_bytes) + 2)
             if not h_mem:
                 return False
@@ -85,9 +85,11 @@ class ClipboardWindows:
         finally:
             self.user32.CloseClipboard()
 
+
 @dataclass(slots=True)
 class TextNormalizer:
     """Ultra-fast text normalization for transcribed output"""
+
     REPLACEMENTS = {
         # Common dictation corrections
         "period": ".",
@@ -126,7 +128,7 @@ class TextNormalizer:
         "divide": "/",
         "less than": "<",
         "greater than": ">",
-        "quote": "\"",
+        "quote": '"',
         "single quote": "'",
         "backslash": "\\",
         "forward slash": "/",
@@ -148,16 +150,18 @@ class TextNormalizer:
                 normalized = normalized.replace(f" {spoken} ", symbol)
 
         # Clean up extra whitespace
-        normalized = ' '.join(normalized.split())
+        normalized = " ".join(normalized.split())
         return normalized
 
     def normalize_code(self, text: str) -> str:
         """Normalize specifically for programming context"""
         return self.normalize(text, is_code=True)
 
+
 class SharedMemoryIPC:
     """Zero-copy IPC between engine components using Windows named shared memory"""
-    def __init__(self, name: str, size: int = 1024*1024):  # 1MB default
+
+    def __init__(self, name: str, size: int = 1024 * 1024):  # 1MB default
         self.name = name
         self.size = size
         self.map_handle = None
@@ -168,7 +172,7 @@ class SharedMemoryIPC:
 
     def _win32_init(self) -> None:
         """Initialize Windows named shared memory"""
-        self.kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+        self.kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         self.kernel32.CreateFileMappingW.restype = ctypes.wintypes.HANDLE
         self.kernel32.MapViewOfFile.restype = ctypes.wintypes.LPVOID
 
@@ -181,19 +185,13 @@ class SharedMemoryIPC:
             PAGE_READWRITE,
             0,
             self.size,
-            self.name
+            self.name,
         )
 
         if not self.map_handle:
             raise RuntimeError(f"Failed to create shared memory: {self.name}")
 
-        self.mapped_addr = self.kernel32.MapViewOfFile(
-            self.map_handle,
-            FILE_MAP_ALL_ACCESS,
-            0,
-            0,
-            self.size
-        )
+        self.mapped_addr = self.kernel32.MapViewOfFile(self.map_handle, FILE_MAP_ALL_ACCESS, 0, 0, self.size)
 
         if not self.mapped_addr:
             raise RuntimeError(f"Failed to map shared memory view: {self.name}")
@@ -204,7 +202,7 @@ class SharedMemoryIPC:
             raise ValueError("Data too large for shared memory buffer")
 
         # Write length first
-        length = len(data).to_bytes(4, byteorder='little')
+        length = len(data).to_bytes(4, byteorder="little")
         ctypes.windll.msvcrt.memcpy(self.mapped_addr, length, 4)
         # Write data
         ctypes.windll.msvcrt.memcpy(ctypes.c_void_p(self.mapped_addr.value + 4), data, len(data))
@@ -215,7 +213,7 @@ class SharedMemoryIPC:
         # Read length first
         length_bytes = ctypes.create_string_buffer(4)
         ctypes.windll.msvcrt.memcpy(length_bytes, self.mapped_addr, 4)
-        length = int.from_bytes(length_bytes.raw, byteorder='little')
+        length = int.from_bytes(length_bytes.raw, byteorder="little")
         if length == 0 or length > self.size - 4:
             return None
 
@@ -226,11 +224,12 @@ class SharedMemoryIPC:
 
     def __del__(self):
         """Clean up shared memory resources"""
-        if platform.system() == "Windows" and hasattr(self, 'kernel32'):
+        if platform.system() == "Windows" and hasattr(self, "kernel32"):
             if self.mapped_addr:
                 self.kernel32.UnmapViewOfFile(self.mapped_addr)
             if self.map_handle:
                 self.kernel32.CloseHandle(self.map_handle)
+
 
 # Global utility instances
 clipboard = ClipboardWindows()

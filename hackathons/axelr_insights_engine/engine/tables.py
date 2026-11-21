@@ -8,6 +8,7 @@ Every TablesDB operation. Exposes:
 
 All calls go through the SDK choke point, so resilience is inherited.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -70,13 +71,18 @@ class TablesNamespace:
     def permissions_public_full() -> list[str]:
         role = Role.any()
         return [
-            Permission.read(role), Permission.update(role), Permission.delete(role),
+            Permission.read(role),
+            Permission.update(role),
+            Permission.delete(role),
         ]
 
     # ── Create ───────────────────────────────────────────────────────
 
     async def create(
-        self, table: str, data: dict[str, Any], *,
+        self,
+        table: str,
+        data: dict[str, Any],
+        *,
         row_id: str | None = None,
         permissions: list[str] | None = None,
         idempotency_key: str | None = None,
@@ -94,13 +100,16 @@ class TablesNamespace:
 
         payload: dict[str, Any] = {
             "database_id": self._config.database_id,
-            "table_id": table, "row_id": rid, "data": data,
+            "table_id": table,
+            "row_id": rid,
+            "data": data,
         }
         if permissions:
             payload["permissions"] = permissions
 
         row = await self._sdk.call(
-            "tables.create", lambda: self._sdk.tables.create_row(**payload),
+            "tables.create",
+            lambda: self._sdk.tables.create_row(**payload),
         )
         if idempotency_key:
             self._idem.store(table, idempotency_key, data, row)
@@ -111,8 +120,12 @@ class TablesNamespace:
     # ── Read ─────────────────────────────────────────────────────────
 
     async def read(
-        self, table: str, row_id: str, *,
-        include_deleted: bool = False, cacheable: bool = True,
+        self,
+        table: str,
+        row_id: str,
+        *,
+        include_deleted: bool = False,
+        cacheable: bool = True,
     ) -> dict[str, Any] | None:
         """Read a row. Returns `None` on 404 (not an error)."""
         if not table or not row_id:
@@ -123,7 +136,8 @@ class TablesNamespace:
                 "tables.read",
                 lambda: self._sdk.tables.get_row(
                     database_id=self._config.database_id,
-                    table_id=table, row_id=row_id,
+                    table_id=table,
+                    row_id=row_id,
                 ),
                 cache_parts=("read", table, row_id),
             )
@@ -151,7 +165,11 @@ class TablesNamespace:
     # ── Update ───────────────────────────────────────────────────────
 
     async def update(
-        self, table: str, row_id: str, data: dict[str, Any], *,
+        self,
+        table: str,
+        row_id: str,
+        data: dict[str, Any],
+        *,
         expected_version: int | None = None,
         increment_version: bool = False,
         permissions: list[str] | None = None,
@@ -170,10 +188,7 @@ class TablesNamespace:
                 raise NotFoundError(f"row '{row_id}' not found in '{table}'")
             actual = int(current.get("_version", 1) or 1)
             if expected_version is not None and actual != expected_version:
-                raise VersionConflictError(
-                    f"expected version {expected_version}, got {actual} on "
-                    f"{table}/{row_id}"
-                )
+                raise VersionConflictError(f"expected version {expected_version}, got {actual} on {table}/{row_id}")
             payload_data["_version"] = actual + 1
 
         payload: dict[str, Any] = {
@@ -193,23 +208,35 @@ class TablesNamespace:
         return row
 
     async def soft_delete(
-        self, table: str, row_id: str,
+        self,
+        table: str,
+        row_id: str,
     ) -> dict[str, Any]:
         """Mark a row deleted without physically removing it."""
         return await self.update(
-            table, row_id, {"_deleted": True}, increment_version=True,
+            table,
+            row_id,
+            {"_deleted": True},
+            increment_version=True,
         )
 
     async def restore(self, table: str, row_id: str) -> dict[str, Any]:
         """Un-mark a soft-deleted row."""
         return await self.update(
-            table, row_id, {"_deleted": False}, increment_version=True,
+            table,
+            row_id,
+            {"_deleted": False},
+            increment_version=True,
         )
 
     # ── Upsert ───────────────────────────────────────────────────────
 
     async def upsert(
-        self, table: str, row_id: str, data: dict[str, Any], *,
+        self,
+        table: str,
+        row_id: str,
+        data: dict[str, Any],
+        *,
         permissions: list[str] | None = None,
         increment_version: bool = True,
     ) -> dict[str, Any]:
@@ -284,7 +311,8 @@ class TablesNamespace:
             "tables.query",
             lambda: self._sdk.tables.list_rows(
                 database_id=self._config.database_id,
-                table_id=table, queries=queries,
+                table_id=table,
+                queries=queries,
             ),
             dedup_key=f"query:{table}:{stable_hash(opts.model_dump())}",
         )
@@ -308,7 +336,10 @@ class TablesNamespace:
         cursor = opts.cursor
         while len(out) < cap:
             page = await self.query(
-                table, opts, cursor=cursor, limit=_PAGE_SIZE,
+                table,
+                opts,
+                cursor=cursor,
+                limit=_PAGE_SIZE,
             )
             if not page:
                 break
@@ -329,7 +360,10 @@ class TablesNamespace:
         cursor = opts.cursor
         while True:
             page = await self.query(
-                table, opts, cursor=cursor, limit=_PAGE_SIZE,
+                table,
+                opts,
+                cursor=cursor,
+                limit=_PAGE_SIZE,
             )
             if not page:
                 return
@@ -392,7 +426,9 @@ class TablesNamespace:
             except Exception as e:
                 self._log.warn(
                     "batch_create_chunk_failed",
-                    table=table, chunk_len=len(chunk), error=str(e)[:120],
+                    table=table,
+                    chunk_len=len(chunk),
+                    error=str(e)[:120],
                 )
         return inserted
 
@@ -423,7 +459,9 @@ class TablesNamespace:
             except Exception as e:
                 self._log.warn(
                     "batch_upsert_chunk_failed",
-                    table=table, chunk_len=len(chunk), error=str(e)[:120],
+                    table=table,
+                    chunk_len=len(chunk),
+                    error=str(e)[:120],
                 )
         return upserted
 
@@ -455,64 +493,69 @@ class TablesNamespace:
             except Exception as e:
                 self._log.warn(
                     "batch_delete_chunk_failed",
-                    table=table, chunk_len=len(chunk), error=str(e)[:120],
+                    table=table,
+                    chunk_len=len(chunk),
+                    error=str(e)[:120],
                 )
         return deleted
 
     # ── Bulk helpers ────────────────────────────────────────────────
 
-    async def iter_batches(self, table: str, batch_size: int = 100,
-                           options: QueryOptions | None = None):
+    async def iter_batches(self, table: str, batch_size: int = 100, options: QueryOptions | None = None):
         """Yield batches of rows as lists, for memory-bounded processing."""
         opts = options or QueryOptions()
         cursor = opts.cursor
         while True:
             page = await self.query(table, opts, cursor=cursor, limit=batch_size)
-            if not page: return
+            if not page:
+                return
             yield page
-            if len(page) < batch_size: return
+            if len(page) < batch_size:
+                return
             cursor = page[-1].get("$id")
 
-    async def bulk_read(self, table: str, row_ids: list[str],
-                        *, concurrency: int = 8) -> list[dict[str, Any] | None]:
+    async def bulk_read(self, table: str, row_ids: list[str], *, concurrency: int = 8) -> list[dict[str, Any] | None]:
         """Fetch many rows by ID, bounded concurrency."""
         results: list[dict[str, Any] | None] = [None] * len(row_ids)
         sem = asyncio.Semaphore(concurrency)
 
         async def _one(idx: int, rid: str) -> None:
             async with sem:
-                try: results[idx] = await self.read(table, rid)
-                except Exception: results[idx] = None
+                try:
+                    results[idx] = await self.read(table, rid)
+                except Exception:
+                    results[idx] = None
 
         await asyncio.gather(*[_one(i, r) for i, r in enumerate(row_ids)])
         return results
 
-    async def delete_by_filter(self, table: str, filters: list[QueryFilter] | None = None,
-                               *, batch_size: int = 100, max_deletes: int = 10_000) -> int:
+    async def delete_by_filter(
+        self, table: str, filters: list[QueryFilter] | None = None, *, batch_size: int = 100, max_deletes: int = 10_000
+    ) -> int:
         """Delete all rows matching the filter. Returns count deleted."""
         opts = QueryOptions(filters=filters or [], limit=batch_size)
         deleted = 0
         while deleted < max_deletes:
             page = await self.query(table, opts, limit=batch_size)
-            if not page: break
+            if not page:
+                break
             ids = [r["$id"] for r in page if "$id" in r]
-            if not ids: break
+            if not ids:
+                break
             deleted += await self.batch_delete(table, ids)
-            if len(page) < batch_size: break
+            if len(page) < batch_size:
+                break
         return deleted
 
-    async def latest(self, table: str, *,
-                     order_field: str = "ts",
-                     filters: list[QueryFilter] | None = None) -> dict[str, Any] | None:
+    async def latest(
+        self, table: str, *, order_field: str = "ts", filters: list[QueryFilter] | None = None
+    ) -> dict[str, Any] | None:
         """Return the most recent row matching filters (one call)."""
-        opts = QueryOptions(filters=filters or [],
-                            order_by=order_field, order_desc=True, limit=1)
+        opts = QueryOptions(filters=filters or [], order_by=order_field, order_desc=True, limit=1)
         rows = await self.query(table, opts)
         return rows[0] if rows else None
 
-    async def deduplicate_existing(self, table: str, *,
-                                    key_field: str,
-                                    keep: str = "newest") -> int:
+    async def deduplicate_existing(self, table: str, *, key_field: str, keep: str = "newest") -> int:
         """Find and delete duplicate rows sharing the same key_field value.
 
         Keeps either the newest or oldest by $createdAt. Returns count deleted.
@@ -522,14 +565,17 @@ class TablesNamespace:
         to_delete: list[str] = []
         for r in all_rows:
             k = r.get(key_field)
-            if k is None: continue
-            if k in seen: to_delete.append(r["$id"])
-            else: seen[k] = r["$id"]
-        if to_delete: return await self.batch_delete(table, to_delete)
+            if k is None:
+                continue
+            if k in seen:
+                to_delete.append(r["$id"])
+            else:
+                seen[k] = r["$id"]
+        if to_delete:
+            return await self.batch_delete(table, to_delete)
         return 0
 
-    async def bulk_upsert_from_iterable(self, table: str, rows: Any,
-                                        *, batch_size: int = 100) -> int:
+    async def bulk_upsert_from_iterable(self, table: str, rows: Any, *, batch_size: int = 100) -> int:
         """Upsert rows from any iterable (list, generator, async iterator)."""
         total = 0
         buffer: list[dict[str, Any]] = []
@@ -545,8 +591,10 @@ class TablesNamespace:
                 if len(buffer) >= batch_size:
                     total += await self.batch_upsert(table, buffer)
                     buffer = []
-        if buffer: total += await self.batch_upsert(table, buffer)
+        if buffer:
+            total += await self.batch_upsert(table, buffer)
         return total
+
     # ── Query building ───────────────────────────────────────────────
 
     def _build_queries(self, opts: QueryOptions) -> list[str]:
@@ -562,6 +610,7 @@ class TablesNamespace:
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
 
 def _to_query_options(
     options: QueryOptions | dict[str, Any] | None,

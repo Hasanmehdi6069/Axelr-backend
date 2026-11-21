@@ -20,6 +20,7 @@ Usage:
     # Snapshot for logs
     env.snapshot()                 # dict, secrets redacted
 """
+
 from __future__ import annotations
 
 import logging
@@ -46,6 +47,7 @@ def _redact(name: str, value: str | None) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 # Raw env readers with type coercion
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def _get(name: str) -> str | None:
     v = os.environ.get(name)
@@ -109,6 +111,7 @@ def _list(name: str) -> list[str]:
 # Appwrite domain
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @dataclass(frozen=True, slots=True)
 class AppwriteEnv:
     """Every APPWRITE_* variable. All fields typed."""
@@ -144,18 +147,21 @@ class AppwriteEnv:
     log_level: str = "info"
 
     def validate(self) -> None:
-        missing = [n for n in (
-            ("APPWRITE_ENDPOINT", self.endpoint),
-            ("APPWRITE_PROJECT_ID", self.project_id),
-            ("APPWRITE_DATABASE_ID", self.database_id),
-        ) if not n[1]]
+        missing = [
+            n
+            for n in (
+                ("APPWRITE_ENDPOINT", self.endpoint),
+                ("APPWRITE_PROJECT_ID", self.project_id),
+                ("APPWRITE_DATABASE_ID", self.database_id),
+            )
+            if not n[1]
+        ]
         if missing:
-            raise ConfigurationError(
-                f"missing env: {', '.join(n[0] for n in missing)}")
+            raise ConfigurationError(f"missing env: {', '.join(n[0] for n in missing)}")
         if not self.api_key and not self.session_secret and self.mode != "anonymous":
             raise ConfigurationError(
-                "one of APPWRITE_API_KEY or APPWRITE_SESSION_SECRET required "
-                "unless APPWRITE_MODE=anonymous")
+                "one of APPWRITE_API_KEY or APPWRITE_SESSION_SECRET required unless APPWRITE_MODE=anonymous"
+            )
 
     @property
     def effective_mode(self) -> str:
@@ -197,6 +203,7 @@ def _load_appwrite() -> AppwriteEnv:
 # Switch domain
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @dataclass(frozen=True, slots=True)
 class SwitchEnv:
     bridge_url: str
@@ -209,14 +216,17 @@ class SwitchEnv:
     ops_ws_port: int = 8765
 
     def validate(self) -> None:
-        missing = [n for n in (
-            ("SWITCH_AGENT_ID", self.agent_id),
-            ("SWITCH_AGENT_API_KEY", self.agent_api_key),
-            ("SWITCH_ROOM_ID", self.room_id),
-        ) if not n[1]]
+        missing = [
+            n
+            for n in (
+                ("SWITCH_AGENT_ID", self.agent_id),
+                ("SWITCH_AGENT_API_KEY", self.agent_api_key),
+                ("SWITCH_ROOM_ID", self.room_id),
+            )
+            if not n[1]
+        ]
         if missing:
-            raise ConfigurationError(
-                f"missing env: {', '.join(n[0] for n in missing)}")
+            raise ConfigurationError(f"missing env: {', '.join(n[0] for n in missing)}")
 
 
 def _load_switch() -> SwitchEnv:
@@ -235,6 +245,7 @@ def _load_switch() -> SwitchEnv:
 # ═══════════════════════════════════════════════════════════════════════
 # Vultr domain
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @dataclass(frozen=True, slots=True)
 class VultrEnv:
@@ -275,6 +286,7 @@ def _load_vultr() -> VultrEnv:
 # PayPal domain
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @dataclass(frozen=True, slots=True)
 class PayPalEnv:
     client_id: str
@@ -300,6 +312,7 @@ def _load_paypal() -> PayPalEnv:
 # ═══════════════════════════════════════════════════════════════════════
 # Auth domain
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @dataclass(frozen=True, slots=True)
 class AuthEnv:
@@ -333,6 +346,7 @@ def _load_auth() -> AuthEnv:
 # ═══════════════════════════════════════════════════════════════════════
 # Root env — cached, thread-safe
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @dataclass(frozen=True, slots=True)
 class Env:
@@ -420,9 +434,12 @@ _env_mtime: float = 0.0
 def _compute_mtime() -> float:
     """Best-effort mtime — updates when any *_ENDPOINT, *_API_KEY or *_SECRET changes."""
     keys = (
-        "APPWRITE_ENDPOINT", "APPWRITE_API_KEY",
-        "SWITCH_BRIDGE_URL", "SWITCH_AGENT_API_KEY",
-        "VULTR_API_KEY", "PAYPAL_CLIENT_SECRET",
+        "APPWRITE_ENDPOINT",
+        "APPWRITE_API_KEY",
+        "SWITCH_BRIDGE_URL",
+        "SWITCH_AGENT_API_KEY",
+        "VULTR_API_KEY",
+        "PAYPAL_CLIENT_SECRET",
         "JWT_SECRET",
     )
     return float(hash(tuple(os.environ.get(k) for k in keys)))

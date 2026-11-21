@@ -1,4 +1,5 @@
 """Core PayPal module configuration, lifecycle management, and health checks"""
+
 from __future__ import annotations
 
 import logging
@@ -13,8 +14,10 @@ MODULE_VERSION = "1.0.0"
 
 logger = logging.getLogger("axelr.paypal.core")
 
+
 class AuditEvent(BaseModel):
     """Audit event model for tracking all PayPal-related actions"""
+
     timestamp: str
     event_type: str
     transaction_id: Optional[str] = None
@@ -23,8 +26,10 @@ class AuditEvent(BaseModel):
     details: Dict[str, Any] = Field(default_factory=dict)
     success: bool = True
 
+
 class ModuleSettings(BaseModel):
     """Pydantic model for PayPal module configuration with strict validation"""
+
     client_id: str = Field(..., min_length=1)
     client_secret: str = Field(..., min_length=1)
     environment: str = Field(default="sandbox", pattern="^(sandbox|live)$")
@@ -36,8 +41,10 @@ class ModuleSettings(BaseModel):
     openai_api_key: Optional[str] = None
     anthropic_api_key: Optional[str] = None
 
+
 class HealthStatus(BaseModel):
     """Structured health check response"""
+
     healthy: bool
     version: str
     timestamp: str
@@ -45,15 +52,21 @@ class HealthStatus(BaseModel):
     http_client_connected: bool
     last_shutdown: Optional[str] = None
 
+
 class PayPalCoreModule:
     """Singleton core module for lifecycle management"""
+
     _instance: Optional["PayPalCoreModule"] = None
     _http_client: Optional[httpx.AsyncClient] = None
     _initialized: bool = False
     _shutdown_time: Optional[datetime] = None
     _transaction_counts: Dict[str, int] = {
-        "INITIATED": 0, "VALIDATED": 0, "PAYPAL_CREATED": 0,
-        "APPROVED": 0, "CAPTURED": 0, "REFUNDED": 0
+        "INITIATED": 0,
+        "VALIDATED": 0,
+        "PAYPAL_CREATED": 0,
+        "APPROVED": 0,
+        "CAPTURED": 0,
+        "REFUNDED": 0,
     }
     _audit_logs: List[AuditEvent] = []
 
@@ -86,13 +99,12 @@ class PayPalCoreModule:
                 client_secret=client_secret,
                 environment=environment,
                 webhook_id=webhook_id,
-                redis_url=redis_url
+                redis_url=redis_url,
             )
 
         self.settings = settings
         self._http_client = httpx.AsyncClient(
-            timeout=30.0,
-            limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
+            timeout=30.0, limits=httpx.Limits(max_connections=100, max_keepalive_connections=20)
         )
         self._initialized = True
         logger.info(f"✅ PayPal core module v{MODULE_VERSION} initialized in {settings.environment} mode")
@@ -131,7 +143,7 @@ class PayPalCoreModule:
             timestamp=datetime.utcnow().isoformat() + "Z",
             transaction_counts=self._transaction_counts.copy(),
             http_client_connected=bool(self._http_client and not self._http_client.is_closed),
-            last_shutdown=self._shutdown_time.isoformat() + "Z" if self._shutdown_time else None
+            last_shutdown=self._shutdown_time.isoformat() + "Z" if self._shutdown_time else None,
         )
 
     def increment_transaction_state(self, state: str) -> None:
@@ -147,7 +159,9 @@ class PayPalCoreModule:
         """Get all audit logs"""
         return self._audit_logs.copy()
 
+
 _core_instance = None
+
 
 def get_core_module() -> PayPalCoreModule:
     global _core_instance
@@ -155,7 +169,16 @@ def get_core_module() -> PayPalCoreModule:
         _core_instance = PayPalCoreModule()
     return _core_instance
 
-async def log_audit(event_type: str, transaction_id: Optional[str] = None, user_id: Optional[str] = None, details: Dict[str, Any] = None, metadata: Dict[str, Any] = None, success: bool = True, timestamp: Optional[str] = None) -> None:
+
+async def log_audit(
+    event_type: str,
+    transaction_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    details: Dict[str, Any] = None,
+    metadata: Dict[str, Any] = None,
+    success: bool = True,
+    timestamp: Optional[str] = None,
+) -> None:
     """Helper function to log audit events"""
     module = get_core_module()
     # Redact sensitive fields from metadata and details
@@ -174,9 +197,10 @@ async def log_audit(event_type: str, transaction_id: Optional[str] = None, user_
         user_id=user_id,
         metadata=redacted_metadata,
         details=redacted_details,
-        success=success
+        success=success,
     )
     module.add_audit_event(event)
+
 
 def get_audit_logs(user_id: Optional[str] = None, event_type: Optional[str] = None) -> List[AuditEvent]:
     """Helper function to get audit logs with optional filtering"""
@@ -186,4 +210,3 @@ def get_audit_logs(user_id: Optional[str] = None, event_type: Optional[str] = No
     if event_type:
         logs = [log for log in logs if log.event_type == event_type]
     return logs
-

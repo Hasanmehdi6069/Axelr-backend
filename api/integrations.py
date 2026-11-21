@@ -9,6 +9,7 @@ Three SDK-backed clients grouped into one cohesive module:
 
 All background loops are lazy-started by ``lifespan`` via ``start_background``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -64,6 +65,20 @@ def get_kv_namespace_id() -> str:
     return os.getenv("CLOUDFLARE_KV_NAMESPACE_ID", "").strip()
 
 
+_VULTR_API_KEY = os.getenv("VULTR_API_KEY", "").strip()
+
+
+async def vultr_api_request(method: str, path: str, **kwargs) -> Any:
+    """Vultr API request wrapper with bearer auth and backoff."""
+    if not _VULTR_API_KEY:
+        raise RuntimeError("VULTR_API_KEY not configured")
+    client = get_http_client()
+    headers = {"Authorization": f"Bearer {_VULTR_API_KEY}", **kwargs.pop("headers", {})}
+    resp = await client.request(method, f"https://api.vultr.com/v2{path}", headers=headers, **kwargs)
+    resp.raise_for_status()
+    return resp.json()
+
+
 async def _vultr_health_loop() -> None:
     while True:
         try:
@@ -101,10 +116,7 @@ async def _get_paypal_access_token() -> str:
     auth = httpx.BasicAuth(PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET)
     try:
         resp = await client.post(
-            f"{PAYPAL_API_BASE}/v1/oauth2/token",
-            auth=auth,
-            data={"grant_type": "client_credentials"},
-            timeout=30.0
+            f"{PAYPAL_API_BASE}/v1/oauth2/token", auth=auth, data={"grant_type": "client_credentials"}, timeout=30.0
         )
         resp.raise_for_status()
         data = resp.json()
@@ -128,8 +140,11 @@ async def paypal_api_request(method: str, path: str, **kwargs: Any) -> dict[str,
             headers["Content-Type"] = "application/json"
 
             resp = await client.request(
-                method, f"{PAYPAL_API_BASE}{path}",
-                headers=headers, timeout=30.0, **kwargs,
+                method,
+                f"{PAYPAL_API_BASE}{path}",
+                headers=headers,
+                timeout=30.0,
+                **kwargs,
             )
             resp.raise_for_status()
             return resp.json()
@@ -137,23 +152,23 @@ async def paypal_api_request(method: str, path: str, **kwargs: Any) -> dict[str,
             if e.response.status_code == 401 and attempt < _PAYPAL_MAX_RETRIES - 1:
                 # Token expired, clear and retry
                 state.paypal_access_token = None
-                wait_time = 2 ** attempt
+                wait_time = 2**attempt
                 logger.warning("paypal_token_expired_retry attempt=%d wait_s=%d", attempt + 1, wait_time)
                 await asyncio.sleep(wait_time)
                 continue
             if attempt == _PAYPAL_MAX_RETRIES - 1:
-                logger.error("paypal_api_failed method=%s path=%s status=%d error=%s",
-                            method, path, e.response.status_code, e)
+                logger.error(
+                    "paypal_api_failed method=%s path=%s status=%d error=%s", method, path, e.response.status_code, e
+                )
                 raise HTTPException(status_code=503, detail="PayPal API unavailable") from e
-            wait_time = 2 ** attempt
+            wait_time = 2**attempt
             logger.warning("paypal_api_retry attempt=%d wait_s=%d", attempt + 1, wait_time)
             await asyncio.sleep(wait_time)
         except httpx.HTTPError as e:
             if attempt == _PAYPAL_MAX_RETRIES - 1:
-                logger.error("paypal_api_failed method=%s path=%s error=%s",
-                            method, path, e)
+                logger.error("paypal_api_failed method=%s path=%s error=%s", method, path, e)
                 raise HTTPException(status_code=503, detail="PayPal API unavailable") from e
-            wait_time = 2 ** attempt
+            wait_time = 2**attempt
             logger.warning("paypal_api_retry attempt=%d wait_s=%d", attempt + 1, wait_time)
             await asyncio.sleep(wait_time)
     raise RuntimeError("Unreachable in paypal_api_request")
@@ -163,12 +178,7 @@ async def create_paypal_order(amount: float, currency: str = "USD") -> dict[str,
     """Create a PayPal order for payment processing."""
     payload = {
         "intent": "CAPTURE",
-        "purchase_units": [{
-            "amount": {
-                "currency_code": currency,
-                "value": f"{amount:.2f}"
-            }
-        }]
+        "purchase_units": [{"amount": {"currency_code": currency, "value": f"{amount:.2f}"}}],
     }
     return await paypal_api_request("POST", "/v2/checkout/orders", json=payload)
 
@@ -198,13 +208,14 @@ async def verify_paypal_webhook(body: bytes, headers: dict[str, str]) -> bool:
         "transmission_sig": headers.get("paypal-transmission-sig", ""),
         "transmission_time": headers.get("paypal-transmission-time", ""),
         "webhook_id": webhook_id,
-        "webhook_event": body.decode()
+        "webhook_event": body.decode(),
     }
     try:
         resp = await client.post(
             f"{PAYPAL_API_BASE}/v1/notifications/verify-webhook-signature",
             headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json=payload, timeout=30.0
+            json=payload,
+            timeout=30.0,
         )
         resp.raise_for_status()
         result = resp.json()
@@ -232,8 +243,7 @@ async def _paypal_cleanup_loop() -> None:
     while True:
         try:
             now = _time.time()
-            expired = [k for k, ts in _paypal_processed_webhooks.items()
-                       if now - ts > _PAYPAL_IDEMPOTENCY_TTL]
+            expired = [k for k, ts in _paypal_processed_webhooks.items() if now - ts > _PAYPAL_IDEMPOTENCY_TTL]
             for k in expired:
                 _paypal_processed_webhooks.pop(k, None)
         except Exception as e:
@@ -242,7 +252,9 @@ async def _paypal_cleanup_loop() -> None:
 
 
 def verify_paypal_webhook_signature(
-    raw_body: bytes, signature: str, transmission_id: str,
+    raw_body: bytes,
+    signature: str,
+    transmission_id: str,
 ) -> bool:
     """HMAC-SHA256 verification. Skipped (permissive) when secret is unset — dev only."""
     if not PAYPAL_WEBHOOK_SECRET:
@@ -251,8 +263,7 @@ def verify_paypal_webhook_signature(
     try:
         secret = PAYPAL_WEBHOOK_SECRET.encode("utf-8")
         payload = f"{transmission_id}|{int(_time.time())}|{raw_body.decode('utf-8')}"
-        computed = _hmac.new(secret, payload.encode("utf-8"),
-                             _hashlib.sha256).hexdigest()
+        computed = _hmac.new(secret, payload.encode("utf-8"), _hashlib.sha256).hexdigest()
         return _hmac.compare_digest(computed, signature)
     except Exception as e:
         logger.error("paypal_webhook_verify_failed error=%s", e)
@@ -261,8 +272,7 @@ def verify_paypal_webhook_signature(
 
 def enforce_paypal_idempotency(key: str) -> None:
     now = _time.time()
-    expired = [k for k, ts in _paypal_processed_webhooks.items()
-               if now - ts > _PAYPAL_IDEMPOTENCY_TTL]
+    expired = [k for k, ts in _paypal_processed_webhooks.items() if now - ts > _PAYPAL_IDEMPOTENCY_TTL]
     for k in expired:
         _paypal_processed_webhooks.pop(k, None)
     if key in _paypal_processed_webhooks:
@@ -283,7 +293,8 @@ async def _get_paypal_access_token() -> str:
         try:
             resp = await client.post(
                 f"{_PAYPAL_API_BASE}/v1/oauth2/token",
-                auth=auth, data={"grant_type": "client_credentials"},
+                auth=auth,
+                data={"grant_type": "client_credentials"},
                 timeout=10.0,
             )
             resp.raise_for_status()
@@ -295,13 +306,15 @@ async def _get_paypal_access_token() -> str:
             if attempt == 2:
                 logger.error("paypal_token_failed error=%s", e)
                 raise
-            await asyncio.sleep(2 ** attempt)
+            await asyncio.sleep(2**attempt)
     raise RuntimeError("Unreachable in _get_paypal_access_token")
 
 
 async def create_paypal_payment(
-    amount: float, currency: str = "USD",
-    return_url: str = "", cancel_url: str = "",
+    amount: float,
+    currency: str = "USD",
+    return_url: str = "",
+    cancel_url: str = "",
 ) -> dict[str, Any]:
     token = await _get_paypal_access_token()
     idempotency_key = f"payment_{int(_time.time())}_{os.urandom(8).hex()}"
@@ -315,9 +328,11 @@ async def create_paypal_payment(
         },
         json={
             "intent": "CAPTURE",
-            "purchase_units": [{
-                "amount": {"currency_code": currency, "value": f"{amount:.2f}"},
-            }],
+            "purchase_units": [
+                {
+                    "amount": {"currency_code": currency, "value": f"{amount:.2f}"},
+                }
+            ],
             "application_context": {
                 "return_url": return_url or "https://axelr.in/payment/success",
                 "cancel_url": cancel_url or "https://axelr.in/payment/cancel",
@@ -334,8 +349,7 @@ async def capture_paypal_payment(order_id: str) -> dict[str, Any]:
     client = get_http_client()
     resp = await client.post(
         f"{_PAYPAL_API_BASE}/v2/payments/orders/{order_id}/capture",
-        headers={"Authorization": f"Bearer {token}",
-                 "Content-Type": "application/json"},
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         timeout=15.0,
     )
     resp.raise_for_status()
@@ -348,18 +362,21 @@ async def capture_paypal_payment(order_id: str) -> dict[str, Any]:
 async def start_background() -> None:
     global _vultr_health_task, _paypal_cleanup_task
     if _VULTR_API_KEY and _vultr_health_task is None:
-        _vultr_health_task = asyncio.create_task(
-            _vultr_health_loop(), name="vultr_health")
+        _vultr_health_task = asyncio.create_task(_vultr_health_loop(), name="vultr_health")
         logger.info("vultr_health_started")
     if _paypal_cleanup_task is None:
-        _paypal_cleanup_task = asyncio.create_task(
-            _paypal_cleanup_loop(), name="paypal_cleanup")
+        _paypal_cleanup_task = asyncio.create_task(_paypal_cleanup_loop(), name="paypal_cleanup")
         logger.info("paypal_cleanup_started")
 
 
 __all__ = [
-    "capture_paypal_payment", "create_paypal_payment",
-    "enforce_paypal_idempotency", "get_kv_client", "get_kv_namespace_id",
-    "get_r2_client", "start_background", "vultr_api_request",
+    "capture_paypal_payment",
+    "create_paypal_payment",
+    "enforce_paypal_idempotency",
+    "get_kv_client",
+    "get_kv_namespace_id",
+    "get_r2_client",
+    "start_background",
+    "vultr_api_request",
     "verify_paypal_webhook_signature",
 ]

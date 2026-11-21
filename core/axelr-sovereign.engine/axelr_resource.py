@@ -10,6 +10,7 @@ from bottom (most valuable first). Each rung has a shed() and reinstate().
 
 Memory: ~0.
 """
+
 from __future__ import annotations
 
 import threading
@@ -24,6 +25,7 @@ logger = get_logger(__name__)
 
 try:
     import psutil
+
     _HAS_PSUTIL = True
 except ImportError:
     psutil = None
@@ -34,6 +36,7 @@ logger = get_logger(__name__)
 
 class Rung(Protocol):
     name: str
+
     def shed(self) -> None: ...
     def reinstate(self) -> None: ...
 
@@ -77,6 +80,7 @@ class GracefulFeatureLadder:
     Rung 3 (cloud) sheds last because losing cloud fallback is a real
     quality regression; it's better to lose reranking.
     """
+
     __slots__ = ("_rungs", "_shed_count")
 
     DEFAULT_ORDER = [
@@ -91,9 +95,7 @@ class GracefulFeatureLadder:
         self._rungs: List[_Rung] = []
         self._shed_count = 0
 
-    def add(self, name: str,
-            shed_fn: Callable[[], None],
-            reinstate_fn: Callable[[], None]) -> None:
+    def add(self, name: str, shed_fn: Callable[[], None], reinstate_fn: Callable[[], None]) -> None:
         self._rungs.append(_Rung(name, shed_fn, reinstate_fn))
 
     def shed_one(self) -> bool:
@@ -145,18 +147,32 @@ class MemoryPressureMonitor:
     Polls RSS + Python heap every `sample_ms`. Emits callbacks on
     crossing thresholds (transition only, not on every poll).
     """
-    __slots__ = ("config", "_proc", "_running", "_thread", "_lock",
-                 "_state", "_low_since", "_on_high", "_on_low", "_last_ratio")
 
-    def __init__(self, config: PressureConfig,
-                 on_high: Optional[Callable[[float], None]] = None,
-                 on_low: Optional[Callable[[float], None]] = None) -> None:
+    __slots__ = (
+        "config",
+        "_proc",
+        "_running",
+        "_thread",
+        "_lock",
+        "_state",
+        "_low_since",
+        "_on_high",
+        "_on_low",
+        "_last_ratio",
+    )
+
+    def __init__(
+        self,
+        config: PressureConfig,
+        on_high: Optional[Callable[[float], None]] = None,
+        on_low: Optional[Callable[[float], None]] = None,
+    ) -> None:
         self.config = config
         self._proc = psutil.Process() if _HAS_PSUTIL else None
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
-        self._state = "normal"     # normal | high
+        self._state = "normal"  # normal | high
         self._low_since = 0.0
         self._on_high = on_high
         self._on_low = on_low
@@ -184,10 +200,11 @@ class MemoryPressureMonitor:
                 self._state = "high"
                 self._low_since = 0.0
                 if self._on_high:
-                    try: self._on_high(ratio)
-                    except Exception: logger.exception("pressure_on_high")
-                logger.warning("memory_pressure_high ratio=%.2f budget=%.0fmb",
-                               ratio, self.config.budget_mb)
+                    try:
+                        self._on_high(ratio)
+                    except Exception:
+                        logger.exception("pressure_on_high")
+                logger.warning("memory_pressure_high ratio=%.2f budget=%.0fmb", ratio, self.config.budget_mb)
             elif self._state == "high":
                 if ratio <= self.config.low_watermark:
                     if self._low_since == 0.0:
@@ -195,8 +212,10 @@ class MemoryPressureMonitor:
                     elif now - self._low_since >= self.config.sustain_s:
                         self._state = "normal"
                         if self._on_low:
-                            try: self._on_low(ratio)
-                            except Exception: logger.exception("pressure_on_low")
+                            try:
+                                self._on_low(ratio)
+                            except Exception:
+                                logger.exception("pressure_on_low")
                         logger.info("memory_pressure_recovered ratio=%.2f", ratio)
                 else:
                     self._low_since = 0.0
@@ -233,15 +252,21 @@ class MemoryPressureMonitor:
 class TierConsistencyChecker:
     """Cross-check tier budgets across config / engine / IPC.
     All three must agree or the engine refuses to start."""
+
     def __init__(self) -> None:
         self.violations: List[str] = []
+
     def check(self, config_budgets, engine_budgets, ipc_budgets):
         issues = []
         for tier_name, cfg in config_budgets.items():
             eng = engine_budgets.get(tier_name)
             ipc = ipc_budgets.get(tier_name)
-            if eng is None: issues.append(f"{tier_name}: missing in engine"); continue
-            if ipc is None: issues.append(f"{tier_name}: missing in IPC"); continue
+            if eng is None:
+                issues.append(f"{tier_name}: missing in engine")
+                continue
+            if ipc is None:
+                issues.append(f"{tier_name}: missing in IPC")
+                continue
             for key in ("max_claims", "max_chunk_chars"):
                 if key in cfg:
                     cfg_val = cfg[key]
@@ -257,44 +282,56 @@ class TierConsistencyChecker:
 
 class MemoryGradientMonitor:
     """Alarm on RSS growth > threshold MB/min over a window."""
+
     def __init__(self, threshold_mb_per_min=1.0, sample_count=20):
         self.threshold = threshold_mb_per_min
         self.sample_count = sample_count
         self._samples: List[tuple] = []
         self.alarms = 0
+
     def sample(self, rss_mb, ts=None):
         t = ts if ts is not None else time.monotonic()
         self._samples.append((t, rss_mb))
         if len(self._samples) > self.sample_count:
-            self._samples = self._samples[-self.sample_count:]
-        if len(self._samples) < self.sample_count: return False
+            self._samples = self._samples[-self.sample_count :]
+        if len(self._samples) < self.sample_count:
+            return False
         first_t, first_mb = self._samples[0]
         last_t, last_mb = self._samples[-1]
         dt_min = (last_t - first_t) / 60.0
-        if dt_min <= 0: return False
+        if dt_min <= 0:
+            return False
         gradient = (last_mb - first_mb) / dt_min
         if gradient > self.threshold:
-            self.alarms += 1; return True
+            self.alarms += 1
+            return True
         return False
+
     def stats(self):
         if len(self._samples) < 2:
             return {"samples": len(self._samples), "alarms": self.alarms}
         first_t, first_mb = self._samples[0]
         last_t, last_mb = self._samples[-1]
         dt_min = max(1e-6, (last_t - first_t) / 60.0)
-        return {"samples": len(self._samples), "alarms": self.alarms,
-                "gradient_mb_per_min": (last_mb - first_mb) / dt_min}
+        return {
+            "samples": len(self._samples),
+            "alarms": self.alarms,
+            "gradient_mb_per_min": (last_mb - first_mb) / dt_min,
+        }
 
 
 class ColdStartProfiler:
     """Record warmup durations per subsystem. Alarm if > expected × 1.5."""
+
     def __init__(self, expected_ms):
         self.expected = dict(expected_ms)
         self._start: Dict[str, float] = {}
         self._durations: Dict[str, List[float]] = {}
         self.alarms = 0
+
     def start(self, subsystem):
         self._start[subsystem] = time.perf_counter()
+
     def stop(self, subsystem):
         if subsystem not in self._start:
             return
@@ -305,7 +342,7 @@ class ColdStartProfiler:
         expected = self.expected.get(subsystem, 100.0)
         if dur > expected * 1.5:
             self.alarms += 1
-            logger.warning("cold_start_slow subsystem=%s dur=%.1fms expected=%.1fms",
-                           subsystem, dur, expected)
+            logger.warning("cold_start_slow subsystem=%s dur=%.1fms expected=%.1fms", subsystem, dur, expected)
+
     def stats(self):
         return {k: sorted(v)[-5:] for k, v in self._durations.items()}

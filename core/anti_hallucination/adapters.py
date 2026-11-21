@@ -17,6 +17,7 @@ Design principles:
   * Fail-closed: any exception during verification downgrades confidence
     to Low. Never raise — callers depend on non-throwing contract.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -28,11 +29,26 @@ from .bounding import canonicalize
 
 _SENT_RE = re.compile(r"[^.!?\n]+[.!?]?")
 _NUM_RE = re.compile(r"\b\d+(?:[.,]\d+)?%?\b")
-_NEGATORS = frozenset({
-    "not", "no", "never", "none", "nobody", "nothing", "neither",
-    "nor", "without", "cannot", "can't", "won't", "didn't",
-    "doesn't", "isn't", "aren't",
-})
+_NEGATORS = frozenset(
+    {
+        "not",
+        "no",
+        "never",
+        "none",
+        "nobody",
+        "nothing",
+        "neither",
+        "nor",
+        "without",
+        "cannot",
+        "can't",
+        "won't",
+        "didn't",
+        "doesn't",
+        "isn't",
+        "aren't",
+    }
+)
 _SENT_BREAK = re.compile(r"[.!?\n]")
 
 # Max sentence length for a claim to be considered a sentence. Anything
@@ -41,15 +57,16 @@ _MAX_SENT_LEN = 500
 _MIN_SENT_LEN = 20
 
 # Confidence thresholds (all [0, 1])
-_VERBATIM_THRESHOLD = 1.0     # exact substring required
+_VERBATIM_THRESHOLD = 1.0  # exact substring required
 _NORMALIZED_THRESHOLD = 0.98  # after canonicalization
-_PARTIAL_THRESHOLD = 0.90     # token overlap (very strict)
+_PARTIAL_THRESHOLD = 0.90  # token overlap (very strict)
 
 
 @dataclass
 class VerificationResult:
     """Result returned to Ghost-Agent. Never raises; downgrades on failure."""
-    confidence: str            # "High" | "Medium" | "Low"
+
+    confidence: str  # "High" | "Medium" | "Low"
     source_path: Optional[str] = None
     reason: str = ""
     char_start: Optional[int] = None
@@ -86,8 +103,7 @@ def _token_overlap(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
-def _find_negation_window(text: str, start: int, end: int,
-                          radius: int = 240) -> Tuple[int, int, bool]:
+def _find_negation_window(text: str, start: int, end: int, radius: int = 240) -> Tuple[int, int, bool]:
     s0 = start
     while s0 > 0 and s0 > start - radius and not _SENT_BREAK.match(text[s0 - 1]):
         s0 -= 1
@@ -155,7 +171,10 @@ class VerificationEngine:
         actual_hash = _hash_file(file_path) if expected_hash else None
         if expected_hash and actual_hash and actual_hash != expected_hash:
             return VerificationResult(
-                "Low", file_path, "source_hash_mismatch", source_hash=actual_hash,
+                "Low",
+                file_path,
+                "source_hash_mismatch",
+                source_hash=actual_hash,
             )
 
         # Try exact substring first (cheapest)
@@ -165,11 +184,20 @@ class VerificationEngine:
             s0, s1, neg = _find_negation_window(content, pos, pos + len(assertion))
             if neg and not _claim_has_negator(assertion):
                 return VerificationResult(
-                    "Low", file_path, "source_negated", pos, pos + len(assertion),
+                    "Low",
+                    file_path,
+                    "source_negated",
+                    pos,
+                    pos + len(assertion),
                 )
             return VerificationResult(
-                "High", file_path, "verbatim", pos, pos + len(assertion),
-                source_hash=actual_hash, normalized_match=False,
+                "High",
+                file_path,
+                "verbatim",
+                pos,
+                pos + len(assertion),
+                source_hash=actual_hash,
+                normalized_match=False,
             )
 
         # Try normalized match (handles CRLF, smart quotes, extra spaces)
@@ -188,34 +216,49 @@ class VerificationEngine:
             else:
                 orig_start, orig_end = pos if pos >= 0 else 0, 0
             s0, s1, neg = _find_negation_window(
-                content, orig_start, orig_end,
+                content,
+                orig_start,
+                orig_end,
             )
             if neg and not _claim_has_negator(assertion):
                 return VerificationResult(
-                    "Low", file_path, "source_negated", orig_start, orig_end,
+                    "Low",
+                    file_path,
+                    "source_negated",
+                    orig_start,
+                    orig_end,
                 )
             return VerificationResult(
-                "High", file_path, "normalized_verbatim",
-                orig_start, orig_end,
-                source_hash=actual_hash, normalized_match=True,
+                "High",
+                file_path,
+                "normalized_verbatim",
+                orig_start,
+                orig_end,
+                source_hash=actual_hash,
+                normalized_match=True,
             )
 
         # Partial match: high token overlap, no verbatim
         overlap = _token_overlap(assertion, content)
         if not self.strict and overlap >= _PARTIAL_THRESHOLD:
             return VerificationResult(
-                "Medium", file_path,
-                f"partial_match:{overlap:.2f}", source_hash=actual_hash,
+                "Medium",
+                file_path,
+                f"partial_match:{overlap:.2f}",
+                source_hash=actual_hash,
             )
 
         return VerificationResult(
-            "Low", file_path, f"not_verbatim:overlap={overlap:.2f}",
+            "Low",
+            file_path,
+            f"not_verbatim:overlap={overlap:.2f}",
             source_hash=actual_hash,
         )
 
     # ── Contradiction detection ────────────────────────────────────
     def detect_contradictions(
-        self, assertions: Iterable,
+        self,
+        assertions: Iterable,
     ) -> List[Tuple[object, object]]:
         """Two claims contradict if they normalize to the same template but
         have different numeric values, ordered by timestamp."""
@@ -240,7 +283,9 @@ class VerificationEngine:
         return pairs
 
     def resolve_contradictions(
-        self, contradictions: List[Tuple[object, object]], audit_trail,
+        self,
+        contradictions: List[Tuple[object, object]],
+        audit_trail,
     ) -> None:
         for older, _ in contradictions:
             try:

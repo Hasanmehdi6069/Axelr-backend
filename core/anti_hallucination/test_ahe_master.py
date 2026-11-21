@@ -6,6 +6,7 @@
 Covers: every primitive, every v1.6 feature, every v1.7 elite feature,
 schema integrity, adversarial inputs, engine integration, invariants.
 """
+
 import asyncio
 import traceback
 
@@ -161,9 +162,11 @@ except ImportError:  # pragma: no cover
 
 def _req(**kw) -> ExtractionRequest:
     base = dict(
-        document_id="doc1", document_type="text",
+        document_id="doc1",
+        document_type="text",
         document_uri="file:///tmp/doc1.txt",
-        query="find the price", target_fields=["price"],
+        query="find the price",
+        target_fields=["price"],
     )
     base.update(kw)
     return ExtractionRequest(**base)
@@ -242,7 +245,10 @@ def test_source_coordinate_validates_range():
     raised = False
     try:
         SourceCoordinate(
-            document_id="d", chunk_id="c", char_start=10, char_end=5,
+            document_id="d",
+            chunk_id="c",
+            char_start=10,
+            char_end=5,
         )
     except Exception:
         raised = True
@@ -251,10 +257,15 @@ def test_source_coordinate_validates_range():
 
 def test_audit_hash_deterministic():
     coord = SourceCoordinate(
-        document_id="d", chunk_id="c", char_start=0, char_end=10,
+        document_id="d",
+        chunk_id="c",
+        char_start=0,
+        char_end=10,
     )
     claim = VerifiedClaim(
-        field_name="price", value="$100", raw_snippet="$100",
+        field_name="price",
+        value="$100",
+        raw_snippet="$100",
         coordinate=coord,
         verification=VerificationResult(verified=True, reason="ok"),
     )
@@ -267,7 +278,9 @@ def test_audit_hash_deterministic():
 def test_audit_hash_verify_roundtrip():
     coord = SourceCoordinate(document_id="d", chunk_id="c", char_start=0, char_end=10)
     claim = VerifiedClaim(
-        field_name="price", value="$100", raw_snippet="$100",
+        field_name="price",
+        value="$100",
+        raw_snippet="$100",
         coordinate=coord,
         verification=VerificationResult(verified=True, reason="ok"),
     )
@@ -281,7 +294,9 @@ def test_audit_hash_verify_roundtrip():
 def test_payload_summary():
     coord = SourceCoordinate(document_id="d", chunk_id="c", char_start=0, char_end=10)
     claim = VerifiedClaim(
-        field_name="price", value="100", raw_snippet="100",
+        field_name="price",
+        value="100",
+        raw_snippet="100",
         coordinate=coord,
         verification=VerificationResult(verified=True, reason="ok"),
     )
@@ -312,27 +327,42 @@ def test_chunk_hash_deterministic():
 
 def test_request_fingerprint_deterministic():
     fp1 = request_fingerprint(
-        document_bytes=b"doc", query="q", target_fields=["a"], tier="free",
+        document_bytes=b"doc",
+        query="q",
+        target_fields=["a"],
+        tier="free",
     )
     fp2 = request_fingerprint(
-        document_bytes=b"doc", query="q", target_fields=["a"], tier="free",
+        document_bytes=b"doc",
+        query="q",
+        target_fields=["a"],
+        tier="free",
     )
     assert fp1 == fp2
 
 
 def test_request_fingerprint_query_sensitive():
     fp1 = request_fingerprint(
-        document_bytes=b"doc", query="q1", target_fields=["a"], tier="free",
+        document_bytes=b"doc",
+        query="q1",
+        target_fields=["a"],
+        tier="free",
     )
     fp2 = request_fingerprint(
-        document_bytes=b"doc", query="q2", target_fields=["a"], tier="free",
+        document_bytes=b"doc",
+        query="q2",
+        target_fields=["a"],
+        tier="free",
     )
     assert fp1 != fp2
 
 
 def test_replay_key_deterministic():
     fp = request_fingerprint(
-        document_bytes=b"doc", query="q", target_fields=["a"], tier="free",
+        document_bytes=b"doc",
+        query="q",
+        target_fields=["a"],
+        tier="free",
     )
     k1 = replay_key(request_fingerprint=fp, engine_version="v1", canon_version="c1")
     k2 = replay_key(request_fingerprint=fp, engine_version="v1", canon_version="c1")
@@ -356,6 +386,7 @@ def test_stable_tie_break_orders():
             self.field_name = f
             self.value = v
             self.coordinate = type("C", (), {"char_start": s, "char_end": e})()
+
     a = FakeClaim("z", "v", 10, 20)
     b = FakeClaim("a", "v", 10, 20)
     result = stable_tie_break([a, b])
@@ -364,14 +395,23 @@ def test_stable_tie_break_orders():
 
 def test_quota_tracker_blocks_on_limit():
     from core.anti_hallucination.schemas import QuotaExceededError
+
     qt = QuotaTracker()
     qt.check_and_consume(
-        workspace="w", tier="free", mb_used=1.0, max_queries=1, max_mb=10,
+        workspace="w",
+        tier="free",
+        mb_used=1.0,
+        max_queries=1,
+        max_mb=10,
     )
     raised = False
     try:
         qt.check_and_consume(
-            workspace="w", tier="free", mb_used=1.0, max_queries=1, max_mb=10,
+            workspace="w",
+            tier="free",
+            mb_used=1.0,
+            max_queries=1,
+            max_mb=10,
         )
     except QuotaExceededError:
         raised = True
@@ -381,18 +421,23 @@ def test_quota_tracker_blocks_on_limit():
 def test_circuit_breaker_opens_and_resets():
     cb = CircuitBreaker(threshold=2, cooldown_s=0.1)
     assert not cb.is_open()
-    cb.record_failure(); cb.record_failure()
+    cb.record_failure()
+    cb.record_failure()
     assert cb.is_open()
-    import time; time.sleep(0.15)
+    import time
+
+    time.sleep(0.15)
     assert not cb.is_open()
 
 
 def test_cross_request_cache_hit():
     cache = CrossRequestCache(size=10)
     calls = [0]
+
     def compute():
         calls[0] += 1
         return 42
+
     assert cache.get_or_compute("k", compute) == 42
     assert cache.get_or_compute("k", compute) == 42
     assert calls[0] == 1
@@ -452,10 +497,12 @@ def test_det_coverage_report():
 
 def test_skeptic_verbatim_match():
     s = SkepticAgent()
-    chunk = Chunk(chunk_id="c1", text="The price is 100 dollars.",
-                  origin_offset=0, char_end=25)
+    chunk = Chunk(chunk_id="c1", text="The price is 100 dollars.", origin_offset=0, char_end=25)
     claim = ExtractedClaim(
-        field_name="price", value="100", raw_snippet="price is 100", chunk_id="c1",
+        field_name="price",
+        value="100",
+        raw_snippet="price is 100",
+        chunk_id="c1",
     )
     doc = DocumentBuffer(chunks=[chunk])
     r = s.cross_examine(claim, {"c1": chunk}, doc)
@@ -464,10 +511,12 @@ def test_skeptic_verbatim_match():
 
 def test_skeptic_rejects_not_substring():
     s = SkepticAgent()
-    chunk = Chunk(chunk_id="c1", text="The price is 100 dollars.",
-                  origin_offset=0, char_end=25)
+    chunk = Chunk(chunk_id="c1", text="The price is 100 dollars.", origin_offset=0, char_end=25)
     claim = ExtractedClaim(
-        field_name="price", value="200", raw_snippet="price is 200", chunk_id="c1",
+        field_name="price",
+        value="200",
+        raw_snippet="price is 200",
+        chunk_id="c1",
     )
     doc = DocumentBuffer(chunks=[chunk])
     r = s.cross_examine(claim, {"c1": chunk}, doc)
@@ -477,7 +526,10 @@ def test_skeptic_rejects_not_substring():
 def test_skeptic_missing_chunk():
     s = SkepticAgent()
     claim = ExtractedClaim(
-        field_name="price", value="100", raw_snippet="100", chunk_id="missing",
+        field_name="price",
+        value="100",
+        raw_snippet="100",
+        chunk_id="missing",
     )
     doc = DocumentBuffer(chunks=[])
     r = s.cross_examine(claim, {}, doc)
@@ -489,14 +541,19 @@ def test_adjudicator_strict_gate():
     adj = AdjudicatorAgent(strict=True)
     chunk = Chunk(chunk_id="c1", text="test", origin_offset=0, char_end=4)
     claim = ExtractedClaim(
-        field_name="f", value="x", raw_snippet="x", chunk_id="c1",
+        field_name="f",
+        value="x",
+        raw_snippet="x",
+        chunk_id="c1",
     )
     bad = VerificationResult(verified=False, reason="bad", reason_code="x")
     raised = False
     try:
         adj.adjudicate(
-            document_id="d", claims=[claim],
-            chunks_by_id={"c1": chunk}, verdicts=[bad],
+            document_id="d",
+            claims=[claim],
+            chunks_by_id={"c1": chunk},
+            verdicts=[bad],
         )
     except UnverifiableDataError:
         raised = True
@@ -527,6 +584,7 @@ def test_engine_dispatch_unknown_tier():
         except SchemaViolationError:
             raised = True
         assert raised
+
     asyncio.run(_go())
 
 
@@ -538,16 +596,17 @@ def test_engine_run_basic():
             assert payload.audit_hash
         except UnverifiableDataError:
             pass
+
     asyncio.run(_go())
 
 
 def test_engine_run_batch():
     async def _go():
         eng = AntiHallucinationEngine()
-        reqs = [(_req(document_id="d1"), b"price is 100"),
-                (_req(document_id="d2"), b"price is 200")]
+        reqs = [(_req(document_id="d1"), b"price is 100"), (_req(document_id="d2"), b"price is 200")]
         results = await run_batch(reqs, engine=eng, max_concurrency=2)
         assert len(results) == 2
+
     asyncio.run(_go())
 
 
@@ -562,6 +621,7 @@ def test_engine_dispatch_circuit_open():
         except UnverifiableDataError:
             raised = True
         assert raised
+
     asyncio.run(_go())
 
 
@@ -570,11 +630,11 @@ def test_engine_dispatch_replay_cache():
         eng = AntiHallucinationEngine()
         cache = {}
         try:
-            await dispatch(_req(), b"The price is 100 dollars.",
-                           engine=eng, replay_cache=cache)
+            await dispatch(_req(), b"The price is 100 dollars.", engine=eng, replay_cache=cache)
             assert len(cache) == 1
         except UnverifiableDataError:
             pass
+
     asyncio.run(_go())
 
 
@@ -611,6 +671,7 @@ def test_elite_v16_approximate_ocr():
 
 def test_elite_v16_temporal_ok():
     from datetime import datetime, timezone
+
     t = TemporalConsistency()
     now = datetime.now(timezone.utc)
     ok, _ = t.validate(now, now)
@@ -635,11 +696,13 @@ def test_elite_v16_decay():
 
 def test_elite_v16_cluster():
     c = ClaimClusterer(threshold=0.7)
-    clusters = c.cluster([
-        "The price is 100 dollars",
-        "The price is 100 dollars today",
-        "Completely different topic",
-    ])
+    clusters = c.cluster(
+        [
+            "The price is 100 dollars",
+            "The price is 100 dollars today",
+            "Completely different topic",
+        ]
+    )
     assert any(len(cl) == 2 for cl in clusters)
 
 
@@ -677,7 +740,8 @@ def test_elite_v16_trust_propagation():
 def test_elite_v16_refiner():
     r = ClaimRefiner()
     refined = r.refine(
-        "The quick brown fox jumps. The price is 100 dollars.", "100",
+        "The quick brown fox jumps. The price is 100 dollars.",
+        "100",
     )
     assert refined is not None and "100" in refined
 
@@ -767,11 +831,13 @@ def test_elite_v17_stats():
 
 def test_elite_v17_contradictions():
     c = ContradictionDetector()
-    pairs = c.find_contradictions([
-        "The price is 100 dollars",
-        "The price is 200 dollars",
-        "Unrelated sentence",
-    ])
+    pairs = c.find_contradictions(
+        [
+            "The price is 100 dollars",
+            "The price is 200 dollars",
+            "Unrelated sentence",
+        ]
+    )
     assert len(pairs) == 1
 
 
@@ -779,15 +845,19 @@ def test_elite_v17_provenance():
     p = ProvenanceChainVerifier()
     h1 = p.digest(b"a")
     h2 = p.digest(b"b")
-    ok, _ = p.verify_chain([
-        {"prev_hash": "", "hash": h1},
-        {"prev_hash": h1, "hash": h2},
-    ])
+    ok, _ = p.verify_chain(
+        [
+            {"prev_hash": "", "hash": h1},
+            {"prev_hash": h1, "hash": h2},
+        ]
+    )
     assert ok
-    bad, _ = p.verify_chain([
-        {"prev_hash": "", "hash": h1},
-        {"prev_hash": "bad", "hash": h2},
-    ])
+    bad, _ = p.verify_chain(
+        [
+            {"prev_hash": "", "hash": h1},
+            {"prev_hash": "bad", "hash": h2},
+        ]
+    )
     assert not bad
 
 
@@ -909,7 +979,10 @@ def test_max_claims_cap():
 def test_invariant_verify_clean():
     coord = SourceCoordinate(document_id="d", chunk_id="c", char_start=0, char_end=10)
     claim = VerifiedClaim(
-        field_name="f", value="v", raw_snippet="v", coordinate=coord,
+        field_name="f",
+        value="v",
+        raw_snippet="v",
+        coordinate=coord,
         verification=VerificationResult(verified=True, reason="ok"),
     )
     payload = VerifiedPayload(document_id="d", claims=[claim])
@@ -920,14 +993,20 @@ def test_invariant_verify_clean():
 def test_invariant_verify_bad_char_range():
     coord = SourceCoordinate(document_id="d", chunk_id="c", char_start=5, char_end=5)
     claim = VerifiedClaim(
-        field_name="f", value="v", raw_snippet="v", coordinate=coord,
+        field_name="f",
+        value="v",
+        raw_snippet="v",
+        coordinate=coord,
         verification=VerificationResult(verified=True, reason="ok"),
     )
     payload = VerifiedPayload(document_id="d", claims=[claim])
     payload.audit_hash = compute_audit_hash(payload)
     # Tamper
     claim.coordinate = SourceCoordinate(
-        document_id="d", chunk_id="c", char_start=10, char_end=5,
+        document_id="d",
+        chunk_id="c",
+        char_start=10,
+        char_end=5,
     )
     violations = verify_invariants(payload)
     assert violations  # char_end < char_start or audit mismatch
@@ -947,7 +1026,7 @@ def test_verifiers_research_cited_ok():
 
 
 def test_verifiers_design_missing_alt():
-    html = "```html\n<html><body><img src=\"x.png\"></body></html>\n```"
+    html = '```html\n<html><body><img src="x.png"></body></html>\n```'
     verdict = verify_design("html", html)
     assert not verdict.passed
 
@@ -957,9 +1036,24 @@ def test_verifiers_design_missing_alt():
 # ═══════════════════════════════════════════════════════════════════════════
 def test_canonicalize_idempotent_fuzz():
     cases = [
-        "", " ", "\n\n", "a", "A B", "A  B", "\r\n", "\u200b",
-        "Hello, World!", "café", "café", "\ufeffBOM", "a\u200bb",
-        "Mixed\u202eText", "价格 100", "🌟 emoji", "café", "naïve",
+        "",
+        " ",
+        "\n\n",
+        "a",
+        "A B",
+        "A  B",
+        "\r\n",
+        "\u200b",
+        "Hello, World!",
+        "café",
+        "café",
+        "\ufeffBOM",
+        "a\u200bb",
+        "Mixed\u202eText",
+        "价格 100",
+        "🌟 emoji",
+        "café",
+        "naïve",
     ]
     for c in cases:
         a, _ = canonicalize(c)
@@ -1035,8 +1129,7 @@ def test_compose_all_v17_features():
 # 12. Runner
 # ═══════════════════════════════════════════════════════════════════════════
 def _run_all() -> int:
-    tests = [(n, f) for n, f in sorted(globals().items())
-             if n.startswith("test_") and callable(f)]
+    tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     passed = failed = 0
     failures = []
     for name, fn in tests:
@@ -1048,7 +1141,7 @@ def _run_all() -> int:
             failed += 1
             failures.append((name, traceback.format_exc()))
             print(f"  ✗ {name}: {type(e).__name__}: {e}")
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"RESULT: {passed} passed, {failed} failed, {len(tests)} total")
     for name, tb in failures:
         print(f"\n--- {name} ---\n{tb}")

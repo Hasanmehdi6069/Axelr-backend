@@ -5,6 +5,7 @@ Split from utils.py. Matches protocol.json exactly:
   envelope {type, id, payload}
   handshake: first frame is {type:"init", ...}, reply is {type:"ready", ...}
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -48,9 +49,18 @@ class AsyncIPC:
         await ipc.close()
     """
 
-    __slots__ = ("config", "_session", "_ws", "_listeners", "_pending",
-                 "_send_lock", "_running", "_recv_task", "_next_id",
-                 "_session_id")
+    __slots__ = (
+        "config",
+        "_session",
+        "_ws",
+        "_listeners",
+        "_pending",
+        "_send_lock",
+        "_running",
+        "_recv_task",
+        "_next_id",
+        "_session_id",
+    )
 
     def __init__(self, config: Optional[IPCConfig] = None) -> None:
         self.config = config or IPCConfig()
@@ -80,10 +90,8 @@ class AsyncIPC:
         if aiohttp is None:
             raise RuntimeError("aiohttp not installed; AsyncIPC disabled")
         if self._session is None:
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=None, sock_connect=3.0))
-        self._ws = await self._session.ws_connect(
-            self.config.url, heartbeat=self.config.ping_seconds)
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=None, sock_connect=3.0))
+        self._ws = await self._session.ws_connect(self.config.url, heartbeat=self.config.ping_seconds)
         self._running = True
         self._recv_task = asyncio.create_task(self._recv_loop())
         try:
@@ -99,12 +107,14 @@ class AsyncIPC:
         self._pending[req_id] = fut
         try:
             async with self._send_lock:
-                await self._ws.send_json({
-                    "type": "init", "id": req_id,
-                    "payload": {"client_version": "1.0.0", "tier": "auto"},
-                })
-            env = await asyncio.wait_for(fut,
-                                          timeout=self.config.handshake_timeout_s)
+                await self._ws.send_json(
+                    {
+                        "type": "init",
+                        "id": req_id,
+                        "payload": {"client_version": "1.0.0", "tier": "auto"},
+                    }
+                )
+            env = await asyncio.wait_for(fut, timeout=self.config.handshake_timeout_s)
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
             raise ProtocolError("handshake timeout — no ready frame")
@@ -112,8 +122,7 @@ class AsyncIPC:
             raise ProtocolError(f"handshake rejected: {env.get('payload')}")
         payload = env.get("payload") or {}
         self._session_id = payload.get("session_id")
-        logger.info("ipc_connected session_id=%s tier=%s",
-                    self._session_id, payload.get("tier"))
+        logger.info("ipc_connected session_id=%s tier=%s", self._session_id, payload.get("tier"))
 
     async def _recv_loop(self) -> None:
         try:
@@ -144,12 +153,10 @@ class AsyncIPC:
         finally:
             for fut in self._pending.values():
                 if not fut.done():
-                    fut.set_exception(
-                        IPCNotConnectedError("connection closed"))
+                    fut.set_exception(IPCNotConnectedError("connection closed"))
             self._pending.clear()
 
-    async def request(self, type_: str,
-                      payload: Dict[str, Any]) -> Dict[str, Any]:
+    async def request(self, type_: str, payload: Dict[str, Any]) -> Dict[str, Any]:
         if not self._running or self._ws is None or self._ws.closed:
             raise IPCNotConnectedError("call connect() first")
         req_id = self._next_id
@@ -158,17 +165,14 @@ class AsyncIPC:
         self._pending[req_id] = fut
         try:
             async with self._send_lock:
-                await self._ws.send_json(
-                    {"type": type_, "id": req_id, "payload": payload})
-            env = await asyncio.wait_for(fut,
-                                          timeout=self.config.request_timeout_s)
+                await self._ws.send_json({"type": type_, "id": req_id, "payload": payload})
+            env = await asyncio.wait_for(fut, timeout=self.config.request_timeout_s)
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)
             raise ProtocolError(f"request timeout: {type_} (id={req_id})")
         if not env.get("ok", True):
             err = env.get("payload") or {}
-            raise ProtocolError(
-                f"server error: {err.get('code')} — {err.get('message')}")
+            raise ProtocolError(f"server error: {err.get('code')} — {err.get('message')}")
         return env.get("payload") or {}
 
     async def ping(self) -> None:
@@ -242,10 +246,11 @@ class StressTester:
         with self._lock:
             self._latencies.append(latency_seconds)
 
-    def run_stress_suite(self, target_fn: Callable[[], Any],
-                         num_operations: int = 10000,
-                         concurrency: int = 100) -> StressTestResult:
+    def run_stress_suite(
+        self, target_fn: Callable[[], Any], num_operations: int = 10000, concurrency: int = 100
+    ) -> StressTestResult:
         from concurrent.futures import ThreadPoolExecutor, as_completed
+
         with self._lock:
             self._latencies.clear()
 
@@ -269,8 +274,7 @@ class StressTester:
                 self.record_operation(latency)
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            futures = [executor.submit(_timed_call, target_fn)
-                       for _ in range(num_operations)]
+            futures = [executor.submit(_timed_call, target_fn) for _ in range(num_operations)]
             for future in as_completed(futures):
                 try:
                     if future.result():
@@ -303,29 +307,37 @@ class StressTester:
             memory_leak = growth > self.SLO_MEMORY_GROWTH_MAX
 
         error_rate = failures / num_operations if num_operations else 0.0
-        passed = (throughput >= self.SLO_THROUGHPUT_MIN
-                  and p95 <= self.SLO_P95_LATENCY_MAX
-                  and error_rate <= self.SLO_ERROR_RATE_MAX
-                  and not memory_leak)
+        passed = (
+            throughput >= self.SLO_THROUGHPUT_MIN
+            and p95 <= self.SLO_P95_LATENCY_MAX
+            and error_rate <= self.SLO_ERROR_RATE_MAX
+            and not memory_leak
+        )
 
         result = StressTestResult(
             total_operations=num_operations,
             successful_operations=successes,
             failed_operations=failures,
             throughput_ops=throughput,
-            p50_latency_ms=p50, p95_latency_ms=p95, p99_latency_ms=p99,
+            p50_latency_ms=p50,
+            p95_latency_ms=p95,
+            p99_latency_ms=p99,
             max_memory_mb=current / (1024 * 1024),
             memory_leak_detected=memory_leak,
             passed=passed,
             failure_reasons=failure_reasons,
         )
         self._logger.info(
-            "stress_test_complete passed=%d/%d throughput=%.0f/s p95=%.2fms",
-            successes, num_operations, throughput, p95)
+            "stress_test_complete passed=%d/%d throughput=%.0f/s p95=%.2fms", successes, num_operations, throughput, p95
+        )
         return result
 
 
 __all__ = [
-    "IPCConfig", "AsyncIPC", "StressTestResult", "StressTester",
-    "ProtocolError", "IPCNotConnectedError",
+    "IPCConfig",
+    "AsyncIPC",
+    "StressTestResult",
+    "StressTester",
+    "ProtocolError",
+    "IPCNotConnectedError",
 ]

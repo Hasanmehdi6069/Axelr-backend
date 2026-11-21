@@ -97,9 +97,7 @@ class InstanceLifecycleManager:
         cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
         self.metrics.increment("deployment.requested", 1, {"plan": request.plan})
 
-        task = asyncio.create_task(
-            self._deploy_instance_task(deployment_id, request, context)
-        )
+        task = asyncio.create_task(self._deploy_instance_task(deployment_id, request, context))
         self._deployment_tasks[deployment_id] = task
 
         return status
@@ -144,13 +142,13 @@ class InstanceLifecycleManager:
 
             instance_id = instance.get("id")
             status.instance_id = instance_id
-            status.state =InstanceState.STARTING
+            status.state = InstanceState.STARTING
             status.provisioned_at = datetime.utcnow()
             cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
 
             await self._wait_for_instance_ready(instance_id, context)
 
-            status.state =InstanceState.RUNNING
+            status.state = InstanceState.RUNNING
             status.ready_at = datetime.utcnow()
             cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
 
@@ -158,16 +156,18 @@ class InstanceLifecycleManager:
             logger.info(f"Deployment {deployment_id} completed successfully, instance {instance_id} running")
 
             if self.feature_flags.auto_recovery_enabled:
-                await self._recovery_queue.put(AutoRecoveryEvent(
-                    event_id=str(uuid4()),
-                    instance_id=instance_id,
-                    event_type="health_monitor",
-                    timestamp=datetime.utcnow(),
-                    details={"deployment_id": deployment_id},
-                ))
+                await self._recovery_queue.put(
+                    AutoRecoveryEvent(
+                        event_id=str(uuid4()),
+                        instance_id=instance_id,
+                        event_type="health_monitor",
+                        timestamp=datetime.utcnow(),
+                        details={"deployment_id": deployment_id},
+                    )
+                )
 
         except Exception as e:
-            status.state =InstanceState.FAILED
+            status.state = InstanceState.FAILED
             status.error_message = str(e)
             cache.set(f"deployment:{deployment_id}", status.dict(), ttl=3600)
             self.metrics.increment("deployment.failure", 1, {"error": type(e).__name__})
@@ -194,10 +194,12 @@ class InstanceLifecycleManager:
             )
 
             if capacity.get("plans", {}).get(request.plan, False):
-                available_regions.append({
-                    "region": region_id,
-                    "score": self._calculate_region_score(region, capacity),
-                })
+                available_regions.append(
+                    {
+                        "region": region_id,
+                        "score": self._calculate_region_score(region, capacity),
+                    }
+                )
 
         if not available_regions:
             logger.warning(f"No available regions for plan {request.plan}, using requested region {request.region}")
@@ -296,13 +298,15 @@ class InstanceLifecycleManager:
             self._last_health_check[instance_id] = datetime.utcnow()
 
             if not health.is_healthy and self.feature_flags.auto_recovery_enabled:
-                await self._recovery_queue.put(AutoRecoveryEvent(
-                    event_id=str(uuid4()),
-                    instance_id=instance_id,
-                    event_type="unhealthy",
-                    timestamp=datetime.utcnow(),
-                    details={"status": status, "power_status": power_status},
-                ))
+                await self._recovery_queue.put(
+                    AutoRecoveryEvent(
+                        event_id=str(uuid4()),
+                        instance_id=instance_id,
+                        event_type="unhealthy",
+                        timestamp=datetime.utcnow(),
+                        details={"status": status, "power_status": power_status},
+                    )
+                )
 
             return health
 
@@ -406,12 +410,14 @@ class InstanceLifecycleManager:
             plan = instance.get("plan")
 
             if status != "running":
-                idle_instances.append({
-                    "instance_id": instance_id,
-                    "plan": plan,
-                    "region": instance.get("region"),
-                    "last_updated": instance.get("date_created"),
-                })
+                idle_instances.append(
+                    {
+                        "instance_id": instance_id,
+                        "plan": plan,
+                        "region": instance.get("region"),
+                        "last_updated": instance.get("date_created"),
+                    }
+                )
 
             health = self._instance_health_cache.get(instance_id, {})
             metrics = health.get("metrics", {})
@@ -419,16 +425,18 @@ class InstanceLifecycleManager:
             if metrics and len(metrics) > 0:
                 bandwidth = metrics.get("bandwidth", {})
                 if bandwidth:
-                    in_gb = bandwidth.get("incoming_bytes", 0) / (1024 ** 3)
-                    out_gb = bandwidth.get("outgoing_bytes", 0) / (1024 ** 3)
+                    in_gb = bandwidth.get("incoming_bytes", 0) / (1024**3)
+                    out_gb = bandwidth.get("outgoing_bytes", 0) / (1024**3)
 
                     if in_gb < 10 and out_gb < 10:
-                        underutilized.append({
-                            "instance_id": instance_id,
-                            "current_plan": plan,
-                            "recommended_plan": "smaller",
-                            "utilization": {"in_gb": in_gb, "out_gb": out_gb},
-                        })
+                        underutilized.append(
+                            {
+                                "instance_id": instance_id,
+                                "current_plan": plan,
+                                "recommended_plan": "smaller",
+                                "utilization": {"in_gb": in_gb, "out_gb": out_gb},
+                            }
+                        )
 
         total_savings = 0.0
         for instance in idle_instances:
@@ -449,11 +457,13 @@ class InstanceLifecycleManager:
             ],
         )
 
-        self._cost_history.append({
-            "timestamp": report.generated_at.isoformat(),
-            "total_cost": report.total_monthly_cost,
-            "savings": report.potential_savings,
-        })
+        self._cost_history.append(
+            {
+                "timestamp": report.generated_at.isoformat(),
+                "total_cost": report.total_monthly_cost,
+                "savings": report.potential_savings,
+            }
+        )
 
         return report
 
@@ -512,39 +522,51 @@ class InstanceLifecycleManager:
 _manager: InstanceLifecycleManager | None = None
 _instance_registry: dict[str, dict] = {}
 
+
 def get_lifecycle_manager() -> InstanceLifecycleManager:
     global _manager
     if _manager is None:
         from .client import get_client
+
         _manager = InstanceLifecycleManager(get_client())
     return _manager
+
 
 async def check_user_quota(user_id: str = "default") -> dict:
     return {"allowed": True, "remaining": 10, "used": 0, "user_id": user_id}
 
+
 async def consume_user_quota(user_id: str, count: int = 1) -> bool:
     return True
+
 
 async def find_orphans() -> list:
     return []
 
+
 async def cleanup_orphans(dry_run: bool = False) -> dict:
     return {"cleaned": 0, "orphans_found": 0}
+
 
 async def get_registry() -> dict:
     return _instance_registry
 
+
 async def register_instance(instance_id: str, metadata: dict = None) -> None:
     _instance_registry[instance_id] = metadata or {}
+
 
 async def unregister_instance(instance_id: str) -> None:
     _instance_registry.pop(instance_id, None)
 
+
 async def record_provision(plan: str, cost: float, user_id: str = "default") -> None:
     pass
 
+
 async def cost_summary() -> dict:
     return {"total_cost": 0.0, "instances": 0, "estimated_monthly": 0.0}
+
 
 async def wait_for_active(instance_id: str, timeout: int = 300) -> bool:
     return True

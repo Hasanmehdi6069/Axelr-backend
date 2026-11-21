@@ -18,6 +18,7 @@ The existing ``twin_roster.pick_local_model`` heuristic stays in place
 as a fallback, so a fresh checkout (no expertise.json) behaves exactly
 as before.
 """
+
 from __future__ import annotations
 
 import json

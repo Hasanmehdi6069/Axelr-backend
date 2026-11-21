@@ -9,6 +9,7 @@ Two isolated concerns, one file:
 
 Both are exposed through a single `audit()` for observability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -21,12 +22,18 @@ __version__ = "2.0.0"
 
 __all__ = [
     # PII
-    "sanitize", "found_types", "PIIType",
+    "sanitize",
+    "found_types",
+    "PIIType",
     # Language
-    "detect_language", "detect_language_with_confidence",
-    "is_rtl", "compose_language_directive", "extract_lang_tag",
+    "detect_language",
+    "detect_language_with_confidence",
+    "is_rtl",
+    "compose_language_directive",
+    "extract_lang_tag",
     # Deprecated (kept for backward compat)
-    "normalize_for_model", "restore_for_user",
+    "normalize_for_model",
+    "restore_for_user",
     # Audit
     "audit",
 ]
@@ -37,22 +44,25 @@ __all__ = [
 PIIType = str
 
 _PII_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
-    (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",
-                re.IGNORECASE), "email", "[REDACTED_EMAIL]"),
-    (re.compile(r"\b(\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"),
-     "phone", "[REDACTED_PHONE]"),
+    (re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b", re.IGNORECASE), "email", "[REDACTED_EMAIL]"),
+    (re.compile(r"\b(\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b"), "phone", "[REDACTED_PHONE]"),
     (re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b"), "ip_address", "[REDACTED_IP]"),
     (re.compile(r"\b\d{3}-\d{2}-\d{4}\b"), "ssn", "[REDACTED_SSN]"),
     (re.compile(r"\b(?:\d[ -]*?){13,16}\b"), "credit_card", "[REDACTED_CC]"),
     (re.compile(r"\bsk-[A-Za-z0-9]{32,}\b"), "api_key", "[REDACTED_API_KEY]"),
     (re.compile(r"\bpk_[A-Za-z0-9]{32,}\b"), "api_key", "[REDACTED_API_KEY]"),
     (re.compile(r"\b[A-Za-z0-9/+]{32,}\b"), "api_key", "[REDACTED_API_KEY]"),
-    (re.compile(r"\b(?:password|passwd|pwd|secret|token|auth)[^\s]*\s*[=:]\s*.{8,}\b",
-                re.IGNORECASE), "credential", "[REDACTED_CREDENTIAL]"),
-    (re.compile(r"\b(?:usd|eur|gbp|cad|aud|jpy|cny)\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b",
-                re.IGNORECASE), "financial", "[REDACTED_FINANCIAL]"),
-    (re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b"),
-     "financial", "[REDACTED_FINANCIAL]"),
+    (
+        re.compile(r"\b(?:password|passwd|pwd|secret|token|auth)[^\s]*\s*[=:]\s*.{8,}\b", re.IGNORECASE),
+        "credential",
+        "[REDACTED_CREDENTIAL]",
+    ),
+    (
+        re.compile(r"\b(?:usd|eur|gbp|cad|aud|jpy|cny)\s*\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b", re.IGNORECASE),
+        "financial",
+        "[REDACTED_FINANCIAL]",
+    ),
+    (re.compile(r"\$\d{1,3}(?:,\d{3})*(?:\.\d{2})?\b"), "financial", "[REDACTED_FINANCIAL]"),
 ]
 
 _STATS_LOCK = threading.Lock()
@@ -160,9 +170,11 @@ def compose_language_directive(lang: str) -> str:
 
 def _protect_code(text: str) -> tuple[str, list[str]]:
     stashed: list[str] = []
+
     def _stash(m: re.Match) -> str:
         stashed.append(m.group(0))
         return f"\x00CODE{len(stashed) - 1}\x00"
+
     protected = _CODE_FENCE_RE.sub(_stash, text)
     protected = _INLINE_CODE_RE.sub(_stash, protected)
     return protected, stashed
@@ -172,6 +184,7 @@ def _restore_code(text: str, stashed: list[str]) -> str:
     def _restore(m: re.Match) -> str:
         i = int(m.group(1))
         return stashed[i] if 0 <= i < len(stashed) else m.group(0)
+
     return re.sub(r"\x00CODE(\d+)\x00", _restore, text)
 
 

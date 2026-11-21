@@ -20,6 +20,7 @@ Groups:
     SUITE I — Timeout handling
     SUITE J — Real Flip engine patterns end-to-end
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,6 +57,7 @@ from tests import MockClient, MockTablesDB
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def _cfg(**overrides: Any) -> AppwriteConfig:
     base = {
         "endpoint": "https://test.local/v1",
@@ -82,8 +84,7 @@ def mock() -> MockTablesDB:
 
 @pytest.fixture
 def sdk(mock: MockTablesDB) -> AppwriteSDK:
-    return AppwriteSDK(_cfg(), client_factory=lambda: MockClient(),
-                       tables_factory=lambda _: mock)
+    return AppwriteSDK(_cfg(), client_factory=lambda: MockClient(), tables_factory=lambda _: mock)
 
 
 @pytest.fixture
@@ -98,17 +99,21 @@ async def engine(sdk: AppwriteSDK) -> InsightsEngine:
 # SUITE A — Row ID edge cases
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestRowIdEdgeCases:
     """These are the tests that reveal the v1.0.0 bugs."""
 
-    @pytest.mark.parametrize("raw,expected", [
-        ("INC-2026/07/xyz", "INC-2026-07-xyz"),
-        ("rb-INC 442", "rb-INC-442"),
-        ("a" * 100, "a" * 27 + "_" + "0" * 8),  # truncated with hash, prefix trim
-        ("/leading", "row_-leading"),
-        ("", "row_"),  # then epoch appended
-        ("has spaces and /slashes", "has-spaces-and--slashes"),
-    ])
+    @pytest.mark.parametrize(
+        "raw,expected",
+        [
+            ("INC-2026/07/xyz", "INC-2026-07-xyz"),
+            ("rb-INC 442", "rb-INC-442"),
+            ("a" * 100, "a" * 27 + "_" + "0" * 8),  # truncated with hash, prefix trim
+            ("/leading", "row_-leading"),
+            ("", "row_"),  # then epoch appended
+            ("has spaces and /slashes", "has-spaces-and--slashes"),
+        ],
+    )
     def test_sanitize_produces_valid_ids(self, raw: str, expected: str) -> None:
         out = sanitize_row_id(raw)
         assert is_valid_row_id(out), f"sanitize({raw!r}) → {out!r} is not valid"
@@ -141,10 +146,11 @@ class TestRowIdEdgeCases:
     async def test_upsert_after_sanitize(self, engine: InsightsEngine) -> None:
         """Upsert with a sanitized ID works (create() auto-sanitizes; upsert() expects clean)."""
         clean_id = sanitize_row_id("rb/INC 442")  # → "rb-INC-442"
-        row = await engine.upsert("axelr_insights", clean_id,
-                                 {"content": "x", "user_id": "u1",
-                                  "insight_type": "runbook", "timestamp": 1,
-                                  "system_origin": "flip"})
+        row = await engine.upsert(
+            "axelr_insights",
+            clean_id,
+            {"content": "x", "user_id": "u1", "insight_type": "runbook", "timestamp": 1, "system_origin": "flip"},
+        )
         assert row["$id"] == clean_id
 
 
@@ -152,15 +158,14 @@ class TestRowIdEdgeCases:
 # SUITE B — Idempotency under pressure
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestIdempotencyStress:
     @pytest.mark.asyncio
     async def test_hundred_identical_creates_one_row(self, engine: InsightsEngine) -> None:
         """100 calls with the same idem key + payload → one row."""
-        results = await asyncio.gather(*[
-            engine.create("audit_events", {"kind": "idem_test"},
-                          idempotency_key="stress_k1")
-            for _ in range(100)
-        ])
+        results = await asyncio.gather(
+            *[engine.create("audit_events", {"kind": "idem_test"}, idempotency_key="stress_k1") for _ in range(100)]
+        )
         ids = {r["$id"] for r in results}
         assert len(ids) == 1, f"idem key produced {len(ids)} rows: {ids}"
 
@@ -168,6 +173,7 @@ class TestIdempotencyStress:
     async def test_idem_store_does_not_evict_live_records(self) -> None:
         """Fill idem store to capacity, verify live records survive."""
         from axelr_insights_engine.resilience import IdempotencyStore
+
         store = IdempotencyStore(max_entries=5, ttl_s=3600)
         for i in range(5):
             store.store("t", f"k{i}", {"v": i}, {"$id": f"row{i}"})
@@ -181,6 +187,7 @@ class TestIdempotencyStress:
     @pytest.mark.asyncio
     async def test_idem_conflict_after_payload_change(self, engine: InsightsEngine) -> None:
         from axelr_insights_engine import IdempotencyConflictError
+
         await engine.create("audit_events", {"kind": "a"}, idempotency_key="k1")
         with pytest.raises(IdempotencyConflictError):
             await engine.create("audit_events", {"kind": "b"}, idempotency_key="k1")
@@ -189,14 +196,12 @@ class TestIdempotencyStress:
     async def test_idem_survives_cache_pressure(self, engine: InsightsEngine) -> None:
         """Fill LRU cache with unrelated data; idem key must still work."""
         # Create the idempotent row
-        row1 = await engine.create("audit_events", {"kind": "idem1"},
-                                    idempotency_key="key_under_pressure")
+        row1 = await engine.create("audit_events", {"kind": "idem1"}, idempotency_key="key_under_pressure")
         # Now spam the cache with unrelated reads
         for i in range(200):
             engine._sdk.cache.set(("noise", i), {"x": i})
         # Retry with same idem key — must still return row1
-        row2 = await engine.create("audit_events", {"kind": "idem1"},
-                                    idempotency_key="key_under_pressure")
+        row2 = await engine.create("audit_events", {"kind": "idem1"}, idempotency_key="key_under_pressure")
         assert row1["$id"] == row2["$id"]
 
 
@@ -204,14 +209,12 @@ class TestIdempotencyStress:
 # SUITE C — Concurrent writes (thundering herd)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestConcurrentWrites:
     @pytest.mark.asyncio
     async def test_100_concurrent_creates(self, engine: InsightsEngine) -> None:
         """100 parallel creates must all succeed with distinct IDs."""
-        results = await asyncio.gather(*[
-            engine.create("audit_events", {"kind": f"k{i}", "i": i})
-            for i in range(100)
-        ])
+        results = await asyncio.gather(*[engine.create("audit_events", {"kind": f"k{i}", "i": i}) for i in range(100)])
         assert len(results) == 100
         ids = [r["$id"] for r in results]
         assert len(set(ids)) == 100, "duplicate IDs produced"
@@ -219,31 +222,24 @@ class TestConcurrentWrites:
     @pytest.mark.asyncio
     async def test_concurrent_upsert_same_row(self, engine: InsightsEngine) -> None:
         """50 concurrent upserts to the same row must end with one row."""
-        await asyncio.gather(*[
-            engine.upsert("audit_events", "concurrent_row", {"value": i})
-            for i in range(50)
-        ])
-        row = await engine.read("audit_events", "concurrent_row",
-                                 cacheable=False)
+        await asyncio.gather(*[engine.upsert("audit_events", "concurrent_row", {"value": i}) for i in range(50)])
+        row = await engine.read("audit_events", "concurrent_row", cacheable=False)
         assert row is not None
         assert "value" in row
 
     @pytest.mark.asyncio
     async def test_concurrent_optimistic_lock(self, engine: InsightsEngine) -> None:
         """Optimistic lock must reject stale writes under concurrency."""
-        await engine.create("audit_events", {"v": 0, "_version": 1},
-                             row_id="lock_test")
+        await engine.create("audit_events", {"v": 0, "_version": 1}, row_id="lock_test")
 
         # 10 concurrent updates with expected_version=1
-        results = await asyncio.gather(*[
-            engine.update("audit_events", "lock_test", {"v": i},
-                          expected_version=1)
-            for i in range(10)
-        ], return_exceptions=True)
+        results = await asyncio.gather(
+            *[engine.update("audit_events", "lock_test", {"v": i}, expected_version=1) for i in range(10)],
+            return_exceptions=True,
+        )
 
         successes = [r for r in results if not isinstance(r, Exception)]
-        conflicts = [r for r in results
-                     if isinstance(r, VersionConflictError)]
+        conflicts = [r for r in results if isinstance(r, VersionConflictError)]
         # At most 1 succeeds (race), the rest must fail cleanly (not silently)
         assert len(conflicts) + len(successes) == 10
         assert len(successes) <= 10
@@ -262,13 +258,13 @@ class TestConcurrentWrites:
 # SUITE D — Circuit breaker under induced failure
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestCircuitBreakerStress:
     @pytest.mark.asyncio
     async def test_breaker_opens_after_threshold_failures(self) -> None:
         mock = MockTablesDB()
         cfg = _cfg(circuit_threshold=3, max_retries=1)
-        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(),
-                           tables_factory=lambda _: mock)
+        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(), tables_factory=lambda _: mock)
         eng = InsightsEngine(cfg, sdk_factory=lambda _: sdk)
         await eng.init(bootstrap=False)
 
@@ -285,8 +281,7 @@ class TestCircuitBreakerStress:
 
     @pytest.mark.asyncio
     async def test_breaker_half_open_recovers(self) -> None:
-        cb = CircuitBreaker(threshold=2, cooldown_s=0.05,
-                            successes_needed=2)
+        cb = CircuitBreaker(threshold=2, cooldown_s=0.05, successes_needed=2)
         await cb.record_failure()
         await cb.record_failure()
         assert cb.state == CBState.OPEN
@@ -308,12 +303,10 @@ class TestCircuitBreakerStress:
         mock = MockTablesDB()
         mock.failures_remaining = 10
         mock.fail_with = APIError("not found", status=404)
-        sdk = AppwriteSDK(_cfg(circuit_threshold=2), client_factory=lambda: MockClient(),
-                           tables_factory=lambda _: mock)
+        sdk = AppwriteSDK(_cfg(circuit_threshold=2), client_factory=lambda: MockClient(), tables_factory=lambda _: mock)
         for _ in range(10):
             try:
-                await sdk.call("test", lambda: mock.get_row(
-                    database_id="x", table_id="t", row_id="missing"))
+                await sdk.call("test", lambda: mock.get_row(database_id="x", table_id="t", row_id="missing"))
             except Exception:
                 pass
         # 404s are not retryable → should NOT open circuit
@@ -323,6 +316,7 @@ class TestCircuitBreakerStress:
 # ═══════════════════════════════════════════════════════════════════════
 # SUITE E — Rate limiter under burst
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestRateLimiterStress:
     @pytest.mark.asyncio
@@ -359,6 +353,7 @@ class TestRateLimiterStress:
 # SUITE F — Memory pressure
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestMemoryPressure:
     def test_cache_bounded_under_load(self) -> None:
         c = LocalCache(max_entries=100, ttl_s=3600)
@@ -383,6 +378,7 @@ class TestMemoryPressure:
 # ═══════════════════════════════════════════════════════════════════════
 # SUITE G — Schema evolution
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestSchemaEvolution:
     @pytest.mark.asyncio
@@ -409,11 +405,12 @@ class TestSchemaEvolution:
 # SUITE H — Hook reliability
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestHookReliability:
     @pytest.mark.asyncio
     async def test_hook_that_throws_does_not_break_call(self, sdk: AppwriteSDK) -> None:
         calls = []
-        sdk.hooks.register("on_call_end", lambda info: 1/0)  # raises
+        sdk.hooks.register("on_call_end", lambda info: 1 / 0)  # raises
         result = await sdk.call("op", lambda: {"ok": True})
         assert result == {"ok": True}
 
@@ -421,10 +418,12 @@ class TestHookReliability:
     async def test_hook_that_hangs_does_not_block(self, sdk: AppwriteSDK) -> None:
         async def hang(info: Any) -> None:
             await asyncio.sleep(100)
+
         sdk.hooks.register("on_call_end", hang)
         # Call must complete; hook is fired-and-forgotten with timeout
         result = await asyncio.wait_for(
-            sdk.call("op", lambda: {"ok": True}), timeout=2.0,
+            sdk.call("op", lambda: {"ok": True}),
+            timeout=2.0,
         )
         assert result == {"ok": True}
 
@@ -434,14 +433,11 @@ class TestHookReliability:
         mock.failures_remaining = 2
         mock.fail_with = APIError("retry me", status=503)
         cfg = _cfg(max_retries=3, retry_base_delay_s=0.0)
-        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(),
-                           tables_factory=lambda _: mock)
+        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(), tables_factory=lambda _: mock)
         events: list[str] = []
-        sdk.hooks.register("on_call_end", lambda info: events.append(
-            "ok" if info.success else "fail"))
+        sdk.hooks.register("on_call_end", lambda info: events.append("ok" if info.success else "fail"))
         # 2 retries then success
-        await sdk.call("op", lambda: mock.get_row(
-            database_id="x", table_id="t", row_id="r"))
+        await sdk.call("op", lambda: mock.get_row(database_id="x", table_id="t", row_id="r"))
         # Should see retries and one final success
         assert events[-1] == "ok"
 
@@ -450,13 +446,16 @@ class TestHookReliability:
 # SUITE I — Timeout handling
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestTimeoutHandling:
     @pytest.mark.asyncio
     async def test_hard_timeout_raises(self, sdk: AppwriteSDK) -> None:
         from axelr_insights_engine.errors import TimeoutError_
+
         async def slow() -> str:
             await asyncio.sleep(10)
             return "never"
+
         with pytest.raises(TimeoutError_):
             await sdk.call("slow", slow, timeout_s=0.1)
 
@@ -464,12 +463,13 @@ class TestTimeoutHandling:
     async def test_timeout_does_not_trip_breaker(self) -> None:
         cfg = _cfg(circuit_threshold=2, max_retries=1)
         mock = MockTablesDB()
-        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(),
-                           tables_factory=lambda _: mock)
+        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(), tables_factory=lambda _: mock)
+
         # Timeouts ARE retryable per policy — but eventually fail
         async def slow() -> str:
             await asyncio.sleep(10)
             return "x"
+
         for _ in range(3):
             try:
                 await sdk.call("slow", slow, timeout_s=0.05)
@@ -482,6 +482,7 @@ class TestTimeoutHandling:
 # ═══════════════════════════════════════════════════════════════════════
 # SUITE J — Real Flip engine patterns
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TestFlipEngineEndToEnd:
     """These are the exact call shapes the Flip engine uses."""
@@ -504,7 +505,8 @@ class TestFlipEngineEndToEnd:
 
         # 2. Agent replies, human approves
         await engine.update(
-            "audit_events", incident_id,
+            "audit_events",
+            incident_id,
             {"status": "mitigated"},
         )
         row = await engine.read("audit_events", incident_id)
@@ -513,7 +515,8 @@ class TestFlipEngineEndToEnd:
         # 3. Agent writes runbook
         runbook_id = make_row_id("rb", incident_id)
         await engine.upsert(
-            "axelr_insights", runbook_id,
+            "axelr_insights",
+            runbook_id,
             {
                 "user_id": "ops",
                 "insight_type": "runbook",
@@ -531,12 +534,16 @@ class TestFlipEngineEndToEnd:
         """Flip's dedup: same incident ID posted twice must produce one row."""
         rid = "INC-2026"
         r1 = await engine.create(
-            "audit_events", {"kind": "incident"},
-            row_id=rid, idempotency_key="flip_inc_2026",
+            "audit_events",
+            {"kind": "incident"},
+            row_id=rid,
+            idempotency_key="flip_inc_2026",
         )
         r2 = await engine.create(
-            "audit_events", {"kind": "incident"},
-            row_id=rid, idempotency_key="flip_inc_2026",
+            "audit_events",
+            {"kind": "incident"},
+            row_id=rid,
+            idempotency_key="flip_inc_2026",
         )
         assert r1["$id"] == r2["$id"]
 
@@ -546,9 +553,9 @@ class TestFlipEngineEndToEnd:
         for u in range(5):
             for i in range(3):
                 await engine.insert_for_user(
-                    "axelr_insights", f"user_{u}",
-                    {"insight_type": "runbook", "content": f"r{i}",
-                     "timestamp": i, "system_origin": "flip"},
+                    "axelr_insights",
+                    f"user_{u}",
+                    {"insight_type": "runbook", "content": f"r{i}", "timestamp": i, "system_origin": "flip"},
                 )
         # User 2 should see only their 3 rows
         rows = await engine.query_for_user("axelr_insights", "user_2")
@@ -560,9 +567,11 @@ class TestFlipEngineEndToEnd:
 # SUITE K — Env loader
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestEnvLoader:
     def test_missing_required_raises(self) -> None:
         from axelr_insights_engine.env import AppwriteEnv
+
         # Missing endpoint
         env = AppwriteEnv(endpoint="", project_id="p", database_id="d")
         with pytest.raises(Exception):
@@ -570,26 +579,34 @@ class TestEnvLoader:
 
     def test_mode_auto_detected(self) -> None:
         from axelr_insights_engine.env import AppwriteEnv
+
         env = AppwriteEnv(
-            endpoint="https://x", project_id="p", database_id="d",
+            endpoint="https://x",
+            project_id="p",
+            database_id="d",
             api_key="k",
         )
         assert env.effective_mode == "server"
 
     def test_snapshot_redacts_secrets(self) -> None:
         from axelr_insights_engine.env import AppwriteEnv, AuthEnv, Env, PayPalEnv, SwitchEnv, VultrEnv
+
         env = Env(
             appwrite=AppwriteEnv(
-                endpoint="https://x", project_id="p", database_id="d",
+                endpoint="https://x",
+                project_id="p",
+                database_id="d",
                 api_key="super_secret_key_123456789",
             ),
             switch=SwitchEnv(
                 bridge_url="http://localhost:7312",
-                agent_id="agn", agent_api_key="sk_secret", room_id="r",
+                agent_id="agn",
+                agent_api_key="sk_secret",
+                room_id="r",
             ),
             vultr=VultrEnv(api_key="vk"),
             paypal=PayPalEnv(client_id="cid", client_secret="csecret"),
-            auth=AuthEnv(jwt_secret="a"*32),
+            auth=AuthEnv(jwt_secret="a" * 32),
         )
         snap = env.snapshot()
         assert "super_secret_key_123456789" not in str(snap)
@@ -601,6 +618,7 @@ class TestEnvLoader:
 # SUITE L — Flaky network simulation
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class TestFlakyNetwork:
     @pytest.mark.asyncio
     async def test_retry_succeeds_after_2_failures(self) -> None:
@@ -608,11 +626,8 @@ class TestFlakyNetwork:
         mock.failures_remaining = 2
         mock.fail_with = APIError("503", status=503)
         cfg = _cfg(max_retries=3, retry_base_delay_s=0.01)
-        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(),
-                           tables_factory=lambda _: mock)
-        result = await sdk.call(
-            "t", lambda: mock.create_row(
-                database_id="x", table_id="t", row_id="r", data={"v": 1}))
+        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(), tables_factory=lambda _: mock)
+        result = await sdk.call("t", lambda: mock.create_row(database_id="x", table_id="t", row_id="r", data={"v": 1}))
         assert result["$id"] == "r"
 
     @pytest.mark.asyncio
@@ -621,18 +636,16 @@ class TestFlakyNetwork:
         mock.failures_remaining = 100
         mock.fail_with = APIError("503", status=503)
         cfg = _cfg(max_retries=2, retry_base_delay_s=0.0)
-        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(),
-                           tables_factory=lambda _: mock)
+        sdk = AppwriteSDK(cfg, client_factory=lambda: MockClient(), tables_factory=lambda _: mock)
         with pytest.raises(Exception):
-            await sdk.call(
-                "t", lambda: mock.create_row(
-                    database_id="x", table_id="t", row_id="r", data={}))
+            await sdk.call("t", lambda: mock.create_row(database_id="x", table_id="t", row_id="r", data={}))
         assert mock.call_log.count(("create_row", mock.call_log[0][1])) >= 2
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Report — printed once at end
 # ═══════════════════════════════════════════════════════════════════════
+
 
 def pytest_terminal_summary(terminalreporter: Any, exitstatus: int) -> None:
     """Print a clean summary of stress results."""

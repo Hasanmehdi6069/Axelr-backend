@@ -12,6 +12,7 @@ Honest note: signature verification is delegated to PayPal's
 `/v1/notifications/verify-webhook-signature`. We fail CLOSED if it is
 unreachable, misconfigured, or returns non-SUCCESS.
 """
+
 from __future__ import annotations
 
 import json
@@ -66,7 +67,8 @@ async def _seen_before(event_id: str) -> bool:
 
 
 async def verify_and_dispatch(
-    headers: Dict[str, str], body: bytes,
+    headers: Dict[str, str],
+    body: bytes,
 ) -> Dict[str, Any]:
     # Decode exactly once.
     if isinstance(body, (bytes, bytearray)):
@@ -141,21 +143,22 @@ async def _handle_order_approved(event: Dict[str, Any]) -> None:
         logger.info("txn %s already APPROVED (dup)", txn.id)
         return
     await store.transition_state(
-        txn.id, TransactionState.APPROVED,
+        txn.id,
+        TransactionState.APPROVED,
         reason=f"webhook CHECKOUT.ORDER.APPROVED {oid}",
     )
-    await log_audit_event({
-        "event_type": "webhook.order_approved",
-        "metadata": {"order_id": oid, "transaction_id": txn.id},
-    })
+    await log_audit_event(
+        {
+            "event_type": "webhook.order_approved",
+            "metadata": {"order_id": oid, "transaction_id": txn.id},
+        }
+    )
 
 
 async def _handle_capture_completed(event: Dict[str, Any]) -> None:
     res = event.get("resource", {})
     capture_id = res.get("id")
-    order_id = (res.get("supplementary_data", {})
-                   .get("related_ids", {})
-                   .get("order_id"))
+    order_id = res.get("supplementary_data", {}).get("related_ids", {}).get("order_id")
     if not capture_id or not order_id:
         logger.warning("capture_completed missing ids")
         return
@@ -168,26 +171,26 @@ async def _handle_capture_completed(event: Dict[str, Any]) -> None:
         logger.info("txn %s already CAPTURED (dup)", txn.id)
         return
     txn = await store.transition_state(
-        txn.id, TransactionState.CAPTURED,
+        txn.id,
+        TransactionState.CAPTURED,
         reason=f"webhook PAYMENT.CAPTURE.COMPLETED {capture_id}",
     )
     txn_data = txn.model_dump()
     txn_data["paypal_capture_id"] = capture_id
     await store._save(type(txn)(**txn_data))
     await store.add_paypal_capture_index(capture_id, txn.id)
-    await log_audit_event({
-        "event_type": "webhook.capture_completed",
-        "metadata": {"order_id": order_id, "capture_id": capture_id,
-                     "transaction_id": txn.id},
-    })
+    await log_audit_event(
+        {
+            "event_type": "webhook.capture_completed",
+            "metadata": {"order_id": order_id, "capture_id": capture_id, "transaction_id": txn.id},
+        }
+    )
 
 
 async def _handle_refund_completed(event: Dict[str, Any]) -> None:
     res = event.get("resource", {})
     refund_id = res.get("id")
-    capture_id = (res.get("supplementary_data", {})
-                     .get("related_ids", {})
-                     .get("capture_id"))
+    capture_id = res.get("supplementary_data", {}).get("related_ids", {}).get("capture_id")
     if not refund_id or not capture_id:
         logger.warning("refund_completed missing ids")
         return
@@ -200,17 +203,19 @@ async def _handle_refund_completed(event: Dict[str, Any]) -> None:
         logger.info("txn %s already REFUNDED (dup)", txn.id)
         return
     txn = await store.transition_state(
-        txn.id, TransactionState.REFUNDED,
+        txn.id,
+        TransactionState.REFUNDED,
         reason=f"webhook PAYMENT.REFUND.COMPLETED {refund_id}",
     )
     txn_data = txn.model_dump()
     txn_data["paypal_refund_id"] = refund_id
     await store._save(type(txn)(**txn_data))
-    await log_audit_event({
-        "event_type": "webhook.refund_completed",
-        "metadata": {"capture_id": capture_id, "refund_id": refund_id,
-                     "transaction_id": txn.id},
-    })
+    await log_audit_event(
+        {
+            "event_type": "webhook.refund_completed",
+            "metadata": {"capture_id": capture_id, "refund_id": refund_id, "transaction_id": txn.id},
+        }
+    )
 
 
 register_event_handler("CHECKOUT.ORDER.APPROVED", _handle_order_approved)
@@ -219,5 +224,7 @@ register_event_handler("PAYMENT.REFUND.COMPLETED", _handle_refund_completed)
 
 
 __all__ = [
-    "verify_and_dispatch", "process_webhook_event", "register_event_handler",
+    "verify_and_dispatch",
+    "process_webhook_event",
+    "register_event_handler",
 ]

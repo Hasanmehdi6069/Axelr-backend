@@ -20,6 +20,7 @@ Thresholds (elite-tier):
 Any sub-threshold failure is a hard fail. This test suite is what makes
 "ChatGPT-Astra-level quality on a 512 MB tier" a *falsifiable claim*.
 """
+
 from __future__ import annotations
 
 import ast
@@ -49,8 +50,9 @@ pytestmark = pytest.mark.quality
 _CODE_FENCE_RE = re.compile(r"```(?:[a-zA-Z0-9_+\-]*)\n([\s\S]*?)```")
 
 
-def verify_code(text: str, *, expected_fn_name: str | None = None,
-                test_input: Any = None, expected_output: Any = None) -> tuple[bool, str]:
+def verify_code(
+    text: str, *, expected_fn_name: str | None = None, test_input: Any = None, expected_output: Any = None
+) -> tuple[bool, str]:
     """Verify the LLM produced runnable code with correct behaviour."""
     if not text or "```" not in text:
         return False, "no_fence"
@@ -125,11 +127,9 @@ def verify_extraction(text: str, schema: dict[str, Any]) -> tuple[bool, str]:
         if t == "string":
             return None if isinstance(node, str) else f"{path}:not_str"
         if t == "number":
-            return (None if isinstance(node, (int, float))
-                    and not isinstance(node, bool) else f"{path}:not_num")
+            return None if isinstance(node, (int, float)) and not isinstance(node, bool) else f"{path}:not_num"
         if t == "integer":
-            return (None if isinstance(node, int)
-                    and not isinstance(node, bool) else f"{path}:not_int")
+            return None if isinstance(node, int) and not isinstance(node, bool) else f"{path}:not_int"
         if t == "boolean":
             return None if isinstance(node, bool) else f"{path}:not_bool"
         return None
@@ -184,35 +184,57 @@ class GoldenCase:
 
 # Sentinel: each case's verifier is called by the runner below.
 _CODE_CASES = [
-    ("reverse_string", "write a function reverse_string(s) returning s reversed",
-     "reverse_string", ("abc",), "cba"),
-    ("sum_list", "write a function sum_list(xs) returning the sum of xs",
-     "sum_list", ([1, 2, 3, 4],), 10),
-    ("is_palindrome", "write a function is_palindrome(s) returning bool",
-     "is_palindrome", ("racecar",), True),
-    ("factorial", "write a function factorial(n) returning n!",
-     "factorial", (5,), 120),
-    ("fizzbuzz", "write a function fizzbuzz(n) returning list 1..n with fizzbuzz rules",
-     "fizzbuzz", (5,), ["1", "2", "fizz", "4", "buzz"]),
+    ("reverse_string", "write a function reverse_string(s) returning s reversed", "reverse_string", ("abc",), "cba"),
+    ("sum_list", "write a function sum_list(xs) returning the sum of xs", "sum_list", ([1, 2, 3, 4],), 10),
+    ("is_palindrome", "write a function is_palindrome(s) returning bool", "is_palindrome", ("racecar",), True),
+    ("factorial", "write a function factorial(n) returning n!", "factorial", (5,), 120),
+    (
+        "fizzbuzz",
+        "write a function fizzbuzz(n) returning list 1..n with fizzbuzz rules",
+        "fizzbuzz",
+        (5,),
+        ["1", "2", "fizz", "4", "buzz"],
+    ),
 ]
 
 _EXTRACTION_CASES = [
-    ("simple_object", 'extract name and age from: "Alice, 30 years old"',
-     {"type": "object", "required": ["name", "age"],
-      "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}),
-    ("array_of_records",
-     'extract all people from: "Bob 25, Carol 40, Dave 35"',
-     {"type": "array", "items":
-      {"type": "object", "required": ["name", "age"],
-       "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}}),
-    ("nested_object",
-     'extract user with address from: "Eve, 22 Main St, Springfield"',
-     {"type": "object", "required": ["name", "address"],
-      "properties": {"name": {"type": "string"},
-                     "address": {"type": "object",
-                                 "required": ["street", "city"],
-                                 "properties": {"street": {"type": "string"},
-                                                "city": {"type": "string"}}}}}),
+    (
+        "simple_object",
+        'extract name and age from: "Alice, 30 years old"',
+        {
+            "type": "object",
+            "required": ["name", "age"],
+            "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+        },
+    ),
+    (
+        "array_of_records",
+        'extract all people from: "Bob 25, Carol 40, Dave 35"',
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["name", "age"],
+                "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+            },
+        },
+    ),
+    (
+        "nested_object",
+        'extract user with address from: "Eve, 22 Main St, Springfield"',
+        {
+            "type": "object",
+            "required": ["name", "address"],
+            "properties": {
+                "name": {"type": "string"},
+                "address": {
+                    "type": "object",
+                    "required": ["street", "city"],
+                    "properties": {"street": {"type": "string"}, "city": {"type": "string"}},
+                },
+            },
+        },
+    ),
 ]
 
 _MATH_CASES = [
@@ -231,6 +253,7 @@ async def _run_local(prompt: str, task: str, workspace: str) -> str:
     """Execute the prompt through the twin engine. Returns '' on any failure."""
     try:
         from core.twin_engine import execute_local_inference
+
         return await execute_local_inference(workspace, task, prompt)
     except Exception:
         return ""
@@ -240,14 +263,16 @@ async def _run_with_hot_swap(prompt: str, task: str, workspace: str) -> str:
     """Execute through the failover chain — the 'as if ChatGPT' path."""
     try:
         from core.resilience import get_hot_swap_detector
+
         detector = get_hot_swap_detector()
         if detector is None:
             return await _run_local(prompt, task, workspace)
-        model_map = {p: [best_for(task, workspace=workspace) or "default-model"]
-                     for p in detector._providers}
+        model_map = {p: [best_for(task, workspace=workspace) or "default-model"] for p in detector._providers}
         result: str = ""
         async for kind, payload in detector.stream(
-            workspace=workspace, task_type=task, prompt=prompt,
+            workspace=workspace,
+            task_type=task,
+            prompt=prompt,
             model_map=model_map,
         ):
             if kind == "winner" and hasattr(payload, "text"):
@@ -268,8 +293,10 @@ async def test_code_generation_elite(name, prompt, fn_name, test_input, expected
     if not text or text.startswith("[stub]"):
         pytest.skip("twin engine not available")
     ok, reason = verify_code(
-        text, expected_fn_name=fn_name,
-        test_input=test_input, expected_output=expected,
+        text,
+        expected_fn_name=fn_name,
+        test_input=test_input,
+        expected_output=expected,
     )
     # Elite-tier guarantee: on an *available* engine, this MUST pass.
     assert ok, f"{name} failed: {reason}\n--- output ---\n{text[:600]}"
@@ -303,9 +330,7 @@ async def test_math_elite(name, prompt, expected):
 @pytest.mark.asyncio
 async def test_format_code_is_single_fence():
     """Code answers must be EXACTLY one fenced block. 99%+ required."""
-    text = await _run_local(
-        "write a function hello() that returns 'world'",
-        "code_generation", "design")
+    text = await _run_local("write a function hello() that returns 'world'", "code_generation", "design")
     if not text or text.startswith("[stub]"):
         pytest.skip("twin engine not available")
     ok, reason = verify_format_code(text)
@@ -315,9 +340,7 @@ async def test_format_code_is_single_fence():
 @pytest.mark.asyncio
 async def test_format_extraction_is_json():
     """Extraction must be JSON, no prose. 99%+ required."""
-    text = await _run_local(
-        'extract name from: "Alice"',
-        "extraction", "data")
+    text = await _run_local('extract name from: "Alice"', "extraction", "data")
     if not text or text.startswith("[stub]"):
         pytest.skip("twin engine not available")
     ok, reason = verify_format_extraction(text)
@@ -375,8 +398,7 @@ async def test_specialization_under_100_concurrent_routes():
         task = ["code_generation", "extraction", "math", "reasoning"][i % 4]
         ws = ["design", "data", "core", "core"][i % 4]
         tier = "pro" if i % 2 else "free"
-        return route_model(task, workspace=ws, tier=tier,
-                           concurrency=1 if i % 3 == 0 else 3)
+        return route_model(task, workspace=ws, tier=tier, concurrency=1 if i % 3 == 0 else 3)
 
     results = await asyncio.gather(*[_one(i) for i in range(100)])
     # Every result must be either None (nothing loaded) or a valid model_id.
@@ -392,9 +414,9 @@ def test_elite_quality_contract_documented():
     """The thresholds this suite enforces must be visible in code."""
     thresholds = {
         "format_compliance": 0.99,
-        "code_correctness":  0.95,
-        "extraction_f1":     0.98,
-        "math_accuracy":     0.95,
+        "code_correctness": 0.95,
+        "extraction_f1": 0.98,
+        "math_accuracy": 0.95,
         "reasoning_accuracy": 0.85,
     }
     # The test asserts the constants exist and are the documented values.

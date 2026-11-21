@@ -3,6 +3,7 @@
 Makes the reference engine feel like one unified skill: init, file, watch,
 summary, undo, health, verify. Every subcommand is self-contained.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -47,15 +48,20 @@ async def _file(args: argparse.Namespace) -> int:
     if result is None:
         print(json.dumps({"ok": False, "reason": "skipped"}))
         return 0
-    print(json.dumps({
-        "ok": result.error is None,
-        "source": result.source_name,
-        "destination": result.destination,
-        "category": result.metadata.category if result.metadata else None,
-        "document_type": result.metadata.document_type if result.metadata else None,
-        "elapsed_ms": round(result.elapsed_ms, 1),
-        "error": result.error,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "ok": result.error is None,
+                "source": result.source_name,
+                "destination": result.destination,
+                "category": result.metadata.category if result.metadata else None,
+                "document_type": result.metadata.document_type if result.metadata else None,
+                "elapsed_ms": round(result.elapsed_ms, 1),
+                "error": result.error,
+            },
+            indent=2,
+        )
+    )
     return 0 if result.error is None else 1
 
 
@@ -94,10 +100,17 @@ async def _undo(args: argparse.Namespace) -> int:
     if entry is None:
         print(json.dumps({"ok": False, "reason": "nothing_to_undo"}))
         return 0
-    print(json.dumps({
-        "ok": True, "op_id": entry.op_id,
-        "restored_from": entry.dst, "restored_to": entry.src,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "op_id": entry.op_id,
+                "restored_from": entry.dst,
+                "restored_to": entry.src,
+            },
+            indent=2,
+        )
+    )
     return 0
 
 
@@ -121,19 +134,25 @@ async def _verify(args: argparse.Namespace) -> int:
         return 2
     try:
         ApexRouterClient(endpoint="http://8.8.8.8:11434", model=model)
-        print(json.dumps({"ok": False, "reason": "guard_failed",
-                          "detail": "public host was accepted"}))
+        print(json.dumps({"ok": False, "reason": "guard_failed", "detail": "public host was accepted"}))
         await client.close()
         return 3
     except CloudCallForbidden:
         pass
     probe = await client.health()
     await client.close()
-    print(json.dumps({
-        "ok": probe.get("ok", False),
-        "endpoint": endpoint, "model": model,
-        "guard": "rejects_public_host", "apex_probe": probe,
-    }, indent=2))
+    print(
+        json.dumps(
+            {
+                "ok": probe.get("ok", False),
+                "endpoint": endpoint,
+                "model": model,
+                "guard": "rejects_public_host",
+                "apex_probe": probe,
+            },
+            indent=2,
+        )
+    )
     return 0 if probe.get("ok") else 1
 
 

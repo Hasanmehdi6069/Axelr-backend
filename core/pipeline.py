@@ -45,6 +45,7 @@ Two patterns that historically existed only in the pipeline
 ``security_and_streaming._PII_PATTERNS``; until that move lands,
 ``sanitize_pii()`` in this module is the superset used at runtime.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -79,26 +80,20 @@ _DEADLINE_BY_LEVEL: dict[int, float] = {0: 2.0, 1: 6.0, 2: 10.0, 3: 15.0}
 _ROUNDS_BY_LEVEL: dict[int, int] = {0: 1, 1: 2, 2: 4, 3: 6}
 _RACE_BY_LEVEL: dict[int, int] = {0: 0, 1: 1, 2: 3, 3: 5}
 
-PIPELINE_DEADLINE_S: float = float(os.getenv(
-    "PIPELINE_DEADLINE_S", str(_DEADLINE_BY_LEVEL[AXELR_COGNITION_LEVEL])))
+PIPELINE_DEADLINE_S: float = float(os.getenv("PIPELINE_DEADLINE_S", str(_DEADLINE_BY_LEVEL[AXELR_COGNITION_LEVEL])))
 CACHE_BUDGET_MS: int = int(os.getenv("PIPELINE_CACHE_MS", "80"))
 VECTORIZE_BUDGET_MS: int = int(os.getenv("PIPELINE_VECTORIZE_MS", "200"))
 MEMORY_BUDGET_MS: int = int(os.getenv("PIPELINE_MEMORY_MS", "300"))
 RACE_BUDGET_MS: int = int(os.getenv("PIPELINE_RACE_MS", "600"))
-RACE_WIDTH: int = int(os.getenv(
-    "PIPELINE_RACE_WIDTH", str(_RACE_BY_LEVEL[AXELR_COGNITION_LEVEL])))
+RACE_WIDTH: int = int(os.getenv("PIPELINE_RACE_WIDTH", str(_RACE_BY_LEVEL[AXELR_COGNITION_LEVEL])))
 SEQ_BUDGET_MS: int = int(os.getenv("PIPELINE_SEQ_MS", "1800"))
 GATEWAY_BUDGET_MS: int = int(os.getenv("PIPELINE_GATEWAY_MS", "2500"))
 HOT_SWAP_BUDGET_MS: int = int(os.getenv("PIPELINE_HOT_SWAP_MS", "3000"))
-PROVIDER_ATTEMPT_TIMEOUT_S: float = float(os.getenv(
-    "PIPELINE_PROVIDER_TIMEOUT_S", "8.0"))
-MAX_ROUNDS: int = int(os.getenv(
-    "PIPELINE_MAX_ROUNDS", str(_ROUNDS_BY_LEVEL[AXELR_COGNITION_LEVEL])))
+PROVIDER_ATTEMPT_TIMEOUT_S: float = float(os.getenv("PIPELINE_PROVIDER_TIMEOUT_S", "8.0"))
+MAX_ROUNDS: int = int(os.getenv("PIPELINE_MAX_ROUNDS", str(_ROUNDS_BY_LEVEL[AXELR_COGNITION_LEVEL])))
 
-FAST_TIER_DEADLINE_S: float = float(os.getenv(
-    "PIPELINE_FAST_DEADLINE_S", "15.0"))
-PRO_TIER_DEADLINE_S: float = float(os.getenv(
-    "PIPELINE_PRO_DEADLINE_S", "30.0"))
+FAST_TIER_DEADLINE_S: float = float(os.getenv("PIPELINE_FAST_DEADLINE_S", "15.0"))
+PRO_TIER_DEADLINE_S: float = float(os.getenv("PIPELINE_PRO_DEADLINE_S", "30.0"))
 
 
 def _ms(value_ms: float) -> float:
@@ -123,16 +118,25 @@ def _is_stub(text: str) -> bool:
 
 
 def _pack(
-    text: str, provider: str, model: str, latency_ms: float,
-    *, tier: str = "full", extra: dict[str, Any] | None = None,
+    text: str,
+    provider: str,
+    model: str,
+    latency_ms: float,
+    *,
+    tier: str = "full",
+    extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build the canonical result dict. ``degraded`` is True iff
     ``tier != 'full'``. ``extra`` keys are merged last (may overwrite)."""
     out: dict[str, Any] = {
-        "success": True, "text": text, "provider": provider,
-        "model_used": model, "tokens_used": len(text.split()),
+        "success": True,
+        "text": text,
+        "provider": provider,
+        "model_used": model,
+        "tokens_used": len(text.split()),
         "latency_ms": round(latency_ms, 2),
-        "tier": tier, "degraded": tier != "full",
+        "tier": tier,
+        "degraded": tier != "full",
     }
     if extra:
         out.update(extra)
@@ -140,23 +144,28 @@ def _pack(
 
 
 def add_watermark(
-    text: str, provider: str, model: str, latency_ms: float,
+    text: str,
+    provider: str,
+    model: str,
+    latency_ms: float,
 ) -> str:
     """Append the provenance footer used on every successful response."""
-    return (
-        text + f"\n\n---\n*{provider} · {model} · {round(latency_ms, 1)}ms*"
-    )
+    return text + f"\n\n---\n*{provider} · {model} · {round(latency_ms, 1)}ms*"
 
 
 # Two patterns that historically lived only in this module. Tracked for
 # migration into ``security_and_streaming._PII_PATTERNS``.
 _PIPELINE_EXTRA_PII: tuple[tuple[re.Pattern[str], str, str], ...] = (
-    (re.compile(
-        r"\b(?:bank|account|routing|swift|iban|bin|credit|debit|loan|mortgage)"
-        r"[^\s]*\s*#?\s*\d{4,}\b", re.IGNORECASE),
-     "financial", "[REDACTED_FINANCIAL]"),
-    (re.compile(r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\b"),
-     "full_name", "[REDACTED_NAME]"),
+    (
+        re.compile(
+            r"\b(?:bank|account|routing|swift|iban|bin|credit|debit|loan|mortgage)"
+            r"[^\s]*\s*#?\s*\d{4,}\b",
+            re.IGNORECASE,
+        ),
+        "financial",
+        "[REDACTED_FINANCIAL]",
+    ),
+    (re.compile(r"\b[A-Z][a-z]+\s+[A-Z][a-z]+\b"), "full_name", "[REDACTED_NAME]"),
 )
 
 
@@ -193,8 +202,11 @@ class TokenGovernor:
           retry_after)``. ``retry_after`` is always ``None`` in this stub.
         * Never raises.
     """
+
     _LIMITS: dict[str, int] = {
-        "free": 100_000, "pro": 500_000, "business": 2_000_000,
+        "free": 100_000,
+        "pro": 500_000,
+        "business": 2_000_000,
     }
 
     @staticmethod
@@ -203,7 +215,10 @@ class TokenGovernor:
         return int(len(prompt.split()) * 1.3)
 
     async def reserve(
-        self, user_id: str, tier: str, estimated_tokens: int,
+        self,
+        user_id: str,
+        tier: str,
+        estimated_tokens: int,
     ) -> tuple[bool, int, float | None]:
         """Stub reservation. Returns ``(allowed, remaining, retry_after)``."""
         limit = self._LIMITS.get(tier, self._LIMITS["free"])
@@ -230,9 +245,14 @@ class ResilientPipeline:
 
     def __init__(self) -> None:
         self.stats: dict[str, int] = {
-            "runs": 0, "cache_hits": 0, "memory_hits": 0,
-            "provider_wins": 0, "gateway_wins": 0, "hot_swap_wins": 0,
-            "stub_fallbacks": 0, "rounds": 0,
+            "runs": 0,
+            "cache_hits": 0,
+            "memory_hits": 0,
+            "provider_wins": 0,
+            "gateway_wins": 0,
+            "hot_swap_wins": 0,
+            "stub_fallbacks": 0,
+            "rounds": 0,
         }
         self._token_governor = TokenGovernor()
 
@@ -242,6 +262,7 @@ class ResilientPipeline:
         """Session-scoped PII mask. No-op when middleware is absent."""
         try:
             from api.middleware import mask_pii  # type: ignore
+
             return mask_pii(session_key, tenant_id, text, [])
         except Exception as e:
             logger.debug("mask_pii_unavailable error=%s", e)
@@ -252,6 +273,7 @@ class ResilientPipeline:
         """Restore vault entries and drop the session's vault."""
         try:
             from api.middleware import restore_pii  # type: ignore
+
             return restore_pii(session_key, tenant_id, text)
         except Exception as e:
             logger.debug("restore_pii_unavailable error=%s", e)
@@ -259,18 +281,24 @@ class ResilientPipeline:
 
     # ── the cascade ──────────────────────────────────────────────────
     async def stream(
-        self, *, workspace: str, task_type: str, prompt: str,
+        self,
+        *,
+        workspace: str,
+        task_type: str,
+        prompt: str,
         history: list[dict[str, Any]] | None,
         files: list[dict[str, Any]] | None,
-        max_tokens: int, temp: float, tier: str,
+        max_tokens: int,
+        temp: float,
+        tier: str,
         user: dict[str, Any] | None,
         context: str = "",
-        fast_tier: bool = False,      # RESERVED — accepted, unused
+        fast_tier: bool = False,  # RESERVED — accepted, unused
         user_id: str | None = None,
         session_id: str | None = None,
         tenant_id: str | None = "default",
         request_id: str | None = None,
-        want_elite: bool = False,     # RESERVED — accepted, unused
+        want_elite: bool = False,  # RESERVED — accepted, unused
     ) -> AsyncIterator[tuple[str, Any]]:
         """Run the full cascade. Never raises.
 
@@ -299,6 +327,7 @@ class ResilientPipeline:
         if request_id:
             try:
                 from api.middleware import _stream_recovery_buffer  # type: ignore
+
                 stream_buffer = _stream_recovery_buffer
             except Exception:
                 stream_buffer = None
@@ -306,31 +335,27 @@ class ResilientPipeline:
         def _capture(text_chunk: str | None) -> None:
             if stream_buffer is None or not request_id or not text_chunk:
                 return
-            stream_buffer[request_id] = (
-                stream_buffer.get(request_id, "") + text_chunk)
+            stream_buffer[request_id] = stream_buffer.get(request_id, "") + text_chunk
 
         def _finalize(
-            payload: dict[str, Any], *,
+            payload: dict[str, Any],
+            *,
             extra: dict[str, Any] | None = None,
         ) -> dict[str, Any]:
             """Sanitize, watermark (success only), restore PII, mirror."""
             latency = (time.monotonic() - started) * 1000.0
             sanitized, found = sanitize_pii(payload.get("text", ""))
             if found:
-                logger.info(
-                    "pii_sanitized_in_response types=%s", ",".join(found))
+                logger.info("pii_sanitized_in_response types=%s", ",".join(found))
             payload["latency_ms"] = round(latency, 2)
             if payload.get("success", True):
-                payload["text"] = add_watermark(
-                    sanitized, payload["provider"],
-                    payload["model_used"], latency)
+                payload["text"] = add_watermark(sanitized, payload["provider"], payload["model_used"], latency)
             else:
                 payload["text"] = sanitized
             payload["pii_found"] = found
             if extra:
                 payload.update(extra)
-            payload["text"] = self._restore_pii(
-                session_key, tenant_id, payload["text"])
+            payload["text"] = self._restore_pii(session_key, tenant_id, payload["text"])
             _capture(payload["text"])
             return payload
 
@@ -353,11 +378,9 @@ class ResilientPipeline:
             prompt = self._mask_pii(session_key, tenant_id, prompt)
             prompt, pii_found = sanitize_pii(prompt)
             if pii_found:
-                logger.info(
-                    "pii_sanitized_in_prompt types=%s", ",".join(pii_found))
+                logger.info("pii_sanitized_in_prompt types=%s", ",".join(pii_found))
             if detect_manipulation(prompt) or contains_explicit(prompt):
-                payload = _pack(
-                    "⚠️ Security violation.", "security", "filter", 0.0)
+                payload = _pack("⚠️ Security violation.", "security", "filter", 0.0)
                 payload["success"] = False
                 yield ("result", _finalize(payload))
                 return
@@ -367,23 +390,21 @@ class ResilientPipeline:
 
         # ── Stage 0a: token governance (L1+) ────────────────────────
         if AXELR_COGNITION_LEVEL >= 1 and user_id and tier:
-            estimated = self._token_governor.estimate_tokens(
-                prompt + (context or ""))
-            allowed, remaining, retry_after = (
-                await self._token_governor.reserve(
-                    user_id, tier, estimated + max_tokens))
+            estimated = self._token_governor.estimate_tokens(prompt + (context or ""))
+            allowed, remaining, retry_after = await self._token_governor.reserve(user_id, tier, estimated + max_tokens)
             if not allowed:
                 payload = _pack(
-                    f"⚠️ Token limit exceeded. {remaining} remaining, "
-                    f"need {estimated + max_tokens}.",
-                    "token_governor", "governor", 0.0,
-                    tier=tier, extra={"retry_after": retry_after})
+                    f"⚠️ Token limit exceeded. {remaining} remaining, need {estimated + max_tokens}.",
+                    "token_governor",
+                    "governor",
+                    0.0,
+                    tier=tier,
+                    extra={"retry_after": retry_after},
+                )
                 payload["success"] = False
                 yield ("result", _finalize(payload))
                 return
-            yield ("thinking", {
-                "stage": "token_governor", "status": "ok",
-                "remaining_tokens": remaining})
+            yield ("thinking", {"stage": "token_governor", "status": "ok", "remaining_tokens": remaining})
 
         # ── Stage 1: memory recall (L1+) ────────────────────────────
         memory_block = ""
@@ -397,8 +418,8 @@ class ResilientPipeline:
                     from core.memory import get_memory  # type: ignore
                 mem = await get_memory()
                 hits = await asyncio.wait_for(
-                    mem.recall(user_id=user_id, query=prompt, top_k=6),
-                    timeout=_ms(MEMORY_BUDGET_MS))
+                    mem.recall(user_id=user_id, query=prompt, top_k=6), timeout=_ms(MEMORY_BUDGET_MS)
+                )
                 if hits:
                     memory_block = "\n".join(h.text for h in hits[:6])
                     self.stats["memory_hits"] += 1
@@ -406,24 +427,22 @@ class ResilientPipeline:
             except asyncio.TimeoutError:
                 logger.warning("pipeline_memory_timeout - continuing")
             except Exception as e:
-                logger.warning(
-                    "pipeline_memory_error - continuing error=%s",
-                    str(e)[:100])
-            yield ("thinking", {
-                "stage": "memory",
-                "status": "ok" if memory_success else "skipped"})
+                logger.warning("pipeline_memory_error - continuing error=%s", str(e)[:100])
+            yield ("thinking", {"stage": "memory", "status": "ok" if memory_success else "skipped"})
 
         if memory_block:
-            context = (
-                context + "\n\nRelevant history:\n" + memory_block).strip()
+            context = (context + "\n\nRelevant history:\n" + memory_block).strip()
 
-        hist_key = "|".join(
-            f"{m.get('role', 'u')}:{str(m.get('text', ''))[:64]}"
-            for m in (history or [])[-2:] if isinstance(m, dict)
-        ) if history else ""
-        cache_prompt = (
-            f"{hist_key}\nCurrent request: {prompt}"
-            if hist_key else prompt)
+        hist_key = (
+            "|".join(
+                f"{m.get('role', 'u')}:{str(m.get('text', ''))[:64]}"
+                for m in (history or [])[-2:]
+                if isinstance(m, dict)
+            )
+            if history
+            else ""
+        )
+        cache_prompt = f"{hist_key}\nCurrent request: {prompt}" if hist_key else prompt
 
         # ── Main loop ────────────────────────────────────────────────
         tried: set[str] = set()
@@ -437,94 +456,88 @@ class ResilientPipeline:
             if AXELR_COGNITION_LEVEL >= 1:
                 hit = await self._try_cache(cache_prompt, round_num)
                 if hit is not None:
-                    yield ("thinking", {
-                        "stage": "cache", "status": "hit",
-                        "round": round_num})
-                    yield ("result", _finalize(
-                        _pack(hit, "semantic_cache", "cache", 0.0,
-                              tier="cached_similar"),
-                        extra={"cached": True, "round": round_num}))
+                    yield ("thinking", {"stage": "cache", "status": "hit", "round": round_num})
+                    yield (
+                        "result",
+                        _finalize(
+                            _pack(hit, "semantic_cache", "cache", 0.0, tier="cached_similar"),
+                            extra={"cached": True, "round": round_num},
+                        ),
+                    )
                     return
-                yield ("thinking", {
-                    "stage": "cache", "status": "miss",
-                    "round": round_num})
+                yield ("thinking", {"stage": "cache", "status": "miss", "round": round_num})
 
             # Stage 3: wide vectorize (L2+, round >= 2)
             if AXELR_COGNITION_LEVEL >= 2 and round_num >= 2:
-                hit = await self._try_cache(
-                    cache_prompt, round_num, force_reembed=True)
+                hit = await self._try_cache(cache_prompt, round_num, force_reembed=True)
                 if hit is not None:
-                    yield ("thinking", {
-                        "stage": "vectorize", "status": "hit",
-                        "round": round_num})
-                    yield ("result", _finalize(
-                        _pack(hit, "semantic_cache", "vector-match", 0.0,
-                              tier="cached_similar"),
-                        extra={"cached": True, "round": round_num}))
+                    yield ("thinking", {"stage": "vectorize", "status": "hit", "round": round_num})
+                    yield (
+                        "result",
+                        _finalize(
+                            _pack(hit, "semantic_cache", "vector-match", 0.0, tier="cached_similar"),
+                            extra={"cached": True, "round": round_num},
+                        ),
+                    )
                     return
-                yield ("thinking", {
-                    "stage": "vectorize", "status": "miss",
-                    "round": round_num})
+                yield ("thinking", {"stage": "vectorize", "status": "miss", "round": round_num})
 
             # Stage 4: remote providers (L1+)
-            if (AXELR_COGNITION_LEVEL >= 1
-                    and deadline - time.monotonic() > 0.4):
+            if AXELR_COGNITION_LEVEL >= 1 and deadline - time.monotonic() > 0.4:
                 res = await self._try_providers(
-                    workspace=workspace, task_type=task_type,
-                    prompt=prompt, history=history, context=context,
-                    max_tokens=max_tokens, temp=temp,
-                    deadline=deadline, skip=tried, relaxed=relaxed)
+                    workspace=workspace,
+                    task_type=task_type,
+                    prompt=prompt,
+                    history=history,
+                    context=context,
+                    max_tokens=max_tokens,
+                    temp=temp,
+                    deadline=deadline,
+                    skip=tried,
+                    relaxed=relaxed,
+                )
                 if res is not None:
-                    yield ("thinking", {
-                        "stage": "providers", "status": "ok",
-                        "winner": res["provider"],
-                        "model": res["model_used"],
-                        "round": round_num})
+                    yield (
+                        "thinking",
+                        {
+                            "stage": "providers",
+                            "status": "ok",
+                            "winner": res["provider"],
+                            "model": res["model_used"],
+                            "round": round_num,
+                        },
+                    )
                     yield ("result", _finalize(res))
                     return
-                yield ("thinking", {
-                    "stage": "providers", "status": "all_failed",
-                    "round": round_num})
+                yield ("thinking", {"stage": "providers", "status": "all_failed", "round": round_num})
 
             # Stage 5: LLM gateway (L2+)
-            if (AXELR_COGNITION_LEVEL >= 2
-                    and deadline - time.monotonic() > 0.5):
+            if AXELR_COGNITION_LEVEL >= 2 and deadline - time.monotonic() > 0.5:
                 res = await self._try_gateway(
-                    prompt=prompt, max_tokens=max_tokens, temp=temp,
-                    deadline=deadline, round_num=round_num)
+                    prompt=prompt, max_tokens=max_tokens, temp=temp, deadline=deadline, round_num=round_num
+                )
                 if res is not None:
-                    yield ("thinking", {
-                        "stage": "gateway", "status": "ok",
-                        "round": round_num})
+                    yield ("thinking", {"stage": "gateway", "status": "ok", "round": round_num})
                     yield ("result", _finalize(res))
                     return
 
             # Stage 6: local twin (L3 only)
-            if (AXELR_COGNITION_LEVEL >= 3
-                    and deadline - time.monotonic() > 0.4):
+            if AXELR_COGNITION_LEVEL >= 3 and deadline - time.monotonic() > 0.4:
                 res = await self._try_local(
-                    workspace, task_type, prompt, deadline, round_num,
-                    context=context, tier=tier)
+                    workspace, task_type, prompt, deadline, round_num, context=context, tier=tier
+                )
                 if res is not None:
                     if context and context.strip():
-                        yield ("thinking", {
-                            "stage": "local", "status": "healing",
-                            "recovered_bytes": len(context)})
-                    yield ("thinking", {
-                        "stage": "local", "status": "ok",
-                        "round": round_num})
+                        yield ("thinking", {"stage": "local", "status": "healing", "recovered_bytes": len(context)})
+                    yield ("thinking", {"stage": "local", "status": "ok", "round": round_num})
                     yield ("result", _finalize(res))
                     return
-                yield ("thinking", {
-                    "stage": "local", "status": "fail",
-                    "round": round_num})
+                yield ("thinking", {"stage": "local", "status": "fail", "round": round_num})
 
         # ── Stage 7: emergency stub ─────────────────────────────────
         self.stats["stub_fallbacks"] += 1
         elapsed = time.monotonic() - started
-        logger.critical(
-            "pipeline_exhausted_all_attempts user=%s elapsed=%.1fs tier=%s",
-            user_id, elapsed, tier)
+        logger.critical("pipeline_exhausted_all_attempts user=%s elapsed=%.1fs tier=%s", user_id, elapsed, tier)
 
         try:
             try:
@@ -536,30 +549,29 @@ class ResilientPipeline:
                     build_local_fallback_response,
                 )
         except Exception:
+
             def build_local_fallback_response(  # type: ignore
-                w: str, t: str, p: str) -> str:
+                w: str, t: str, p: str
+            ) -> str:
                 return ""
 
-        base_text = build_local_fallback_response(
-            workspace, task_type, prompt)
+        base_text = build_local_fallback_response(workspace, task_type, prompt)
         usable = bool(base_text and len(base_text.strip()) > 10)
 
         if elapsed >= deadline_s:
-            text = base_text if usable else (
-                "⚠️ High traffic detected. Routing you to our "
-                "multi-agent system. Please wait a moment.")
-            provider_label, model_label = (
-                "multi-agent-router", "orchestrator")
+            text = (
+                base_text
+                if usable
+                else ("⚠️ High traffic detected. Routing you to our multi-agent system. Please wait a moment.")
+            )
+            provider_label, model_label = ("multi-agent-router", "orchestrator")
             extra_flag = {"routing_to_multi_agent": True}
         else:
-            text = base_text if usable else (
-                "⚠️ All AI services are temporarily busy.")
+            text = base_text if usable else ("⚠️ All AI services are temporarily busy.")
             provider_label, model_label = ("local-fallback", "local")
             extra_flag = {"last_ditch": True}
 
-        payload = _pack(
-            text, provider_label, model_label, 0.0,
-            tier="stub", extra=extra_flag)
+        payload = _pack(text, provider_label, model_label, 0.0, tier="stub", extra=extra_flag)
         yield ("thinking", {"stage": "fallback", "status": "emergency"})
         yield ("result", _finalize(payload))
 
@@ -567,9 +579,14 @@ class ResilientPipeline:
     async def run(self, **kwargs: Any) -> dict[str, Any]:
         """Collapse ``stream()`` to the single result payload. Never raises."""
         last: dict[str, Any] = {
-            "success": False, "text": "", "provider": "none",
-            "model_used": "none", "tokens_used": 0, "latency_ms": 0,
-            "tier": "stub", "degraded": True,
+            "success": False,
+            "text": "",
+            "provider": "none",
+            "model_used": "none",
+            "tokens_used": 0,
+            "latency_ms": 0,
+            "tier": "stub",
+            "degraded": True,
         }
         async for kind, payload in self.stream(**kwargs):
             if kind == "result":
@@ -582,7 +599,10 @@ class ResilientPipeline:
 
     # ── stage impls ─────────────────────────────────────────────────
     async def _try_cache(
-        self, prompt: str, round_num: int, *,
+        self,
+        prompt: str,
+        round_num: int,
+        *,
         force_reembed: bool = False,
     ) -> str | None:
         """Semantic-cache lookup. Returns cached text or ``None``. Never raises."""
@@ -596,11 +616,9 @@ class ResilientPipeline:
         cache = getattr(state, "semantic_cache", None)
         if cache is None:
             return None
-        budget = _ms(
-            VECTORIZE_BUDGET_MS if force_reembed else CACHE_BUDGET_MS)
+        budget = _ms(VECTORIZE_BUDGET_MS if force_reembed else CACHE_BUDGET_MS)
         try:
-            hit = await asyncio.wait_for(
-                cache.get(prompt), timeout=budget)
+            hit = await asyncio.wait_for(cache.get(prompt), timeout=budget)
             if hit:
                 self.stats["cache_hits"] += 1
             return hit
@@ -608,15 +626,22 @@ class ResilientPipeline:
             logger.debug("pipeline_cache_timeout round=%d", round_num)
             return None
         except Exception as e:
-            logger.debug(
-                "pipeline_cache_error round=%d error=%s", round_num, e)
+            logger.debug("pipeline_cache_error round=%d error=%s", round_num, e)
             return None
 
     async def _try_providers(
-        self, *, workspace: str, task_type: str, prompt: str,
-        history: list[dict[str, Any]] | None, context: str,
-        max_tokens: int, temp: float, deadline: float,
-        skip: set[str], relaxed: bool,
+        self,
+        *,
+        workspace: str,
+        task_type: str,
+        prompt: str,
+        history: list[dict[str, Any]] | None,
+        context: str,
+        max_tokens: int,
+        temp: float,
+        deadline: float,
+        skip: set[str],
+        relaxed: bool,
     ) -> dict[str, Any] | None:
         """Heartbeat-ranked wave race, then sequential fallback. Never raises."""
         try:
@@ -657,8 +682,7 @@ class ResilientPipeline:
                 if isinstance(m, dict) and m.get("text")
             ]
             if recent:
-                full_prompt += (
-                    "Previous conversation:\n" + "\n".join(recent) + "\n\n")
+                full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
         full_prompt += f"User request: {prompt}"
 
         try:
@@ -668,23 +692,19 @@ class ResilientPipeline:
 
         try:
             from .heartbeat import rank as _hb_rank
+
             ranked = _hb_rank(ranked)
         except Exception:
             pass
 
         def _eligible(p: str) -> bool:
-            return (
-                p != "local" and p not in skip
-                and PROVIDER_KEY_CHECK.get(p, False)
-                and bool(PROVIDER_MODELS.get(p))
-            )
+            return p != "local" and p not in skip and PROVIDER_KEY_CHECK.get(p, False) and bool(PROVIDER_MODELS.get(p))
 
         available = [p for p in ranked if _eligible(p)]
         race_budget = _ms(RACE_BUDGET_MS)
 
         # Wave race
-        while (available and RACE_WIDTH > 0
-               and time.monotonic() < deadline):
+        while available and RACE_WIDTH > 0 and time.monotonic() < deadline:
             wave = available[:RACE_WIDTH]
             available = available[RACE_WIDTH:]
             if not relaxed:
@@ -701,9 +721,8 @@ class ResilientPipeline:
             if not wave:
                 continue
             result = await self._race(
-                wave, full_prompt, max_tokens, temp,
-                PROVIDER_FUNC_MAP, PROVIDER_MODELS,
-                timeout_s=race_budget)
+                wave, full_prompt, max_tokens, temp, PROVIDER_FUNC_MAP, PROVIDER_MODELS, timeout_s=race_budget
+            )
             if result is not None:
                 self.stats["provider_wins"] += 1
                 try:
@@ -740,28 +759,27 @@ class ResilientPipeline:
                     t0 = time.monotonic()
                     resp = await asyncio.wait_for(
                         func(full_prompt, max_tokens, temp, model),
-                        timeout=min(
-                            PROVIDER_ATTEMPT_TIMEOUT_S,
-                            max(0.5, seq_deadline - time.monotonic())))
+                        timeout=min(PROVIDER_ATTEMPT_TIMEOUT_S, max(0.5, seq_deadline - time.monotonic())),
+                    )
                     if resp and len(resp.strip()) > 3:
                         self.stats["provider_wins"] += 1
                         skip.add(p)
-                        return _pack(
-                            resp, p, model,
-                            (time.monotonic() - t0) * 1000.0)
+                        return _pack(resp, p, model, (time.monotonic() - t0) * 1000.0)
                 except Exception as e:
-                    logger.debug(
-                        "pipeline_provider_fail provider=%s attempt=%d error=%s",
-                        p, attempt + 1, e)
+                    logger.debug("pipeline_provider_fail provider=%s attempt=%d error=%s", p, attempt + 1, e)
                     await asyncio.sleep(0.15 * (attempt + 1))
             skip.add(p)
         return None
 
     async def _race(
-        self, wave: list[str], full_prompt: str,
-        max_tokens: int, temp: float,
+        self,
+        wave: list[str],
+        full_prompt: str,
+        max_tokens: int,
+        temp: float,
         func_map: dict[str, Callable[..., Awaitable[str]]],
-        models_map: dict[str, list[str]], *,
+        models_map: dict[str, list[str]],
+        *,
         timeout_s: float,
     ) -> dict[str, Any] | None:
         """Race up to ``len(wave)`` providers; first non-``None`` wins."""
@@ -771,10 +789,11 @@ class ResilientPipeline:
             models = models_map.get(p) or []
             if not func or not models:
                 continue
-            tasks.append(asyncio.create_task(
-                self._one_provider(
-                    p, models[0], func, full_prompt, max_tokens, temp),
-                name=f"race::{p}"))
+            tasks.append(
+                asyncio.create_task(
+                    self._one_provider(p, models[0], func, full_prompt, max_tokens, temp), name=f"race::{p}"
+                )
+            )
         if not tasks:
             return None
         try:
@@ -800,25 +819,31 @@ class ResilientPipeline:
 
     @staticmethod
     async def _one_provider(
-        name: str, model: str,
+        name: str,
+        model: str,
         func: Callable[..., Awaitable[str]],
-        prompt: str, max_tokens: int, temp: float,
+        prompt: str,
+        max_tokens: int,
+        temp: float,
     ) -> dict[str, Any] | None:
         """One provider attempt. Returns packed result or ``None``."""
         t0 = time.monotonic()
         try:
             resp = await func(prompt, max_tokens, temp, model)
             if resp and len(resp.strip()) > 3:
-                return _pack(
-                    resp, name, model,
-                    (time.monotonic() - t0) * 1000.0)
+                return _pack(resp, name, model, (time.monotonic() - t0) * 1000.0)
         except Exception:
             return None
         return None
 
     async def _try_gateway(
-        self, *, prompt: str, max_tokens: int, temp: float,
-        deadline: float, round_num: int,
+        self,
+        *,
+        prompt: str,
+        max_tokens: int,
+        temp: float,
+        deadline: float,
+        round_num: int,
     ) -> dict[str, Any] | None:
         """LLM-gateway fallback. Returns packed result or ``None``. Never raises."""
         try:
@@ -833,8 +858,7 @@ class ResilientPipeline:
         client = getattr(state, "gateway_http", None)
         if not url or client is None:
             return None
-        budget = min(
-            _ms(GATEWAY_BUDGET_MS), max(0.5, deadline - time.monotonic()))
+        budget = min(_ms(GATEWAY_BUDGET_MS), max(0.5, deadline - time.monotonic()))
         headers = {"Content-Type": "application/json"}
         if key:
             headers["Authorization"] = f"Bearer {key}"
@@ -848,29 +872,29 @@ class ResilientPipeline:
         t0 = time.monotonic()
         try:
             r = await asyncio.wait_for(
-                client.post(
-                    f"{url.rstrip('/')}/v1/chat/completions",
-                    headers=headers, json=body),
-                timeout=budget)
+                client.post(f"{url.rstrip('/')}/v1/chat/completions", headers=headers, json=body), timeout=budget
+            )
             r.raise_for_status()
             data = r.json()
-            text = (data.get("choices", [{}])[0]
-                    .get("message", {}).get("content") or "").strip()
+            text = (data.get("choices", [{}])[0].get("message", {}).get("content") or "").strip()
             if not text or _is_stub(text):
                 return None
             self.stats["gateway_wins"] += 1
-            return _pack(
-                text, "llm_gateway", "gateway",
-                (time.monotonic() - t0) * 1000.0)
+            return _pack(text, "llm_gateway", "gateway", (time.monotonic() - t0) * 1000.0)
         except (asyncio.TimeoutError, Exception) as e:
-            logger.debug(
-                "pipeline_gateway_fail round=%d error=%s", round_num, e)
+            logger.debug("pipeline_gateway_fail round=%d error=%s", round_num, e)
             return None
 
     async def _try_local(
-        self, workspace: str, task_type: str, prompt: str,
-        deadline: float, round_num: int, *,
-        context: str = "", tier: str = "free",
+        self,
+        workspace: str,
+        task_type: str,
+        prompt: str,
+        deadline: float,
+        round_num: int,
+        *,
+        context: str = "",
+        tier: str = "free",
     ) -> dict[str, Any] | None:
         """Local-twin fallback. Returns packed result or ``None``. Never raises.
 
@@ -882,26 +906,22 @@ class ResilientPipeline:
             from .twin_engine import execute_local_inference
         except Exception:
             return None
-        budget = min(
-            _ms(HOT_SWAP_BUDGET_MS), max(0.3, deadline - time.monotonic()))
+        budget = min(_ms(HOT_SWAP_BUDGET_MS), max(0.3, deadline - time.monotonic()))
         full_prompt = f"{context}\n\n{prompt}" if context else prompt
         try:
             text = await asyncio.wait_for(
-                execute_local_inference(
-                    workspace, task_type, full_prompt, tier=tier),
-                timeout=budget)
+                execute_local_inference(workspace, task_type, full_prompt, tier=tier), timeout=budget
+            )
         except asyncio.TimeoutError:
             logger.warning("pipeline_local_timeout round=%d", round_num)
             return None
         except Exception as e:
-            logger.warning(
-                "pipeline_local_error round=%d error=%s", round_num, e)
+            logger.warning("pipeline_local_error round=%d error=%s", round_num, e)
             return None
         if not text or _is_stub(text):
             return None
         self.stats["hot_swap_wins"] += 1
-        return _pack(
-            text, "local_twin", "twin", budget * 1000.0, tier="local")
+        return _pack(text, "local_twin", "twin", budget * 1000.0, tier="local")
 
 
 # ── Backward compatibility ────────────────────────────────────────────
@@ -912,8 +932,12 @@ ProviderCascade = ResilientPipeline
 
 
 __all__ = [
-    "ResilientPipeline", "ProviderCascade",
+    "ResilientPipeline",
+    "ProviderCascade",
     "AXELR_COGNITION_LEVEL",
-    "PIPELINE_DEADLINE_S", "FAST_TIER_DEADLINE_S", "PRO_TIER_DEADLINE_S",
-    "MAX_ROUNDS", "RACE_WIDTH",
+    "PIPELINE_DEADLINE_S",
+    "FAST_TIER_DEADLINE_S",
+    "PRO_TIER_DEADLINE_S",
+    "MAX_ROUNDS",
+    "RACE_WIDTH",
 ]

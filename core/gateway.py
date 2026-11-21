@@ -26,6 +26,7 @@ Contract:
     * ``AsyncAxelrClient`` is a drop-in for ``openai.AsyncOpenAI``.
     * ``audit()`` returns a JSON-serialisable snapshot.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -77,8 +78,7 @@ def _split_messages(
         role = str(m.get("role", "user"))
         content = m.get("content")
         if isinstance(content, list):
-            content = "\n".join(
-                p.get("text", "") for p in content if isinstance(p, dict))
+            content = "\n".join(p.get("text", "") for p in content if isinstance(p, dict))
         content = str(content or "")
         if role == "system":
             system_parts.append(content)
@@ -92,8 +92,13 @@ def to_openai(messages, *, model, max_tokens, temp, system="", stream=False):
     if system:
         out.append({"role": "system", "content": system})
     out.extend(messages or [])
-    return {"model": model, "messages": out, "max_tokens": int(max_tokens),
-            "temperature": float(temp), "stream": bool(stream)}
+    return {
+        "model": model,
+        "messages": out,
+        "max_tokens": int(max_tokens),
+        "temperature": float(temp),
+        "stream": bool(stream),
+    }
 
 
 def to_anthropic(messages, *, model, max_tokens, temp, system="", stream=False):
@@ -108,8 +113,10 @@ def to_anthropic(messages, *, model, max_tokens, temp, system="", stream=False):
     if not cleaned:
         cleaned = [{"role": "user", "content": ""}]
     payload: dict[str, Any] = {
-        "model": model, "messages": cleaned,
-        "max_tokens": int(max_tokens), "temperature": float(temp),
+        "model": model,
+        "messages": cleaned,
+        "max_tokens": int(max_tokens),
+        "temperature": float(temp),
         "stream": bool(stream),
     }
     if merged:
@@ -157,9 +164,7 @@ def from_anthropic_response(body: Any) -> str:
     if not isinstance(body, dict):
         return ""
     return "".join(
-        str(b.get("text", ""))
-        for b in (body.get("content") or [])
-        if isinstance(b, dict) and b.get("type") == "text"
+        str(b.get("text", "")) for b in (body.get("content") or []) if isinstance(b, dict) and b.get("type") == "text"
     )
 
 
@@ -170,8 +175,7 @@ def from_gemini_response(body: Any) -> str:
     if not candidates:
         return ""
     parts = ((candidates[0] or {}).get("content") or {}).get("parts") or []
-    return "".join(
-        str(p.get("text", "")) for p in parts if isinstance(p, dict))
+    return "".join(str(p.get("text", "")) for p in parts if isinstance(p, dict))
 
 
 _ANTHROPIC_HINTS = ("anthropic", "/v1/messages", "claude")
@@ -187,16 +191,12 @@ def detect_shape(url_or_provider: str) -> str:
     return "openai"
 
 
-def build_payload(shape, messages, *, model, max_tokens, temp,
-                  system="", stream=False):
+def build_payload(shape, messages, *, model, max_tokens, temp, system="", stream=False):
     if shape == "anthropic":
-        return to_anthropic(messages, model=model, max_tokens=max_tokens,
-                            temp=temp, system=system, stream=stream)
+        return to_anthropic(messages, model=model, max_tokens=max_tokens, temp=temp, system=system, stream=stream)
     if shape == "gemini":
-        return to_gemini(messages, model=model, max_tokens=max_tokens,
-                         temp=temp, system=system, stream=stream)
-    return to_openai(messages, model=model, max_tokens=max_tokens,
-                     temp=temp, system=system, stream=stream)
+        return to_gemini(messages, model=model, max_tokens=max_tokens, temp=temp, system=system, stream=stream)
+    return to_openai(messages, model=model, max_tokens=max_tokens, temp=temp, system=system, stream=stream)
 
 
 def parse_response(shape, body):
@@ -230,6 +230,7 @@ class GatewayEndpoint:
     def is_available(self) -> bool:
         return self.enabled and time.monotonic() >= self.cooldown_until
 
+
 @dataclass(slots=True)
 class MCPBackend:
     id: str
@@ -251,15 +252,17 @@ class MCPBackend:
         return self.reader, self.writer
 
     def effective_rank(self) -> float:
-        return (self.priority * 10_000.0
-                + self.failures * 250.0
-                + self.ewma_latency_ms * 0.5)
+        return self.priority * 10_000.0 + self.failures * 250.0 + self.ewma_latency_ms * 0.5
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name, "url": self.url, "shape": self.shape,
-            "priority": self.priority, "enabled": self.enabled,
-            "is_available": self.is_available, "failures": self.failures,
+            "name": self.name,
+            "url": self.url,
+            "shape": self.shape,
+            "priority": self.priority,
+            "enabled": self.enabled,
+            "is_available": self.is_available,
+            "failures": self.failures,
             "cooldown_until": self.cooldown_until,
             "ewma_latency_ms": self.ewma_latency_ms,
             "last_success_ts": self.last_success_ts,
@@ -272,33 +275,53 @@ def _build_endpoints() -> list[GatewayEndpoint]:
     if _env("AI_GATEWAY_DISABLED", "").lower() in ("1", "true"):
         return []
     tiers = [
-        ("primary", "AI_GATEWAY_URL", "BIFROST_URL",
-         "AI_GATEWAY_KEY", "BIFROST_API_KEY", "AI_GATEWAY_SHAPE"),
-        ("secondary", "AI_GATEWAY_BACKUP_URL", "HELICONE_URL",
-         "AI_GATEWAY_BACKUP_KEY", "HELICONE_API_KEY",
-         "AI_GATEWAY_BACKUP_SHAPE"),
-        ("tertiary", "AI_GATEWAY_TERTIARY_URL", "LITELLM_URL",
-         "AI_GATEWAY_TERTIARY_KEY", "LITELLM_API_KEY",
-         "AI_GATEWAY_TERTIARY_SHAPE"),
+        ("primary", "AI_GATEWAY_URL", "BIFROST_URL", "AI_GATEWAY_KEY", "BIFROST_API_KEY", "AI_GATEWAY_SHAPE"),
+        (
+            "secondary",
+            "AI_GATEWAY_BACKUP_URL",
+            "HELICONE_URL",
+            "AI_GATEWAY_BACKUP_KEY",
+            "HELICONE_API_KEY",
+            "AI_GATEWAY_BACKUP_SHAPE",
+        ),
+        (
+            "tertiary",
+            "AI_GATEWAY_TERTIARY_URL",
+            "LITELLM_URL",
+            "AI_GATEWAY_TERTIARY_KEY",
+            "LITELLM_API_KEY",
+            "AI_GATEWAY_TERTIARY_SHAPE",
+        ),
     ]
     eps: list[GatewayEndpoint] = []
     for priority, (name, ua, ub, ka, kb, se) in enumerate(tiers):
         url = _env(ua) or _env(ub)
         if not url:
             continue
-        eps.append(GatewayEndpoint(
-            name=name, url=url,
-            api_key=_env(ka) or _env(kb) or "no-key",
-            shape=_env(se, "openai"),
-            priority=priority,
-        ))
+        eps.append(
+            GatewayEndpoint(
+                name=name,
+                url=url,
+                api_key=_env(ka) or _env(kb) or "no-key",
+                shape=_env(se, "openai"),
+                priority=priority,
+            )
+        )
     return eps
 
 
 def _is_failover_error(exc: Exception) -> bool:
-    if isinstance(exc, (httpx.ConnectError, httpx.ReadTimeout,
-                        httpx.ConnectTimeout, httpx.RemoteProtocolError,
-                        httpx.PoolTimeout, asyncio.TimeoutError)):
+    if isinstance(
+        exc,
+        (
+            httpx.ConnectError,
+            httpx.ReadTimeout,
+            httpx.ConnectTimeout,
+            httpx.RemoteProtocolError,
+            httpx.PoolTimeout,
+            asyncio.TimeoutError,
+        ),
+    ):
         return True
     if isinstance(exc, httpx.HTTPStatusError):
         code = exc.response.status_code
@@ -326,19 +349,21 @@ class GatewayRouter:
         self._owns_client = client is None
         self._lock = asyncio.Lock()
         if self._endpoints:
-            logger.info("gateway_router_initialized endpoints=%d",
-                        len(self._endpoints))
+            logger.info("gateway_router_initialized endpoints=%d", len(self._endpoints))
         else:
             logger.warning("gateway_router_disabled: no endpoints configured")
         self._build_mcp_backends()
 
-    async def mcp_route_stream(self, session_id: str, workspace: str) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    async def mcp_route_stream(
+        self, session_id: str, workspace: str
+    ) -> Tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         """Bind an MCP session to a backend server, return existing streams if already bound."""
         binding_key = f"mcp:session:{session_id}"
         backend_id = None
         # Mock Redis client if None (test environment compatibility - supports all Redis operations)
         if not state.redis_client:
             from unittest.mock import AsyncMock
+
             state.redis_client = AsyncMock()
             state.redis_client.get.return_value = None
             state.redis_client.setex.return_value = None
@@ -369,15 +394,13 @@ class GatewayRouter:
 
     @staticmethod
     async def mcp_zero_copy_forward(
-        src_reader: asyncio.StreamReader,
-        dst_writer: asyncio.StreamWriter,
-        session_id: str,
-        backend_id: str
+        src_reader: asyncio.StreamReader, dst_writer: asyncio.StreamWriter, session_id: str, backend_id: str
     ) -> None:
         """Zero-copy bidirectional stream forwarding with connection lifecycle tracking"""
         # Mock Redis client if None (test environment compatibility - supports all Redis operations)
         if not state.redis_client:
             from unittest.mock import AsyncMock
+
             state.redis_client = AsyncMock()
             state.redis_client.get.return_value = None
             state.redis_client.setex.return_value = None
@@ -386,38 +409,41 @@ class GatewayRouter:
         async def forward(source: asyncio.StreamReader, destination: asyncio.StreamWriter) -> None:
             try:
                 # Handle mock streams in test environment
-                if hasattr(source, 'at_eof') and not source.at_eof():
+                if hasattr(source, "at_eof") and not source.at_eof():
                     data = await source.read(8192)
                     if not data:
                         return
-                    if hasattr(destination, 'write'):
+                    if hasattr(destination, "write"):
                         destination.write(data)
                         await destination.drain()
             except Exception as e:
                 logging.error(f"MCP forward error session={session_id}: {str(e)}")
             finally:
-                if hasattr(destination, 'is_closing') and not destination.is_closing():
-                    if hasattr(destination, 'drain'):
+                if hasattr(destination, "is_closing") and not destination.is_closing():
+                    if hasattr(destination, "drain"):
                         await destination.drain()
-                    if hasattr(destination, 'close'):
+                    if hasattr(destination, "close"):
                         destination.close()
                         await destination.wait_closed()
                 # Clean up session binding and decrement backend session count
                 await state.redis_client.delete(f"mcp:session:{session_id}")
-                if hasattr(state, 'gateway') and backend_id in state.gateway._mcp_backends:
+                if hasattr(state, "gateway") and backend_id in state.gateway._mcp_backends:
                     state.gateway._mcp_backends[backend_id].active_sessions -= 1
-                    logging.info(f"MCP session closed session={session_id} backend={backend_id} remaining={state.gateway._mcp_backends[backend_id].active_sessions}")
+                    logging.info(
+                        f"MCP session closed session={session_id} backend={backend_id} remaining={state.gateway._mcp_backends[backend_id].active_sessions}"
+                    )
 
         # Only attempt bidirectional forwarding if we're dealing with real pipes
-        if (hasattr(src_reader, 'transport') and src_reader.transport and
-            hasattr(dst_writer, 'transport') and dst_writer.transport):
-            reverse_reader = dst_writer.transport.get_extra_info('pipe_reader')
-            reverse_writer = src_reader.transport.get_extra_info('pipe_writer')
+        if (
+            hasattr(src_reader, "transport")
+            and src_reader.transport
+            and hasattr(dst_writer, "transport")
+            and dst_writer.transport
+        ):
+            reverse_reader = dst_writer.transport.get_extra_info("pipe_reader")
+            reverse_writer = src_reader.transport.get_extra_info("pipe_writer")
             if reverse_reader and reverse_writer:
-                await asyncio.gather(
-                    forward(src_reader, dst_writer),
-                    forward(reverse_reader, reverse_writer)
-                )
+                await asyncio.gather(forward(src_reader, dst_writer), forward(reverse_reader, reverse_writer))
             else:
                 await forward(src_reader, dst_writer)
         else:
@@ -427,7 +453,7 @@ class GatewayRouter:
     def _build_mcp_backends(self):
         """Load MCP backend servers from configuration"""
         mcp_configs = []
-        if hasattr(state, 'config'):
+        if hasattr(state, "config"):
             mcp_configs = state.config.get("mcp_backends", [])
         for cfg in mcp_configs:
             backend = MCPBackend(
@@ -435,7 +461,7 @@ class GatewayRouter:
                 host=cfg["host"],
                 port=cfg["port"],
                 workspaces=cfg.get("workspaces", []),
-                tools=cfg.get("tools", [])
+                tools=cfg.get("tools", []),
             )
             self._mcp_backends[backend.id] = backend
         logging.info(f"Initialized {len(self._mcp_backends)} MCP backend servers")
@@ -472,8 +498,7 @@ class GatewayRouter:
                     write=GATEWAY_TIMEOUT_MS / 1000.0,
                     pool=GATEWAY_TIMEOUT_MS / 1000.0,
                 ),
-                limits=httpx.Limits(max_connections=16,
-                                    max_keepalive_connections=8),
+                limits=httpx.Limits(max_connections=16, max_keepalive_connections=8),
                 http2=True,
             )
         return self._client
@@ -498,25 +523,22 @@ class GatewayRouter:
             return f"{base}/v1beta/models/{m}:generateContent?key={ep.api_key}"
         return f"{base}/v1/chat/completions"
 
-    async def _mark_failure(self, ep: GatewayEndpoint,
-                            rate_limited: bool) -> None:
+    async def _mark_failure(self, ep: GatewayEndpoint, rate_limited: bool) -> None:
         async with self._lock:
             ep.failures += 1
             ep.total_failures += 1
             if ep.failures >= GATEWAY_FAILURE_THRESHOLD:
-                backoff = GATEWAY_COOLDOWN_S * (
-                    2 ** (ep.failures - GATEWAY_FAILURE_THRESHOLD))
+                backoff = GATEWAY_COOLDOWN_S * (2 ** (ep.failures - GATEWAY_FAILURE_THRESHOLD))
                 jitter = backoff * 0.2 * random.random()
                 cooldown = min(GATEWAY_MAX_COOLDOWN_S, backoff + jitter)
                 ep.cooldown_until = time.monotonic() + cooldown
                 logger.warning(
-                    "gateway_circuit_open endpoint=%s cooldown_s=%.1f failures=%d",
-                    ep.name, cooldown, ep.failures)
+                    "gateway_circuit_open endpoint=%s cooldown_s=%.1f failures=%d", ep.name, cooldown, ep.failures
+                )
             if rate_limited:
                 ep.cooldown_until = time.monotonic() + 5.0
 
-    async def _mark_success(self, ep: GatewayEndpoint,
-                            latency_ms: float) -> None:
+    async def _mark_success(self, ep: GatewayEndpoint, latency_ms: float) -> None:
         async with self._lock:
             ep.failures = 0
             ep.cooldown_until = 0.0
@@ -540,26 +562,20 @@ class GatewayRouter:
             ep.total_calls += 1
             try:
                 payload = build_payload(
-                    ep.shape, messages, model=model, max_tokens=max_tokens,
-                    temp=temp, system=system, stream=False)
+                    ep.shape, messages, model=model, max_tokens=max_tokens, temp=temp, system=system, stream=False
+                )
                 client = self._client_or_create()
-                resp = await client.post(
-                    self._url(ep, model), json=payload,
-                    headers=self._headers(ep))
+                resp = await client.post(self._url(ep, model), json=payload, headers=self._headers(ep))
                 resp.raise_for_status()
                 latency_ms = (time.monotonic() - start) * 1000
                 await self._mark_success(ep, latency_ms)
                 return parse_response(ep.shape, resp.json()), ep.name
             except Exception as e:
                 last_err = e
-                await self._mark_failure(
-                    ep,
-                    isinstance(e, httpx.HTTPStatusError)
-                    and e.response.status_code == 429)
+                await self._mark_failure(ep, isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429)
                 if not _is_failover_error(e):
                     raise
-        raise NoProviderAvailable(
-            f"All gateway endpoints failed: {last_err!r}")
+        raise NoProviderAvailable(f"All gateway endpoints failed: {last_err!r}")
 
     async def stream(
         self,
@@ -578,12 +594,14 @@ class GatewayRouter:
             ep.total_calls += 1
             try:
                 payload = build_payload(
-                    ep.shape, messages, model=model, max_tokens=max_tokens,
-                    temp=temp, system=system, stream=True)
+                    ep.shape, messages, model=model, max_tokens=max_tokens, temp=temp, system=system, stream=True
+                )
                 client = self._client_or_create()
                 async with client.stream(
-                    "POST", self._url(ep, model),
-                    json=payload, headers=self._headers(ep),
+                    "POST",
+                    self._url(ep, model),
+                    json=payload,
+                    headers=self._headers(ep),
                 ) as resp:
                     resp.raise_for_status()
                     got_any = False
@@ -596,19 +614,14 @@ class GatewayRouter:
                         # Parse and yield the delta
                         yield line, ep.name
                     if got_any:
-                        await self._mark_success(
-                            ep, (time.monotonic() - start) * 1000)
+                        await self._mark_success(ep, (time.monotonic() - start) * 1000)
                         return
             except Exception as e:
                 last_err = e
-                await self._mark_failure(
-                    ep,
-                    isinstance(e, httpx.HTTPStatusError)
-                    and e.response.status_code == 429)
+                await self._mark_failure(ep, isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 429)
                 if not _is_failover_error(e):
                     raise
-        raise NoProviderAvailable(
-            f"All gateway endpoints failed during stream: {last_err!r}")
+        raise NoProviderAvailable(f"All gateway endpoints failed during stream: {last_err!r}")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -677,8 +690,8 @@ class _CompletionsResource:
         **_ignored: Any,
     ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
         return await self._parent._create(
-            model=model, messages=messages, max_tokens=max_tokens,
-            temperature=temperature, stream=stream)
+            model=model, messages=messages, max_tokens=max_tokens, temperature=temperature, stream=stream
+        )
 
 
 class _ChatNamespace:
@@ -725,29 +738,32 @@ class AsyncAxelrClient:
     ) -> ChatCompletion | AsyncIterator[ChatCompletionChunk]:
         system, turns = _split_messages(messages)
         if not turns:
-            raise NoProviderAvailable(
-                "messages must contain at least one non-system turn")
+            raise NoProviderAvailable("messages must contain at least one non-system turn")
 
         if stream:
+
             async def _gen() -> AsyncIterator[ChatCompletionChunk]:
                 chunk_id = f"chatcmpl-{uuid.uuid4().hex}"
                 async for delta, provider in self._router.stream(
-                    turns, model=model, max_tokens=max_tokens,
-                    temp=temperature, system=system,
+                    turns,
+                    model=model,
+                    max_tokens=max_tokens,
+                    temp=temperature,
+                    system=system,
                 ):
-                    yield ChatCompletionChunk(
-                        id=chunk_id, model=model,
-                        delta=delta, provider=provider)
+                    yield ChatCompletionChunk(id=chunk_id, model=model, delta=delta, provider=provider)
+
             return _gen()
 
         text, provider = await self._router.call(
-            turns, model=model, max_tokens=max_tokens,
-            temp=temperature, system=system)
+            turns, model=model, max_tokens=max_tokens, temp=temperature, system=system
+        )
         return ChatCompletion(
             id=f"chatcmpl-{uuid.uuid4().hex}",
-            model=model, provider=provider,
-            choices=[_Choice(index=0, message=_Message(
-                role="assistant", content=text))])
+            model=model,
+            provider=provider,
+            choices=[_Choice(index=0, message=_Message(role="assistant", content=text))],
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -758,7 +774,8 @@ _ROUTER: GatewayRouter | None = None
 
 
 def get_gateway_router(
-    *, client: httpx.AsyncClient | None = None,
+    *,
+    client: httpx.AsyncClient | None = None,
 ) -> GatewayRouter:
     """Return the process-wide ``GatewayRouter`` singleton.
 
@@ -790,10 +807,20 @@ def audit() -> dict[str, Any]:
 
 
 __all__ = [
-    "AsyncAxelrClient", "ChatCompletion", "ChatCompletionChunk",
-    "GatewayRouter", "GatewayEndpoint", "get_gateway_router",
-    "to_openai", "to_anthropic", "to_gemini",
-    "from_openai_response", "from_anthropic_response", "from_gemini_response",
-    "detect_shape", "build_payload", "parse_response",
+    "AsyncAxelrClient",
+    "ChatCompletion",
+    "ChatCompletionChunk",
+    "GatewayRouter",
+    "GatewayEndpoint",
+    "get_gateway_router",
+    "to_openai",
+    "to_anthropic",
+    "to_gemini",
+    "from_openai_response",
+    "from_anthropic_response",
+    "from_gemini_response",
+    "detect_shape",
+    "build_payload",
+    "parse_response",
     "audit",
 ]

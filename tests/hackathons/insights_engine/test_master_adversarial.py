@@ -4,6 +4,7 @@ Rules for this file:
   * every test is marked `slow` — excluded from fast PR runs
   * every test is adversarial — it tries to break the engine
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,11 +17,27 @@ pytestmark = [pytest.mark.slow, pytest.mark.adversarial]
 # ══════════════════════════════════════════════════════════════════════════
 
 DANGEROUS_KEYWORDS = [
-    "DROP TABLE", "DELETE FROM", "TRUNCATE", "ALTER TABLE",
-    "CREATE TABLE", "INSERT INTO", "UPDATE SET", "GRANT",
-    "REVOKE", "EXECUTE", "EXEC ", "sp_", "xp_cmdshell",
-    "--", ";", "/*", "*/", "UNION SELECT", "OR 1=1",
+    "DROP TABLE",
+    "DELETE FROM",
+    "TRUNCATE",
+    "ALTER TABLE",
+    "CREATE TABLE",
+    "INSERT INTO",
+    "UPDATE SET",
+    "GRANT",
+    "REVOKE",
+    "EXECUTE",
+    "EXEC ",
+    "sp_",
+    "xp_cmdshell",
+    "--",
+    ";",
+    "/*",
+    "*/",
+    "UNION SELECT",
+    "OR 1=1",
 ]
+
 
 @pytest.mark.asyncio
 async def test_a1_dangerous_sql_blocked(insights_engine):
@@ -49,6 +66,7 @@ async def test_a3_boolean_bypass_blocked(insights_engine):
 # B. Resource Containment — must enforce query limits
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_b1_query_timeout_enforced(insights_engine):
     """Long-running queries must be terminated by timeout."""
@@ -76,6 +94,7 @@ async def test_b3_memory_limit_enforced(insights_engine):
 # C. Authorization — must enforce row-level security
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_c1_cross_tenant_access_blocked(insights_engine):
     """Users must not access other tenants' data."""
@@ -94,6 +113,7 @@ async def test_c2_column_level_security_enforced(insights_engine):
 # ══════════════════════════════════════════════════════════════════════════
 # D. Protocol Conformance — SQL must be strictly validated
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_d1_invalid_syntax_rejected(insights_engine):

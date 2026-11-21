@@ -4,6 +4,7 @@ AXELR — Permission & Consent Management System
 Replaces Wispr Flow's permission system with a modern, trust-first approach.
 Asks users for critical permissions only when needed, maintains full transparency.
 """
+
 from __future__ import annotations
 
 import os
@@ -14,18 +15,22 @@ from typing import Any, Iterable
 
 def _bool(key: str, default: bool = False) -> bool:
     v = (os.getenv(key, "") or "").lower()
-    if not v: return default
+    if not v:
+        return default
     return v in ("1", "true", "yes", "on")
+
 
 @dataclass(slots=True, frozen=True)
 class Permission:
     """Represents a single permission that users can grant/deny."""
+
     id: str
     name: str
     description: str
     required: bool = False
     category: str = "general"  # privacy, security, functionality, analytics
     default_value: bool = False
+
 
 # Critical permissions required for core functionality (Wispr flow replacement)
 CORE_PERMISSIONS: list[Permission] = [
@@ -35,7 +40,7 @@ CORE_PERMISSIONS: list[Permission] = [
         description="Process your prompts and files to provide AI assistance. Required for core functionality.",
         required=True,
         category="privacy",
-        default_value=True
+        default_value=True,
     ),
     Permission(
         id="local_inference",
@@ -43,7 +48,7 @@ CORE_PERMISSIONS: list[Permission] = [
         description="Run lightweight AI models locally on your device to reduce latency and costs.",
         required=False,
         category="functionality",
-        default_value=True
+        default_value=True,
     ),
     Permission(
         id="file_analysis",
@@ -51,7 +56,7 @@ CORE_PERMISSIONS: list[Permission] = [
         description="Analyze uploaded files to provide relevant AI assistance. Only processed when you upload files.",
         required=False,
         category="privacy",
-        default_value=True
+        default_value=True,
     ),
     Permission(
         id="telemetry",
@@ -59,7 +64,7 @@ CORE_PERMISSIONS: list[Permission] = [
         description="Share anonymous usage data to help improve Axelr. No personal data is ever collected.",
         required=False,
         category="analytics",
-        default_value=False
+        default_value=False,
     ),
     Permission(
         id="error_reporting",
@@ -67,13 +72,15 @@ CORE_PERMISSIONS: list[Permission] = [
         description="Automatically send crash reports and error logs to help us fix issues faster.",
         required=False,
         category="security",
-        default_value=True
-    )
+        default_value=True,
+    ),
 ]
+
 
 @dataclass(slots=True)
 class UserConsent:
     """Stores user's consent choices for all permissions."""
+
     granted: set[str] = field(default_factory=set)
     denied: set[str] = field(default_factory=set)
     granted_at: dict[str, float] = field(default_factory=dict)
@@ -104,11 +111,7 @@ class UserConsent:
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize consent state."""
-        return {
-            "granted": list(self.granted),
-            "denied": list(self.denied),
-            "granted_at": self.granted_at
-        }
+        return {"granted": list(self.granted), "denied": list(self.denied), "granted_at": self.granted_at}
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "UserConsent":
@@ -119,13 +122,16 @@ class UserConsent:
         instance.granted_at = data.get("granted_at", {})
         return instance
 
+
 def get_required_permissions() -> list[Permission]:
     """Get all required permissions that must be granted."""
     return [p for p in CORE_PERMISSIONS if p.required]
 
+
 def get_optional_permissions() -> list[Permission]:
     """Get all optional permissions that users can choose."""
     return [p for p in CORE_PERMISSIONS if not p.required]
+
 
 def check_permissions(consent: UserConsent, required: Iterable[str]) -> tuple[bool, list[str]]:
     """Check if all required permissions are granted."""
@@ -134,6 +140,7 @@ def check_permissions(consent: UserConsent, required: Iterable[str]) -> tuple[bo
         if not consent.has_permission(perm_id):
             missing.append(perm_id)
     return len(missing) == 0, missing
+
 
 import json
 import threading
@@ -145,10 +152,12 @@ from typing import Dict, Optional, Tuple
 class ConsentAuditEntry:
     ts: float
     perm_id: str
-    action: str   # "granted" | "denied" | "expired"
+    action: str  # "granted" | "denied" | "expired"
+
 
 class ConsentStore:
     """Persists UserConsent + audit log. GDPR-compliant."""
+
     SCHEMA_VERSION = 1
 
     def __init__(self, path: Optional[Path] = None) -> None:
@@ -172,10 +181,14 @@ class ConsentStore:
 
     def save(self) -> None:
         with self._lock:
-            self._path.write_text(json.dumps({
-                "schema_version": self.SCHEMA_VERSION,
-                "consent": self._consent.to_dict(),
-            }))
+            self._path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": self.SCHEMA_VERSION,
+                        "consent": self._consent.to_dict(),
+                    }
+                )
+            )
 
     def grant(self, perm_id: str) -> None:
         self._consent.grant(perm_id, time.time())
@@ -201,15 +214,20 @@ class ConsentStore:
         audit = []
         if self._audit_path.exists():
             for line in self._audit_path.read_text().splitlines():
-                try: audit.append(json.loads(line))
-                except: pass
+                try:
+                    audit.append(json.loads(line))
+                except:
+                    pass
         return {"consent": self._consent.to_dict(), "audit": audit}
 
     def forget(self) -> None:
         """Right-to-erasure: wipe all consent state."""
         self._consent = UserConsent()
-        if self._path.exists(): self._path.unlink()
-        if self._audit_path.exists(): self._audit_path.unlink()
+        if self._path.exists():
+            self._path.unlink()
+        if self._audit_path.exists():
+            self._audit_path.unlink()
+
 
 __all__ = [
     "Permission",
@@ -219,5 +237,5 @@ __all__ = [
     "CORE_PERMISSIONS",
     "get_required_permissions",
     "get_optional_permissions",
-    "check_permissions"
+    "check_permissions",
 ]

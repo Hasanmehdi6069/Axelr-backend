@@ -11,6 +11,7 @@ Layered on top of axelr_vultr (unchanged). Sentinel adds:
 Every action, approval, and result lands in one append-only JSONL log,
 mirrored to axelr_vultr.auditing so the Insights stream stays canonical.
 """
+
 from __future__ import annotations
 
 from .actions import (
@@ -57,27 +58,54 @@ from .wal import Snapshot as WalSnapshot
 __all__ = [
     "__version__",
     # engine
-    "AUDIT_PATH", "NETWORK_ALLOWLIST", "OUTPUT_CAP_BYTES", "SANDBOX_ROOT",
-    "WALL_CLOCK_S", "MAX_MEMORY_MB", "MAX_CPU_S",
-    "ContainmentViolation", "Engine", "Snapshot", "minify", "sha16",
-    "audit", "tail",
+    "AUDIT_PATH",
+    "NETWORK_ALLOWLIST",
+    "OUTPUT_CAP_BYTES",
+    "SANDBOX_ROOT",
+    "WALL_CLOCK_S",
+    "MAX_MEMORY_MB",
+    "MAX_CPU_S",
+    "ContainmentViolation",
+    "Engine",
+    "Snapshot",
+    "minify",
+    "sha16",
+    "audit",
+    "tail",
     # actions
-    "TEMPLATES", "dispatch", "list_actions", "filter_actions", "get_template",
+    "TEMPLATES",
+    "dispatch",
+    "list_actions",
+    "filter_actions",
+    "get_template",
     # atlassian
-    "PendingApproval", "ApprovalQueue", "approve", "reject",
-    "list_pending", "propose", "RULES",
+    "PendingApproval",
+    "ApprovalQueue",
+    "approve",
+    "reject",
+    "list_pending",
+    "propose",
+    "RULES",
     # server
-    "handle_line", "serve", "serve_main",
+    "handle_line",
+    "serve",
+    "serve_main",
     # wal
-    "MemoryWAL", "PersistentWAL", "WalSnapshot", "make_wal",
+    "MemoryWAL",
+    "PersistentWAL",
+    "WalSnapshot",
+    "make_wal",
     # hardening
-    "audit_isolation", "detect_isolation", "wrap_command",
+    "audit_isolation",
+    "detect_isolation",
+    "wrap_command",
 ]
 
 
 def health() -> dict:
     """Synchronous package health probe — used by /api/health/ready."""
     from pathlib import Path
+
     return {
         "version": __version__,
         "sandbox_root": str(SANDBOX_ROOT),
@@ -86,11 +114,11 @@ def health() -> dict:
         "audit_writable": AUDIT_PATH.parent.exists() and os_access_w(AUDIT_PATH.parent),
         "templates": len(TEMPLATES),
         "network_allowlist": sorted(NETWORK_ALLOWLIST),
-        "limits": {"wall_s": WALL_CLOCK_S, "memory_mb": MAX_MEMORY_MB,
-                   "cpu_s": MAX_CPU_S},
+        "limits": {"wall_s": WALL_CLOCK_S, "memory_mb": MAX_MEMORY_MB, "cpu_s": MAX_CPU_S},
     }
 
 
 def os_access_w(p) -> bool:
     import os
+
     return os.access(str(p), os.W_OK)

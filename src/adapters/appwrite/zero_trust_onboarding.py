@@ -27,7 +27,7 @@ APPWRITE_TEAM_ROLES = {
     "developer_staging": ["read:staging:*", "write:staging:*"],
     "developer_production": ["read:production:*"],  # Write access requires explicit approval
     "support": ["read:support_tickets", "write:support_tickets"],
-    "contractor": ["read:staging:public"]  # Minimal default contractor access
+    "contractor": ["read:staging:public"],  # Minimal default contractor access
 }
 
 VULTR_IAM_ROLES = {
@@ -35,11 +35,13 @@ VULTR_IAM_ROLES = {
     "billing": ["billing:read", "invoice:read"],
     "devops_staging": ["instance:read:staging-*", "storage:read:staging-*", "database:read:staging-*"],
     "devops_production": ["instance:read:production-*", "storage:read:production-*"],
-    "support": ["ticket:create", "ticket:read"]
+    "support": ["ticket:create", "ticket:read"],
 }
+
 
 class TeamMember(BaseModel):
     """Pydantic model for team member validation"""
+
     email: EmailStr
     full_name: str = Field(..., min_length=2, max_length=100)
     role_type: str = Field(..., description="Requested role type")
@@ -49,20 +51,21 @@ class TeamMember(BaseModel):
     end_date: Optional[datetime] = None  # For contractors, required expiration
     request_reason: str = Field(..., min_length=20, max_length=500, description="Justification for access")
 
-    @validator('end_date')
+    @validator("end_date")
     def validate_contractor_end_date(cls, v, values):
-        if values.get('is_contractor') and v is None:
+        if values.get("is_contractor") and v is None:
             raise ValueError("Contractors must have an end date for access expiration")
         if v and v < datetime.utcnow():
             raise ValueError("End date must be in the future")
         return v
 
-    @validator('role_type')
+    @validator("role_type")
     def validate_role_type(cls, v):
         valid_roles = list(APPWRITE_TEAM_ROLES.keys())
         if v not in valid_roles:
             raise ValueError(f"Invalid role type. Must be one of: {valid_roles}")
         return v
+
 
 class ZeroTrustOnboardingManager:
     """
@@ -70,6 +73,7 @@ class ZeroTrustOnboardingManager:
     Enforces least-privilege access, explicit approval requirements for production access,
     and automatic access expiration for contractors.
     """
+
     def __init__(self):
         # Initialize Appwrite client
         self.appwrite_client = Client()
@@ -82,10 +86,7 @@ class ZeroTrustOnboardingManager:
         self.databases = Databases(self.appwrite_client)
 
         # Vultr API configuration
-        self.vultr_headers = {
-            "Authorization": f"Bearer {VULTR_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        self.vultr_headers = {"Authorization": f"Bearer {VULTR_API_KEY}", "Content-Type": "application/json"}
 
         # Approval tracking collection
         self.approval_db_id = os.getenv("APPWRITE_ACCESS_REQUESTS_DB", "access-requests")
@@ -119,7 +120,7 @@ class ZeroTrustOnboardingManager:
             "appwrite_member_id": appwrite_member.get("$id"),
             "vultr_member_id": vultr_member.get("id"),
             "access_provisioned": datetime.utcnow().isoformat(),
-            "expiration_date": member_data.end_date.isoformat() if member_data.end_date else None
+            "expiration_date": member_data.end_date.isoformat() if member_data.end_date else None,
         }
 
     def _validate_access_request(self, member_data: TeamMember) -> None:
@@ -162,7 +163,7 @@ class ZeroTrustOnboardingManager:
             "created_at": datetime.utcnow().isoformat(),
             "approved_by": None,
             "approved_at": None,
-            "expiration_date": member_data.end_date.isoformat() if member_data.end_date else None
+            "expiration_date": member_data.end_date.isoformat() if member_data.end_date else None,
         }
 
         # Store approval request in Appwrite database
@@ -173,7 +174,7 @@ class ZeroTrustOnboardingManager:
                 document_id="unique()",
                 data=approval_request,
                 read=["role:system", "role:admin"],
-                write=["role:system", "role:admin"]
+                write=["role:system", "role:admin"],
             )
 
             # Trigger admin notification (Slack/email via Appwrite functions)
@@ -182,7 +183,7 @@ class ZeroTrustOnboardingManager:
             return {
                 "status": "pending_approval",
                 "request_id": created_request["$id"],
-                "message": "Production access requires admin approval. Request has been submitted."
+                "message": "Production access requires admin approval. Request has been submitted.",
             }
         except AppwriteException as e:
             raise RuntimeError(f"Failed to create approval request: {str(e)}")
@@ -201,16 +202,13 @@ class ZeroTrustOnboardingManager:
                 team_id=team_id,
                 email=member_data.email,
                 roles=team_roles,
-                url=os.getenv("APPWRITE_TEAM_INVITE_URL", "https://axelr.ai/team/invite")
+                url=os.getenv("APPWRITE_TEAM_INVITE_URL", "https://axelr.ai/team/invite"),
             )
 
             # Schedule access revocation if contractor
             if member_data.is_contractor and member_data.end_date:
                 self._schedule_access_revocation(
-                    system="appwrite",
-                    team_id=team_id,
-                    membership_id=membership["$id"],
-                    revoke_at=member_data.end_date
+                    system="appwrite", team_id=team_id, membership_id=membership["$id"], revoke_at=member_data.end_date
                 )
 
             return membership
@@ -230,11 +228,7 @@ class ZeroTrustOnboardingManager:
             response = requests.post(
                 f"{VULTR_ENDPOINT}/users",
                 headers=self.vultr_headers,
-                json={
-                    "email": member_data.email,
-                    "name": member_data.full_name,
-                    "roles": vultr_roles
-                }
+                json={"email": member_data.email, "name": member_data.full_name, "roles": vultr_roles},
             )
             response.raise_for_status()
             vultr_user = response.json()
@@ -242,9 +236,7 @@ class ZeroTrustOnboardingManager:
             # Schedule revocation for contractors
             if member_data.is_contractor and member_data.end_date:
                 self._schedule_access_revocation(
-                    system="vultr",
-                    user_id=vultr_user["id"],
-                    revoke_at=member_data.end_date
+                    system="vultr", user_id=vultr_user["id"], revoke_at=member_data.end_date
                 )
 
             return vultr_user
@@ -265,10 +257,7 @@ class ZeroTrustOnboardingManager:
             team_id = new_team["$id"]
 
             # Set zero-trust team permissions (only system can manage by default)
-            self.teams.update(
-                team_id=team_id,
-                name=f"axelr-{environment}-team"
-            )
+            self.teams.update(team_id=team_id, name=f"axelr-{environment}-team")
 
             return team_id
         except AppwriteException as e:
@@ -301,10 +290,10 @@ class ZeroTrustOnboardingManager:
                     "system": system,
                     "resource_id": resource_id,
                     "revoke_at": revoke_at.isoformat(),
-                    "status": "pending"
+                    "status": "pending",
                 },
                 read=["role:system"],
-                write=["role:system"]
+                write=["role:system"],
             )
         except AppwriteException as e:
             raise RuntimeError(f"Failed to schedule access revocation: {str(e)}")
@@ -321,14 +310,16 @@ class ZeroTrustOnboardingManager:
                 webhook_url,
                 json={
                     "text": f"New access approval request: {request_data['member_email']} requesting {request_data['requested_role']} access to {request_data['requested_environment']}",
-                    "request_details": request_data
-                }
+                    "request_details": request_data,
+                },
             )
         except requests.exceptions.RequestException:
             # Fail silently to not block primary workflow, but log the error
             pass
 
-    def _log_access_event(self, event_type: str, member_data: TeamMember, appwrite_data: Dict, vultr_data: Dict) -> None:
+    def _log_access_event(
+        self, event_type: str, member_data: TeamMember, appwrite_data: Dict, vultr_data: Dict
+    ) -> None:
         """Log all access provisioning events to Appwrite audit log"""
         try:
             self.databases.create_document(
@@ -343,13 +334,14 @@ class ZeroTrustOnboardingManager:
                     "is_contractor": member_data.is_contractor,
                     "appwrite_member_id": appwrite_data.get("$id"),
                     "vultr_member_id": vultr_data.get("id"),
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": datetime.utcnow().isoformat(),
                 },
                 read=["role:system", "role:admin"],
-                write=["role:system"]
+                write=["role:system"],
             )
         except AppwriteException:
             pass
+
 
 # Appwrite Function entry point
 def main(context: Any, payload: Dict[str, Any]) -> Dict[str, Any]:

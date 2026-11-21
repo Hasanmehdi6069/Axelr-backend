@@ -4,6 +4,7 @@ Critical fix vs. previous version: `websockets.connect` does NOT accept
 `extra_headers` for query params. Query params MUST be in the URL.
 Retries with exponential backoff. Emits events as an async iterator.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +38,9 @@ class SwitchAgentClient:
         self._cursor = 0
         self._http = httpx.AsyncClient(base_url=self._bridge, timeout=30.0)
 
-    async def register(self, name: str, connection_model: str = "always_on", addressing: str = "anyone") -> dict[str, Any]:
+    async def register(
+        self, name: str, connection_model: str = "always_on", addressing: str = "anyone"
+    ) -> dict[str, Any]:
         if not self._registration_token:
             raise RuntimeError("SWITCH_REGISTRATION_TOKEN is required for registration")
         headers = {"Authorization": f"Bearer {self._registration_token}"}
@@ -70,7 +73,7 @@ class SwitchAgentClient:
             "rooms": ",".join(rooms),
             "scope": "single",
         }
-        ws_url = f"{ws_base}?{urlencode(params)}"          # ← THE FIX
+        ws_url = f"{ws_base}?{urlencode(params)}"  # ← THE FIX
         headers = {"Authorization": f"Bearer {self._api_key}"}
         backoff = 1.0
 

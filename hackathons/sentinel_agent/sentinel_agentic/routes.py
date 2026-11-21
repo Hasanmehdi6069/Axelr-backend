@@ -10,6 +10,7 @@ Four endpoints, no auth duplication (reuses Vultr's get_vultr_user):
 The execution path is identical to the MCP tool path — same dispatch(),
 same audit, same WAL, same engine.
 """
+
 from __future__ import annotations
 
 from axelr_vultr.routes import get_vultr_user
@@ -54,18 +55,15 @@ async def approvals_list(user: dict = Depends(get_vultr_user)) -> dict:
 
 
 @router.post("/approvals/{proposal_id}/approve")
-async def approvals_approve(proposal_id: str, body: ApproveRequest,
-                            user: dict = Depends(get_vultr_user)) -> dict:
-    result = await approve(proposal_id, approver=body.approver,
-                           engine=_engine)
+async def approvals_approve(proposal_id: str, body: ApproveRequest, user: dict = Depends(get_vultr_user)) -> dict:
+    result = await approve(proposal_id, approver=body.approver, engine=_engine)
     if not result.get("ok"):
         raise HTTPException(400, detail=result.get("error", "approval_failed"))
     return {"success": True, **result}
 
 
 @router.post("/approvals/{proposal_id}/reject")
-async def approvals_reject(proposal_id: str, body: RejectRequest,
-                           user: dict = Depends(get_vultr_user)) -> dict:
+async def approvals_reject(proposal_id: str, body: RejectRequest, user: dict = Depends(get_vultr_user)) -> dict:
     result = await reject(proposal_id, reason=body.reason)
     if not result.get("ok"):
         raise HTTPException(400, detail=result.get("error", "rejection_failed"))
@@ -73,14 +71,17 @@ async def approvals_reject(proposal_id: str, body: RejectRequest,
 
 
 @router.post("/propose")
-async def propose_actions(body: ProposeRequest,
-                          user: dict = Depends(get_vultr_user)) -> dict:
+async def propose_actions(body: ProposeRequest, user: dict = Depends(get_vultr_user)) -> dict:
     result = await propose(_engine, {"max_pages": body.max_pages})
     if body.queue:
         for p in result["proposals"]:
-            await _QUEUE.add(PendingApproval(
-                proposal_id=p["proposal_id"], action=p["action"],
-                params=p["params"], category=p["category"],
-                reason=p["reason"]))
-    return {"success": True, **result,
-            "queued": len(result["proposals"]) if body.queue else 0}
+            await _QUEUE.add(
+                PendingApproval(
+                    proposal_id=p["proposal_id"],
+                    action=p["action"],
+                    params=p["params"],
+                    category=p["category"],
+                    reason=p["reason"],
+                )
+            )
+    return {"success": True, **result, "queued": len(result["proposals"]) if body.queue else 0}

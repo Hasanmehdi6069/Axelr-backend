@@ -1,4 +1,5 @@
 """AI-powered payment intent extraction from unstructured text"""
+
 from __future__ import annotations
 
 import hashlib
@@ -16,13 +17,16 @@ from .core import get_core_module
 
 logger = logging.getLogger("axelr.paypal.ai")
 
+
 class PaymentIntentItem(BaseModel):
     name: str = Field(..., min_length=1)
     quantity: int = Field(1, ge=1)
     unit_amount: str = Field(..., description="Decimal string of unit price")
 
+
 class PaymentIntent(BaseModel):
     """Structured payment intent extracted from unstructured text"""
+
     payer_name: str
     payer_email: Optional[str] = None
     amount: str  # Total amount as Decimal string
@@ -32,21 +36,18 @@ class PaymentIntent(BaseModel):
     type: str = Field("invoice", pattern="^(invoice|subscription|payout)$")
     confidence: float = Field(..., ge=0, le=1)  # AI confidence score
 
-# Regex patterns for fallback extraction
-CURRENCY_PATTERNS = {
-    r'\$': 'USD',
-    r'€': 'EUR',
-    r'£': 'GBP',
-    r'¥': 'JPY'
-}
 
-EMAIL_PATTERN = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
-AMOUNT_PATTERN = r'[\$€£¥]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)'
+# Regex patterns for fallback extraction
+CURRENCY_PATTERNS = {r"\$": "USD", r"€": "EUR", r"£": "GBP", r"¥": "JPY"}
+
+EMAIL_PATTERN = r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+"
+AMOUNT_PATTERN = r"[\$€£¥]?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)"
 DATE_PATTERNS = [
-    r'(\d{4}-\d{2}-\d{2})',  # ISO
-    r'(\d{2}/\d{2}/\d{4})',   # US format
-    r'due\s*(?:by|on)?\s*(\w+\s+\d{1,2},?\s+\d{4})'  # Natural language
+    r"(\d{4}-\d{2}-\d{2})",  # ISO
+    r"(\d{2}/\d{2}/\d{4})",  # US format
+    r"due\s*(?:by|on)?\s*(\w+\s+\d{1,2},?\s+\d{4})",  # Natural language
 ]
+
 
 def _parse_date(date_str: str) -> Optional[str]:
     """Attempt to parse various date formats into ISO"""
@@ -56,6 +57,7 @@ def _parse_date(date_str: str) -> Optional[str]:
         except ValueError:
             continue
     return None
+
 
 def _extract_with_regex(text: str) -> Dict[str, Any]:
     """Fallback regex-based extraction when LLM is unavailable"""
@@ -69,7 +71,7 @@ def _extract_with_regex(text: str) -> Dict[str, Any]:
         "type": "invoice",
         "confidence": 0.5,  # Base confidence for regex extraction
         "raw_input": text,
-        "extracted_from": "regex_fallback"
+        "extracted_from": "regex_fallback",
     }
 
     # Extract email
@@ -90,7 +92,7 @@ def _extract_with_regex(text: str) -> Dict[str, Any]:
             break
 
     # Also check for currency codes in text
-    currency_code_match = re.search(r'\b(USD|EUR|GBP|CAD|AUD|JPY|INR|BRL|MXN|SGD|HKD|NZD)\b', text)
+    currency_code_match = re.search(r"\b(USD|EUR|GBP|CAD|AUD|JPY|INR|BRL|MXN|SGD|HKD|NZD)\b", text)
     if currency_code_match:
         result["currency"] = currency_code_match.group(1)
 
@@ -100,7 +102,7 @@ def _extract_with_regex(text: str) -> Dict[str, Any]:
         amounts = []
         for amt_str in amount_matches:
             try:
-                clean_amt = amt_str.replace(',', '')
+                clean_amt = amt_str.replace(",", "")
                 amounts.append(Decimal(clean_amt))
             except InvalidOperation:
                 continue
@@ -109,11 +111,7 @@ def _extract_with_regex(text: str) -> Dict[str, Any]:
             result["amount"] = f"{total:.2f}"
             result["confidence"] += 0.2
             # Add as an item using PaymentIntentItem format
-            result["items"].append(PaymentIntentItem(
-                name="Invoice total",
-                quantity=1,
-                unit_amount=f"{total:.2f}"
-            ))
+            result["items"].append(PaymentIntentItem(name="Invoice total", quantity=1, unit_amount=f"{total:.2f}"))
 
     # Extract due date
     for pattern in DATE_PATTERNS:
@@ -126,22 +124,23 @@ def _extract_with_regex(text: str) -> Dict[str, Any]:
                 break
 
     # Detect subscription
-    if re.search(r'subscription|monthly|yearly|recurring', text, re.IGNORECASE):
+    if re.search(r"subscription|monthly|yearly|recurring", text, re.IGNORECASE):
         result["type"] = "subscription"
         result["confidence"] += 0.05
 
     # Detect payout
-    if re.search(r'payout|payment to|pay to', text, re.IGNORECASE):
+    if re.search(r"payout|payment to|pay to", text, re.IGNORECASE):
         result["type"] = "payout"
         result["confidence"] += 0.05
 
     result["confidence"] = min(result["confidence"], 0.8)  # Cap regex confidence
     return result
 
+
 async def _extract_with_openai(text: str) -> Optional[Dict[str, Any]]:
     """Extract payment intent using OpenAI API"""
     core = get_core_module()
-    openai_key = core.settings.openai_api_key if hasattr(core.settings, 'openai_api_key') else None
+    openai_key = core.settings.openai_api_key if hasattr(core.settings, "openai_api_key") else None
 
     if not openai_key:
         logger.warning("OpenAI API key not configured")
@@ -166,11 +165,8 @@ Be strict about types, ensure amount is always a string, never null required fie
                 json={
                     "model": "gpt-3.5-turbo-1106",
                     "response_format": {"type": "json_object"},
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": text}
-                    ]
-                }
+                    "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": text}],
+                },
             )
             response.raise_for_status()
             llm_output = response.json()
@@ -182,10 +178,11 @@ Be strict about types, ensure amount is always a string, never null required fie
         logger.error(f"OpenAI extraction failed: {str(e)}", exc_info=True)
         raise  # Re-raise to allow failover to next provider
 
+
 async def _extract_with_anthropic(text: str) -> Optional[Dict[str, Any]]:
     """Extract payment intent using Anthropic API"""
     core = get_core_module()
-    anthropic_key = core.settings.anthropic_api_key if hasattr(core.settings, 'anthropic_api_key') else None
+    anthropic_key = core.settings.anthropic_api_key if hasattr(core.settings, "anthropic_api_key") else None
 
     if not anthropic_key:
         logger.warning("Anthropic API key not configured")
@@ -206,16 +203,13 @@ Be strict about types, ensure amount is always a string, never null required fie
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.post(
                 "https://api.anthropic.com/v1/messages",
-                headers={
-                    "x-api-key": anthropic_key,
-                    "anthropic-version": "2023-06-01"
-                },
+                headers={"x-api-key": anthropic_key, "anthropic-version": "2023-06-01"},
                 json={
                     "model": "claude-3-sonnet-20240229",
                     "max_tokens": 1024,
                     "system": system_prompt,
-                    "messages": [{"role": "user", "content": text}]
-                }
+                    "messages": [{"role": "user", "content": text}],
+                },
             )
             response.raise_for_status()
             llm_output = response.json()
@@ -226,6 +220,7 @@ Be strict about types, ensure amount is always a string, never null required fie
     except Exception as e:
         logger.error(f"Anthropic extraction failed: {str(e)}", exc_info=True)
         raise  # Re-raise to allow failover to next provider
+
 
 async def _call_llm(text: str) -> Optional[Dict[str, Any]]:
     """Call LLM with failover between providers"""
@@ -240,9 +235,11 @@ async def _call_llm(text: str) -> Optional[Dict[str, Any]]:
             # All LLMs failed
             return None
 
+
 def get_text_hash(text: str) -> str:
     """Generate SHA-256 hash of raw input for audit logging"""
-    return hashlib.sha256(text.encode('utf-8')).hexdigest()
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
 
 async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
     """

@@ -1,5 +1,6 @@
 # api/lifecycle.py
 """AXELR — process lifecycle: boot · background loops · shutdown."""
+
 from __future__ import annotations
 
 import asyncio
@@ -28,15 +29,6 @@ logger = structlog.get_logger("axelr.lifecycle")
 _INSTALLED: bool = False
 _ATTACHED: set[int] = set()
 
-import sys
-from types import ModuleType
-
-_boot_module = ModuleType("api._boot")
-_boot_module.__all__ = ["audit", "_SSE_CONTRACT", "classify_intent"]
-_boot_module.audit = _audit_snapshot
-_boot_module._SSE_CONTRACT = _SSE_CONTRACT
-_boot_module.classify_intent = classify_intent
-sys.modules["api._boot"] = _boot_module
 
 _SSE_CONTRACT: dict[str, Any] = {
     "version": 2,
@@ -60,6 +52,7 @@ _SSE_CONTRACT: dict[str, Any] = {
 def classify_intent(prompt: str) -> str:
     try:
         from core.context import classify_flat
+
         return classify_flat(prompt)
     except Exception:
         return "conversational" if len((prompt or "").split()) <= 7 else "strategy"
@@ -94,6 +87,7 @@ def _install_hedge_wrap() -> None:
 def _install_cognition() -> None:
     try:
         from core.resilience import AXELR_COGNITION_LEVEL, get_pipeline
+
         get_pipeline()
         logger.info("cognition_pipeline_installed level=%d", AXELR_COGNITION_LEVEL)
     except Exception as e:
@@ -117,12 +111,14 @@ def attach_boot(app: FastAPI) -> None:
 
     with contextlib.suppress(Exception):
         if not any(getattr(r, "path", None) == "/api/contract" for r in app.routes):
+
             @app.get("/api/contract", include_in_schema=False)
             async def _contract():
                 return _SSE_CONTRACT
 
     with contextlib.suppress(Exception):
         if not any(getattr(r, "path", None) == "/api/audit" for r in app.routes):
+
             @app.get("/api/audit", include_in_schema=False)
             async def _audit_endpoint():
                 return _audit_snapshot()
@@ -132,8 +128,21 @@ def _audit_snapshot() -> dict[str, Any]:
     out: dict[str, Any] = {"boot_installed": _INSTALLED, "version": "1.0.0", "cognition_pipeline": {}}
     with contextlib.suppress(Exception):
         from core.resilience import audit as _res_audit
+
         out["resilience"] = _res_audit()
     return out
+
+
+import sys
+from types import ModuleType
+
+_boot_module = ModuleType("api._boot")
+_boot_module.__all__ = ["audit", "_SSE_CONTRACT", "classify_intent", "attach"]
+_boot_module.audit = _audit_snapshot
+_boot_module._SSE_CONTRACT = _SSE_CONTRACT
+_boot_module.classify_intent = classify_intent
+_boot_module.attach = attach_boot
+sys.modules["api._boot"] = _boot_module
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -146,6 +155,7 @@ async def background_health_check() -> None:
         PROVIDER_MODELS,
         record_provider_result,
     )
+
     while True:
         try:
             for name, func, _ in ACTIVE_PROVIDER_ENTRIES:
@@ -157,13 +167,13 @@ async def background_health_check() -> None:
                 try:
                     t0 = time.time()
                     resp = await asyncio.wait_for(
-                        func("Say OK", 5, 0.0, models[0]), timeout=3.0,
+                        func("Say OK", 5, 0.0, models[0]),
+                        timeout=3.0,
                     )
                     if resp and resp.strip():
                         await record_provider_result(name, time.time() - t0, success=True)
                 except Exception as e:
-                    await record_provider_result(
-                        name, 3.0, success=False, is_rate_limit=("429" in str(e)))
+                    await record_provider_result(name, 3.0, success=False, is_rate_limit=("429" in str(e)))
         except Exception as e:
             logger.warning("health_check_error error=%s", e)
         await asyncio.sleep(300)
@@ -177,6 +187,7 @@ async def validate_all_providers(force: bool = False) -> dict:
     if not force:
         with contextlib.suppress(Exception):
             from .state import get_redis_cache
+
             cached = await get_redis_cache(_KEY)
             if cached and isinstance(cached, dict) and now - cached.get("ts", 0) < _TTL:
                 return cached.get("result", {})
@@ -200,8 +211,9 @@ async def validate_all_providers(force: bool = False) -> dict:
         t0 = time.time()
         try:
             resp = await asyncio.wait_for(func("Say OK", 5, 0.0, model), timeout=5.0)
-            return name, (f"healthy ({(time.time() - t0) * 1000:.0f}ms)"
-                          if resp and resp.strip() else "unhealthy (empty)")
+            return name, (
+                f"healthy ({(time.time() - t0) * 1000:.0f}ms)" if resp and resp.strip() else "unhealthy (empty)"
+            )
         except Exception as e:
             return name, f"error: {str(e)[:80]}"
 
@@ -216,6 +228,7 @@ async def validate_all_providers(force: bool = False) -> dict:
 
 async def pr_defense_cleanup() -> None:
     from datetime import datetime, timedelta, timezone
+
     if not state.db_available or state.pr_reports_col is None:
         return
     while True:
@@ -248,20 +261,24 @@ async def _seed_founder_tiers() -> None:
     from datetime import datetime, timezone
 
     from .config import ADMIN_EMAIL
+
     if not ADMIN_EMAIL:
         return
     doc = await state.users_col.find_one({"email": ADMIN_EMAIL})
     if doc and not doc.get("manually_provisioned"):
         await state.users_col.update_one(
             {"_id": doc["_id"]},
-            {"$set": {
-                "tier": "free", "subTier": "founder_full",
-                "manually_provisioned": True,
-                "provisioned_by": "system",
-                "provisioned_at": datetime.now(timezone.utc).isoformat(),
-                "provision_reason": "Founder/Building permanent access",
-                "is_admin": True,
-            }},
+            {
+                "$set": {
+                    "tier": "free",
+                    "subTier": "founder_full",
+                    "manually_provisioned": True,
+                    "provisioned_by": "system",
+                    "provisioned_at": datetime.now(timezone.utc).isoformat(),
+                    "provision_reason": "Founder/Building permanent access",
+                    "is_admin": True,
+                }
+            },
         )
         logger.info("founder_tier_seeded email=%s", ADMIN_EMAIL)
 
@@ -280,6 +297,7 @@ async def _initialize_elite_services() -> None:
 
         with contextlib.suppress(Exception):
             from core.thermal_guard import start as _thermal_start
+
             if _thermal_start():
                 logger.info("thermal_guard_started")
 
@@ -287,23 +305,23 @@ async def _initialize_elite_services() -> None:
             from core.code_intel import TestLoop
             from core.memory import Memory
             from core.repo_indexer import RepoIndexer
-            state.conversation_memory = Memory(
-                redis_client=state.redis_client, http_client=get_http_client())
-            state.repo_indexer = RepoIndexer(
-                redis_client=state.redis_client, http_client=get_http_client())
-            state.test_loop = TestLoop(
-                route_func=route_ai_request_parallel, execute_func=_sandbox_execute)
+
+            state.conversation_memory = Memory(redis_client=state.redis_client, http_client=get_http_client())
+            state.repo_indexer = RepoIndexer(redis_client=state.redis_client, http_client=get_http_client())
+            state.test_loop = TestLoop(route_func=route_ai_request_parallel, execute_func=_sandbox_execute)
         except Exception as e:
             logger.warning("elite_memory_init_failed error=%s", e)
 
         try:
             from core.routing import Orchestrator
+
             state.orchestrator = Orchestrator(route_ai_request_parallel, max_parallel=4)
         except Exception as e:
             logger.warning("orchestrator_init_failed error=%s", e)
 
         try:
             from core.twin_engine import get_twin_engine
+
             _engine = await get_twin_engine()
             if _engine is not None:
                 await _engine.start()
@@ -312,32 +330,42 @@ async def _initialize_elite_services() -> None:
 
         with contextlib.suppress(Exception):
             from core.heartbeat import install_bridge as _hb_install
+
             logger.info("heartbeat_bridge_installed=%s", _hb_install())
 
-        if (os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
-                and state.redis_client is not None and state.users_col is not None):
+        if (
+            os.getenv("ENABLE_CONTEXT_REGISTRY", "true").lower() == "true"
+            and state.redis_client is not None
+            and state.users_col is not None
+        ):
             with contextlib.suppress(Exception):
                 from core.infra import ContextRegistry
+
                 state.context_registry = ContextRegistry(state.redis_client, state.users_col)
 
-        if (os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true"
-                and WORKSPACE_ROOT):
+        if os.getenv("ENABLE_BLAST_RADIUS", "false").lower() == "true" and WORKSPACE_ROOT:
             with contextlib.suppress(Exception):
                 from core.code_intel import DependencyTracker
+
                 state.dependency_tracker = DependencyTracker(WORKSPACE_ROOT)
                 await asyncio.to_thread(state.dependency_tracker.build, max_files=3000)
 
         if os.getenv("ENABLE_SELF_HEAL", "true").lower() == "true":
             with contextlib.suppress(Exception):
                 from core.code_intel import SelfHealer
+
                 state.self_healer = SelfHealer(route_ai_request_parallel, max_retries=2)
 
         with contextlib.suppress(Exception):
             from core.infra import CircuitBreaker
+
             state.circuit_breaker = CircuitBreaker(
                 redis_client=state.redis_client,
-                threshold=3, cooldown_s=60, rate_limit_cooldown_s=1800,
-                namespace="axelr:cb")
+                threshold=3,
+                cooldown_s=60,
+                rate_limit_cooldown_s=1800,
+                namespace="axelr:cb",
+            )
 
         if os.getenv("ENABLE_INTENT_CLASSIFIER", "true").lower() == "true":
             state.intent_classifier = state.intent_router
@@ -346,14 +374,15 @@ async def _initialize_elite_services() -> None:
 
         with contextlib.suppress(Exception):
             from core.code_intel import TouchFixEngine
+
             state.touch_fix_engine = TouchFixEngine(route_func=route_ai_request_parallel)
 
         with contextlib.suppress(Exception):
             from core.memory import Memory
             from core.resilience import ResilientPipeline
             from core.twin_engine import get_twin_engine
-            state.memory_bus = Memory(
-                redis_client=state.redis_client, http_client=get_http_client())
+
+            state.memory_bus = Memory(redis_client=state.redis_client, http_client=get_http_client())
             _twin = await get_twin_engine()
             if _twin is not None:
                 await _twin.start()
@@ -362,8 +391,10 @@ async def _initialize_elite_services() -> None:
 
         try:
             from .config import SUPABASE_BUCKET, SUPABASE_KEY, SUPABASE_URL
+
             if SUPABASE_URL and SUPABASE_KEY:
                 from supabase import create_async_client
+
                 state.supabase = await create_async_client(SUPABASE_URL, SUPABASE_KEY)
                 state.supabase_bucket = SUPABASE_BUCKET
             else:
@@ -379,11 +410,13 @@ async def _initialize_elite_services() -> None:
 
         with contextlib.suppress(Exception):
             from .routes_admin import _seed_founder_tiers
+
             await _seed_founder_tiers()
 
         _lazy_initialization_complete = True
-        logger.info("axelr_full_startup_complete origin=%s mongo=%s",
-                    ORIGIN, "SET" if os.getenv("MONGO_URI") else "MISSING")
+        logger.info(
+            "axelr_full_startup_complete origin=%s mongo=%s", ORIGIN, "SET" if os.getenv("MONGO_URI") else "MISSING"
+        )
     except Exception:
         logger.error("lazy_initialization_failed", exc_info=True)
 
@@ -400,6 +433,7 @@ async def lifespan(app: FastAPI):
     try:
         from core.memory_tuner import arm as memory_tuner_arm
         from core.memory_tuner import disarm as memory_tuner_disarm
+
         memory_tuner_arm()
         memory_tuner_available = True
     except Exception as e:
@@ -447,12 +481,15 @@ async def lifespan(app: FastAPI):
 
         with contextlib.suppress(Exception):
             from core.thermal_guard import stop as _thermal_stop
+
             _thermal_stop()
         with contextlib.suppress(Exception):
             from core.burst_scheduler import shutdown as _burst_stop
+
             _burst_stop()
 
         import core.twin_engine as _twin_mod
+
         _eng = getattr(_twin_mod, "_ENGINE", None)
         if _eng is not None:
             with contextlib.suppress(Exception):
@@ -474,10 +511,20 @@ async def lifespan(app: FastAPI):
             await get_http_client().aclose()
 
         for name in (
-            "conversation_memory", "repo_indexer", "test_loop", "circuit_breaker",
-            "orchestrator", "critic_agent", "context_registry", "dependency_tracker",
-            "self_healer", "pr_defense", "touch_fix_engine", "provider_cascade",
-            "twin_engine", "memory_bus",
+            "conversation_memory",
+            "repo_indexer",
+            "test_loop",
+            "circuit_breaker",
+            "orchestrator",
+            "critic_agent",
+            "context_registry",
+            "dependency_tracker",
+            "self_healer",
+            "pr_defense",
+            "touch_fix_engine",
+            "provider_cascade",
+            "twin_engine",
+            "memory_bus",
         ):
             setattr(state, name, None)
 
@@ -488,7 +535,11 @@ async def lifespan(app: FastAPI):
 
 
 __all__ = [
-    "attach_boot", "background_health_check", "classify_intent",
-    "install_boot", "lifespan", "pr_defense_cleanup",
+    "attach_boot",
+    "background_health_check",
+    "classify_intent",
+    "install_boot",
+    "lifespan",
+    "pr_defense_cleanup",
     "validate_all_providers",
 ]

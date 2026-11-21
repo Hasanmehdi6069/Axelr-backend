@@ -20,6 +20,7 @@ memory management techniques:
 This module is the single source of truth for all memory optimizations and
 is automatically integrated into all hackathon modules, core, and api folders.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,12 +57,14 @@ T = TypeVar("T")
 K = TypeVar("K")
 V = TypeVar("V")
 
+
 # ════════════════════════════════════════════════════════════════════════════
 # Global Memory State (Singleton - only one instance ever)
 # ════════════════════════════════════════════════════════════════════════════
 @dataclass(slots=True)
 class MemoryStats:
     """Ultra-compact stats tracking with __slots__ to minimize overhead"""
+
     total_allocations: int = 0
     total_evictions: int = 0
     current_usage_bytes: int = 0
@@ -77,6 +80,7 @@ class MemoryStats:
 @dataclass(slots=True)
 class TrackedModule:
     """Tracked module with weak reference to allow GC"""
+
     name: str
     instance_ref: weakref.ReferenceType
     last_used: float
@@ -89,6 +93,7 @@ class EliteMemoryOptimizer:
     World-class memory optimizer singleton. Ensures entire application stays
     within memory targets while maintaining maximum performance.
     """
+
     _instance: Optional["EliteMemoryOptimizer"] = None
     _lock: threading.Lock = threading.Lock()
 
@@ -126,7 +131,8 @@ class EliteMemoryOptimizer:
                 # This eliminates ALL risk of Render OOM - server never loads their code
                 logger.info(
                     "elite_memory_initialized HACKATHONS_RUN_CLIENT-SIDE Render_server_protected_from_OOM! target_memory=%dMB eviction_ttl=%ds",
-                    TARGET_MAX_MEMORY_MB, EVICTION_TTL_SECONDS
+                    TARGET_MAX_MEMORY_MB,
+                    EVICTION_TTL_SECONDS,
                 )
             return cls._instance
 
@@ -145,17 +151,15 @@ class EliteMemoryOptimizer:
         # Allow hackathon modules to be loaded during demo (client-side execution)
         # BLOCK ALL HACKATHON MODULES FROM BEING LOADED ON SERVER - enforce client-only execution in production
         if module_type == "hackathon" and os.getenv("AXELR_PRODUCTION") == "1":
-            raise RuntimeError(f"HACKATHON MODULE {name} CANNOT BE LOADED ON SERVER: All hackathons execute client-side to protect Render server from OOM")
+            raise RuntimeError(
+                f"HACKATHON MODULE {name} CANNOT BE LOADED ON SERVER: All hackathons execute client-side to protect Render server from OOM"
+            )
 
         instance_ref = weakref.ref(instance)
         size = self._calculate_size(instance)
 
         self._modules[name] = TrackedModule(
-            name=name,
-            instance_ref=instance_ref,
-            last_used=time.time(),
-            size_bytes=size,
-            module_type=module_type
+            name=name, instance_ref=instance_ref, last_used=time.time(), size_bytes=size, module_type=module_type
         )
 
         self._stats.module_count += 1
@@ -165,7 +169,10 @@ class EliteMemoryOptimizer:
 
         logger.debug(
             "module_registered name=%s type=%s size_kb=%.2f total_mb=%.2f",
-            name, module_type, size / 1024, self._stats.current_usage_bytes / (1024*1024)
+            name,
+            module_type,
+            size / 1024,
+            self._stats.current_usage_bytes / (1024 * 1024),
         )
 
         # Trigger memory check after registration
@@ -202,7 +209,7 @@ class EliteMemoryOptimizer:
         with self._pool_lock:
             if len(self._buffer_pool) < MAX_POOL_BUFFERS:
                 # Clear buffer to avoid retaining references
-                buf[:] = b'\x00' * POOL_BUFFER_SIZE
+                buf[:] = b"\x00" * POOL_BUFFER_SIZE
                 self._buffer_pool.append(buf)
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -261,8 +268,7 @@ class EliteMemoryOptimizer:
             elif current_time - mod.last_used > EVICTION_TTL_SECONDS:
                 # Module hasn't been used in a while - mark for eviction
                 dead_modules.append(name)
-                logger.info("module_evicted_for_ttl name=%s idle_seconds=%d",
-                           name, int(current_time - mod.last_used))
+                logger.info("module_evicted_for_ttl name=%s idle_seconds=%d", name, int(current_time - mod.last_used))
 
         # Unregister dead modules
         for name in dead_modules:
@@ -275,7 +281,8 @@ class EliteMemoryOptimizer:
         if current_memory > target_bytes * 0.8:  # 80% of target
             logger.warning(
                 "high_memory_pressure current_mb=%.2f target_mb=%d running_gc",
-                current_memory / (1024*1024), TARGET_MAX_MEMORY_MB
+                current_memory / (1024 * 1024),
+                TARGET_MAX_MEMORY_MB,
             )
             gc.collect()
             self._stats.garbage_collections += 1
@@ -289,13 +296,11 @@ class EliteMemoryOptimizer:
         if current_memory > target_bytes * 0.9:  # 90% of target - aggressive eviction
             logger.critical(
                 "critical_memory_pressure current_mb=%.2f target_mb=%d evicting_lru_modules",
-                current_memory / (1024*1024), TARGET_MAX_MEMORY_MB
+                current_memory / (1024 * 1024),
+                TARGET_MAX_MEMORY_MB,
             )
             # Sort modules by last used, evict least recently used first
-            sorted_modules = sorted(
-                self._modules.items(),
-                key=lambda x: x[1].last_used
-            )
+            sorted_modules = sorted(self._modules.items(), key=lambda x: x[1].last_used)
             # Evict 20% of oldest modules
             to_evict = int(len(sorted_modules) * 0.2)
             for i in range(to_evict):
@@ -306,6 +311,7 @@ class EliteMemoryOptimizer:
         """Get current process memory usage in bytes"""
         try:
             import psutil
+
             process = psutil.Process()
             mem_info = process.memory_info()
             return mem_info.rss
@@ -316,6 +322,7 @@ class EliteMemoryOptimizer:
     def _calculate_size(self, obj: Any) -> int:
         """Calculate the deep size of an object in bytes"""
         seen: set[int] = set()
+
         def recurse(o: Any) -> int:
             id_o = id(o)
             if id_o in seen:
@@ -326,9 +333,10 @@ class EliteMemoryOptimizer:
                 size += sum(recurse(k) + recurse(v) for k, v in o.items())
             elif isinstance(o, (list, tuple, set)):
                 size += sum(recurse(item) for item in o)
-            elif hasattr(o, '__dict__'):
+            elif hasattr(o, "__dict__"):
                 size += recurse(o.__dict__)
             return size
+
         return recurse(obj)
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -338,8 +346,8 @@ class EliteMemoryOptimizer:
         """Get current memory statistics"""
         current_memory = self._get_current_memory_usage()
         return {
-            "current_memory_mb": round(current_memory / (1024*1024), 2),
-            "peak_memory_mb": round(self._stats.peak_usage_bytes / (1024*1024), 2),
+            "current_memory_mb": round(current_memory / (1024 * 1024), 2),
+            "peak_memory_mb": round(self._stats.peak_usage_bytes / (1024 * 1024), 2),
             "target_memory_mb": TARGET_MAX_MEMORY_MB,
             "total_modules": self._stats.module_count,
             "active_modules": len(self._modules),
@@ -367,6 +375,7 @@ def lazy_module(module_type: str = "hackathon") -> Callable:
     is automatically tracked by the EliteMemoryOptimizer. This ensures
     modules are only created when needed and can be garbage collected when unused.
     """
+
     def decorator(cls: Callable[..., T]) -> Callable[..., T]:
         instance: Optional[T] = None
         module_name = cls.__module__ + "." + cls.__name__
@@ -388,6 +397,7 @@ def lazy_module(module_type: str = "hackathon") -> Callable:
             return instance
 
         return wrapper
+
     return decorator
 
 
@@ -399,6 +409,7 @@ def stream_only(max_buffer_size_mb: int = 10) -> Callable:
     Decorator that enforces streaming-only processing for functions that
     handle large data. Prevents loading entire files/datasets into memory.
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         async def wrapper(*args, **kwargs):
@@ -406,9 +417,11 @@ def stream_only(max_buffer_size_mb: int = 10) -> Callable:
             # Acquire a buffer from the pool
             async with asyncio.Lock():
                 result = await func(*args, **kwargs, buffer=optimizer.acquire_buffer())
-                optimizer.release_buffer(wrapper.locals['buffer'])
+                optimizer.release_buffer(wrapper.locals["buffer"])
                 return result
+
         return wrapper
+
     return decorator
 
 
@@ -416,6 +429,7 @@ def stream_only(max_buffer_size_mb: int = 10) -> Callable:
 # Global accessor
 # ════════════════════════════════════════════════════════════════════════════
 _optimizer_instance: Optional[EliteMemoryOptimizer] = None
+
 
 def get_elite_memory_optimizer() -> EliteMemoryOptimizer:
     """Get the global elite memory optimizer instance"""

@@ -33,6 +33,7 @@ Guarantees
   • Every subprocess has a timeout. No ``shell=True``. Ever.
   • Missing binary / missing model → warning + stub. Cascade survives.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -57,8 +58,9 @@ import httpx
 
 try:
     import psutil  # type: ignore[import-not-found]
+
     _HAS_PSUTIL = True
-except ImportError:                       # pragma: no cover
+except ImportError:  # pragma: no cover
     psutil = None  # type: ignore[assignment]
     _HAS_PSUTIL = False
 
@@ -70,10 +72,11 @@ try:
         Histogram,
         generate_latest,
     )
+
     _HAS_PROM = True
-except ImportError:                       # pragma: no cover
+except ImportError:  # pragma: no cover
     Counter = Gauge = Histogram = None  # type: ignore[assignment]
-    generate_latest = None              # type: ignore[assignment]
+    generate_latest = None  # type: ignore[assignment]
     CONTENT_TYPE_LATEST = "text/plain"  # type: ignore[assignment]
     _HAS_PROM = False
 from .twin_roster import (
@@ -91,8 +94,8 @@ logger = logging.getLogger("Axelr-insight.local_inference")
 # Platform detection
 # ═══════════════════════════════════════════════════════════════════════════
 _IS_WINDOWS = sys.platform == "win32"
-_IS_MACOS   = sys.platform == "darwin"
-_IS_LINUX   = sys.platform.startswith("linux")
+_IS_MACOS = sys.platform == "darwin"
+_IS_LINUX = sys.platform.startswith("linux")
 
 
 def _detect_wsl() -> bool:
@@ -111,27 +114,27 @@ _IS_WSL = _detect_wsl()
 # ═══════════════════════════════════════════════════════════════════════════
 # Tunables
 # ═══════════════════════════════════════════════════════════════════════════
-_DEFAULT_THREADS     = str(max(1, (os.cpu_count() or 2) // 2))
-_MAX_PROMPT_CHARS    = int(os.getenv("TWIN_MAX_PROMPT_CHARS", "2400"))
-_FAST_PARALLEL       = int(os.getenv("TWIN_FAST_PARALLEL", "2"))
-_ELITE_PARALLEL      = int(os.getenv("TWIN_ELITE_PARALLEL", "1"))
-_FAST_THREADS        = int(os.getenv("TWIN_FAST_THREADS", _DEFAULT_THREADS))
-_ELITE_THREADS       = int(os.getenv("TWIN_ELITE_THREADS", _DEFAULT_THREADS))
-_FAST_TIMEOUT_S      = float(os.getenv("TWIN_FAST_TIMEOUT_S", "35"))
-_ELITE_TIMEOUT_S     = float(os.getenv("TWIN_ELITE_TIMEOUT_S", "90"))
-_LOAD_READY_S        = float(os.getenv("TWIN_LOAD_READY_S", "12"))
-_WARMUP_TIMEOUT_S    = float(os.getenv("TWIN_WARMUP_TIMEOUT_S", "5"))
-_IDLE_EVICT_ELITE_S  = float(os.getenv("TWIN_IDLE_EVICT_ELITE_S", "420"))
-_REQUIRE_REAL        = os.getenv("HOT_SWAP_REQUIRE_REAL", "0") == "1"
-_RSS_SOFT_CAP_MB     = int(os.getenv("TWIN_RSS_SOFT_CAP_MB", "380"))
-_DUAL_MIN_MB         = int(os.getenv("TWIN_DUAL_MIN_RAM_MB", "1400"))
-_MLOCK               = os.getenv("TWIN_MLOCK", "0" if _IS_MACOS else "1") == "1"
-_FLASH_ATTN          = os.getenv("TWIN_FLASH_ATTN", "0") == "1"
-_NO_MMAP             = os.getenv("TWIN_NO_MMAP", "1") == "1"
-_UNHEALTHY_COOLDOWN  = float(os.getenv("TWIN_UNHEALTHY_COOLDOWN_S", "30"))
+_DEFAULT_THREADS = str(max(1, (os.cpu_count() or 2) // 2))
+_MAX_PROMPT_CHARS = int(os.getenv("TWIN_MAX_PROMPT_CHARS", "2400"))
+_FAST_PARALLEL = int(os.getenv("TWIN_FAST_PARALLEL", "2"))
+_ELITE_PARALLEL = int(os.getenv("TWIN_ELITE_PARALLEL", "1"))
+_FAST_THREADS = int(os.getenv("TWIN_FAST_THREADS", _DEFAULT_THREADS))
+_ELITE_THREADS = int(os.getenv("TWIN_ELITE_THREADS", _DEFAULT_THREADS))
+_FAST_TIMEOUT_S = float(os.getenv("TWIN_FAST_TIMEOUT_S", "35"))
+_ELITE_TIMEOUT_S = float(os.getenv("TWIN_ELITE_TIMEOUT_S", "90"))
+_LOAD_READY_S = float(os.getenv("TWIN_LOAD_READY_S", "12"))
+_WARMUP_TIMEOUT_S = float(os.getenv("TWIN_WARMUP_TIMEOUT_S", "5"))
+_IDLE_EVICT_ELITE_S = float(os.getenv("TWIN_IDLE_EVICT_ELITE_S", "420"))
+_REQUIRE_REAL = os.getenv("HOT_SWAP_REQUIRE_REAL", "0") == "1"
+_RSS_SOFT_CAP_MB = int(os.getenv("TWIN_RSS_SOFT_CAP_MB", "380"))
+_DUAL_MIN_MB = int(os.getenv("TWIN_DUAL_MIN_RAM_MB", "1400"))
+_MLOCK = os.getenv("TWIN_MLOCK", "0" if _IS_MACOS else "1") == "1"
+_FLASH_ATTN = os.getenv("TWIN_FLASH_ATTN", "0") == "1"
+_NO_MMAP = os.getenv("TWIN_NO_MMAP", "1") == "1"
+_UNHEALTHY_COOLDOWN = float(os.getenv("TWIN_UNHEALTHY_COOLDOWN_S", "30"))
 _ADAPTIVE_MIN_SAMPLES = 5
-_ADAPTIVE_RING       = 32
-_PAID_TIERS          = frozenset({"pro", "business", "elite", "paid"})
+_ADAPTIVE_RING = 32
+_PAID_TIERS = frozenset({"pro", "business", "elite", "paid"})
 
 Cat = Literal["auto", "fast", "elite"]
 
@@ -145,17 +148,15 @@ _PROM: dict[str, Any] = {}
 def _init_prom() -> None:
     if not _HAS_PROM or _PROM:
         return
-    _PROM["infers"]    = Counter("twin_infers_total", "Successful inferences",
-                                 ["slot", "model"])
-    _PROM["stubs"]     = Counter("twin_stub_total", "Stub fallbacks",
-                                 ["reason", "tier"])
-    _PROM["swaps"]     = Counter("twin_swaps_total", "Model loads", ["slot"])
+    _PROM["infers"] = Counter("twin_infers_total", "Successful inferences", ["slot", "model"])
+    _PROM["stubs"] = Counter("twin_stub_total", "Stub fallbacks", ["reason", "tier"])
+    _PROM["swaps"] = Counter("twin_swaps_total", "Model loads", ["slot"])
     _PROM["evictions"] = Counter("twin_evictions_total", "Model evictions", ["slot"])
-    _PROM["rss"]       = Gauge("twin_rss_mb", "Process RSS in MB")
-    _PROM["inflight"]  = Gauge("twin_inflight", "Concurrent inferences")
-    _PROM["duration"]  = Histogram("twin_swap_duration_seconds",
-                                   "Time from spawn to /health OK", ["slot"],
-                                   buckets=(0.5, 1, 2, 3, 5, 8, 12, 20))
+    _PROM["rss"] = Gauge("twin_rss_mb", "Process RSS in MB")
+    _PROM["inflight"] = Gauge("twin_inflight", "Concurrent inferences")
+    _PROM["duration"] = Histogram(
+        "twin_swap_duration_seconds", "Time from spawn to /health OK", ["slot"], buckets=(0.5, 1, 2, 3, 5, 8, 12, 20)
+    )
 
 
 def _prom(name: str, *args: Any, **kwargs: Any) -> None:
@@ -181,8 +182,10 @@ def _prom(name: str, *args: Any, **kwargs: Any) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 class _NullCtx:
     __slots__ = ()
+
     async def __aenter__(self) -> None:
         return None
+
     async def __aexit__(self, *exc: object) -> None:
         return None
 
@@ -233,7 +236,8 @@ def _rss_mb() -> int:
             counters.cb = ctypes.sizeof(counters)
             ok = ctypes.windll.psapi.GetProcessMemoryInfo(
                 ctypes.windll.kernel32.GetCurrentProcess(),
-                ctypes.byref(counters), counters.cb,
+                ctypes.byref(counters),
+                counters.cb,
             )
             if ok:
                 return int(counters.WorkingSetSize) // (1024 * 1024)
@@ -244,6 +248,7 @@ def _rss_mb() -> int:
     if _IS_MACOS:
         try:
             import resource
+
             return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss) // (1024 * 1024)
         except Exception:
             pass
@@ -254,8 +259,7 @@ def _rss_mb() -> int:
 def _cgroup_memory_limit_bytes() -> int | None:
     if not _IS_LINUX:
         return None
-    for path in ("/sys/fs/cgroup/memory.max",
-                 "/sys/fs/cgroup/memory/memory.max"):
+    for path in ("/sys/fs/cgroup/memory.max", "/sys/fs/cgroup/memory/memory.max"):
         try:
             with open(path) as f:
                 v = f.read().strip()
@@ -263,8 +267,7 @@ def _cgroup_memory_limit_bytes() -> int | None:
                 return int(v)
         except (OSError, ValueError):
             pass
-    for path in ("/sys/fs/cgroup/memory/memory.limit_in_bytes",
-                 "/sys/fs/cgroup/memory/memory.memsw.limit_in_bytes"):
+    for path in ("/sys/fs/cgroup/memory/memory.limit_in_bytes", "/sys/fs/cgroup/memory/memory.memsw.limit_in_bytes"):
         try:
             with open(path) as f:
                 v = int(f.read().strip())
@@ -335,11 +338,14 @@ def _diagnose_binary() -> dict[str, Any]:
     env_checks: list[dict[str, Any]] = []
     for key in ("LLAMA_SERVER", "LLAMA_CLI"):
         raw = (os.getenv(key) or "").strip()
-        env_checks.append({
-            "key": key, "value": raw or None,
-            "is_file": bool(raw) and Path(raw).is_file(),
-            "is_executable": bool(raw) and _is_executable(Path(raw)),
-        })
+        env_checks.append(
+            {
+                "key": key,
+                "value": raw or None,
+                "is_file": bool(raw) and Path(raw).is_file(),
+                "is_executable": bool(raw) and _is_executable(Path(raw)),
+            }
+        )
 
     path_hits: list[dict[str, Any]] = []
     for name in _binary_filenames():
@@ -350,11 +356,13 @@ def _diagnose_binary() -> dict[str, Any]:
     local_hits: list[dict[str, Any]] = []
     for name in _binary_filenames():
         candidate = bin_dir / name
-        local_hits.append({
-            "path": str(candidate),
-            "is_file": candidate.is_file(),
-            "is_executable": _is_executable(candidate),
-        })
+        local_hits.append(
+            {
+                "path": str(candidate),
+                "is_file": candidate.is_file(),
+                "is_executable": _is_executable(candidate),
+            }
+        )
 
     return {
         "platform": platform.system(),
@@ -541,10 +549,24 @@ class TwinEngine:
     """Unified local inference pool. See module docstring."""
 
     __slots__ = (
-        "_binary", "_dual_mode", "_elite", "_elite_infers", "_elite_spec",
-        "_fast", "_fast_infers", "_fast_spec", "_http", "_idle_task",
-        "_inflight", "_lock", "_models_dir", "_shutdown", "_started_at",
-        "_stats", "_swap_history", "_total_ram_mb",
+        "_binary",
+        "_dual_mode",
+        "_elite",
+        "_elite_infers",
+        "_elite_spec",
+        "_fast",
+        "_fast_infers",
+        "_fast_spec",
+        "_http",
+        "_idle_task",
+        "_inflight",
+        "_lock",
+        "_models_dir",
+        "_shutdown",
+        "_started_at",
+        "_stats",
+        "_swap_history",
+        "_total_ram_mb",
         "_prompt_prefix_cache",
         "_max_inflight_fast",
         "_max_inflight_elite",
@@ -569,9 +591,7 @@ class TwinEngine:
         self._elite_spec = _pick_existing(_ELITE_PREFERENCE, self._models_dir)
         self._total_ram_mb = _effective_ram_mb()
         self._dual_mode = (
-            self._total_ram_mb >= _DUAL_MIN_MB
-            and self._fast_spec is not None
-            and self._elite_spec is not None
+            self._total_ram_mb >= _DUAL_MIN_MB and self._fast_spec is not None and self._elite_spec is not None
         )
         self._shutdown = False
         self._idle_task: asyncio.Task | None = None
@@ -583,7 +603,7 @@ class TwinEngine:
         self._prompt_prefix_cache: dict[str, str] = {}
         self._unavailable_until: float = 0.0
 
-        self._max_inflight_fast  = int(os.getenv("TWIN_MAX_INFLIGHT_FAST", "2"))
+        self._max_inflight_fast = int(os.getenv("TWIN_MAX_INFLIGHT_FAST", "2"))
         self._max_inflight_elite = int(os.getenv("TWIN_MAX_INFLIGHT_ELITE", "1"))
 
         self._solo_gate: asyncio.Semaphore = asyncio.Semaphore(1)
@@ -591,10 +611,14 @@ class TwinEngine:
         self._draft_map = _parse_draft_map()
 
         self._stats: dict[str, int] = {
-            "total_infers": 0, "total_stub_fallbacks": 0,
-            "total_timeouts": 0, "total_errors": 0,
-            "total_swaps": 0, "total_evictions": 0,
-            "total_pool_rejections": 0, "total_cache_hits": 0,
+            "total_infers": 0,
+            "total_stub_fallbacks": 0,
+            "total_timeouts": 0,
+            "total_errors": 0,
+            "total_swaps": 0,
+            "total_evictions": 0,
+            "total_pool_rejections": 0,
+            "total_cache_hits": 0,
             "total_elite_to_fast_fallbacks": 0,
             "total_marked_unavailable": 0,
             "total_warmups": 0,
@@ -605,12 +629,18 @@ class TwinEngine:
             "twin_init platform=%s%s ram_mb=%d dual=%s fast=%s elite=%s "
             "binary=%s max_inflight_fast=%d max_inflight_elite=%d "
             "fast_parallel=%d draft_entries=%d prometheus=%s",
-            platform.system(), "-wsl" if _IS_WSL else "",
-            self._total_ram_mb, self._dual_mode,
+            platform.system(),
+            "-wsl" if _IS_WSL else "",
+            self._total_ram_mb,
+            self._dual_mode,
             self._fast_spec.id if self._fast_spec else None,
             self._elite_spec.id if self._elite_spec else None,
-            self._binary, self._max_inflight_fast, self._max_inflight_elite,
-            _FAST_PARALLEL, len(self._draft_map), _HAS_PROM,
+            self._binary,
+            self._max_inflight_fast,
+            self._max_inflight_elite,
+            _FAST_PARALLEL,
+            len(self._draft_map),
+            _HAS_PROM,
         )
 
         if self._binary is None:
@@ -620,10 +650,12 @@ class TwinEngine:
                 "To enable: install llama.cpp release for %s/%s, then set "
                 "LLAMA_SERVER to the .exe/.bin path. Checked env vars=%s "
                 "PATH=%s local_bin_dir=%s. Diagnosis: %s",
-                diag["platform"], diag["machine"],
+                diag["platform"],
+                diag["machine"],
                 [c["key"] for c in diag["env_checks"]],
                 [h["name"] for h in diag["path_hits"]],
-                diag["local_bin_dir"], json.dumps(diag, default=str),
+                diag["local_bin_dir"],
+                json.dumps(diag, default=str),
             )
 
     # ── health / availability ───────────────────────────────────────────
@@ -636,27 +668,25 @@ class TwinEngine:
             return False
         return True
 
-    def mark_unavailable(self, reason: str = "unspecified",
-                         cooldown_s: float = _UNHEALTHY_COOLDOWN) -> None:
+    def mark_unavailable(self, reason: str = "unspecified", cooldown_s: float = _UNHEALTHY_COOLDOWN) -> None:
         self._unavailable_until = time.monotonic() + cooldown_s
         self._stats["total_marked_unavailable"] += 1
-        logger.info("twin_marked_unavailable reason=%s cooldown_s=%.1f",
-                    reason, cooldown_s)
+        logger.info("twin_marked_unavailable reason=%s cooldown_s=%.1f", reason, cooldown_s)
 
     # ── lifecycle ───────────────────────────────────────────────────────
     async def start(self) -> None:
         if self._shutdown:
             return
         if self._binary is None:
-            logger.warning("twin_start_skipped reason=no_binary platform=%s",
-                           platform.system())
+            logger.warning("twin_start_skipped reason=no_binary platform=%s", platform.system())
             if self._REQUIRE_REAL:
                 raise RuntimeError("TwinEngine: no llama-server binary found")
             return
         if self._fast_spec is None:
             logger.warning(
                 "twin_start_skipped reason=no_fast_model dir=%s expected_one_of=%s",
-                self._models_dir, list(_FAST_PREFERENCE),
+                self._models_dir,
+                list(_FAST_PREFERENCE),
             )
             if self._REQUIRE_REAL:
                 raise RuntimeError("TwinEngine: no fast-cat model on disk")
@@ -669,7 +699,8 @@ class TwinEngine:
 
         try:
             p = await asyncio.create_subprocess_exec(
-                self._binary, "--version",
+                self._binary,
+                "--version",
                 stdout=asyncio.subprocess.DEVNULL,
                 stderr=asyncio.subprocess.DEVNULL,
                 **_spawn_kwargs(),
@@ -691,7 +722,8 @@ class TwinEngine:
             await self._load_locked(self._fast_spec, slot="fast")
 
         self._idle_task = asyncio.create_task(
-            self._idle_watchdog(), name="twin.idle",
+            self._idle_watchdog(),
+            name="twin.idle",
         )
 
     async def shutdown(self) -> None:
@@ -740,21 +772,27 @@ class TwinEngine:
         serving_spec = self._elite_spec if cat == "elite" else self._fast_spec
         solo = serving_spec is not None and serving_spec.requires_solo
 
-        async with (self._solo_gate if solo else _NULL_CTX):
+        async with self._solo_gate if solo else _NULL_CTX:
             return await self._infer_inner(
-                workspace, task_type, prompt,
-                cat=cat, tier=tier, timeout_s=timeout_s,
+                workspace,
+                task_type,
+                prompt,
+                cat=cat,
+                tier=tier,
+                timeout_s=timeout_s,
             )
 
     # ── routing ─────────────────────────────────────────────────────────
-    def _resolve_cat(self, workspace: str, task_type: str,
-                     prompt: str, tier: str) -> Cat:
+    def _resolve_cat(self, workspace: str, task_type: str, prompt: str, tier: str) -> Cat:
         """Free tier: FAST, always. Paid tiers: consult roster then fall back."""
         if tier not in _PAID_TIERS:
             return "fast"
         try:
             spec = pick_local_model(
-                workspace, task_type, prompt, concurrency=max(1, self._inflight),
+                workspace,
+                task_type,
+                prompt,
+                concurrency=max(1, self._inflight),
             )
         except Exception:
             spec = None
@@ -767,10 +805,18 @@ class TwinEngine:
     def _route_cat(prompt: str) -> Cat:
         low = prompt.lower()
         elite_kw = (
-            "prove", "derive", "algorithm", "complexity",
-            "step by step", "reason", "analyze in depth",
-            "write a function", "refactor", "debug",
-            "design a schema", "compare and contrast",
+            "prove",
+            "derive",
+            "algorithm",
+            "complexity",
+            "step by step",
+            "reason",
+            "analyze in depth",
+            "write a function",
+            "refactor",
+            "debug",
+            "design a schema",
+            "compare and contrast",
         )
         if any(k in low for k in elite_kw):
             return "elite"
@@ -802,9 +848,7 @@ class TwinEngine:
     async def _load_locked(self, spec: ModelSpec, *, slot: str) -> None:
         model_path = self._models_dir / spec.file
         if not model_path.is_file():
-            logger.warning(
-                "twin_model_missing slot=%s model_id=%s path=%s",
-                slot, spec.id, model_path)
+            logger.warning("twin_model_missing slot=%s model_id=%s path=%s", slot, spec.id, model_path)
             if self._REQUIRE_REAL:
                 raise FileNotFoundError(f"missing model: {model_path}")
             return
@@ -812,7 +856,10 @@ class TwinEngine:
         if spec.total_mb > _RSS_SOFT_CAP_MB:
             logger.error(
                 "twin_refused_load_over_cap slot=%s model=%s total_mb=%d cap_mb=%d",
-                slot, spec.id, spec.total_mb, _RSS_SOFT_CAP_MB,
+                slot,
+                spec.id,
+                spec.total_mb,
+                _RSS_SOFT_CAP_MB,
             )
             if self._REQUIRE_REAL:
                 raise RuntimeError(f"model {spec.id} exceeds RSS soft cap: {spec.total_mb}MB > {_RSS_SOFT_CAP_MB}MB")
@@ -822,19 +869,19 @@ class TwinEngine:
         if _IS_LINUX:
             cg_mb = (_cgroup_memory_limit_bytes() or 0) // (1024 * 1024)
             if cg_mb and rss > int(cg_mb * 0.7):
-                logger.error("twin_rss_over_cgroup rss_mb=%d cgroup_mb=%d slot=%s",
-                             rss, cg_mb, slot)
+                logger.error("twin_rss_over_cgroup rss_mb=%d cgroup_mb=%d slot=%s", rss, cg_mb, slot)
                 if self._REQUIRE_REAL:
                     raise RuntimeError(f"model {spec.id} would exceed cgroup memory limit")
                 return
         port = _free_port()
-        threads  = _ELITE_THREADS if slot == "elite" else _FAST_THREADS
+        threads = _ELITE_THREADS if slot == "elite" else _FAST_THREADS
         parallel = _ELITE_PARALLEL if slot == "elite" else _FAST_PARALLEL
 
         # Thermal guard caps concurrency on hot / low-core devices.
         # Falls through silently if the guard is not running.
         try:
             from .thermal_guard import budget as _thermal_budget
+
             guard_budget = _thermal_budget()
             if guard_budget > 0:
                 parallel = max(1, min(parallel, guard_budget))
@@ -848,38 +895,51 @@ class TwinEngine:
             draft_path = self._models_dir / draft_file
             if draft_path.is_file():
                 draft_args = [
-                    "--model-draft", str(draft_path),
-                    "--draft-max",   os.getenv("TWIN_DRAFT_MAX", "8"),
-                    "--draft-min",   os.getenv("TWIN_DRAFT_MIN", "1"),
+                    "--model-draft",
+                    str(draft_path),
+                    "--draft-max",
+                    os.getenv("TWIN_DRAFT_MAX", "8"),
+                    "--draft-min",
+                    os.getenv("TWIN_DRAFT_MIN", "1"),
                 ]
-                logger.info("twin_draft_enabled slot=%s main=%s draft=%s",
-                            slot, spec.id, draft_file)
+                logger.info("twin_draft_enabled slot=%s main=%s draft=%s", slot, spec.id, draft_file)
             else:
                 logger.warning("twin_draft_missing slot=%s file=%s", slot, draft_file)
 
         args = [
             self._binary or "llama-server",
-            "--model",         str(model_path),
-            "--host",          "127.0.0.1",
-            "--port",          str(port),
-            "--ctx-size",      str(spec.ctx),
-            "--n-predict",     str(spec.max_out),
-            "--cache-type-k",  "q4_0",
-            "--cache-type-v",  "q4_0",
-            "--threads",       str(threads),
-            "--threads-batch", str(threads),
-            "--parallel",      str(parallel),
-            * (["--no-mmap"] if _NO_MMAP else []),
-            *(["--mlock"]      if (_MLOCK and not _IS_WINDOWS) else []),
+            "--model",
+            str(model_path),
+            "--host",
+            "127.0.0.1",
+            "--port",
+            str(port),
+            "--ctx-size",
+            str(spec.ctx),
+            "--n-predict",
+            str(spec.max_out),
+            "--cache-type-k",
+            "q4_0",
+            "--cache-type-v",
+            "q4_0",
+            "--threads",
+            str(threads),
+            "--threads-batch",
+            str(threads),
+            "--parallel",
+            str(parallel),
+            *(["--no-mmap"] if _NO_MMAP else []),
+            *(["--mlock"] if (_MLOCK and not _IS_WINDOWS) else []),
             *(["--flash-attn"] if _FLASH_ATTN else []),
             *draft_args,
-            "--min-p",         "0.05",
+            "--min-p",
+            "0.05",
             "--log-disable",
         ]
         env = {
             **os.environ,
             "OMP_NUM_THREADS": str(threads),
-            "GGML_N_THREADS":  str(threads),
+            "GGML_N_THREADS": str(threads),
         }
 
         t0 = time.monotonic()
@@ -932,25 +992,31 @@ class TwinEngine:
 
         rss_after = _rss_mb()
         if rss_after > _RSS_SOFT_CAP_MB:
-            logger.error("twin_rss_over_cap rss_mb=%d cap_mb=%d slot=%s",
-                         rss_after, _RSS_SOFT_CAP_MB, slot)
+            logger.error("twin_rss_over_cap rss_mb=%d cap_mb=%d slot=%s", rss_after, _RSS_SOFT_CAP_MB, slot)
             await self._kill_locked(slot)
             return
 
         duration_s = time.monotonic() - t0
-        self._swap_history.append({
-            "slot": slot, "to": spec.id,
-            "duration_ms": round(duration_s * 1000, 1),
-            "weights_mb": spec.weights_mb,
-            "rss_mb": rss_after,
-            "dual_mode": self._dual_mode,
-            "warmed": warm_ok,
-            "t": time.time(),
-        })
+        self._swap_history.append(
+            {
+                "slot": slot,
+                "to": spec.id,
+                "duration_ms": round(duration_s * 1000, 1),
+                "weights_mb": spec.weights_mb,
+                "rss_mb": rss_after,
+                "dual_mode": self._dual_mode,
+                "warmed": warm_ok,
+                "t": time.time(),
+            }
+        )
         _prom("duration", slot, duration_s, _method="observe")
         logger.info(
             "twin_loaded slot=%s model=%s duration_ms=%.1f rss_mb=%d warmed=%s",
-            slot, spec.id, duration_s * 1000, rss_after, warm_ok,
+            slot,
+            spec.id,
+            duration_s * 1000,
+            rss_after,
+            warm_ok,
         )
 
     async def _warmup(self, resident: _Resident) -> bool:
@@ -1010,14 +1076,12 @@ class TwinEngine:
         tier: str,
         timeout_s: float | None,
     ) -> str:
-        _prefix_digest = hashlib.blake2b(
-            prompt[:1000].encode("utf-8"), digest_size=8
-        ).hexdigest()
+        _prefix_digest = hashlib.blake2b(prompt[:1000].encode("utf-8"), digest_size=8).hexdigest()
         cache_key = f"{workspace}:{_prefix_digest}"
         cached_prefix = self._prompt_prefix_cache.get(cache_key)
         if cached_prefix and prompt.startswith(cached_prefix):
             self._stats["total_cache_hits"] += 1
-            prompt = prompt[len(cached_prefix):].strip()
+            prompt = prompt[len(cached_prefix) :].strip()
         else:
             prefix_len = max(100, int(len(prompt) * 0.2))
             self._prompt_prefix_cache[cache_key] = prompt[:prefix_len]
@@ -1037,18 +1101,16 @@ class TwinEngine:
         # ── Reserve slot atomically, BEFORE doing any work ────────────
         async with self._lock:
             counter = self._fast_infers if cat == "fast" else self._elite_infers
-            cap     = self._max_inflight_fast if cat == "fast" else self._max_inflight_elite
+            cap = self._max_inflight_fast if cat == "fast" else self._max_inflight_elite
             if counter >= cap:
                 self._stats["total_pool_rejections"] += 1
-                logger.warning("twin_pool_limit_rejected cat=%s current=%d max=%d",
-                               cat, counter, cap)
+                logger.warning("twin_pool_limit_rejected cat=%s current=%d max=%d", cat, counter, cap)
                 return self._stub(prompt, "pool_limit", tier)
             if cat == "fast":
                 self._fast_infers += 1
             else:
                 self._elite_infers += 1
-            await (self._ensure_elite_locked() if cat == "elite"
-                   else self._ensure_fast_locked())
+            await (self._ensure_elite_locked() if cat == "elite" else self._ensure_fast_locked())
             resident = self._elite if cat == "elite" else self._fast
             if resident is None or not resident.alive:
                 if cat == "fast":
@@ -1065,13 +1127,17 @@ class TwinEngine:
             gfile: str | None = None
             try:
                 from core.structured_gen import grammar_file_for
+
                 gfile = grammar_file_for(task_type, workspace)
             except Exception:
                 gfile = None
 
             t0 = time.monotonic()
             text = await self._post_completion(
-                resident, prompt, eff_timeout, grammar_file=gfile,
+                resident,
+                prompt,
+                eff_timeout,
+                grammar_file=gfile,
             )
             elapsed = time.monotonic() - t0
             resident.last_used = time.monotonic()
@@ -1116,15 +1182,14 @@ class TwinEngine:
                 "n_predict": resident.spec.max_out,
                 "temperature": 0.0,
                 "stream": False,
-                "cache_prompt": True,       # KV prefix reuse across requests
+                "cache_prompt": True,  # KV prefix reuse across requests
             }
             if grammar_file:
                 try:
                     with open(grammar_file, encoding="utf-8") as f:
                         req_body["grammar"] = f.read()
                 except OSError as e:
-                    logger.debug("twin_grammar_read_failed path=%s error=%s",
-                                 grammar_file, e)
+                    logger.debug("twin_grammar_read_failed path=%s error=%s", grammar_file, e)
             r = await self._http.post(
                 f"http://127.0.0.1:{resident.port}/completion",
                 json=req_body,
@@ -1152,11 +1217,7 @@ class TwinEngine:
 
     @staticmethod
     def _is_stub_text(text: str) -> bool:
-        return (
-            text.startswith("[stub]")
-            or "multi-agent system" in text
-            or "temporarily busy" in text
-        )
+        return text.startswith("[stub]") or "multi-agent system" in text or "temporarily busy" in text
 
     @staticmethod
     def _postprocess(text: str, spec: ModelSpec) -> str:
@@ -1173,8 +1234,7 @@ class TwinEngine:
     def _stub(prompt: str, reason: str, tier: str = "free") -> str:
         _prom("stubs", reason, tier)
         if tier in _PAID_TIERS:
-            return ("High traffic detected — routing you to our multi-agent "
-                    "system. Please wait.")
+            return "High traffic detected — routing you to our multi-agent system. Please wait."
         return "All AI services are temporarily busy. Try again in a moment."
 
     # ── idle watchdog ───────────────────────────────────────────────────
@@ -1188,9 +1248,7 @@ class TwinEngine:
                 if self._shutdown or self._inflight > 0 or self._dual_mode:
                     continue
                 async with self._lock:
-                    if (self._elite is not None and
-                            time.monotonic() - self._elite.last_used
-                            >= _IDLE_EVICT_ELITE_S):
+                    if self._elite is not None and time.monotonic() - self._elite.last_used >= _IDLE_EVICT_ELITE_S:
                         logger.info("twin_idle_evict_elite")
                         await self._kill_locked("elite")
                         await self._ensure_fast_locked()
@@ -1203,8 +1261,7 @@ class TwinEngine:
     def snapshot(self) -> dict[str, Any]:
         return {
             "mode": "dual" if self._dual_mode else "single",
-            "resident": (self._fast_spec.id
-                         if self._fast and self._fast.alive else "unavailable"),
+            "resident": (self._fast_spec.id if self._fast and self._fast.alive else "unavailable"),
             "platform": {
                 "system": platform.system(),
                 "release": platform.release(),
@@ -1224,8 +1281,7 @@ class TwinEngine:
                 "infers": self._fast_infers,
                 "max_inflight": self._max_inflight_fast,
                 "parallel": _FAST_PARALLEL,
-                "requires_solo": bool(
-                    self._fast_spec and self._fast_spec.requires_solo),
+                "requires_solo": bool(self._fast_spec and self._fast_spec.requires_solo),
             },
             "elite": {
                 "spec": self._elite_spec.id if self._elite_spec else None,
@@ -1233,8 +1289,7 @@ class TwinEngine:
                 "infers": self._elite_infers,
                 "max_inflight": self._max_inflight_elite,
                 "parallel": _ELITE_PARALLEL,
-                "requires_solo": bool(
-                    self._elite_spec and self._elite_spec.requires_solo),
+                "requires_solo": bool(self._elite_spec and self._elite_spec.requires_solo),
             },
             "roster_size": len(MODEL_ROSTER),
             "budget_mb": MAX_RESIDENT_MB,
@@ -1275,10 +1330,14 @@ def diagnose_environment() -> dict[str, Any]:
         if s is None:
             continue
         p = models_dir / s.file
-        fast_candidates.append({
-            "id": s.id, "file": s.file, "path": str(p),
-            "present": p.is_file(),
-        })
+        fast_candidates.append(
+            {
+                "id": s.id,
+                "file": s.file,
+                "path": str(p),
+                "present": p.is_file(),
+            }
+        )
 
     elite_candidates: list[dict[str, Any]] = []
     for mid in _ELITE_PREFERENCE:
@@ -1286,10 +1345,14 @@ def diagnose_environment() -> dict[str, Any]:
         if s is None:
             continue
         p = models_dir / s.file
-        elite_candidates.append({
-            "id": s.id, "file": s.file, "path": str(p),
-            "present": p.is_file(),
-        })
+        elite_candidates.append(
+            {
+                "id": s.id,
+                "file": s.file,
+                "path": str(p),
+                "present": p.is_file(),
+            }
+        )
 
     return {
         "binary": _diagnose_binary(),
@@ -1320,15 +1383,9 @@ def _next_steps(binary: str | None, fast_spec: ModelSpec | None) -> list[str]:
                 "Then: $env:LLAMA_SERVER = 'C:\\llama\\llama-server.exe'"
             )
         elif _IS_MACOS:
-            steps.append(
-                "brew install llama.cpp  (or download from "
-                "https://github.com/ggml-org/llama.cpp/releases)"
-            )
+            steps.append("brew install llama.cpp  (or download from https://github.com/ggml-org/llama.cpp/releases)")
         else:
-            steps.append(
-                "Build or download llama.cpp: "
-                "https://github.com/ggml-org/llama.cpp#build"
-            )
+            steps.append("Build or download llama.cpp: https://github.com/ggml-org/llama.cpp#build")
     if fast_spec is None:
         steps.append(
             "Download at least one FAST-tier GGUF into "
@@ -1375,11 +1432,15 @@ def twin_engine_snapshot() -> dict[str, Any]:
         "next_steps": diag["next_steps"],
     }
 
+
 get_snapshot = twin_engine_snapshot
 
 
 async def execute_local_inference(
-    workspace: str, task_type: str, prompt: str, tier: str = "free",
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    tier: str = "free",
 ) -> str:
     engine = await get_twin_engine()
     if engine is None or not engine.is_available():
@@ -1413,8 +1474,7 @@ async def execute_Axelr_insight_hot_swap_engine(
         return ""
 
 
-def mark_twin_unavailable(reason: str = "unspecified",
-                          cooldown_s: float = _UNHEALTHY_COOLDOWN) -> None:
+def mark_twin_unavailable(reason: str = "unspecified", cooldown_s: float = _UNHEALTHY_COOLDOWN) -> None:
     try:
         if _ENGINE is not None:
             _ENGINE.mark_unavailable(reason, cooldown_s)
@@ -1481,15 +1541,15 @@ try:
     async def _twin_diagnose_endpoint() -> dict[str, Any]:  # pragma: no cover
         return diagnose_environment()
 
-except ImportError:                                       # pragma: no cover
+except ImportError:  # pragma: no cover
     twin_health_router = None  # type: ignore[assignment]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Backward-compat aliases
 # ═══════════════════════════════════════════════════════════════════════════
-get_twin_engine_async      = get_twin_engine
-get_hot_swap_engine_async  = get_twin_engine
+get_twin_engine_async = get_twin_engine
+get_hot_swap_engine_async = get_twin_engine
 execute_axelr_hot_swap_engine = execute_local_inference
 
 
@@ -1498,12 +1558,23 @@ def get_hot_swap_engine() -> TwinEngine | None:
 
 
 __all__ = [
-    "MAX_RESIDENT_MB", "MODEL_ROSTER", "ROSTER_BY_ID", "ModelSpec",
-    "TwinEngine", "get_twin_engine", "twin_engine_snapshot", "get_snapshot",
-    "execute_local_inference", "pick_local_model",
-    "get_hot_swap_engine", "get_hot_swap_engine_async",
-    "get_twin_engine_async", "execute_Axelr_insight_hot_swap_engine",
+    "MAX_RESIDENT_MB",
+    "MODEL_ROSTER",
+    "ROSTER_BY_ID",
+    "ModelSpec",
+    "TwinEngine",
+    "get_twin_engine",
+    "twin_engine_snapshot",
+    "get_snapshot",
+    "execute_local_inference",
+    "pick_local_model",
+    "get_hot_swap_engine",
+    "get_hot_swap_engine_async",
+    "get_twin_engine_async",
+    "execute_Axelr_insight_hot_swap_engine",
     "execute_axelr_hot_swap_engine",
-    "mark_twin_unavailable", "twin_health_payload", "twin_health_router",
+    "mark_twin_unavailable",
+    "twin_health_payload",
+    "twin_health_router",
     "diagnose_environment",
 ]

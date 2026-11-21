@@ -15,6 +15,7 @@ Honest scope
   multi-turn function calling. Previously missing; the model would
   desync on turn 2.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -120,7 +121,9 @@ class FunctionRegistry:
             logger.info("function_registered name=%s", func_def.name)
 
     async def validate_call(
-        self, function_name: str, parameters: Dict[str, Any],
+        self,
+        function_name: str,
+        parameters: Dict[str, Any],
     ) -> Tuple[bool, Optional[str]]:
         async with self.lock:
             entry = self.functions.get(function_name)
@@ -155,8 +158,7 @@ class FunctionRegistry:
         except Exception as e:
             call.status = "failed"
             call.error = str(e)[:300]
-            logger.warning("function_exec_failed name=%s err=%s",
-                           call.function_name, e)
+            logger.warning("function_exec_failed name=%s err=%s", call.function_name, e)
         finally:
             call.completed_at = time.time()
         return call
@@ -180,13 +182,16 @@ class Llama3FunctionCallOrchestrator:
                 del self.active_sessions[oldest_id]
                 logger.warning("session_evicted oldest=%s", oldest_id)
             session = FunctionCallSession(
-                session_id=str(uuid.uuid4()), user_query=user_query,
+                session_id=str(uuid.uuid4()),
+                user_query=user_query,
             )
             self.active_sessions[session.session_id] = session
         return session
 
     async def execute_session(
-        self, session_id: str, model_client: Any,
+        self,
+        session_id: str,
+        model_client: Any,
     ) -> Optional[str]:
         """Drive a full multi-turn function-calling conversation.
 
@@ -209,10 +214,11 @@ class Llama3FunctionCallOrchestrator:
         while session.current_step < session.max_steps and not session.is_complete:
             session.current_step += 1
             async with self.lock:
-                tools = [f[0].to_llama3_schema()
-                         for f in self.registry.functions.values()]
+                tools = [f[0].to_llama3_schema() for f in self.registry.functions.values()]
             response = await model_client.chat_completion(
-                messages=messages, functions=tools, tool_choice="auto",
+                messages=messages,
+                functions=tools,
+                tool_choice="auto",
             )
             msg = response.choices[0].message
             tool_calls = getattr(msg, "tool_calls", None)
@@ -224,21 +230,23 @@ class Llama3FunctionCallOrchestrator:
                 break
 
             # ── 1. Append assistant's tool_calls message ──
-            messages.append({
-                "role": "assistant",
-                "content": msg.content,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments,
-                        },
-                    }
-                    for tc in tool_calls
-                ],
-            })
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": msg.content,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments,
+                            },
+                        }
+                        for tc in tool_calls
+                    ],
+                }
+            )
 
             # ── 2. Execute in parallel, track THIS step's calls only ──
             step_calls: List[FunctionCall] = []
@@ -248,17 +256,19 @@ class Llama3FunctionCallOrchestrator:
                     params = json.loads(tc.function.arguments)
                 except json.JSONDecodeError as e:
                     bad = FunctionCall(
-                        call_id=tc.id, function_name=tc.function.name,
-                        parameters={}, status="failed",
+                        call_id=tc.id,
+                        function_name=tc.function.name,
+                        parameters={},
+                        status="failed",
                         error=f"bad arguments: {e}",
                     )
                     session.calls.append(bad)
                     step_calls.append(bad)
                     continue
-                valid, err = await self.registry.validate_call(
-                    tc.function.name, params)
+                valid, err = await self.registry.validate_call(tc.function.name, params)
                 call = FunctionCall(
-                    call_id=tc.id, function_name=tc.function.name,
+                    call_id=tc.id,
+                    function_name=tc.function.name,
                     parameters=params,
                     status="failed" if not valid else "pending",
                     error=err,
@@ -272,14 +282,15 @@ class Llama3FunctionCallOrchestrator:
 
             # ── 3. Append tool results (parallel with the assistant msg) ──
             for call in step_calls:
-                payload = (json.dumps(call.result) if call.result is not None
-                           else json.dumps({"error": call.error}))
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": call.call_id,
-                    "name": call.function_name,
-                    "content": payload,
-                })
+                payload = json.dumps(call.result) if call.result is not None else json.dumps({"error": call.error})
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.call_id,
+                        "name": call.function_name,
+                        "content": payload,
+                    }
+                )
             if len(session.calls) >= _MAX_CALLS_PER_SESSION:
                 session.is_complete = True
                 logger.warning("session_call_limit session=%s", session_id)
@@ -327,8 +338,7 @@ async def shutdown() -> None:
 
 def health() -> Dict[str, Any]:
     if _orchestrator is None:
-        return {"ok": False, "details": {"reason": "not_initialized",
-                                         "version": __version__}}
+        return {"ok": False, "details": {"reason": "not_initialized", "version": __version__}}
     return {
         "ok": True,
         "details": {

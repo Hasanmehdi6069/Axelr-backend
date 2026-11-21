@@ -4,6 +4,7 @@ Honest note: auth delegates to `api.auth` (Axelr's host project). If those
 functions don't exist in your project, either wire them or the endpoints
 return 401. There is no fallback that silently trusts anonymous callers.
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,12 +67,14 @@ async def get_paypal_user(
     if credentials is not None:
         try:
             from api.auth import get_current_user
+
             return await get_current_user(request, credentials)
         except Exception:
             pass
     if x_appwrite_session:
         try:
             from api.auth import verify_appwrite_session
+
             user = verify_appwrite_session(x_appwrite_session)
             if user:
                 return user
@@ -98,60 +101,78 @@ async def extract_from_text(
 ) -> JSONResponse:
     try:
         intent: PaymentIntent = await extract_payment_intent(body.unstructured_text)
-        await log_audit(AuditEvent(
-            event_type="ai.extraction",
-            user_id=str(user.get("_id", "anon")),
-            timestamp=_now(),
-            metadata={
-                "confidence": intent.confidence,
-                "raw_input_hash": intent.raw_input_hash,
-                "payment_type": intent.type,
-            },
-        ))
+        await log_audit(
+            AuditEvent(
+                event_type="ai.extraction",
+                user_id=str(user.get("_id", "anon")),
+                timestamp=_now(),
+                metadata={
+                    "confidence": intent.confidence,
+                    "raw_input_hash": intent.raw_input_hash,
+                    "payment_type": intent.type,
+                },
+            )
+        )
         if not body.approve:
-            return JSONResponse(status_code=200, content={
-                "success": True, "approved": False,
-                "preview": intent.model_dump(),
-                "message": "Set approve=true to create a PayPal order.",
-            })
+            return JSONResponse(
+                status_code=200,
+                content={
+                    "success": True,
+                    "approved": False,
+                    "preview": intent.model_dump(),
+                    "message": "Set approve=true to create a PayPal order.",
+                },
+            )
         store = get_transaction_store()
         txn = await store.create_transaction(
-            amount=intent.amount, currency=intent.currency,
+            amount=intent.amount,
+            currency=intent.currency,
             items=[i.model_dump() for i in intent.items],
             metadata={"payment_type": intent.type, "payer_email": intent.payer_email},
         )
         txn = await store.transition_state(
-            txn.id, TransactionState.VALIDATED, reason="AI extraction validated",
+            txn.id,
+            TransactionState.VALIDATED,
+            reason="AI extraction validated",
         )
         client = get_paypal_client()
-        order = await client.create_order({
-            "amount": intent.amount,
-            "currency": intent.currency,
-            "intent": "CAPTURE",
-            "items": [i.model_dump() for i in intent.items],
-            "idempotency_key": f"axelr_ai_{uuid.uuid4().hex[:16]}",
-        })
+        order = await client.create_order(
+            {
+                "amount": intent.amount,
+                "currency": intent.currency,
+                "intent": "CAPTURE",
+                "items": [i.model_dump() for i in intent.items],
+                "idempotency_key": f"axelr_ai_{uuid.uuid4().hex[:16]}",
+            }
+        )
         txn = await store.transition_state(
-            txn.id, TransactionState.PAYPAL_CREATED,
+            txn.id,
+            TransactionState.PAYPAL_CREATED,
             reason=f"PayPal order {order['id']}",
         )
         txn_data = txn.model_dump()
         txn_data["paypal_order_id"] = order["id"]
         await store._save(type(txn)(**txn_data))
         await store.add_paypal_order_index(order["id"], txn.id)
-        await log_audit(AuditEvent(
-            event_type="order.created_from_ai",
-            user_id=str(user.get("_id", "anon")),
-            timestamp=_now(),
-            metadata={"transaction_id": txn.id, "order_id": order["id"]},
-        ))
-        return JSONResponse(status_code=201, content={
-            "success": True, "approved": True,
-            "transaction_id": txn.id,
-            "paypal_order_id": order["id"],
-            "approve_url": order.get("approve_url"),
-            "payment_intent": intent.model_dump(),
-        })
+        await log_audit(
+            AuditEvent(
+                event_type="order.created_from_ai",
+                user_id=str(user.get("_id", "anon")),
+                timestamp=_now(),
+                metadata={"transaction_id": txn.id, "order_id": order["id"]},
+            )
+        )
+        return JSONResponse(
+            status_code=201,
+            content={
+                "success": True,
+                "approved": True,
+                "transaction_id": txn.id,
+                "paypal_order_id": order["id"],
+                "approve_url": order.get("approve_url"),
+                "payment_intent": intent.model_dump(),
+            },
+        )
     except ValueError as e:
         return _err("EXTRACTION_FAILED", str(e), 400)
     except PayPalAPIError as e:
@@ -164,7 +185,8 @@ async def extract_from_text(
 # ── Orders ─────────────────────────────────────────────────────────────────
 @router.post("/orders", status_code=201)
 async def create_order(
-    body: CreateOrderRequest, user: dict = Depends(get_paypal_user),
+    body: CreateOrderRequest,
+    user: dict = Depends(get_paypal_user),
 ):
     if not get_core_module().is_configured:
         return _err("NOT_CONFIGURED", "PayPal credentials missing", 503)
@@ -172,32 +194,38 @@ async def create_order(
     try:
         store = get_transaction_store()
         txn = await store.create_transaction(
-            amount=body.amount, currency=body.currency,
+            amount=body.amount,
+            currency=body.currency,
             items=[i.model_dump() for i in body.items],
             metadata={"reference_id": body.reference_id},
         )
         txn = await store.transition_state(
-            txn.id, TransactionState.VALIDATED, reason="schema validated",
+            txn.id,
+            TransactionState.VALIDATED,
+            reason="schema validated",
         )
         client = get_paypal_client()
         payload = body.model_dump()
         payload["idempotency_key"] = idem
         order = await client.create_order(payload)
         txn = await store.transition_state(
-            txn.id, TransactionState.PAYPAL_CREATED,
+            txn.id,
+            TransactionState.PAYPAL_CREATED,
             reason=f"PayPal order {order['id']}",
         )
         txn_data = txn.model_dump()
         txn_data["paypal_order_id"] = order["id"]
         await store._save(type(txn)(**txn_data))
         await store.add_paypal_order_index(order["id"], txn.id)
-        await log_audit(AuditEvent(
-            event_type="order.created",
-            user_id=str(user.get("_id", "anon")),
-            timestamp=_now(),
-            session_id=idem,
-            metadata={"order_id": order["id"], "transaction_id": txn.id},
-        ))
+        await log_audit(
+            AuditEvent(
+                event_type="order.created",
+                user_id=str(user.get("_id", "anon")),
+                timestamp=_now(),
+                session_id=idem,
+                metadata={"order_id": order["id"], "transaction_id": txn.id},
+            )
+        )
         return {
             "success": True,
             "transaction_id": txn.id,
@@ -235,13 +263,13 @@ async def get_order(order_id: str, user: dict = Depends(get_paypal_user)):
 
 @router.post("/orders/{order_id}/capture")
 async def capture_order(
-    order_id: str, body: CaptureOrderRequest | None = None,
+    order_id: str,
+    body: CaptureOrderRequest | None = None,
     user: dict = Depends(get_paypal_user),
 ):
     if not get_core_module().is_configured:
         return _err("NOT_CONFIGURED", "PayPal credentials missing", 503)
-    idem = (body.idempotency_key if (body and body.idempotency_key)
-            else f"axelr_cap_{uuid.uuid4().hex[:16]}")
+    idem = body.idempotency_key if (body and body.idempotency_key) else f"axelr_cap_{uuid.uuid4().hex[:16]}"
     store = get_transaction_store()
     txn = await store.get_by_paypal_order_id(order_id)
 
@@ -256,28 +284,25 @@ async def capture_order(
         result = await get_paypal_client().capture_order(order_id, idempotency_key=idem)
         if txn is not None:
             txn = await store.transition_state(
-                txn.id, TransactionState.CAPTURED,
+                txn.id,
+                TransactionState.CAPTURED,
                 reason=f"capture {result.get('id')}",
             )
-            capture_id = (
-                result.get("purchase_units", [{}])[0]
-                      .get("payments", {})
-                      .get("captures", [{}])[0]
-                      .get("id")
-            )
+            capture_id = result.get("purchase_units", [{}])[0].get("payments", {}).get("captures", [{}])[0].get("id")
             if capture_id:
                 txn_data = txn.model_dump()
                 txn_data["paypal_capture_id"] = capture_id
                 await store._save(type(txn)(**txn_data))
                 await store.add_paypal_capture_index(capture_id, txn.id)
-        await log_audit(AuditEvent(
-            event_type="order.captured",
-            user_id=str(user.get("_id", "anon")),
-            timestamp=_now(),
-            session_id=idem,
-            metadata={"order_id": order_id,
-                      "transaction_id": txn.id if txn else None},
-        ))
+        await log_audit(
+            AuditEvent(
+                event_type="order.captured",
+                user_id=str(user.get("_id", "anon")),
+                timestamp=_now(),
+                session_id=idem,
+                metadata={"order_id": order_id, "transaction_id": txn.id if txn else None},
+            )
+        )
         return {
             "success": True,
             "order": {
@@ -300,7 +325,8 @@ async def capture_order(
 # ── Refunds ────────────────────────────────────────────────────────────────
 @router.post("/refunds", status_code=201)
 async def refund_capture(
-    body: RefundRequest, user: dict = Depends(get_paypal_user),
+    body: RefundRequest,
+    user: dict = Depends(get_paypal_user),
 ):
     if not get_core_module().is_configured:
         return _err("NOT_CONFIGURED", "PayPal credentials missing", 503)
@@ -322,17 +348,19 @@ async def refund_capture(
         result = await get_paypal_client().create_refund(payload, idempotency_key=idem)
         if txn is not None:
             txn = await store.transition_state(
-                txn.id, TransactionState.REFUNDED,
+                txn.id,
+                TransactionState.REFUNDED,
                 reason=f"refund {result.get('id')}",
             )
-        await log_audit(AuditEvent(
-            event_type="payment.refunded",
-            user_id=str(user.get("_id", "anon")),
-            timestamp=_now(),
-            session_id=idem,
-            metadata={"capture_id": body.capture_id,
-                      "transaction_id": txn.id if txn else None},
-        ))
+        await log_audit(
+            AuditEvent(
+                event_type="payment.refunded",
+                user_id=str(user.get("_id", "anon")),
+                timestamp=_now(),
+                session_id=idem,
+                metadata={"capture_id": body.capture_id, "transaction_id": txn.id if txn else None},
+            )
+        )
         return {
             "success": True,
             "refund": {
@@ -364,7 +392,11 @@ async def paypal_webhook(request: Request):
         logger.exception("webhook unhandled: %s", e)
         return _err("INTERNAL", "Webhook processing failed", 500)
     if not result.get("accepted"):
-        return JSONResponse(status_code=400, content={
-            "success": False, "reason": result.get("reason"),
-        })
+        return JSONResponse(
+            status_code=400,
+            content={
+                "success": False,
+                "reason": result.get("reason"),
+            },
+        )
     return JSONResponse(status_code=200, content={"success": True, **result})

@@ -1,4 +1,5 @@
 """AXELR Core Module - Core platform services health and lifecycle"""
+
 from typing import Any, Dict
 
 import structlog
@@ -12,6 +13,7 @@ __version__ = "1.0.0"
 _module_initialized = False
 _module_shutdown = False
 
+
 async def init() -> None:
     """Initialize the core AXELR platform - called by demo-master at startup"""
     global _module_initialized
@@ -24,6 +26,7 @@ async def init() -> None:
     _module_initialized = True
     logger.info("core_initialization_complete")
 
+
 def health() -> Dict[str, Any]:
     """Health check function - called by demo-master to verify module health"""
     adapter_statuses = get_adapter_statuses()
@@ -33,8 +36,10 @@ def health() -> Dict[str, Any]:
         return {
             "ok": True,
             "details": {
-                "module": "axelr", "status": "not_configured",
-                "version": __version__, "initialized": _module_initialized,
+                "module": "axelr",
+                "status": "not_configured",
+                "version": __version__,
+                "initialized": _module_initialized,
                 "adapters": {"total": 0, "initialized": 0, "healthy": 0, "statuses": {}},
                 "message": "No adapters configured (set ENV vars for Appwrite / PayPal / Vultr)",
             },
@@ -45,15 +50,20 @@ def health() -> Dict[str, Any]:
     return {
         "ok": True,
         "details": {
-            "module": "axelr", "status": "healthy" if all_healthy else "degraded",
-            "version": __version__, "initialized": _module_initialized,
+            "module": "axelr",
+            "status": "healthy" if all_healthy else "degraded",
+            "version": __version__,
+            "initialized": _module_initialized,
             "adapters": {
-                "total": total_adapters, "initialized": initialized_count,
-                "healthy": healthy_count, "statuses": adapter_statuses,
+                "total": total_adapters,
+                "initialized": initialized_count,
+                "healthy": healthy_count,
+                "statuses": adapter_statuses,
             },
             "message": f"Core platform running with {initialized_count}/{total_adapters} adapters initialized",
         },
     }
+
 
 async def shutdown() -> None:
     """Cleanup function - called by demo-master when demo completes"""

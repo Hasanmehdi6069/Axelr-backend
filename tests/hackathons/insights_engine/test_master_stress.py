@@ -7,10 +7,10 @@ Rules for this file:
 
 A green stress suite means: the demo will survive ten clicks by a judge.
 """
+
 from __future__ import annotations
 
 import asyncio
-import json
 import statistics
 import time
 
@@ -23,13 +23,15 @@ pytestmark = [pytest.mark.slow, pytest.mark.stress]
 # A. Concurrency
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_a1_500_parallel_query_executions(insights_engine):
     """500 parallel query executions must complete without errors."""
+
     async def one(i):
         return await insights_engine.execute_query(f"SELECT * FROM test_table WHERE id = {i % 100}")
-    results = await asyncio.gather(*[one(i) for i in range(500)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[one(i) for i in range(500)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/500 queries failed: {failures[:2]}"
 
@@ -37,10 +39,11 @@ async def test_a1_500_parallel_query_executions(insights_engine):
 @pytest.mark.asyncio
 async def test_a2_concurrent_write_no_corruption(insights_engine):
     """100 concurrent write operations must not corrupt database state."""
+
     async def write(i):
         return await insights_engine.execute_query(f"INSERT INTO test_table (id, value) VALUES ({i}, 'value-{i}')")
-    results = await asyncio.gather(*[write(i) for i in range(100)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[write(i) for i in range(100)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/100 writes failed"
     count = await insights_engine.execute_query("SELECT COUNT(*) FROM test_table")
@@ -50,10 +53,13 @@ async def test_a2_concurrent_write_no_corruption(insights_engine):
 @pytest.mark.asyncio
 async def test_a3_parallel_aggregation_queries_no_deadlock(insights_engine):
     """200 parallel aggregation queries must complete without deadlock."""
+
     async def agg(i):
-        return await insights_engine.execute_query(f"SELECT AVG(id), SUM(id), COUNT(*) FROM test_table WHERE id < {i % 50}")
-    results = await asyncio.gather(*[agg(i) for i in range(200)],
-                                    return_exceptions=True)
+        return await insights_engine.execute_query(
+            f"SELECT AVG(id), SUM(id), COUNT(*) FROM test_table WHERE id < {i % 50}"
+        )
+
+    results = await asyncio.gather(*[agg(i) for i in range(200)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/200 aggregation queries failed"
 
@@ -62,10 +68,9 @@ async def test_a3_parallel_aggregation_queries_no_deadlock(insights_engine):
 async def test_a4_query_throughput_under_contention(insights_engine):
     """1000 query throughput must be > 500 ops/sec under contention."""
     start = time.perf_counter()
-    results = await asyncio.gather(*[
-        insights_engine.execute_query("SELECT * FROM test_table LIMIT 1")
-        for _ in range(1000)
-    ])
+    results = await asyncio.gather(
+        *[insights_engine.execute_query("SELECT * FROM test_table LIMIT 1") for _ in range(1000)]
+    )
     elapsed = time.perf_counter() - start
     throughput = 1000 / elapsed
     assert throughput > 500, f"Query throughput too slow: {throughput:.0f} ops/sec"
@@ -76,11 +81,14 @@ async def test_a4_query_throughput_under_contention(insights_engine):
 # B. Chaos
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_b1_query_timeout_mid_execution(insights_engine, monkeypatch):
     """Query timeout mid-execution must return clean error, not hang."""
+
     def mock_timeout(*args, **kwargs):
         raise TimeoutError("Query execution timed out")
+
     monkeypatch.setattr(insights_engine, "execute_query", mock_timeout)
     with pytest.raises(TimeoutError):
         await insights_engine.execute_query("SELECT * FROM test_table")
@@ -89,8 +97,10 @@ async def test_b1_query_timeout_mid_execution(insights_engine, monkeypatch):
 @pytest.mark.asyncio
 async def test_b2_corrupt_query_plan_handled(insights_engine, monkeypatch):
     """Corrupt query plan must be handled gracefully."""
+
     def mock_corrupt(*args, **kwargs):
         return {"error": "invalid query plan", "results": None}
+
     monkeypatch.setattr(insights_engine, "execute_query", mock_corrupt)
     result = await insights_engine.execute_query("SELECT * FROM test_table")
     assert isinstance(result, dict) or result is not None
@@ -99,8 +109,10 @@ async def test_b2_corrupt_query_plan_handled(insights_engine, monkeypatch):
 @pytest.mark.asyncio
 async def test_b3_disk_full_during_write_handled(insights_engine, monkeypatch):
     """Disk full during write must be handled gracefully."""
+
     def mock_disk_full(*args, **kwargs):
         raise IOError("No space left on device")
+
     monkeypatch.setattr(insights_engine, "execute_query", mock_disk_full)
     with pytest.raises(IOError):
         await insights_engine.execute_query("INSERT INTO test_table VALUES (999, 'x')")
@@ -109,6 +121,7 @@ async def test_b3_disk_full_during_write_handled(insights_engine, monkeypatch):
 # ══════════════════════════════════════════════════════════════════════════
 # C. Performance envelope
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_c1_query_latency_p50_p99(insights_engine):
@@ -141,10 +154,11 @@ async def test_c2_complex_query_latency_p95(insights_engine):
 # D. Soak test
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_d1_soak_10000_queries_no_leak(insights_engine):
     """10,000 sequential queries must not leak memory or degrade performance."""
-    initial_memory = insights_engine.get_memory_usage() if hasattr(insights_engine, 'get_memory_usage') else 0
+    initial_memory = insights_engine.get_memory_usage() if hasattr(insights_engine, "get_memory_usage") else 0
     start = time.perf_counter()
     for i in range(10000):
         await insights_engine.execute_query(f"SELECT {i}")

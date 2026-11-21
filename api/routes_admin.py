@@ -1,10 +1,10 @@
-
 # api/routes_admin.py
 """AXELR — Admin, user profile, history, reports.
 ==============================================
 Admin metrics · provider diagnostics · user profile/preferences ·
 history CRUD · reports · PR report reader · debug endpoints.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,6 +30,7 @@ from .state import get_object_id, state
 logger = logging.getLogger("axelr.admin")
 router = APIRouter(tags=["admin"])
 
+
 def _require_admin(user: dict) -> None:
     # User documents store `is_admin` (snake_case) per api.auth._new_user_doc.
     # This guard previously read `isAdmin` and rejected every request.
@@ -38,8 +39,8 @@ def _require_admin(user: dict) -> None:
 
 
 def _is_super_admin(user: dict) -> bool:
-    return bool(user.get("is_admin") or user.get("isAdmin")) and \
-        user.get("email") == ADMIN_EMAIL
+    return bool(user.get("is_admin") or user.get("isAdmin")) and user.get("email") == ADMIN_EMAIL
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Debug
@@ -111,20 +112,19 @@ async def validate_provider(provider_name: str, user: dict = Depends(get_current
     try:
         start = time.time()
         resp = await asyncio.wait_for(
-            provider_func("Say 'OK'", 5, 0.0, models[0]), timeout=5.0,
+            provider_func("Say 'OK'", 5, 0.0, models[0]),
+            timeout=5.0,
         )
         latency = (time.time() - start) * 1000
         if resp and resp.strip():
-            return {"status": "healthy", "latency_ms": round(latency, 2),
-                    "response_preview": resp[:100]}
+            return {"status": "healthy", "latency_ms": round(latency, 2), "response_preview": resp[:100]}
         return {"status": "unhealthy", "response": (resp or "")[:50]}
     except Exception as e:
         return {"status": "error", "error": str(e)[:200]}
 
 
 @router.get("/api/admin/provider-health")
-async def provider_health_endpoint(force: bool = False,
-                                    user: dict = Depends(get_current_user)):
+async def provider_health_endpoint(force: bool = False, user: dict = Depends(get_current_user)):
     _require_admin(user)
     return {"status": "ok", "providers": await validate_all_providers(force=force)}
 
@@ -190,8 +190,7 @@ class InstructionsUpdate(BaseModel):
 
 
 @router.put("/api/user/instructions")
-async def update_instructions(data: InstructionsUpdate,
-                               user: dict = Depends(get_current_user)):
+async def update_instructions(data: InstructionsUpdate, user: dict = Depends(get_current_user)):
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     await state.users_col.update_one(
@@ -227,8 +226,7 @@ class PreferencesUpdate(BaseModel):
 
 
 @router.put("/api/user/preferences")
-async def update_preferences(data: PreferencesUpdate,
-                              user: dict = Depends(get_current_user)):
+async def update_preferences(data: PreferencesUpdate, user: dict = Depends(get_current_user)):
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     if data.defaultWorkspace not in ("data", "design", "core"):
@@ -249,7 +247,8 @@ async def toggle_puter(data: PuterToggle, user: dict = Depends(get_current_user)
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     await state.users_col.update_one(
-        {"_id": user["_id"]}, {"$set": {"puter_enabled": data.enabled}},
+        {"_id": user["_id"]},
+        {"$set": {"puter_enabled": data.enabled}},
     )
     return {"success": True, "puter_enabled": data.enabled}
 
@@ -264,12 +263,15 @@ async def list_banned_fingerprints(user: dict = Depends(get_current_user)):
         raise HTTPException(503, "Database unavailable")
     banned = await state.users_col.find({"banned": True}).to_list(length=100)
     return {
-        "banned": [{
-            "email": u.get("email"),
-            "fingerprint": u.get("fingerprint"),
-            "ip": u.get("last_ip"),
-            "banned_at": u.get("banned_at")
-        } for u in banned]
+        "banned": [
+            {
+                "email": u.get("email"),
+                "fingerprint": u.get("fingerprint"),
+                "ip": u.get("last_ip"),
+                "banned_at": u.get("banned_at"),
+            }
+            for u in banned
+        ]
     }
 
 
@@ -280,12 +282,15 @@ async def list_banned_users(user: dict = Depends(get_current_user)):
         raise HTTPException(503, "Database unavailable")
     banned = await state.users_col.find({"banned": True}).to_list(length=100)
     return {
-        "users": [{
-            "_id": str(u["_id"]),
-            "email": u["email"],
-            "fingerprint": u.get("fingerprint"),
-            "banned_at": u.get("banned_at")
-        } for u in banned]
+        "users": [
+            {
+                "_id": str(u["_id"]),
+                "email": u["email"],
+                "fingerprint": u.get("fingerprint"),
+                "banned_at": u.get("banned_at"),
+            }
+            for u in banned
+        ]
     }
 
 
@@ -295,8 +300,7 @@ async def ban_by_fingerprint(fingerprint: str, user: dict = Depends(get_current_
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     result = await state.users_col.update_many(
-        {"fingerprint": fingerprint},
-        {"$set": {"banned": True, "banned_at": datetime.utcnow()}}
+        {"fingerprint": fingerprint}, {"$set": {"banned": True, "banned_at": datetime.utcnow()}}
     )
     return {"success": True, "banned_users": result.modified_count}
 
@@ -307,8 +311,7 @@ async def unban_by_fingerprint(fingerprint: str, user: dict = Depends(get_curren
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     result = await state.users_col.update_many(
-        {"fingerprint": fingerprint},
-        {"$set": {"banned": False, "unbanned_at": datetime.utcnow()}}
+        {"fingerprint": fingerprint}, {"$set": {"banned": False, "unbanned_at": datetime.utcnow()}}
     )
     return {"success": True, "unbanned_users": result.modified_count}
 
@@ -321,12 +324,15 @@ async def get_users_by_ip(ip: str, user: dict = Depends(get_current_user)):
     users = await state.users_col.find({"last_ip": ip}).to_list(length=50)
     return {
         "ip": ip,
-        "users": [{
-            "_id": str(u["_id"]),
-            "email": u["email"],
-            "fingerprint": u.get("fingerprint"),
-            "created_at": u.get("created_at")
-        } for u in users]
+        "users": [
+            {
+                "_id": str(u["_id"]),
+                "email": u["email"],
+                "fingerprint": u.get("fingerprint"),
+                "created_at": u.get("created_at"),
+            }
+            for u in users
+        ],
     }
 
 
@@ -337,10 +343,7 @@ async def get_fraud_metrics(user: dict = Depends(get_current_user)):
         raise HTTPException(503, "Database unavailable")
     total_banned = await state.users_col.count_documents({"banned": True})
     unique_fingerprints = len(await state.users_col.distinct("fingerprint", {"banned": True}))
-    return {
-        "total_banned_users": total_banned,
-        "unique_banned_fingerprints": unique_fingerprints
-    }
+    return {"total_banned_users": total_banned, "unique_banned_fingerprints": unique_fingerprints}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -359,6 +362,7 @@ async def grant_tier_to_user(data: GrantTierRequest, user: dict = Depends(get_cu
         raise HTTPException(503, "Database unavailable")
 
     from .config import VALID_PERIODS, VALID_TIERS
+
     if data.tier not in VALID_TIERS or data.period not in VALID_PERIODS:
         raise HTTPException(400, "Invalid tier or period")
 
@@ -368,7 +372,7 @@ async def grant_tier_to_user(data: GrantTierRequest, user: dict = Depends(get_cu
 
     result = await state.users_col.update_one(
         {"_id": ObjectId(data.user_id)},
-        {"$set": {"tier": data.tier, "billing_period": data.period, "tier_granted_at": datetime.utcnow()}}
+        {"$set": {"tier": data.tier, "billing_period": data.period, "tier_granted_at": datetime.utcnow()}},
     )
     if result.modified_count == 0:
         raise HTTPException(404, "User not found")
@@ -390,10 +394,7 @@ async def switch_user_view_tier(data: SwitchViewTierRequest, user: dict = Depend
     if not ObjectId or not ObjectId.is_valid(data.user_id):
         raise HTTPException(400, "Invalid user ID")
 
-    result = await state.users_col.update_one(
-        {"_id": ObjectId(data.user_id)},
-        {"$set": {"view_tier": data.view_tier}}
-    )
+    result = await state.users_col.update_one({"_id": ObjectId(data.user_id)}, {"$set": {"view_tier": data.view_tier}})
     if result.modified_count == 0:
         raise HTTPException(404, "User not found")
     return {"success": True, "view_tier": data.view_tier}
@@ -412,19 +413,19 @@ async def list_all_users(page: int = 1, limit: int = 50, user: dict = Depends(ge
 
     return {
         "success": True,
-        "users": [{
-            "_id": str(u["_id"]),
-            "email": u["email"],
-            "tier": u.get("tier"),
-            "is_admin": u.get("is_admin", False),
-            "banned": u.get("banned", False),
-            "created_at": u.get("createdAt"),
-            "last_ip": u.get("last_ip")
-        } for u in users],
-        "pagination": {
-            "page": page, "limit": limit, "total": total,
-            "pages": (total + limit - 1) // limit
-        }
+        "users": [
+            {
+                "_id": str(u["_id"]),
+                "email": u["email"],
+                "tier": u.get("tier"),
+                "is_admin": u.get("is_admin", False),
+                "banned": u.get("banned", False),
+                "created_at": u.get("createdAt"),
+                "last_ip": u.get("last_ip"),
+            }
+            for u in users
+        ],
+        "pagination": {"page": page, "limit": limit, "total": total, "pages": (total + limit - 1) // limit},
     }
 
 
@@ -445,14 +446,16 @@ async def _seed_founder_tiers() -> None:
     # Update admin user to have founder tier if not already set
     result = await state.users_col.update_one(
         {"email": admin_email},
-        {"$setOnInsert": {
-            "email": admin_email,
-            "tier": "founder",
-            "is_admin": True,
-            "createdAt": datetime.utcnow(),
-            "founder_seeded": True
-        }},
-        upsert=True
+        {
+            "$setOnInsert": {
+                "email": admin_email,
+                "tier": "founder",
+                "is_admin": True,
+                "createdAt": datetime.utcnow(),
+                "founder_seeded": True,
+            }
+        },
+        upsert=True,
     )
     if result.upserted_id:
         logger.info("founder_user_created email=%s", admin_email)
@@ -488,9 +491,13 @@ async def delete_all_chats(user: dict = Depends(get_current_user)):
 
 
 @router.get("/api/history")
-async def list_history(workspace: str = "data", status: str = "active",
-                        page: int = 1, limit: int = 20,
-                        user: dict = Depends(get_current_user)):
+async def list_history(
+    workspace: str = "data",
+    status: str = "active",
+    page: int = 1,
+    limit: int = 20,
+    user: dict = Depends(get_current_user),
+):
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     if workspace not in ("data", "design", "core"):
@@ -500,9 +507,7 @@ async def list_history(workspace: str = "data", status: str = "active",
     skip = (page - 1) * limit
     query = {"userId": user["_id"], "status": status, "workspace": workspace}
     total = await state.sessions_col.count_documents(query)
-    cursor = (state.sessions_col.find(query)
-              .sort([("isPinned", -1), ("createdAt", -1)])
-              .skip(skip).limit(limit))
+    cursor = state.sessions_col.find(query).sort([("isPinned", -1), ("createdAt", -1)]).skip(skip).limit(limit)
     logs = await cursor.to_list(length=limit)
     for log in logs:
         log["_id"] = str(log["_id"])
@@ -514,15 +519,16 @@ async def list_history(workspace: str = "data", status: str = "active",
         "success": True,
         "logs": logs,
         "pagination": {
-            "page": page, "limit": limit, "total": total,
+            "page": page,
+            "limit": limit,
+            "total": total,
             "pages": (total + limit - 1) // limit,
         },
     }
 
 
 @router.put("/api/history/{history_id}")
-async def update_history(history_id: str, data: RenamePayload,
-                          user: dict = Depends(get_current_user)):
+async def update_history(history_id: str, data: RenamePayload, user: dict = Depends(get_current_user)):
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     ObjectId = get_object_id()
@@ -550,8 +556,7 @@ async def update_history(history_id: str, data: RenamePayload,
 
 
 @router.put("/api/history/{history_id}/status")
-async def update_status(history_id: str, data: StatusUpdate,
-                         user: dict = Depends(get_current_user)):
+async def update_status(history_id: str, data: StatusUpdate, user: dict = Depends(get_current_user)):
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     ObjectId = get_object_id()
@@ -587,8 +592,7 @@ async def delete_history(history_id: str, user: dict = Depends(get_current_user)
 
 
 @router.put("/api/history/{history_id}/variant")
-async def switch_variant(history_id: str, data: VariantUpdate,
-                          user: dict = Depends(get_current_user)):
+async def switch_variant(history_id: str, data: VariantUpdate, user: dict = Depends(get_current_user)):
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     ObjectId = get_object_id()
@@ -600,8 +604,7 @@ async def switch_variant(history_id: str, data: VariantUpdate,
     if not session:
         raise HTTPException(404, "Not found")
     messages = session.get("messages", [])
-    msg_index = next((i for i, m in enumerate(messages)
-                      if str(m.get("_id")) == data.msgId), -1)
+    msg_index = next((i for i, m in enumerate(messages) if str(m.get("_id")) == data.msgId), -1)
     if msg_index == -1:
         raise HTTPException(404, "Message not found")
     msg = messages[msg_index]
@@ -611,7 +614,8 @@ async def switch_variant(history_id: str, data: VariantUpdate,
     msg["activeVariant"] = data.variantIndex
     msg["text"] = variants[data.variantIndex]
     await state.sessions_col.update_one(
-        {"_id": ObjectId(history_id)}, {"$set": {"messages": messages}},
+        {"_id": ObjectId(history_id)},
+        {"$set": {"messages": messages}},
     )
     return {"success": True}
 
@@ -629,7 +633,8 @@ async def create_report(data: ReportCreate, user: dict = Depends(get_current_use
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     report = {
-        "userId": user["_id"], "type": data.type,
+        "userId": user["_id"],
+        "type": data.type,
         "description": data.description[:5000],
         "createdAt": datetime.utcnow(),
     }
@@ -656,8 +661,7 @@ _VALID_TIERS = ("free", "pro", "business", "enterprise")
 
 
 @router.post("/api/admin/users/grant-tier")
-async def grant_tier_to_user(data: GrantTierRequest,
-                             user: dict = Depends(get_current_user)):
+async def grant_tier_to_user(data: GrantTierRequest, user: dict = Depends(get_current_user)):
     _require_admin(user)
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
@@ -677,36 +681,37 @@ async def grant_tier_to_user(data: GrantTierRequest,
     if data.expires_at:
         update_data["tier_expires_at"] = data.expires_at
     await state.users_col.update_one({"_id": target["_id"]}, {"$set": update_data})
-    logger.info("admin_grant_tier admin=%s target=%s tier=%s",
-                user["email"], data.email, data.tier)
-    return {"success": True, "user": {"email": data.email, "tier": data.tier,
-                                       "sub_tier": data.sub_tier}}
+    logger.info("admin_grant_tier admin=%s target=%s tier=%s", user["email"], data.email, data.tier)
+    return {"success": True, "user": {"email": data.email, "tier": data.tier, "sub_tier": data.sub_tier}}
 
 
 @router.post("/api/admin/switch-view-tier")
-async def switch_view_tier(data: SwitchViewTierRequest,
-                            user: dict = Depends(get_current_user)):
+async def switch_view_tier(data: SwitchViewTierRequest, user: dict = Depends(get_current_user)):
     _require_admin(user)
     if data.tier not in _VALID_TIERS:
         raise HTTPException(400, f"Invalid tier; must be one of {_VALID_TIERS}")
     await state.users_col.update_one(
         {"_id": user["_id"]},
-        {"$set": {"preview_tier": data.tier,
-                  "preview_tier_set_at": datetime.utcnow().isoformat()}},
+        {"$set": {"preview_tier": data.tier, "preview_tier_set_at": datetime.utcnow().isoformat()}},
     )
     return {"success": True, "preview_tier": data.tier}
 
 
 @router.get("/api/admin/users/list")
-async def list_managed_users(managed_only: bool = False,
-                              user: dict = Depends(get_current_user)):
+async def list_managed_users(managed_only: bool = False, user: dict = Depends(get_current_user)):
     _require_admin(user)
     if not state.db_available:
         raise HTTPException(503, "Database unavailable")
     query = {"manually_provisioned": True} if managed_only else {}
-    projection = {"email": 1, "tier": 1, "subTier": 1,
-                  "provisioned_by": 1, "provisioned_at": 1,
-                  "tier_expires_at": 1, "provision_reason": 1}
+    projection = {
+        "email": 1,
+        "tier": 1,
+        "subTier": 1,
+        "provisioned_by": 1,
+        "provisioned_at": 1,
+        "tier_expires_at": 1,
+        "provision_reason": 1,
+    }
     cursor = state.users_col.find(query, projection).limit(100)
     out: list[dict] = []
     async for doc in cursor:
@@ -720,35 +725,43 @@ async def list_managed_users(managed_only: bool = False,
 # ═══════════════════════════════════════════════════════════════════════════
 def _kv_ns():
     from .config import CLOUDFLARE_KV_NAMESPACE_ID
+
     if not CLOUDFLARE_KV_NAMESPACE_ID:
         raise HTTPException(503, "KV not configured")
     from .integrations import get_kv_client
+
     return get_kv_client(), CLOUDFLARE_KV_NAMESPACE_ID
 
 
 @router.get("/api/admin/fraud/fingerprints")
 async def list_fingerprints(
-    limit: int = 20, offset: int = 0,
+    limit: int = 20,
+    offset: int = 0,
     user: dict = Depends(get_current_user),
 ):
     _require_admin(user)
     try:
         from .fraud_detection import get_fingerprint_data
+
         kv, ns = _kv_ns()
         keys = kv.workers.kv.namespaces.keys.list(
-            namespace_id=ns, prefix="fp:", limit=limit + offset,
+            namespace_id=ns,
+            prefix="fp:",
+            limit=limit + offset,
         )
         all_keys = keys.get("keys", [])
         fingerprints = []
-        for key in all_keys[offset:offset + limit]:
+        for key in all_keys[offset : offset + limit]:
             try:
                 d = await get_fingerprint_data(kv, ns, key["name"][3:])
-                fingerprints.append({
-                    "fingerprint_id": d.fingerprint[:16],
-                    "risk_score": d.risk_score,
-                    "is_banned": d.is_banned,
-                    "account_count": len(d.associated_user_ids),
-                })
+                fingerprints.append(
+                    {
+                        "fingerprint_id": d.fingerprint[:16],
+                        "risk_score": d.risk_score,
+                        "is_banned": d.is_banned,
+                        "account_count": len(d.associated_user_ids),
+                    }
+                )
             except Exception:
                 continue
         return {"total": len(all_keys), "fingerprints": fingerprints}
@@ -763,6 +776,7 @@ async def list_fingerprints(
 async def list_banned(user: dict = Depends(get_current_user)):
     _require_admin(user)
     from .fraud_detection import get_fingerprint_data
+
     kv, ns = _kv_ns()
     banned: list[dict] = []
     keys = kv.workers.kv.namespaces.keys.list(namespace_id=ns, prefix="fp:")
@@ -770,11 +784,13 @@ async def list_banned(user: dict = Depends(get_current_user)):
         try:
             d = await get_fingerprint_data(kv, ns, key["name"][3:])
             if d.is_banned and d.ban_expires_at:
-                banned.append({
-                    "fingerprint_id": d.fingerprint[:16],
-                    "risk_score": d.risk_score,
-                    "ban_expires": d.ban_expires_at.isoformat(),
-                })
+                banned.append(
+                    {
+                        "fingerprint_id": d.fingerprint[:16],
+                        "risk_score": d.risk_score,
+                        "ban_expires": d.ban_expires_at.isoformat(),
+                    }
+                )
         except Exception:
             continue
     return {"count": len(banned), "banned_fingerprints": banned}
@@ -784,6 +800,7 @@ async def list_banned(user: dict = Depends(get_current_user)):
 async def unban_fp(fingerprint: str, user: dict = Depends(get_current_user)):
     _require_admin(user)
     from .fraud_detection import get_fingerprint_data, save_fingerprint_data
+
     kv, ns = _kv_ns()
     d = await get_fingerprint_data(kv, ns, fingerprint)
     d.is_banned = False
@@ -794,11 +811,12 @@ async def unban_fp(fingerprint: str, user: dict = Depends(get_current_user)):
 
 
 @router.post("/api/admin/fraud/ban/{fingerprint}")
-async def ban_fp(fingerprint: str, duration_hours: int = 168,
-                 user: dict = Depends(get_current_user)):
+async def ban_fp(fingerprint: str, duration_hours: int = 168, user: dict = Depends(get_current_user)):
     from datetime import timedelta
+
     _require_admin(user)
     from .fraud_detection import get_fingerprint_data, save_fingerprint_data
+
     kv, ns = _kv_ns()
     d = await get_fingerprint_data(kv, ns, fingerprint)
     d.is_banned = True
@@ -812,6 +830,7 @@ async def ban_fp(fingerprint: str, duration_hours: int = 168,
 async def fraud_metrics(user: dict = Depends(get_current_user)):
     _require_admin(user)
     from .fraud_detection import get_fingerprint_data
+
     kv, ns = _kv_ns()
     total = banned = high = medium = accounts = 0
     keys = kv.workers.kv.namespaces.keys.list(namespace_id=ns, prefix="fp:")

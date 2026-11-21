@@ -16,6 +16,7 @@ Honest scope / fixes
 * **`payload["perms"]`** — KeyError on JWT missing the `perms` claim.
   Fixed to `.get(..., [])` with explicit empty-set fallback.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -116,9 +117,12 @@ async def register_tenant(name: str, plan: str = "free") -> Tenant:
             raise RuntimeError("tenant_limit_reached")
         tid = str(uuid.uuid4())
         t = Tenant(
-            tenant_id=tid, name=name, plan=plan,
+            tenant_id=tid,
+            name=name,
+            plan=plan,
             quota_limit=settings.DEFAULT_TENANT_QUOTA,
-            quota_used=0, is_active=True,
+            quota_used=0,
+            is_active=True,
             created_at=datetime.now(timezone.utc),
         )
         _tenants[tid] = t
@@ -143,7 +147,10 @@ class AuthContext:
 
 
 def create_access_token(
-    user_id: str, tenant_id: str, roles: List[str], permissions: Set[str],
+    user_id: str,
+    tenant_id: str,
+    roles: List[str],
+    permissions: Set[str],
 ) -> str:
     settings = get_settings()
     if not settings.JWT_SECRET:
@@ -152,10 +159,14 @@ def create_access_token(
         raise ValueError("user_id and tenant_id required")
     now = int(time.time())
     payload = {
-        "sub": user_id, "tid": tenant_id,
-        "roles": roles, "perms": list(permissions),
-        "iss": settings.JWT_ISSUER, "aud": settings.JWT_AUDIENCE,
-        "iat": now, "exp": now + settings.JWT_EXPIRY_SECONDS,
+        "sub": user_id,
+        "tid": tenant_id,
+        "roles": roles,
+        "perms": list(permissions),
+        "iss": settings.JWT_ISSUER,
+        "aud": settings.JWT_AUDIENCE,
+        "iat": now,
+        "exp": now + settings.JWT_EXPIRY_SECONDS,
     }
     return jwt.encode(payload, settings.JWT_SECRET, algorithm="HS256")
 
@@ -166,8 +177,10 @@ def verify_access_token(token: str) -> Optional[AuthContext]:
         return None
     try:
         payload = jwt.decode(
-            token, settings.JWT_SECRET,
-            issuer=settings.JWT_ISSUER, audience=settings.JWT_AUDIENCE,
+            token,
+            settings.JWT_SECRET,
+            issuer=settings.JWT_ISSUER,
+            audience=settings.JWT_AUDIENCE,
             algorithms=["HS256"],
             options={"require": ["sub", "tid", "exp", "iat"]},
         )
@@ -190,9 +203,8 @@ def requires_permission(required_perm: str):
         async def wrapper(request: web.Request, *args, **kwargs) -> web.Response:
             auth_header = request.headers.get("Authorization", "")
             if not auth_header.startswith("Bearer "):
-                return web.json_response(
-                    {"error": "missing_authorization"}, status=401)
-            token = auth_header[len("Bearer "):].strip()
+                return web.json_response({"error": "missing_authorization"}, status=401)
+            token = auth_header[len("Bearer ") :].strip()
             if not token:
                 return web.json_response({"error": "empty_token"}, status=401)
             ctx = verify_access_token(token)
@@ -202,15 +214,15 @@ def requires_permission(required_perm: str):
             if tenant is None or not tenant.is_active:
                 return web.json_response({"error": "tenant_inactive"}, status=403)
             if required_perm not in ctx.permissions:
-                logger.warning("permission_denied user=%s required=%s",
-                               ctx.user_id, required_perm)
-                return web.json_response(
-                    {"error": "insufficient_permissions"}, status=403)
+                logger.warning("permission_denied user=%s required=%s", ctx.user_id, required_perm)
+                return web.json_response({"error": "insufficient_permissions"}, status=403)
             # aiohttp Request does NOT support request["k"] = v.
             # match_info is a dict subclass and DOES.
             request.match_info["auth_context"] = ctx
             return await handler(request, *args, **kwargs)
+
         return wrapper
+
     return decorator
 
 
@@ -264,8 +276,7 @@ async def init() -> None:
     settings = get_settings()
     if not settings.JWT_SECRET:
         logger.warning("jwt_secret_missing — tokens will not be verifiable")
-    logger.info("buildx_india_zero_trust_initialized max_tenants=%d",
-                settings.MAX_TENANTS)
+    logger.info("buildx_india_zero_trust_initialized max_tenants=%d", settings.MAX_TENANTS)
 
 
 async def shutdown() -> None:

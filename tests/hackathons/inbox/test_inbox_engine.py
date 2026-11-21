@@ -2,6 +2,7 @@
 
 Ollama-dependent tests skip automatically when Apex Router is unreachable.
 """
+
 from __future__ import annotations
 
 import socket
@@ -26,10 +27,18 @@ from axelr.core import (
 
 
 class TestLocalHostGuard:
-    @pytest.mark.parametrize("host", [
-        "127.0.0.1", "127.1.2.3", "localhost",
-        "10.0.0.5", "192.168.1.1", "172.16.0.1", "::1",
-    ])
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "127.0.0.1",
+            "127.1.2.3",
+            "localhost",
+            "10.0.0.5",
+            "192.168.1.1",
+            "172.16.0.1",
+            "::1",
+        ],
+    )
     def test_local_accepted(self, host: str) -> None:
         assert _is_local_host(host) is True
 
@@ -44,12 +53,18 @@ class TestLocalHostGuard:
 
 class TestMetadataNormalization:
     def test_full_payload(self) -> None:
-        out = normalize_metadata({
-            "document_type": "invoice", "date": "2026-11-03",
-            "sender": "Acme Corp", "total_amount": 4200.00,
-            "currency": "usd", "due_date": "2026-11-10",
-            "category": "Invoices", "confidence": 0.92,
-        })
+        out = normalize_metadata(
+            {
+                "document_type": "invoice",
+                "date": "2026-11-03",
+                "sender": "Acme Corp",
+                "total_amount": 4200.00,
+                "currency": "usd",
+                "due_date": "2026-11-10",
+                "category": "Invoices",
+                "confidence": 0.92,
+            }
+        )
         assert out["document_type"] == "invoice"
         assert out["total_amount"] == 4200.0
         assert out["currency"] == "USD"  # uppercased
@@ -59,26 +74,37 @@ class TestMetadataNormalization:
         assert out["document_type"] == "other"
 
     def test_short_currency_nulled(self) -> None:
-        out = normalize_metadata({
-            "document_type": "invoice", "category": "Invoices",
-            "confidence": 0.5, "currency": "US",
-        })
+        out = normalize_metadata(
+            {
+                "document_type": "invoice",
+                "category": "Invoices",
+                "confidence": 0.5,
+                "currency": "US",
+            }
+        )
         assert out["currency"] is None
 
     def test_confidence_clamped(self) -> None:
-        out = normalize_metadata({
-            "document_type": "invoice", "category": "Invoices", "confidence": 1.5,
-        })
+        out = normalize_metadata(
+            {
+                "document_type": "invoice",
+                "category": "Invoices",
+                "confidence": 1.5,
+            }
+        )
         assert out["confidence"] == 1.0
 
 
 class TestSafeSegment:
-    @pytest.mark.parametrize("raw,want", [
-        ("Acme Corp", "Acme-Corp"),
-        ("../../etc/passwd", "etc-passwd"),
-        ("", "untitled"),
-        ("...", "untitled"),
-    ])
+    @pytest.mark.parametrize(
+        "raw,want",
+        [
+            ("Acme Corp", "Acme-Corp"),
+            ("../../etc/passwd", "etc-passwd"),
+            ("", "untitled"),
+            ("...", "untitled"),
+        ],
+    )
     def test_safe(self, raw: str, want: str) -> None:
         assert _safe_segment(raw) == want
 
@@ -86,8 +112,10 @@ class TestSafeSegment:
 class TestTargetPath:
     def test_layout(self, tmp_path: Path) -> None:
         meta = DocumentMetadata(
-            document_type="invoice", date="2026-11-03",
-            sender="Acme Corp", category="Invoices",
+            document_type="invoice",
+            date="2026-11-03",
+            sender="Acme Corp",
+            category="Invoices",
         )
         dst = _target_path(tmp_path, meta, Path("invoice-001.pdf"))
         assert dst.parent == tmp_path / "2026" / "11" / "Invoices"
@@ -98,11 +126,17 @@ class TestTargetPath:
 async def test_undo_log_cap(tmp_path: Path) -> None:
     log = UndoLog(tmp_path / "undo.jsonl", max_entries=3)
     for i in range(5):
-        await log.record(UndoEntry(
-            op_id=str(i), timestamp=float(i), src=f"/a/{i}",
-            dst=f"/b/{i}", filename=f"f{i}", category="Invoices",
-            content_hash=f"h{i}",
-        ))
+        await log.record(
+            UndoEntry(
+                op_id=str(i),
+                timestamp=float(i),
+                src=f"/a/{i}",
+                dst=f"/b/{i}",
+                filename=f"f{i}",
+                category="Invoices",
+                content_hash=f"h{i}",
+            )
+        )
     snap = await log.snapshot()
     assert [e.op_id for e in snap] == ["2", "3", "4"]
 
@@ -110,14 +144,20 @@ async def test_undo_log_cap(tmp_path: Path) -> None:
 @pytest.mark.asyncio
 async def test_daily_summary_roundtrip(tmp_path: Path) -> None:
     summary = DailySummary(tmp_path)
-    await summary.append(ProcessingResult(
-        source="/inbox/x.pdf", source_name="x.pdf",
-        destination="/lib/2026/11/Invoices/x.pdf",
-        metadata=DocumentMetadata(
-            document_type="invoice", date="2026-11-03",
-            sender="Acme", category="Invoices", confidence=0.9,
-        ),
-    ))
+    await summary.append(
+        ProcessingResult(
+            source="/inbox/x.pdf",
+            source_name="x.pdf",
+            destination="/lib/2026/11/Invoices/x.pdf",
+            metadata=DocumentMetadata(
+                document_type="invoice",
+                date="2026-11-03",
+                sender="Acme",
+                category="Invoices",
+                confidence=0.9,
+            ),
+        )
+    )
     text = await summary.render()
     assert "1 document" in text
     assert "Invoices: 1" in text
@@ -140,8 +180,7 @@ async def test_end_to_end_file(tmp_path: Path) -> None:
     (root / "inbox").mkdir(parents=True)
     src = root / "inbox" / "invoice-001.txt"
     src.write_text(
-        "INVOICE\nDate: 2026-11-03\nFrom: Acme Corp\n"
-        "Total: USD 4200.00\nDue: 2026-11-10\n",
+        "INVOICE\nDate: 2026-11-03\nFrom: Acme Corp\nTotal: USD 4200.00\nDue: 2026-11-10\n",
         encoding="utf-8",
     )
     skill = await DocumentSkill.create(root)

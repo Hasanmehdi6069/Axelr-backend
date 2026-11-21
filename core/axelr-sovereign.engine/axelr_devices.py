@@ -18,6 +18,7 @@ never silently degraded, never "try anyway and crash."
 Ready for ghost telemetry: classify(telemetry_hint={...}) overrides
 local detection when the telemetry engine has accurate data.
 """
+
 from __future__ import annotations
 
 import os
@@ -55,9 +56,13 @@ class DeviceTier(IntEnum):
 
     @property
     def ram_min_gb(self) -> float:
-        return {DeviceTier.MOBILE: 0.0, DeviceTier.LIGHT: 4.0,
-                DeviceTier.STANDARD: 8.0, DeviceTier.PERFORMANCE: 16.0,
-                DeviceTier.WORKSTATION: 32.0}[self]
+        return {
+            DeviceTier.MOBILE: 0.0,
+            DeviceTier.LIGHT: 4.0,
+            DeviceTier.STANDARD: 8.0,
+            DeviceTier.PERFORMANCE: 16.0,
+            DeviceTier.WORKSTATION: 32.0,
+        }[self]
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -70,7 +75,7 @@ class DeviceProfile:
     free_ram_gb: float
     is_mobile: bool
     is_battery: bool
-    gpu_kind: str          # "cuda" | "metal" | "webgl2" | "none"
+    gpu_kind: str  # "cuda" | "metal" | "webgl2" | "none"
     gpu_name: str
     cpu_cores: int
     platform: str
@@ -105,47 +110,69 @@ class FeatureRequirement:
 # ═══════════════════════════════════════════════════════════════════════
 FEATURES: Dict[str, FeatureRequirement] = {
     "web_speech": FeatureRequirement(
-        "web_speech", DeviceTier.MOBILE,
+        "web_speech",
+        DeviceTier.MOBILE,
         description="Cloud ASR via browser (Web Speech API)",
     ),
     "wasm_whisper_tiny": FeatureRequirement(
-        "wasm_whisper_tiny", DeviceTier.LIGHT, 200,
+        "wasm_whisper_tiny",
+        DeviceTier.LIGHT,
+        200,
         description="Offline WASM whisper-tiny (browser)",
     ),
     "python_cpu_tiny": FeatureRequirement(
-        "python_cpu_tiny", DeviceTier.LIGHT, 400,
+        "python_cpu_tiny",
+        DeviceTier.LIGHT,
+        400,
         description="Python whisper-tiny (CPU)",
     ),
     "python_cpu_base": FeatureRequirement(
-        "python_cpu_base", DeviceTier.STANDARD, 800,
+        "python_cpu_base",
+        DeviceTier.STANDARD,
+        800,
         description="Python whisper-base (CPU)",
     ),
     "python_gpu_tiny": FeatureRequirement(
-        "python_gpu_tiny", DeviceTier.STANDARD, 300, requires_gpu=True,
+        "python_gpu_tiny",
+        DeviceTier.STANDARD,
+        300,
+        requires_gpu=True,
         description="GPU whisper-tiny (fast)",
     ),
     "python_gpu_base": FeatureRequirement(
-        "python_gpu_base", DeviceTier.PERFORMANCE, 500, requires_gpu=True,
+        "python_gpu_base",
+        DeviceTier.PERFORMANCE,
+        500,
+        requires_gpu=True,
         description="GPU whisper-base (high accuracy)",
     ),
     "python_gpu_small": FeatureRequirement(
-        "python_gpu_small", DeviceTier.PERFORMANCE, 1200, requires_gpu=True,
+        "python_gpu_small",
+        DeviceTier.PERFORMANCE,
+        1200,
+        requires_gpu=True,
         description="GPU whisper-small (best accuracy)",
     ),
     "streaming_partials": FeatureRequirement(
-        "streaming_partials", DeviceTier.LIGHT, 50,
+        "streaming_partials",
+        DeviceTier.LIGHT,
+        50,
         description="Live partial transcripts as you speak",
     ),
     "session_persistence": FeatureRequirement(
-        "session_persistence", DeviceTier.LIGHT,
+        "session_persistence",
+        DeviceTier.LIGHT,
         description="Vocabulary and calibration persist across sessions",
     ),
     "cross_encoder": FeatureRequirement(
-        "cross_encoder", DeviceTier.STANDARD, 10,
+        "cross_encoder",
+        DeviceTier.STANDARD,
+        10,
         description="Bigram context disambiguation (their/there)",
     ),
     "elite_telemetry": FeatureRequirement(
-        "elite_telemetry", DeviceTier.LIGHT,
+        "elite_telemetry",
+        DeviceTier.LIGHT,
         description="Prometheus metrics endpoint",
     ),
 }
@@ -158,6 +185,7 @@ def _read_ram() -> Tuple[float, float]:
     """Return (total_gb, free_gb). Falls back through 3 detection layers."""
     try:
         import psutil
+
         m = psutil.virtual_memory()
         return (m.total / 1e9, m.available / 1e9)
     except ImportError:
@@ -180,17 +208,22 @@ def _read_ram() -> Tuple[float, float]:
     if sys.platform == "win32":
         try:
             import ctypes
+
             class M(ctypes.Structure):
-                _fields_ = [("dwLength", ctypes.c_ulong),
-                            ("dwMemoryLoad", ctypes.c_ulong),
-                            ("ullTotalPhys", ctypes.c_ulonglong),
-                            ("ullAvailPhys", ctypes.c_ulonglong),
-                            ("ullTotalPageFile", ctypes.c_ulonglong),
-                            ("ullAvailPageFile", ctypes.c_ulonglong),
-                            ("ullTotalVirtual", ctypes.c_ulonglong),
-                            ("ullAvailVirtual", ctypes.c_ulonglong),
-                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
-            ms = M(); ms.dwLength = ctypes.sizeof(M)
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                    ("ullTotalPageFile", ctypes.c_ulonglong),
+                    ("ullAvailPageFile", ctypes.c_ulonglong),
+                    ("ullTotalVirtual", ctypes.c_ulonglong),
+                    ("ullAvailVirtual", ctypes.c_ulonglong),
+                    ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+                ]
+
+            ms = M()
+            ms.dwLength = ctypes.sizeof(M)
             ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))
             return (ms.ullTotalPhys / 1e9, ms.ullAvailPhys / 1e9)
         except Exception:
@@ -198,8 +231,7 @@ def _read_ram() -> Tuple[float, float]:
 
     if sys.platform == "darwin":
         try:
-            total = int(subprocess.check_output(
-                ["sysctl", "-n", "hw.memsize"], timeout=2).strip()) / 1e9
+            total = int(subprocess.check_output(["sysctl", "-n", "hw.memsize"], timeout=2).strip()) / 1e9
             return (total, total * 0.35)
         except Exception:
             pass
@@ -219,6 +251,7 @@ def _detect_mobile() -> bool:
 def _detect_battery() -> bool:
     try:
         import psutil
+
         b = psutil.sensors_battery()
         return b is not None and not b.power_plugged
     except (ImportError, AttributeError):
@@ -229,12 +262,11 @@ def _detect_gpu() -> Tuple[str, str]:
     """Return (kind, name). kind ∈ {cuda, metal, none}."""
     try:
         import ctranslate2
+
         if ctranslate2.get_cuda_device_count() > 0:
             name = "NVIDIA (CUDA)"
             try:
-                out = subprocess.check_output(
-                    ["nvidia-smi", "--query-gpu=name",
-                     "--format=csv,noheader"], timeout=2)
+                out = subprocess.check_output(["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"], timeout=2)
                 name = out.decode().strip().split("\n")[0]
             except Exception:
                 pass
@@ -244,9 +276,7 @@ def _detect_gpu() -> Tuple[str, str]:
 
     if sys.platform == "darwin":
         try:
-            out = subprocess.check_output(
-                ["system_profiler", "SPDisplaysDataType"],
-                timeout=2).decode()
+            out = subprocess.check_output(["system_profiler", "SPDisplaysDataType"], timeout=2).decode()
             if "Apple M" in out or "Apple GPU" in out:
                 return ("metal", "Apple Silicon")
         except Exception:
@@ -262,10 +292,14 @@ def _assign_tier(total_gb: float, is_mobile: bool) -> DeviceTier:
     """Tier from total RAM (not free — free fluctuates). Mobile always ≤ LIGHT."""
     if is_mobile:
         return DeviceTier.MOBILE
-    if total_gb < 4:  return DeviceTier.MOBILE
-    if total_gb < 8:  return DeviceTier.LIGHT
-    if total_gb < 16: return DeviceTier.STANDARD
-    if total_gb < 32: return DeviceTier.PERFORMANCE
+    if total_gb < 4:
+        return DeviceTier.MOBILE
+    if total_gb < 8:
+        return DeviceTier.LIGHT
+    if total_gb < 16:
+        return DeviceTier.STANDARD
+    if total_gb < 32:
+        return DeviceTier.PERFORMANCE
     return DeviceTier.WORKSTATION
 
 
@@ -289,9 +323,13 @@ def classify(telemetry_hint: Optional[Dict[str, Any]] = None) -> DeviceProfile:
         gpu_kind = str(hint["gpu_kind"])
     tier = _assign_tier(total_gb, is_mobile)
     return DeviceProfile(
-        tier=tier, total_ram_gb=total_gb, free_ram_gb=free_gb,
-        is_mobile=is_mobile, is_battery=is_battery,
-        gpu_kind=gpu_kind, gpu_name=gpu_name,
+        tier=tier,
+        total_ram_gb=total_gb,
+        free_ram_gb=free_gb,
+        is_mobile=is_mobile,
+        is_battery=is_battery,
+        gpu_kind=gpu_kind,
+        gpu_name=gpu_name,
         cpu_cores=os.cpu_count() or 2,
         platform=("mobile" if is_mobile else sys.platform),
         detected_at=time.time(),
@@ -301,8 +339,7 @@ def classify(telemetry_hint: Optional[Dict[str, Any]] = None) -> DeviceProfile:
 # ═══════════════════════════════════════════════════════════════════════
 # §6 — Feature availability + user-facing message
 # ═══════════════════════════════════════════════════════════════════════
-def check_feature(feature_id: str, profile: Optional[DeviceProfile] = None
-                  ) -> Tuple[bool, str]:
+def check_feature(feature_id: str, profile: Optional[DeviceProfile] = None) -> Tuple[bool, str]:
     """Returns (available, honest_user_message). Empty message if available."""
     req = FEATURES.get(feature_id)
     if req is None:
@@ -312,17 +349,11 @@ def check_feature(feature_id: str, profile: Optional[DeviceProfile] = None
 
     reasons: List[str] = []
     if profile.tier < req.min_tier:
-        reasons.append(
-            f"needs {req.min_tier.label} tier or higher "
-            f"(your device: {profile.tier.label})"
-        )
+        reasons.append(f"needs {req.min_tier.label} tier or higher (your device: {profile.tier.label})")
     if req.min_free_ram_mb > 0:
         free_mb = int(profile.free_ram_gb * 1024)
         if free_mb < req.min_free_ram_mb:
-            reasons.append(
-                f"needs {req.min_free_ram_mb} MB free RAM "
-                f"(your device: {free_mb} MB)"
-            )
+            reasons.append(f"needs {req.min_free_ram_mb} MB free RAM (your device: {free_mb} MB)")
     if req.requires_gpu and profile.gpu_kind == "none":
         reasons.append("requires GPU (no CUDA/Metal detected)")
 
@@ -337,29 +368,29 @@ def check_feature(feature_id: str, profile: Optional[DeviceProfile] = None
     return (False, msg)
 
 
-def list_available_features(profile: Optional[DeviceProfile] = None
-                             ) -> List[Dict[str, Any]]:
+def list_available_features(profile: Optional[DeviceProfile] = None) -> List[Dict[str, Any]]:
     if profile is None:
         profile = classify()
     out = []
     for fid, req in FEATURES.items():
         ok, msg = check_feature(fid, profile)
-        out.append({
-            "feature_id": fid,
-            "description": req.description,
-            "min_tier": req.min_tier.label,
-            "requires_gpu": req.requires_gpu,
-            "available": ok,
-            "reason": msg,
-        })
+        out.append(
+            {
+                "feature_id": fid,
+                "description": req.description,
+                "min_tier": req.min_tier.label,
+                "requires_gpu": req.requires_gpu,
+                "available": ok,
+                "reason": msg,
+            }
+        )
     return out
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # §7 — Runtime selector (mirrors JS arbitration)
 # ═══════════════════════════════════════════════════════════════════════
-def select_runtime(profile: Optional[DeviceProfile] = None,
-                    preference: str = "auto") -> str:
+def select_runtime(profile: Optional[DeviceProfile] = None, preference: str = "auto") -> str:
     """Mirror of axelr-asr.js arbitration. Same tiers, same order."""
     if profile is None:
         profile = classify()
@@ -367,16 +398,25 @@ def select_runtime(profile: Optional[DeviceProfile] = None,
     def ok(fid: str) -> bool:
         return check_feature(fid, profile)[0]
 
-    if preference == "cloud":  return "cloud"
-    if preference == "text":   return "text"
-    if preference == "wasm":   return "wasm" if ok("wasm_whisper_tiny") else "cloud"
-    if preference == "ipc_gpu":return "ipc_gpu" if ok("python_gpu_tiny") else "ipc_cpu"
-    if preference == "ipc_cpu":return "ipc_cpu" if ok("python_cpu_tiny") else "cloud"
+    if preference == "cloud":
+        return "cloud"
+    if preference == "text":
+        return "text"
+    if preference == "wasm":
+        return "wasm" if ok("wasm_whisper_tiny") else "cloud"
+    if preference == "ipc_gpu":
+        return "ipc_gpu" if ok("python_gpu_tiny") else "ipc_cpu"
+    if preference == "ipc_cpu":
+        return "ipc_cpu" if ok("python_cpu_tiny") else "cloud"
 
-    if ok("python_gpu_tiny"):  return "ipc_gpu"
-    if ok("python_cpu_tiny"):  return "ipc_cpu"
-    if ok("wasm_whisper_tiny"):return "wasm"
-    if ok("web_speech"):       return "cloud"
+    if ok("python_gpu_tiny"):
+        return "ipc_gpu"
+    if ok("python_cpu_tiny"):
+        return "ipc_cpu"
+    if ok("wasm_whisper_tiny"):
+        return "wasm"
+    if ok("web_speech"):
+        return "cloud"
     return "text"
 
 
@@ -390,8 +430,7 @@ class FeatureUnavailableError(RuntimeError):
         super().__init__(user_message)
 
 
-def require_feature(feature_id: str,
-                    profile: Optional[DeviceProfile] = None) -> None:
+def require_feature(feature_id: str, profile: Optional[DeviceProfile] = None) -> None:
     """Raise FeatureUnavailableError if the device can't run this feature."""
     ok, msg = check_feature(feature_id, profile)
     if not ok:
@@ -418,8 +457,15 @@ def user_facing_summary(profile: Optional[DeviceProfile] = None) -> str:
 
 
 __all__ = [
-    "DeviceTier", "DeviceProfile", "FeatureRequirement",
-    "FEATURES", "classify", "check_feature", "list_available_features",
-    "select_runtime", "FeatureUnavailableError", "require_feature",
+    "DeviceTier",
+    "DeviceProfile",
+    "FeatureRequirement",
+    "FEATURES",
+    "classify",
+    "check_feature",
+    "list_available_features",
+    "select_runtime",
+    "FeatureUnavailableError",
+    "require_feature",
     "user_facing_summary",
 ]

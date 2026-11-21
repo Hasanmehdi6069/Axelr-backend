@@ -13,6 +13,7 @@ Also hosts:
   * Sync-friendly Redis wrappers (async): ``get_redis_cache``, etc.
   * ``limiter``                        — slowapi rate limiter
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,11 +50,16 @@ try:
     _rate_limit_exceeded_handler = _slowapi._rate_limit_exceeded_handler
     RateLimitExceeded = importlib.import_module("slowapi.errors").RateLimitExceeded
 except ImportError:
-    class Limiter:                                   # type: ignore
-        def __init__(self, *a, **kw): pass
-        def limit(self, *a, **kw): return lambda f: f
 
-    class RateLimitExceeded(Exception): pass
+    class Limiter:  # type: ignore
+        def __init__(self, *a, **kw):
+            pass
+
+        def limit(self, *a, **kw):
+            return lambda f: f
+
+    class RateLimitExceeded(Exception):
+        pass
 
     def _rate_limit_exceeded_handler(request, exc):  # type: ignore
         return JSONResponse(status_code=429, content={"detail": "Rate limit exceeded"})
@@ -72,11 +78,13 @@ limiter = Limiter(key_func=_ratelimit_key, default_limits=["100/minute"])
 
 # ── Mutable state container ──────────────────────────────────────────────────
 
+
 class _AppState:
     """
     Every long-lived runtime object. Populated at boot by ``init_*()``
     functions and consumed by route handlers *at call time*.
     """
+
     # MongoDB
     client: AsyncIOMotorClient | None = None
     db: Any = None
@@ -146,12 +154,14 @@ state = _AppState()
 
 # ── ObjectId helper ──────────────────────────────────────────────────────────
 
+
 def get_object_id():
     """Return the ObjectId class when Mongo is up, else ``None``."""
     return ObjectId if state.db_available else None
 
 
 # ── Redis wrappers (async, JSON) ─────────────────────────────────────────────
+
 
 async def get_redis_cache(key: str) -> Any:
     if not state.redis_client:
@@ -191,7 +201,9 @@ async def init_redis() -> None:
     temp_client = None
     try:
         temp_client = await aioredis.from_url(
-            REDIS_URL, decode_responses=True, max_connections=10,
+            REDIS_URL,
+            decode_responses=True,
+            max_connections=10,
         )
         if await temp_client.ping():
             state.redis_client = temp_client
@@ -218,7 +230,8 @@ async def init_db() -> None:
         temp_client = None
         try:
             temp_client = AsyncIOMotorClient(
-                MONGO_URI, serverSelectionTimeoutMS=5000,
+                MONGO_URI,
+                serverSelectionTimeoutMS=5000,
             )
             await temp_client.admin.command("ping")
 
@@ -230,11 +243,11 @@ async def init_db() -> None:
 
             state.client = temp_client
             state.db = db
-            state.users_col      = state.db.users
-            state.sessions_col   = state.db.conversations   # legacy name preserved
-            state.reports_col    = state.db.reports
+            state.users_col = state.db.users
+            state.sessions_col = state.db.conversations  # legacy name preserved
+            state.reports_col = state.db.reports
             state.pr_reports_col = state.db.pr_reports
-            state.projects_col   = state.db.projects
+            state.projects_col = state.db.projects
             state.db_available = True
             logger.info("mongo_connected attempt=%d", attempt + 1)
             return
@@ -245,7 +258,9 @@ async def init_db() -> None:
                 with contextlib.suppress(Exception):
                     temp_client.close()
             logger.warning(
-                "mongodb_connection_failed attempt=%d error=%s", attempt + 1, e,
+                "mongodb_connection_failed attempt=%d error=%s",
+                attempt + 1,
+                e,
             )
             if attempt < max_retries - 1:
                 await asyncio.sleep(1)
@@ -286,8 +301,7 @@ async def init_qstash() -> None:
     except httpx.TimeoutException:
         logger.error("qstash_timeout")
     except httpx.HTTPStatusError as e:
-        logger.error("qstash_http_error status=%s body=%s",
-                     e.response.status_code, e.response.text[:200])
+        logger.error("qstash_http_error status=%s body=%s", e.response.status_code, e.response.text[:200])
     except Exception as e:
         logger.error("qstash_unexpected_error error=%s", e)
 

@@ -15,8 +15,7 @@ logger = logging.getLogger(__name__)
 # §1 TokenBiasingConfig (from token_biasing, load() path fixed)
 _DEFAULT_BIASING_CONFIG: Dict[str, Any] = {
     "programming": {
-        "keywords": ["function", "class", "return", "async", "await",
-                     "import", "export", "const", "let", "var"],
+        "keywords": ["function", "class", "return", "async", "await", "import", "export", "const", "let", "var"],
         "boost": 2.5,
     },
     "domain_specific": {
@@ -33,6 +32,7 @@ _DEFAULT_BIASING_CONFIG: Dict[str, Any] = {
 
 class TokenBiasingConfig:
     """Configuration for token biasing engine."""
+
     programming_keywords: List[str]
     programming_boost: float
     domain_keywords: Dict[str, List[str]]
@@ -89,6 +89,7 @@ class TokenBiasingConfig:
 # §2 ContextWindow (unchanged)
 class ContextWindow:
     """Manages sliding context window for token processing."""
+
     def __init__(self, size: int = 100):
         self.size = size
         self.tokens: List[str] = []
@@ -111,6 +112,7 @@ class ContextWindow:
 # §3 Adapter stubs
 class NVIDIAInferenceStream:
     """Stub for NVIDIA CUDA inference stream adapter."""
+
     def __init__(self, config: Dict[str, Any]):
         self.enabled = config.get("enabled", False)
         self.cuda_stream_priority = config.get("cuda_stream_priority", 0)
@@ -127,6 +129,7 @@ class NVIDIAInferenceStream:
 
 class IsolatedSandbox:
     """Stub for isolated execution sandbox adapter."""
+
     def __init__(self, config: Dict[str, Any]):
         self.enabled = config.get("enabled", False)
         self.sandbox_isolation_level = config.get("sandbox_isolation_level", "strict")
@@ -143,6 +146,7 @@ class IsolatedSandbox:
 
 class FinancialStatePipeline:
     """Stub for financial transaction processing pipeline adapter."""
+
     def __init__(self, config: Dict[str, Any]):
         self.enabled = config.get("enabled", False)
         self.multi_step_verification = config.get("multi_step_verification", True)
@@ -159,6 +163,7 @@ class FinancialStatePipeline:
 
 class EdgeCloudOrchestrator:
     """Stub for edge-cloud routing and orchestration adapter."""
+
     def __init__(self, config: Dict[str, Any]):
         self.enabled = config.get("enabled", False)
         self.edge_cloud_routing = config.get("edge_cloud_routing", True)
@@ -179,6 +184,7 @@ _token_biasing_engine_instance: Optional["TokenBiasingEngine"] = None
 
 class TokenBiasingEngine:
     """Singleton token biasing engine that applies domain-specific boosts to tokens."""
+
     _config: TokenBiasingConfig
     _context_window: ContextWindow
     _adapters: Dict[str, Any]

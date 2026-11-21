@@ -10,6 +10,7 @@ Design notes:
     branch. That is the entire HETIC H-2 proof.
   • JSON parsing is strict. No "repair", no partial persistence (R-10).
 """
+
 from __future__ import annotations
 
 import json
@@ -72,6 +73,7 @@ Only include the object matching `kind`. Rules:
 # Clients
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class OllamaClient:
     """Local, free, open-weights inference. Default path for HETIC H-1."""
 
@@ -103,7 +105,9 @@ class OllamaClient:
         except httpx.HTTPError as e:
             logger.warning(
                 "ollama_http_error model=%s timeout=%.1fs err=%s",
-                self._model, self._timeout, e,
+                self._model,
+                self._timeout,
+                e,
             )
             raise LLMUnavailable(f"ollama_http:{type(e).__name__}") from e
         except (KeyError, ValueError) as e:
@@ -111,8 +115,10 @@ class OllamaClient:
 
         logger.info(
             "ollama_ok model=%s prompt=%s duration_ms=%d chars=%d",
-            self._model, PROMPT_VERSION,
-            int((time.perf_counter() - t0) * 1000), len(content),
+            self._model,
+            PROMPT_VERSION,
+            int((time.perf_counter() - t0) * 1000),
+            len(content),
         )
         return content
 
@@ -149,7 +155,8 @@ class CloudClient:
         content = r.json()["choices"][0]["message"]["content"]
         logger.info(
             "cloud_ok model=%s prompt=%s duration_ms=%d",
-            self._model, PROMPT_VERSION,
+            self._model,
+            PROMPT_VERSION,
             int((time.perf_counter() - t0) * 1000),
         )
         return content
@@ -158,6 +165,7 @@ class CloudClient:
 # ═══════════════════════════════════════════════════════════════════════
 # Public API
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class LLMClient:
     """Single entry point. Encapsulates R-6, R-7, R-10 in one place."""
@@ -178,7 +186,8 @@ class LLMClient:
                 logger.error("cloud_fallback_requested_but_broken err=%s", e)
 
     async def extract(
-        self, text: str,
+        self,
+        text: str,
     ) -> tuple[list[Any], int]:
         """Return (valid_envelopes, dropped_count).
 
@@ -208,7 +217,9 @@ class LLMClient:
 
         logger.info(
             "extract_ok prompt=%s valid=%d dropped=%d",
-            PROMPT_VERSION, len(valid), dropped,
+            PROMPT_VERSION,
+            len(valid),
+            dropped,
         )
         return valid, dropped
 

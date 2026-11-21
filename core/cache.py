@@ -12,6 +12,7 @@ surface, and the embedding primitive.
 
 Contract: every method catches its own exceptions, returns a safe default.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,10 +57,14 @@ try:
         except ValueError:
             return getattr(REGISTRY, "_names_to_collectors", {}).get(name)
 
-    _PREFIX_HITS = _metric("axelr_prefix_cache_hits_total", lambda: Counter(
-        "axelr_prefix_cache_hits_total", "Prefix-cache hits", ["workspace", "tier"]))
-    _PREFIX_MISSES = _metric("axelr_prefix_cache_misses_total", lambda: Counter(
-        "axelr_prefix_cache_misses_total", "Prefix-cache misses", ["workspace", "tier"]))
+    _PREFIX_HITS = _metric(
+        "axelr_prefix_cache_hits_total",
+        lambda: Counter("axelr_prefix_cache_hits_total", "Prefix-cache hits", ["workspace", "tier"]),
+    )
+    _PREFIX_MISSES = _metric(
+        "axelr_prefix_cache_misses_total",
+        lambda: Counter("axelr_prefix_cache_misses_total", "Prefix-cache misses", ["workspace", "tier"]),
+    )
     _PROM_OK = True
 except Exception as e:
     logger.warning("prometheus_unavailable error=%s", e)
@@ -95,10 +100,8 @@ def _prefix_hash(*parts: str) -> str:
     return h.hexdigest()
 
 
-def canonical_prefix(workspace: str, intent: str, tier: str,
-                     extra_directives: str = "") -> tuple[str, str]:
-    pid = _prefix_hash(workspace or "core", intent or "strategy",
-                       tier or "free", extra_directives or "")
+def canonical_prefix(workspace: str, intent: str, tier: str, extra_directives: str = "") -> tuple[str, str]:
+    pid = _prefix_hash(workspace or "core", intent or "strategy", tier or "free", extra_directives or "")
     return pid, extra_directives
 
 
@@ -170,9 +173,13 @@ class CacheEntry:
     provider: str = "vectorize"
 
     def to_dict(self) -> dict[str, Any]:
-        return {"prompt": self.prompt, "response": self.response,
-                "score": self.score, "created_at": self.created_at,
-                "provider": self.provider}
+        return {
+            "prompt": self.prompt,
+            "response": self.response,
+            "score": self.score,
+            "created_at": self.created_at,
+            "provider": self.provider,
+        }
 
 
 class _LocalCache:
@@ -217,12 +224,16 @@ class _LocalCache:
 class CloudflareVectorizeCache:
     """Semantic cache over Vectorize. Degrades to exact-match when CF is absent."""
 
-    __slots__ = ("_api_key", "_account_id", "_index_name", "_embed_model",
-                 "_enabled", "_http", "_owns_http", "_local")
+    __slots__ = ("_api_key", "_account_id", "_index_name", "_embed_model", "_enabled", "_http", "_owns_http", "_local")
 
-    def __init__(self, api_key: str | None = None, account_id: str | None = None,
-                 index_name: str | None = None, embed_model: str | None = None,
-                 http_client: httpx.AsyncClient | None = None) -> None:
+    def __init__(
+        self,
+        api_key: str | None = None,
+        account_id: str | None = None,
+        index_name: str | None = None,
+        embed_model: str | None = None,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
         self._api_key = (api_key or _CF_KEY).strip()
         self._account_id = (account_id or _CF_ACCT).strip()
         self._index_name = (index_name or _CF_INDEX).strip()
@@ -261,8 +272,7 @@ class CloudflareVectorizeCache:
             url = _VECTOR_URL.format(acct=self._account_id, index=self._index_name, suffix="/query")
             r = await self._client().post(
                 url,
-                headers={"Authorization": f"Bearer {self._api_key}",
-                         "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
                 json={"vector": vec, "topK": 1, "returnMetadata": "all"},
             )
             r.raise_for_status()
@@ -298,12 +308,16 @@ class CloudflareVectorizeCache:
             url = _VECTOR_URL.format(acct=self._account_id, index=self._index_name, suffix="/upsert")
             await self._client().post(
                 url,
-                headers={"Authorization": f"Bearer {self._api_key}",
-                         "Content-Type": "application/json"},
-                json={"vectors": [{"id": vid, "values": vec,
-                                   "metadata": {"prompt": prompt[:1000],
-                                                "response": response,
-                                                "ts": int(time.time())}}]},
+                headers={"Authorization": f"Bearer {self._api_key}", "Content-Type": "application/json"},
+                json={
+                    "vectors": [
+                        {
+                            "id": vid,
+                            "values": vec,
+                            "metadata": {"prompt": prompt[:1000], "response": response, "ts": int(time.time())},
+                        }
+                    ]
+                },
             )
         except Exception as e:
             logger.debug("vectorize_upsert_failed error=%s", e)
@@ -359,8 +373,7 @@ END;
 class LocalSemanticCache:
     __slots__ = ("_conn", "_lock", "_path", "_ttl_s", "_max_rows", "_stats")
 
-    def __init__(self, path: str | None = None, *, ttl_s: int = 3600,
-                 max_rows: int = 20_000) -> None:
+    def __init__(self, path: str | None = None, *, ttl_s: int = 3600, max_rows: int = 20_000) -> None:
         self._path = path or os.getenv("LOCAL_CACHE_PATH", "/tmp/axelr_cache.db")
         self._ttl_s = max(60, int(ttl_s))
         self._max_rows = max(100, int(max_rows))
@@ -373,8 +386,7 @@ class LocalSemanticCache:
 
     def _open(self) -> sqlite3.Connection:
         try:
-            conn = sqlite3.connect(self._path, timeout=5.0,
-                                   isolation_level=None, check_same_thread=False)
+            conn = sqlite3.connect(self._path, timeout=5.0, isolation_level=None, check_same_thread=False)
             conn.row_factory = sqlite3.Row
             return conn
         except Exception as e:
@@ -392,8 +404,8 @@ class LocalSemanticCache:
                     "INSERT OR REPLACE INTO entries "
                     "(prompt_hash, prompt, response, workspace, created_at, hits) "
                     "VALUES (?, ?, ?, ?, ?, 0)",
-                    (_hash_prompt(prompt), prompt[:4000], response,
-                     workspace or "core", time.time()))
+                    (_hash_prompt(prompt), prompt[:4000], response, workspace or "core", time.time()),
+                )
                 self._stats["writes"] += 1
                 # Evict oldest entries if we exceed max_rows
                 rows = self._conn.execute("SELECT COUNT(*) FROM entries").fetchone()[0]
@@ -401,12 +413,10 @@ class LocalSemanticCache:
                     self._conn.execute(
                         "DELETE FROM entries WHERE rowid IN "
                         "(SELECT rowid FROM entries ORDER BY created_at ASC LIMIT ?)",
-                        (rows - self._max_rows,)
+                        (rows - self._max_rows,),
                     )
                     # Also evict from FTS5 table to maintain consistency
-                    self._conn.execute(
-                        "DELETE FROM entries_fts WHERE rowid NOT IN (SELECT rowid FROM entries)"
-                    )
+                    self._conn.execute("DELETE FROM entries_fts WHERE rowid NOT IN (SELECT rowid FROM entries)")
             return True
         except Exception as e:
             logger.debug("local_cache_put_failed error=%s", e)
@@ -419,7 +429,8 @@ class LocalSemanticCache:
             with self._lock:
                 row = self._conn.execute(
                     "SELECT response, created_at FROM entries WHERE prompt_hash=? AND workspace=? LIMIT 1",
-                    (_hash_prompt(prompt), workspace or "core")).fetchone()
+                    (_hash_prompt(prompt), workspace or "core"),
+                ).fetchone()
                 if row is not None and self._fresh(row["created_at"]):
                     self._stats["hits"] += 1
                     return row["response"]
@@ -438,8 +449,12 @@ class LocalSemanticCache:
             except Exception:
                 rows = 0
         total = self._stats["hits"] + self._stats["misses"]
-        return {"path": self._path, "rows": rows, **self._stats,
-                "hit_rate": round(self._stats["hits"] / total, 3) if total else 0.0}
+        return {
+            "path": self._path,
+            "rows": rows,
+            **self._stats,
+            "hit_rate": round(self._stats["hits"] / total, 3) if total else 0.0,
+        }
 
     def close(self) -> None:
         with contextlib.suppress(Exception):
@@ -481,18 +496,26 @@ class BM25Hit:
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"doc_id": self.doc_id, "score": round(self.score, 4),
-                "metadata": self.metadata}
+        return {"doc_id": self.doc_id, "score": round(self.score, 4), "metadata": self.metadata}
 
 
 class BM25Index:
-    __slots__ = ("_lock", "_postings", "_doc_lengths", "_doc_meta",
-                 "_doc_order", "_total_tokens", "_max_docs", "_max_chars",
-                 "_k1", "_b")
+    __slots__ = (
+        "_lock",
+        "_postings",
+        "_doc_lengths",
+        "_doc_meta",
+        "_doc_order",
+        "_total_tokens",
+        "_max_docs",
+        "_max_chars",
+        "_k1",
+        "_b",
+    )
 
-    def __init__(self, *, k1: float = _K1, b: float = _B,
-                 max_docs: int = _MAX_DOCS,
-                 max_chars_per_doc: int = _MAX_CHARS_PER_DOC) -> None:
+    def __init__(
+        self, *, k1: float = _K1, b: float = _B, max_docs: int = _MAX_DOCS, max_chars_per_doc: int = _MAX_CHARS_PER_DOC
+    ) -> None:
         self._lock = threading.RLock()
         self._postings: dict[str, dict[str, int]] = {}
         self._doc_lengths: dict[str, int] = {}
@@ -504,8 +527,7 @@ class BM25Index:
         self._k1 = float(k1)
         self._b = float(b)
 
-    def add(self, doc_id: str, text: str,
-            metadata: dict[str, Any] | None = None) -> bool:
+    def add(self, doc_id: str, text: str, metadata: dict[str, Any] | None = None) -> bool:
         if not doc_id or not text:
             return False
         try:
@@ -555,9 +577,9 @@ class BM25Index:
             oldest, _ = self._doc_order.popitem(last=False)
             self._remove_locked(oldest)
 
-    def query(self, text: str, *, top_k: int = 10,
-              filter_fn: Callable[[dict[str, Any]], bool] | None = None
-              ) -> list[BM25Hit]:
+    def query(
+        self, text: str, *, top_k: int = 10, filter_fn: Callable[[dict[str, Any]], bool] | None = None
+    ) -> list[BM25Hit]:
         if not text:
             return []
         try:
@@ -583,8 +605,7 @@ class BM25Index:
                         if dl <= 0:
                             continue
                         denom = tf + self._k1 * (1.0 - self._b + self._b * dl / avgdl)
-                        scores[doc_id] = scores.get(doc_id, 0.0) + \
-                            idf * (tf * (self._k1 + 1.0)) / denom
+                        scores[doc_id] = scores.get(doc_id, 0.0) + idf * (tf * (self._k1 + 1.0)) / denom
                 if not scores:
                     return []
                 hits: list[BM25Hit] = []
@@ -602,9 +623,14 @@ class BM25Index:
     def stats(self) -> dict[str, Any]:
         with self._lock:
             n = len(self._doc_lengths)
-            return {"documents": n, "unique_terms": len(self._postings),
-                    "avg_doc_length": round(self._total_tokens / n, 2) if n else 0.0,
-                    "max_docs": self._max_docs, "k1": self._k1, "b": self._b}
+            return {
+                "documents": n,
+                "unique_terms": len(self._postings),
+                "avg_doc_length": round(self._total_tokens / n, 2) if n else 0.0,
+                "max_docs": self._max_docs,
+                "k1": self._k1,
+                "b": self._b,
+            }
 
 
 _BM25_SINGLETON: BM25Index | None = None
@@ -637,14 +663,27 @@ get_bm25_singleton = get_bm25_index
 
 __all__ = [
     # Prefix
-    "canonical_prefix", "remember_prefix", "recall_prefix",
-    "provider_cache_hint", "measure_hit", "prefix_hit", "prefix_miss",
+    "canonical_prefix",
+    "remember_prefix",
+    "recall_prefix",
+    "provider_cache_hint",
+    "measure_hit",
+    "prefix_hit",
+    "prefix_miss",
     # Semantic
-    "CacheEntry", "CloudflareVectorizeCache", "get_vector_cache",
+    "CacheEntry",
+    "CloudflareVectorizeCache",
+    "get_vector_cache",
     # Local SQLite
-    "LocalSemanticCache", "get_local_cache", "SemanticCache",
+    "LocalSemanticCache",
+    "get_local_cache",
+    "SemanticCache",
     # BM25
-    "BM25Index", "BM25Hit", "get_bm25_index", "BM25Cache", "get_bm25_singleton",
+    "BM25Index",
+    "BM25Hit",
+    "get_bm25_index",
+    "BM25Cache",
+    "get_bm25_singleton",
     # Audit
     "audit",
 ]

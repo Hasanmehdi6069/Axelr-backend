@@ -2,6 +2,7 @@
 Axelr Billing Auditing - Comprehensive audit logging for financial operations
 Implements immutable audit trails for all billing transactions
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -13,9 +14,11 @@ from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger("axelr.billing.auditing")
 
+
 @dataclass(slots=True)
 class AuditEntry:
     """Immutable audit log entry for billing operations"""
+
     id: str
     operation: str
     user_id: str
@@ -45,9 +48,11 @@ class AuditEntry:
         else:
             logger.info(log_msg)
 
+
 # In-memory audit log (in production, write to immutable distributed log)
 _audit_log: List[AuditEntry] = []
 _audit_lock = asyncio.Lock()
+
 
 @asynccontextmanager
 async def AuditTimer(operation: str, user_id: str, session_id: str, **metadata):
@@ -56,21 +61,20 @@ async def AuditTimer(operation: str, user_id: str, session_id: str, **metadata):
     Automatically logs start, completion, duration, and success/failure.
     """
     import uuid
+
     entry = AuditEntry(
         id=f"audit_{uuid.uuid4().hex[:16]}",
         operation=operation,
         user_id=user_id,
         session_id=session_id,
         start_time=datetime.now(timezone.utc),
-        metadata=metadata
+        metadata=metadata,
     )
 
     async with _audit_lock:
         _audit_log.append(entry)
 
-    logger.debug(
-        f"Starting audit: {operation} | user={user_id} | session={session_id}"
-    )
+    logger.debug(f"Starting audit: {operation} | user={user_id} | session={session_id}")
 
     try:
         yield entry
@@ -79,10 +83,9 @@ async def AuditTimer(operation: str, user_id: str, session_id: str, **metadata):
         entry.complete(success=False, error=str(e))
         raise
 
+
 def get_audit_logs(
-    user_id: Optional[str] = None,
-    operation: Optional[str] = None,
-    limit: int = 100
+    user_id: Optional[str] = None, operation: Optional[str] = None, limit: int = 100
 ) -> List[AuditEntry]:
     """Query audit logs with optional filtering"""
     results = _audit_log.copy()
@@ -95,6 +98,7 @@ def get_audit_logs(
     # Return most recent first
     results.sort(key=lambda e: e.start_time, reverse=True)
     return results[:limit]
+
 
 def get_audit_stats() -> Dict[str, Any]:
     """Get statistics about audit logs for health monitoring"""
@@ -114,19 +118,21 @@ def get_audit_stats() -> Dict[str, Any]:
         "total_entries": total_entries,
         "operations": operations,
         "success_rate": round(success_rate, 4),
-        "last_updated": datetime.now(timezone.utc).isoformat()
+        "last_updated": datetime.now(timezone.utc).isoformat(),
     }
+
 
 async def log_audit_event(event: Dict[str, Any]) -> None:
     """Directly log an audit event without the timer for one-off events like AI extraction"""
     import uuid
+
     entry = AuditEntry(
         id=f"audit_{uuid.uuid4().hex[:16]}",
         operation=event.get("event_type", "unknown"),
         user_id=event.get("user_id", "anon"),
         session_id=event.get("session_id", f"session_{uuid.uuid4().hex[:8]}"),
         start_time=datetime.now(timezone.utc),
-        metadata=event.get("metadata", {})
+        metadata=event.get("metadata", {}),
     )
     entry.complete(success=True)
 

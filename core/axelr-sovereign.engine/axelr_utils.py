@@ -5,6 +5,7 @@ TokenBucket · CircuitBreakerV2 · shared exceptions.
 Split from the original 900-line utils to keep files 250-650 lines.
 IPC client lives in `axelr_ipc.py`; Prometheus/session in `axelr_telemetry.py`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,12 +36,32 @@ def get_logger(name: str) -> logging.Logger:
 logger = get_logger(__name__)
 
 NUM_WORDS: Dict[str, str] = {
-    "0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
-    "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine",
+    "0": "zero",
+    "1": "one",
+    "2": "two",
+    "3": "three",
+    "4": "four",
+    "5": "five",
+    "6": "six",
+    "7": "seven",
+    "8": "eight",
+    "9": "nine",
     "10": "ten",
 }
-MONTHS = ("january", "february", "march", "april", "may", "june",
-          "july", "august", "september", "october", "november", "december")
+MONTHS = (
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+)
 
 
 def normalize_text(text: str) -> str:
@@ -99,10 +120,13 @@ class MetricsCollector:
     def dump(self, log: Optional[logging.Logger] = None) -> None:
         log = log or logger
         for name in self._buffers:
-            log.info("metric %s p50=%.2f p95=%.2f p99=%.2f", name,
-                     self.percentile(name, 0.50),
-                     self.percentile(name, 0.95),
-                     self.percentile(name, 0.99))
+            log.info(
+                "metric %s p50=%.2f p95=%.2f p99=%.2f",
+                name,
+                self.percentile(name, 0.50),
+                self.percentile(name, 0.95),
+                self.percentile(name, 0.99),
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -133,13 +157,12 @@ class RollingMetrics:
         self._metrics: Dict[str, RollingMetric] = {}
         self._lock = threading.Lock()
 
-    def register_metric(self, name: str, window_size: int = 1000,
-                        thresholds: Optional[MetricThreshold] = None) -> None:
+    def register_metric(self, name: str, window_size: int = 1000, thresholds: Optional[MetricThreshold] = None) -> None:
         with self._lock:
             if name not in self._metrics:
                 self._metrics[name] = RollingMetric(
-                    buffer=[0.0] * window_size, cursor=0,
-                    window_size=window_size, thresholds=thresholds)
+                    buffer=[0.0] * window_size, cursor=0, window_size=window_size, thresholds=thresholds
+                )
 
     def observe(self, name: str, value: float) -> None:
         with self._lock:
@@ -155,8 +178,7 @@ class RollingMetrics:
     def _check_locked(self, m: RollingMetric) -> None:
         if not m.thresholds:
             return
-        samples = (m.buffer if m.count >= m.window_size
-                   else m.buffer[:m.count])
+        samples = m.buffer if m.count >= m.window_size else m.buffer[: m.count]
         if not samples:
             return
         p95 = self._percentile(samples, 0.95)
@@ -181,8 +203,7 @@ class RollingMetrics:
             m = self._metrics.get(name)
             if not m:
                 return None
-            samples = (m.buffer if m.count >= m.window_size
-                       else m.buffer[:m.count])
+            samples = m.buffer if m.count >= m.window_size else m.buffer[: m.count]
             if not samples:
                 return 0.0
             ema = samples[0]
@@ -196,12 +217,14 @@ class RollingMetrics:
 # ═══════════════════════════════════════════════════════════════════════
 class Clipboard:
     """Platform-native clipboard. Non-blocking with timeout. No tkinter."""
+
     __slots__ = ()
 
     @staticmethod
     def set(text: str, timeout_s: float = 0.2) -> bool:
         import platform
         import subprocess
+
         system = platform.system()
         cmd = None
         if system == "Darwin":
@@ -209,11 +232,9 @@ class Clipboard:
         elif system == "Windows":
             cmd = ["clip"]
         elif system == "Linux":
-            for tool in (["xclip", "-selection", "clipboard"],
-                         ["xsel", "--clipboard", "--input"]):
+            for tool in (["xclip", "-selection", "clipboard"], ["xsel", "--clipboard", "--input"]):
                 try:
-                    subprocess.run(["which", tool[0]], check=True,
-                                   capture_output=True, timeout=0.1)
+                    subprocess.run(["which", tool[0]], check=True, capture_output=True, timeout=0.1)
                     cmd = tool
                     break
                 except Exception:
@@ -222,8 +243,7 @@ class Clipboard:
             logger.warning("clipboard_unsupported platform=%s", system)
             return False
         try:
-            proc = subprocess.run(cmd, input=text.encode("utf-8"),
-                                  timeout=timeout_s, check=True)
+            proc = subprocess.run(cmd, input=text.encode("utf-8"), timeout=timeout_s, check=True)
             return proc.returncode == 0
         except subprocess.TimeoutExpired:
             logger.error("clipboard_timeout")
@@ -239,8 +259,7 @@ class Clipboard:
 class TokenBucket:
     __slots__ = ("_capacity", "_rate", "_tokens", "_last_refill", "_lock")
 
-    def __init__(self, capacity: int = 100,
-                 refill_per_sec: float = 100.0) -> None:
+    def __init__(self, capacity: int = 100, refill_per_sec: float = 100.0) -> None:
         self._capacity = float(capacity)
         self._rate = float(refill_per_sec)
         self._tokens = float(capacity)
@@ -251,8 +270,7 @@ class TokenBucket:
         with self._lock:
             now = time.monotonic()
             elapsed = now - self._last_refill
-            self._tokens = min(self._capacity,
-                               self._tokens + elapsed * self._rate)
+            self._tokens = min(self._capacity, self._tokens + elapsed * self._rate)
             self._last_refill = now
             if self._tokens >= cost:
                 self._tokens -= cost
@@ -276,14 +294,23 @@ class CircuitBreaker:
     States: CLOSED → (threshold failures) → OPEN → (recovery_s) → HALF_OPEN
             → (success) → CLOSED  |  (failure) → OPEN
     """
-    __slots__ = ("_threshold", "_recovery_s", "_half_open_timeout",
-                 "_failures", "_state", "_opened_at", "_last_failure_ts",
-                 "_half_open_started", "_lock", "_metrics")
 
-    def __init__(self, failure_threshold: int = 5,
-                 recovery_s: float = 30.0,
-                 half_open_timeout: float = 5.0) -> None:
+    __slots__ = (
+        "_threshold",
+        "_recovery_s",
+        "_half_open_timeout",
+        "_failures",
+        "_state",
+        "_opened_at",
+        "_last_failure_ts",
+        "_half_open_started",
+        "_lock",
+        "_metrics",
+    )
+
+    def __init__(self, failure_threshold: int = 5, recovery_s: float = 30.0, half_open_timeout: float = 5.0) -> None:
         import threading
+
         self._threshold = failure_threshold
         self._recovery_s = recovery_s
         self._half_open_timeout = half_open_timeout
@@ -346,8 +373,7 @@ class CircuitBreaker:
         with self._lock:
             self._failures += 1
             self._metrics["failed_requests"] += 1
-            if (self._failures >= self._threshold
-                    or self._state == CircuitState.HALF_OPEN):
+            if self._failures >= self._threshold or self._state == CircuitState.HALF_OPEN:
                 self._state = CircuitState.OPEN
                 self._opened_at = time.monotonic()
                 self._last_failure_ts = self._opened_at
@@ -359,8 +385,19 @@ class CircuitBreaker:
 
 
 __all__ = [
-    "configure_logging", "get_logger", "normalize_text",
-    "NUM_WORDS", "MONTHS", "ProtocolError", "IPCNotConnectedError",
-    "MetricsCollector", "MetricThreshold", "RollingMetrics", "RollingMetric",
-    "Clipboard", "TokenBucket", "CircuitBreaker", "CircuitState",
+    "configure_logging",
+    "get_logger",
+    "normalize_text",
+    "NUM_WORDS",
+    "MONTHS",
+    "ProtocolError",
+    "IPCNotConnectedError",
+    "MetricsCollector",
+    "MetricThreshold",
+    "RollingMetrics",
+    "RollingMetric",
+    "Clipboard",
+    "TokenBucket",
+    "CircuitBreaker",
+    "CircuitState",
 ]

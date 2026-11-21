@@ -5,6 +5,7 @@ Confidence Calibrator #16, Phonetic Ensemble #19.
 
 Memory: ~4 MB (trie 1.5 MB + phonetic indices 2 MB + calibrator negligible).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -47,10 +48,22 @@ JavaScript, for client-side validation or features.
 # Phoneme to Grapheme mapping for normalization
 # ═══════════════════════════════════════════════════════════════════════════
 PHONEME_GRAPHEME_MAP: Dict[str, str] = {
-    "ah": "a", "eh": "e", "ih": "i", "oh": "o", "uh": "u",
-    "ae": "ai", "ee": "ea", "ie": "ei", "oo": "ou",
-    "ck": "c", "ks": "x", "kw": "qu", "sh": "ti", "zh": "si",
-    "ksh": "ction", "shun": "tion",
+    "ah": "a",
+    "eh": "e",
+    "ih": "i",
+    "oh": "o",
+    "uh": "u",
+    "ae": "ai",
+    "ee": "ea",
+    "ie": "ei",
+    "oo": "ou",
+    "ck": "c",
+    "ks": "x",
+    "kw": "qu",
+    "sh": "ti",
+    "zh": "si",
+    "ksh": "ction",
+    "shun": "tion",
 }
 
 
@@ -76,12 +89,24 @@ def soundex(word: str) -> str:
         return ""
     # Mapping of letters to Soundex codes
     codes = {
-        "b": "1", "f": "1", "p": "1", "v": "1",
-        "c": "2", "g": "2", "j": "2", "k": "2", "q": "2", "s": "2", "x": "2", "z": "2",
-        "d": "3", "t": "3",
+        "b": "1",
+        "f": "1",
+        "p": "1",
+        "v": "1",
+        "c": "2",
+        "g": "2",
+        "j": "2",
+        "k": "2",
+        "q": "2",
+        "s": "2",
+        "x": "2",
+        "z": "2",
+        "d": "3",
+        "t": "3",
         "l": "4",
-        "m": "5", "n": "5",
-        "r": "6"
+        "m": "5",
+        "n": "5",
+        "r": "6",
     }
     # Process first character
     word = word.lower()
@@ -117,135 +142,135 @@ def metaphone(word: str) -> str:
     # Handle silent leading combinations first
     if n >= 2:
         # 'kn' → silent 'k', only 'n' remains
-        if word[0] == 'k' and word[1] == 'n':
+        if word[0] == "k" and word[1] == "n":
             i = 1  # Skip 'k', start at 'n'
         # 'gn' → silent 'g', only 'n' remains
-        elif word[0] == 'g' and word[1] == 'n':
+        elif word[0] == "g" and word[1] == "n":
             i = 1  # Skip 'g', start at 'n'
         # 'ps' → silent 'p', only 's' remains
-        elif word[0] == 'p' and word[1] == 's':
+        elif word[0] == "p" and word[1] == "s":
             i = 1  # Skip 'p', start at 's'
         # 'rh' → silent 'h', only 'r' remains (rhyme → rime)
-        elif word[0] == 'r' and word[1] == 'h':
+        elif word[0] == "r" and word[1] == "h":
             i = 1  # Skip 'h', start at 'r'
         # 'wh' → silent 'w', only 'h' remains (what → hat)
-        elif word[0] == 'w' and word[1] == 'h':
+        elif word[0] == "w" and word[1] == "h":
             i = 1  # Skip 'w', start at 'h'
         # Keep original 'wr' handling for all words
-        elif word[0] == 'w' and word[1] == 'r':
+        elif word[0] == "w" and word[1] == "r":
             i = 1  # Skip 'w', start at 'r'
 
     # Process remaining word with core metaphone rules
     while i < n:
         ch = word[i]
         # Align all other 'ei' and 'ie' cases phonetically
-        if i+1 < n:
-            if word[i] == 'e' and word[i+1] == 'i':
-                result.append('i')
+        if i + 1 < n:
+            if word[i] == "e" and word[i + 1] == "i":
+                result.append("i")
                 i += 2
                 continue
-            elif word[i] == 'i' and word[i+1] == 'e':
-                result.append('i')
+            elif word[i] == "i" and word[i + 1] == "e":
+                result.append("i")
                 i += 2
                 continue
         # Handle simple mappings first
-        if ch in 'aeiou':
+        if ch in "aeiou":
             if i == 0:  # Keep initial vowels
                 result.append(ch)
             i += 1
-        elif ch == 'b':
-            result.append('b')
+        elif ch == "b":
+            result.append("b")
             i += 1
-        elif ch == 'c':
+        elif ch == "c":
             # Handle 'ch', 'ci', 'ce' cases
-            if i+1 < n and word[i+1] == 'h':
-                result.append('x')
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("x")
                 i += 2
-            elif i+1 < n and word[i+1] in 'iey':
-                result.append('s')
-                i += 2
-            else:
-                result.append('k')
-                i += 1
-        elif ch == 'd':
-            if i+1 < n and word[i+1] == 'g':
-                result.append('j')
+            elif i + 1 < n and word[i + 1] in "iey":
+                result.append("s")
                 i += 2
             else:
-                result.append('t')
+                result.append("k")
                 i += 1
-        elif ch == 'f':
-            result.append('f')
-            i += 1
-        elif ch == 'g':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('k')
+        elif ch == "d":
+            if i + 1 < n and word[i + 1] == "g":
+                result.append("j")
                 i += 2
             else:
-                result.append('g')
+                result.append("t")
                 i += 1
-        elif ch == 'h':
-            if i == 0 or (i > 0 and word[i-1] not in 'aeiou'):
-                result.append('h')
+        elif ch == "f":
+            result.append("f")
             i += 1
-        elif ch == 'j':
-            result.append('j')
-            i += 1
-        elif ch == 'k':
-            result.append('k')
-            i += 1
-        elif ch == 'l':
-            result.append('l')
-            i += 1
-        elif ch == 'm':
-            result.append('m')
-            i += 1
-        elif ch == 'n':
-            result.append('n')
-            i += 1
-        elif ch == 'p':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('f')
+        elif ch == "g":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("k")
                 i += 2
             else:
-                result.append('p')
+                result.append("g")
                 i += 1
-        elif ch == 'q':
-            result.append('k')
+        elif ch == "h":
+            if i == 0 or (i > 0 and word[i - 1] not in "aeiou"):
+                result.append("h")
             i += 1
-        elif ch == 'r':
-            result.append('r')
+        elif ch == "j":
+            result.append("j")
             i += 1
-        elif ch == 's':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('x')
+        elif ch == "k":
+            result.append("k")
+            i += 1
+        elif ch == "l":
+            result.append("l")
+            i += 1
+        elif ch == "m":
+            result.append("m")
+            i += 1
+        elif ch == "n":
+            result.append("n")
+            i += 1
+        elif ch == "p":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("f")
                 i += 2
             else:
-                result.append('s')
+                result.append("p")
                 i += 1
-        elif ch == 't':
-            if i+1 < n and word[i+1] == 'h':
-                result.append('0')
+        elif ch == "q":
+            result.append("k")
+            i += 1
+        elif ch == "r":
+            result.append("r")
+            i += 1
+        elif ch == "s":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("x")
                 i += 2
             else:
-                result.append('t')
+                result.append("s")
                 i += 1
-        elif ch == 'v':
-            result.append('f')
+        elif ch == "t":
+            if i + 1 < n and word[i + 1] == "h":
+                result.append("0")
+                i += 2
+            else:
+                result.append("t")
+                i += 1
+        elif ch == "v":
+            result.append("f")
             i += 1
-        elif ch == 'w':
-            if i+1 < n and word[i+1] in 'aeiou':
-                result.append('w')
+        elif ch == "w":
+            if i + 1 < n and word[i + 1] in "aeiou":
+                result.append("w")
             i += 1
-        elif ch == 'x':
-            result.append('k')
+        elif ch == "x":
+            result.append("k")
             i += 1
-        elif ch == 'y':
-            if i+1 < n and word[i+1] in 'aeiou':
-                result.append('y')
+        elif ch == "y":
+            if i + 1 < n and word[i + 1] in "aeiou":
+                result.append("y")
             i += 1
-        elif ch == 'z':
-            result.append('s')
+        elif ch == "z":
+            result.append("s")
             i += 1
         else:
             i += 1
@@ -257,6 +282,7 @@ def metaphone(word: str) -> str:
 
 class Metaphone:
     """Wrapper class for metaphone function to match test expectations."""
+
     def compute(self, word: str) -> str:
         return metaphone(word)
 
@@ -266,6 +292,7 @@ class Metaphone:
 # ═══════════════════════════════════════════════════════════════════════════
 class PhoneticEnsemble:
     """Combined phonetic algorithms. Single source for JS porting."""
+
     __slots__ = ()
 
     @staticmethod
@@ -284,6 +311,8 @@ class PhoneticEnsemble:
         if m1 == m2:
             score += 0.5
         return score
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Token / config
 # ═══════════════════════════════════════════════════════════════════════════
@@ -313,8 +342,8 @@ class StaticGraphRuntime:
     arena is real numpy memory the decoder can slice into. Real GGML/ONNX
     would pass the arena pointer into their context init.
     """
-    __slots__ = ("tensor_shapes", "memory_allocated", "is_initialized",
-                 "_warmed", "_arena", "_target_bytes")
+
+    __slots__ = ("tensor_shapes", "memory_allocated", "is_initialized", "_warmed", "_arena", "_target_bytes")
 
     def __init__(self) -> None:
         self.tensor_shapes: Dict[str, Tuple[int, ...]] = {}
@@ -353,11 +382,11 @@ class StaticGraphRuntime:
 # ═══════════════════════════════════════════════════════════════════════════
 class ConfidenceCalibrator:
     """Temperature-scaling calibrator: sigmoid(logit / T)."""
+
     __slots__ = ("_temp", "_min", "_max", "_samples")
 
     def __init__(self, config: CalibrationConfig) -> None:
-        self._temp = max(config.min_temperature,
-                         min(config.max_temperature, config.initial_temperature))
+        self._temp = max(config.min_temperature, min(config.max_temperature, config.initial_temperature))
         self._min = config.min_temperature
         self._max = config.max_temperature
         self._samples = 0
@@ -476,19 +505,27 @@ def edit_distance(a: str, b: str, max_dist: Optional[int] = None) -> int:
 # ═══════════════════════════════════════════════════════════════════════════
 # §6 — PhoneticCorrector (ensemble scoring)
 # ═══════════════════════════════════════════════════════════════════════════
-_COMMON_WORDS = frozenset({
-    "receive", "their", "they're", "there", "your", "you're",
-    "its", "it's", "too", "to", "two",
-})
+_COMMON_WORDS = frozenset(
+    {
+        "receive",
+        "their",
+        "they're",
+        "there",
+        "your",
+        "you're",
+        "its",
+        "it's",
+        "too",
+        "to",
+        "two",
+    }
+)
 
 
 class PhoneticCorrector:
-    __slots__ = ("_trie", "_sdx", "_mtn", "_lpg",
-                 "_common_words", "_common_bias")
+    __slots__ = ("_trie", "_sdx", "_mtn", "_lpg", "_common_words", "_common_bias")
 
-    def __init__(self,
-                 common_words: Optional[frozenset] = None,
-                 common_bias: float = 0.5) -> None:
+    def __init__(self, common_words: Optional[frozenset] = None, common_bias: float = 0.5) -> None:
         self._trie = TrieLexicon()
         self._sdx: Dict[str, Set[str]] = {}
         self._mtn: Dict[str, Set[str]] = {}
@@ -642,7 +679,7 @@ class SymSpell:
         if not word or len(word) == 0:
             return
         for i in range(len(word)):
-            del_var = word[:i] + word[i+1:]
+            del_var = word[:i] + word[i + 1 :]
             if del_var not in self.deletes:
                 self.deletes[del_var] = []
             if len(self.deletes[del_var]) < 64:
@@ -699,7 +736,7 @@ class SymSpell:
             results.append({"word": self.words[rank], "distance": distance, "frequency": self.freq[rank]})
 
     def _all_deletes(self, word: str) -> List[str]:
-        return [word[:i] + word[i+1:] for i in range(len(word))]
+        return [word[:i] + word[i + 1 :] for i in range(len(word))]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -711,10 +748,12 @@ class UserLexicon:
     crash mid-write leaves the previous file intact. Debounced to avoid
     O(N^2) rewrites on bulk adds — flush() must be called before shutdown.
     """
+
     __slots__ = ("_path", "_words", "_dirty", "_flush_timer", "_lock")
 
     def __init__(self, path: Path) -> None:
         import threading
+
         self._path = path
         self._words: Set[str] = set()
         self._dirty = False
@@ -742,6 +781,7 @@ class UserLexicon:
 
     def _schedule_flush_locked(self) -> None:
         import threading
+
         if self._flush_timer is not None:
             self._flush_timer.cancel()
         self._flush_timer = threading.Timer(2.0, self._flush)
@@ -754,6 +794,7 @@ class UserLexicon:
     def _flush(self) -> None:
         import os
         import tempfile
+
         with self._lock:
             if not self._dirty:
                 return
@@ -761,8 +802,7 @@ class UserLexicon:
             self._dirty = False
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
-            fd, tmp_path = tempfile.mkstemp(
-                prefix=".userlex_", dir=str(self._path.parent))
+            fd, tmp_path = tempfile.mkstemp(prefix=".userlex_", dir=str(self._path.parent))
             try:
                 with os.fdopen(fd, "w", encoding="utf-8") as f:
                     json.dump({"words": words_snapshot}, f)
@@ -805,13 +845,29 @@ LocalInferenceFn = Callable[[np.ndarray, Optional[np.ndarray]], List[Token]]
 
 class SpeculativeCascadeDecoder:
     """Local streaming + async cloud. Returns accepted AND low-conf tokens."""
-    __slots__ = ("config", "runtime", "calibrator", "sampling", "_local_fn",
-                 "_session", "_cloud_task", "_queue", "_low_conf",
-                 "_streaming", "_cloud_router", "_fn_takes_pcm")
 
-    def __init__(self, config: "DecoderConfig", profile: HardwareProfile,
-                 local_fn: "LocalInferenceFn",
-                 cloud_router: Optional[Any] = None) -> None:
+    __slots__ = (
+        "config",
+        "runtime",
+        "calibrator",
+        "sampling",
+        "_local_fn",
+        "_session",
+        "_cloud_task",
+        "_queue",
+        "_low_conf",
+        "_streaming",
+        "_cloud_router",
+        "_fn_takes_pcm",
+    )
+
+    def __init__(
+        self,
+        config: "DecoderConfig",
+        profile: HardwareProfile,
+        local_fn: "LocalInferenceFn",
+        cloud_router: Optional[Any] = None,
+    ) -> None:
         self.config = config
         self.runtime = StaticGraphRuntime()
         self.runtime.reserve(profile)
@@ -830,10 +886,8 @@ class SpeculativeCascadeDecoder:
         router_ok = True
         if self._cloud_router is not None:
             router_ok = self._cloud_router.enabled
-        if (router_ok and self.config.cloud_fallback_url
-                and self.config.api_key and aiohttp is not None):
-            self._session = aiohttp.ClientSession(
-                timeout=aiohttp.ClientTimeout(total=0.5))
+        if router_ok and self.config.cloud_fallback_url and self.config.api_key and aiohttp is not None:
+            self._session = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=0.5))
         self._streaming = True
         self._cloud_task = asyncio.create_task(self._cloud_worker())
 
@@ -854,8 +908,7 @@ class SpeculativeCascadeDecoder:
         _ = self._local_fn(silent)
         self.runtime._warmed = True
 
-    async def process(self, log_mel: np.ndarray,
-                      pcm: Optional[np.ndarray] = None) -> "ProcessResult":
+    async def process(self, log_mel: np.ndarray, pcm: Optional[np.ndarray] = None) -> "ProcessResult":
         if self._fn_takes_pcm:
             raw = self._local_fn(log_mel, pcm)
         else:
@@ -865,8 +918,7 @@ class SpeculativeCascadeDecoder:
         queued = 0
         for tok in raw:
             p = max(min(tok.confidence, 1.0 - 1e-6), 1e-6)
-            calibrated = self.calibrator.calibrate(
-                np.log(p) - np.log(1.0 - p))
+            calibrated = self.calibrator.calibrate(np.log(p) - np.log(1.0 - p))
             tok_cal = Token(tok.text, float(calibrated), tok.token_id)
             if tok_cal.confidence < self.config.confidence_threshold:
                 self._low_conf.append(tok_cal)
@@ -880,9 +932,7 @@ class SpeculativeCascadeDecoder:
                         logger.warning("scd_queue_full_dropping_batch")
                     self._low_conf = []
                 accepted.append(tok_cal)
-        return ProcessResult(accepted=accepted,
-                             low_confidence=low_conf_batch,
-                             queued_to_cloud=queued)
+        return ProcessResult(accepted=accepted, low_confidence=low_conf_batch, queued_to_cloud=queued)
 
     async def _cloud_worker(self) -> None:
         while self._streaming:
@@ -908,8 +958,7 @@ class SpeculativeCascadeDecoder:
         try:
             async with self._session.post(
                 self.config.cloud_fallback_url,
-                json={"text": text,
-                      "threshold": self.config.confidence_threshold},
+                json={"text": text, "threshold": self.config.confidence_threshold},
                 headers={"Authorization": f"Bearer {self.config.api_key}"},
             ) as resp:
                 if resp.status != 200:
@@ -1002,7 +1051,7 @@ class SymSpell:
         if not word or len(word) == 0:
             return
         for i in range(len(word)):
-            del_str = word[:i] + word[i+1:]
+            del_str = word[:i] + word[i + 1 :]
             if del_str not in self.deletes:
                 self.deletes[del_str] = []
             if len(self.deletes[del_str]) < 64:
@@ -1066,10 +1115,10 @@ class SymSpell:
     def _all_deletes(self, word: str) -> Set[str]:
         out = set()
         for i in range(len(word)):
-            d1 = word[:i] + word[i+1:]
+            d1 = word[:i] + word[i + 1 :]
             out.add(d1)
             for j in range(len(d1)):
-                out.add(d1[:j] + d1[j+1:])
+                out.add(d1[:j] + d1[j + 1 :])
         return out
 
     def size(self) -> int:
@@ -1093,7 +1142,8 @@ class SymSpell:
 
 
 __all__ = [
-    "Token", "DecoderConfig",
+    "Token",
+    "DecoderConfig",
     "StaticGraphRuntime",
     "ConfidenceCalibrator",
     "TrieLexicon",
@@ -1102,6 +1152,8 @@ __all__ = [
     "UserLexicon",
     "LocalInferenceFn",
     "SpeculativeCascadeDecoder",
-    "soundex", "metaphone", "Metaphone",
+    "soundex",
+    "metaphone",
+    "Metaphone",
     "SymSpell",
 ]

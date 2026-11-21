@@ -1,4 +1,5 @@
 """Specialized retry wrapper for inference endpoints - longer timeouts for long-running jobs"""
+
 import asyncio
 import logging
 import random
@@ -7,7 +8,8 @@ from typing import Callable, TypeVar
 
 logger = logging.getLogger("axelr.nebius.retry")
 
-T = TypeVar('T')
+T = TypeVar("T")
+
 
 # Inference-optimized exponential backoff with longer delays
 def inference_retry_wrapper(
@@ -22,6 +24,7 @@ def inference_retry_wrapper(
     - More retry attempts for transient cloud issues
     - Exponential backoff with jitter to prevent thundering herd
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @wraps(func)
         async def wrapper(*args, **kwargs) -> T:
@@ -66,4 +69,5 @@ def inference_retry_wrapper(
             raise RuntimeError(f"All inference retries exhausted for {func.__name__}")
 
         return wrapper
+
     return decorator

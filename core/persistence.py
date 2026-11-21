@@ -43,6 +43,7 @@ WAL protocol (unchanged)
     5. Orphaned uncommitted docs older than ``WAL_ORPHAN_GRACE_S`` are
        auto-committed by ``sweep_orphaned_wal`` (60 s loop).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -61,8 +62,7 @@ logger = logging.getLogger("axelr.persistence")
 # §1 — Configuration
 # ═══════════════════════════════════════════════════════════════════════════
 SUPABASE_URL = os.getenv("SUPABASE_URL") or os.getenv("NEON_DATABASE_URL") or ""
-SUPABASE_KEY = (os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-                or os.getenv("SUPABASE_KEY") or "")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or os.getenv("SUPABASE_KEY") or ""
 NEON_DSN = os.getenv("NEON_DATABASE_URL") or ""
 
 MONGODB_URI = os.getenv("MONGODB_URI") or os.getenv("MONGO_URL") or ""
@@ -114,6 +114,7 @@ class _TransactionalStore:
     """Postgres-flavoured profile store. Supabase primary, Neon fallback,
     in-memory last resort. Every method degrades gracefully.
     """
+
     __slots__ = ("_mode", "_client", "_pool")
 
     def __init__(self) -> None:
@@ -125,29 +126,25 @@ class _TransactionalStore:
         if SUPABASE_URL and SUPABASE_KEY:
             try:
                 from supabase import create_async_client  # type: ignore
-                self._client = await create_async_client(
-                    SUPABASE_URL, SUPABASE_KEY)
+
+                self._client = await create_async_client(SUPABASE_URL, SUPABASE_KEY)
                 self._mode = "supabase"
                 logger.info("persistence.supabase.connected")
                 return
             except Exception as e:
-                logger.warning(
-                    "persistence.supabase.connect_failed err=%s", e)
+                logger.warning("persistence.supabase.connect_failed err=%s", e)
         if NEON_DSN:
             try:
                 import asyncpg  # type: ignore
-                self._pool = await asyncpg.create_pool(
-                    NEON_DSN, min_size=1, max_size=8,
-                    command_timeout=10.0)
+
+                self._pool = await asyncpg.create_pool(NEON_DSN, min_size=1, max_size=8, command_timeout=10.0)
                 self._mode = "neon"
                 await self._ensure_neon_schema()
                 logger.info("persistence.neon.connected")
                 return
             except Exception as e:
-                logger.warning(
-                    "persistence.neon.connect_failed err=%s", e)
-        logger.warning(
-            "persistence.transactional.disabled — no backend configured")
+                logger.warning("persistence.neon.connect_failed err=%s", e)
+        logger.warning("persistence.transactional.disabled — no backend configured")
 
     async def _ensure_neon_schema(self) -> None:
         if not self._pool:
@@ -175,33 +172,33 @@ class _TransactionalStore:
 
     async def get_profile(self, user_id: str) -> UserProfile | None:
         if self._mode == "supabase" and self._client is not None:
-            resp = await self._client.table("profiles").select("*") \
-                .eq("user_id", user_id).limit(1).execute()
+            resp = await self._client.table("profiles").select("*").eq("user_id", user_id).limit(1).execute()
             rows = resp.data or []
             return _row_to_profile(rows[0]) if rows else None
         if self._mode == "neon" and self._pool is not None:
             async with self._pool.acquire() as conn:
-                row = await conn.fetchrow(
-                    "SELECT * FROM profiles WHERE user_id = $1 LIMIT 1",
-                    user_id)
+                row = await conn.fetchrow("SELECT * FROM profiles WHERE user_id = $1 LIMIT 1", user_id)
             return _row_to_profile(dict(row)) if row else None
         return None
 
     async def upsert_profile(self, profile: UserProfile) -> UserProfile:
         profile.updated_at = time.time()
         row = {
-            "user_id": profile.user_id, "email": profile.email,
-            "name": profile.name, "picture": profile.picture,
-            "tier": profile.tier, "sub_tier": profile.sub_tier,
-            "org_id": profile.org_id, "is_admin": profile.is_admin,
+            "user_id": profile.user_id,
+            "email": profile.email,
+            "name": profile.name,
+            "picture": profile.picture,
+            "tier": profile.tier,
+            "sub_tier": profile.sub_tier,
+            "org_id": profile.org_id,
+            "is_admin": profile.is_admin,
             "puter_enabled": profile.puter_enabled,
             "instructions": profile.instructions,
             "created_at": profile.created_at,
             "updated_at": profile.updated_at,
         }
         if self._mode == "supabase" and self._client is not None:
-            await self._client.table("profiles").upsert(
-                row, on_conflict="user_id").execute()
+            await self._client.table("profiles").upsert(row, on_conflict="user_id").execute()
             return profile
         if self._mode == "neon" and self._pool is not None:
             async with self._pool.acquire() as conn:
@@ -221,11 +218,19 @@ class _TransactionalStore:
                       instructions=EXCLUDED.instructions,
                       updated_at=EXCLUDED.updated_at
                     """,
-                    row["user_id"], row["email"], row["name"],
-                    row["picture"], row["tier"], row["sub_tier"],
-                    row["org_id"], row["is_admin"], row["puter_enabled"],
-                    row["instructions"], row["created_at"],
-                    row["updated_at"])
+                    row["user_id"],
+                    row["email"],
+                    row["name"],
+                    row["picture"],
+                    row["tier"],
+                    row["sub_tier"],
+                    row["org_id"],
+                    row["is_admin"],
+                    row["puter_enabled"],
+                    row["instructions"],
+                    row["created_at"],
+                    row["updated_at"],
+                )
             return profile
         _MEM_PROFILES[profile.user_id] = profile
         return profile
@@ -263,6 +268,7 @@ _MEM_PROFILES: dict[str, UserProfile] = {}
 # ═══════════════════════════════════════════════════════════════════════════
 class _ChatStore:
     """Messages, token streams, and session metadata. Never raises."""
+
     __slots__ = ("_client", "_db", "_messages", "_streams", "_sessions")
 
     def __init__(self) -> None:
@@ -278,105 +284,114 @@ class _ChatStore:
             return
         try:
             from motor.motor_asyncio import AsyncIOMotorClient  # type: ignore
+
             self._client = AsyncIOMotorClient(
-                MONGODB_URI, maxPoolSize=32, minPoolSize=2,
+                MONGODB_URI,
+                maxPoolSize=32,
+                minPoolSize=2,
                 serverSelectionTimeoutMS=4000,
-                retryWrites=True, w="majority")
+                retryWrites=True,
+                w="majority",
+            )
             self._db = self._client[MONGODB_DB]
             self._messages = self._db["messages"]
             self._streams = self._db["token_streams"]
             self._sessions = self._db["sessions"]
             await self._ensure_indexes()
-            logger.info(
-                "persistence.mongo.connected db=%s", MONGODB_DB)
+            logger.info("persistence.mongo.connected db=%s", MONGODB_DB)
         except Exception as e:
-            logger.warning(
-                "persistence.mongo.connect_failed err=%s", e)
+            logger.warning("persistence.mongo.connect_failed err=%s", e)
 
     async def _ensure_indexes(self) -> None:
         if self._messages is None:
             return
-        await self._messages.create_index(
-            [("session_id", 1), ("created_at", 1)])
-        await self._messages.create_index(
-            [("user_id", 1), ("created_at", -1)])
-        await self._messages.create_index(
-            [("committed", 1), ("created_at", 1)])
-        await self._messages.create_index(
-            "expire_at", expireAfterSeconds=0, name="chat_ttl")
+        await self._messages.create_index([("session_id", 1), ("created_at", 1)])
+        await self._messages.create_index([("user_id", 1), ("created_at", -1)])
+        await self._messages.create_index([("committed", 1), ("created_at", 1)])
+        await self._messages.create_index("expire_at", expireAfterSeconds=0, name="chat_ttl")
         if self._streams is not None:
-            await self._streams.create_index(
-                [("session_id", 1), ("created_at", 1)])
-            await self._streams.create_index(
-                "expire_at", expireAfterSeconds=0, name="stream_ttl")
+            await self._streams.create_index([("session_id", 1), ("created_at", 1)])
+            await self._streams.create_index("expire_at", expireAfterSeconds=0, name="stream_ttl")
         if self._sessions is not None:
+            await self._sessions.create_index([("user_id", 1), ("updated_at", -1)])
             await self._sessions.create_index(
-                [("user_id", 1), ("updated_at", -1)])
-            await self._sessions.create_index(
-                "guest_expire_at", expireAfterSeconds=0,
+                "guest_expire_at",
+                expireAfterSeconds=0,
                 name="guest_idle_ttl",
-                partialFilterExpression={"is_guest": True})
+                partialFilterExpression={"is_guest": True},
+            )
 
     # ── WAL writes ────────────────────────────────────────────────
     async def append_message(self, msg: ChatMessage) -> str:
         if self._messages is None:
             return msg.message_id
-        await self._messages.insert_one({
-            "_id": msg.message_id,
-            "session_id": msg.session_id,
-            "user_id": msg.user_id,
-            "role": msg.role,
-            "content": msg.content,
-            "workspace": msg.workspace,
-            "is_guest": msg.is_guest,
-            "committed": False,
-            "tokens": msg.tokens,
-            "created_at": msg.created_at,
-            "expire_at": msg.expire_at,
-        })
+        await self._messages.insert_one(
+            {
+                "_id": msg.message_id,
+                "session_id": msg.session_id,
+                "user_id": msg.user_id,
+                "role": msg.role,
+                "content": msg.content,
+                "workspace": msg.workspace,
+                "is_guest": msg.is_guest,
+                "committed": False,
+                "tokens": msg.tokens,
+                "created_at": msg.created_at,
+                "expire_at": msg.expire_at,
+            }
+        )
         return msg.message_id
 
     async def commit_message(self, message_id: str) -> bool:
         if self._messages is None:
             return True
-        res = await self._messages.update_one(
-            {"_id": message_id, "committed": False},
-            {"$set": {"committed": True}})
+        res = await self._messages.update_one({"_id": message_id, "committed": False}, {"$set": {"committed": True}})
         return res.modified_count == 1 or res.matched_count == 1
 
     async def fetch_history(
-        self, session_id: str, *,
-        limit: int = 200, include_uncommitted: bool = False,
+        self,
+        session_id: str,
+        *,
+        limit: int = 200,
+        include_uncommitted: bool = False,
     ) -> list[ChatMessage]:
         if self._messages is None:
             return []
         q: dict[str, Any] = {"session_id": session_id}
         if not include_uncommitted:
             q["committed"] = True
-        cursor = self._messages.find(q).sort(
-            "created_at", 1).limit(limit)
+        cursor = self._messages.find(q).sort("created_at", 1).limit(limit)
         out: list[ChatMessage] = []
         async for doc in cursor:
             out.append(_doc_to_message(doc))
         return out
 
     async def append_stream_chunk(
-        self, session_id: str, message_id: str, chunk: str,
+        self,
+        session_id: str,
+        message_id: str,
+        chunk: str,
     ) -> None:
         if self._streams is None:
             return
-        await self._streams.insert_one({
-            "_id": uuid.uuid4().hex,
-            "session_id": session_id,
-            "message_id": message_id,
-            "chunk": chunk,
-            "created_at": time.time(),
-            "expire_at": time.time() + CHAT_TTL_DAYS * 86400,
-        })
+        await self._streams.insert_one(
+            {
+                "_id": uuid.uuid4().hex,
+                "session_id": session_id,
+                "message_id": message_id,
+                "chunk": chunk,
+                "created_at": time.time(),
+                "expire_at": time.time() + CHAT_TTL_DAYS * 86400,
+            }
+        )
 
     # ── session metadata ─────────────────────────────────────────
     async def touch_session(
-        self, user_id: str, session_id: str, *, is_guest: bool = False,
+        self,
+        user_id: str,
+        session_id: str,
+        *,
+        is_guest: bool = False,
     ) -> None:
         """Register or refresh a session row. Safe to call repeatedly."""
         if self._sessions is None:
@@ -392,14 +407,14 @@ class _ChatStore:
         if is_guest:
             doc["guest_expire_at"] = now + GUEST_IDLE_TTL_S
         try:
-            await self._sessions.update_one(
-                {"user_id": user_id, "session_id": session_id},
-                {"$set": doc}, upsert=True)
+            await self._sessions.update_one({"user_id": user_id, "session_id": session_id}, {"$set": doc}, upsert=True)
         except Exception as e:
             logger.debug("touch_session_failed err=%s", e)
 
     async def get_session_messages(
-        self, session_id: str, user_id: str,
+        self,
+        session_id: str,
+        user_id: str,
     ) -> list[ChatMessage]:
         """All messages for one session, ordered by ``created_at``.
 
@@ -408,17 +423,22 @@ class _ChatStore:
         """
         if self._messages is None:
             return []
-        cursor = self._messages.find({
-            "session_id": session_id,
-            "user_id": user_id,
-        }).sort("created_at", 1)
+        cursor = self._messages.find(
+            {
+                "session_id": session_id,
+                "user_id": user_id,
+            }
+        ).sort("created_at", 1)
         out: list[ChatMessage] = []
         async for doc in cursor:
             out.append(_doc_to_message(doc))
         return out
 
     async def get_all_user_sessions(
-        self, user_id: str, *, limit: int = 10,
+        self,
+        user_id: str,
+        *,
+        limit: int = 10,
         tier: str | None = None,
     ) -> list[str]:
         """Active session ids ordered by last activity, newest first.
@@ -437,8 +457,7 @@ class _ChatStore:
             return []
         if tier == "free":
             limit = min(limit, 1)
-        cursor = self._sessions.find({"user_id": user_id}).sort(
-            "last_seen_at", -1).limit(max(1, limit))
+        cursor = self._sessions.find({"user_id": user_id}).sort("last_seen_at", -1).limit(max(1, limit))
         out: list[str] = []
         async for doc in cursor:
             sid = doc.get("session_id")
@@ -452,16 +471,16 @@ class _ChatStore:
             return 0
         now = time.time()
         r1 = await self._messages.update_many(
-            {"session_id": session_id, "is_guest": True},
-            {"$set": {"expire_at": now + 1}})
+            {"session_id": session_id, "is_guest": True}, {"$set": {"expire_at": now + 1}}
+        )
         if self._streams is not None:
-            await self._streams.update_many(
-                {"session_id": session_id},
-                {"$set": {"expire_at": now + 1}})
+            await self._streams.update_many({"session_id": session_id}, {"$set": {"expire_at": now + 1}})
         return r1.modified_count
 
     async def delete_guest_session(
-        self, session_id: str, user_id: str,
+        self,
+        session_id: str,
+        user_id: str,
     ) -> None:
         """Purge a guest session via TTL.
 
@@ -472,25 +491,20 @@ class _ChatStore:
             return
         now = time.time()
         await self._messages.update_many(
-            {"session_id": session_id, "user_id": user_id,
-             "is_guest": True},
-            {"$set": {"expire_at": now}})
+            {"session_id": session_id, "user_id": user_id, "is_guest": True}, {"$set": {"expire_at": now}}
+        )
         if self._streams is not None:
-            await self._streams.update_many(
-                {"session_id": session_id},
-                {"$set": {"expire_at": now}})
+            await self._streams.update_many({"session_id": session_id}, {"$set": {"expire_at": now}})
 
     async def sweep_orphaned_wal(self) -> int:
         """Auto-commit uncommitted messages older than the grace window."""
         if self._messages is None:
             return 0
         threshold = time.time() - WAL_ORPHAN_GRACE_S
-        cursor = self._messages.find(
-            {"committed": False, "created_at": {"$lt": threshold}})
+        cursor = self._messages.find({"committed": False, "created_at": {"$lt": threshold}})
         fixed = 0
         async for doc in cursor:
-            await self._messages.update_one(
-                {"_id": doc["_id"]}, {"$set": {"committed": True}})
+            await self._messages.update_one({"_id": doc["_id"]}, {"$set": {"committed": True}})
             fixed += 1
         if fixed:
             logger.info("wal_orphan_reconciled count=%d", fixed)
@@ -540,6 +554,7 @@ class PersistenceEngine:
           must call ``commit_exchange()`` once the SSE stream is acked.
         * ``shutdown()`` cancels the WAL sweeper and closes every client.
     """
+
     __slots__ = ("profiles", "chats", "_started", "_sweeper")
 
     def __init__(self) -> None:
@@ -552,12 +567,8 @@ class PersistenceEngine:
         if self._started:
             return
         self._started = True
-        await asyncio.gather(
-            self.profiles.connect(),
-            self.chats.connect(),
-            return_exceptions=True)
-        self._sweeper = asyncio.create_task(
-            self._sweep_loop(), name="wal_sweeper")
+        await asyncio.gather(self.profiles.connect(), self.chats.connect(), return_exceptions=True)
+        self._sweeper = asyncio.create_task(self._sweep_loop(), name="wal_sweeper")
 
     async def _sweep_loop(self) -> None:
         while True:
@@ -575,17 +586,18 @@ class PersistenceEngine:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._sweeper
             self._sweeper = None
-        await asyncio.gather(
-            self.profiles.close(),
-            self.chats.close(),
-            return_exceptions=True)
+        await asyncio.gather(self.profiles.close(), self.chats.close(), return_exceptions=True)
         self._started = False
 
     async def record_exchange(
-        self, *,
-        session_id: str, user_id: str,
-        user_prompt: str, assistant_reply: str,
-        workspace: str, is_guest: bool,
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        user_prompt: str,
+        assistant_reply: str,
+        workspace: str,
+        is_guest: bool,
     ) -> tuple[str, str]:
         """WAL-safe write of a user→assistant exchange.
 
@@ -598,24 +610,35 @@ class PersistenceEngine:
         """
         now = time.time()
         user_msg = ChatMessage(
-            session_id=session_id, user_id=user_id, role="user",
-            content=user_prompt, workspace=workspace,
-            is_guest=is_guest, committed=False, created_at=now)
+            session_id=session_id,
+            user_id=user_id,
+            role="user",
+            content=user_prompt,
+            workspace=workspace,
+            is_guest=is_guest,
+            committed=False,
+            created_at=now,
+        )
         ai_msg = ChatMessage(
-            session_id=session_id, user_id=user_id, role="assistant",
-            content=assistant_reply, workspace=workspace,
-            is_guest=is_guest, committed=False, created_at=now + 0.001)
+            session_id=session_id,
+            user_id=user_id,
+            role="assistant",
+            content=assistant_reply,
+            workspace=workspace,
+            is_guest=is_guest,
+            committed=False,
+            created_at=now + 0.001,
+        )
         await self.chats.append_message(user_msg)
         await self.chats.append_message(ai_msg)
-        await self.chats.touch_session(
-            user_id, session_id, is_guest=is_guest)
+        await self.chats.touch_session(user_id, session_id, is_guest=is_guest)
         return user_msg.message_id, ai_msg.message_id
 
     async def commit_exchange(self, *message_ids: str) -> bool:
         """Commit one or more message ids. Returns ``True`` iff all committed."""
         results = await asyncio.gather(
-            *(self.chats.commit_message(mid) for mid in message_ids if mid),
-            return_exceptions=True)
+            *(self.chats.commit_message(mid) for mid in message_ids if mid), return_exceptions=True
+        )
         return all(r is True for r in results)
 
 
@@ -623,6 +646,8 @@ PERSIST = PersistenceEngine()
 
 
 __all__ = [
-    "PERSIST", "PersistenceEngine",
-    "UserProfile", "ChatMessage",
+    "PERSIST",
+    "PersistenceEngine",
+    "UserProfile",
+    "ChatMessage",
 ]

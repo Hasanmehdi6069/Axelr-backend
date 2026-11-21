@@ -148,7 +148,7 @@ state = {
     "active_requests": int,
     "provider_health": dict,
     "system_health": dict,
-    "config": Settings
+    "config": Settings,
 }
 ```
 

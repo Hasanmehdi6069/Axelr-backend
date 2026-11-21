@@ -1,4 +1,5 @@
 """OpenCV AI Competition Visual Processing Pipeline — v1.1.0"""
+
 from .core import (
     FrameMetadata,
     FramePool,
@@ -14,7 +15,15 @@ from .core import (
 )
 
 __all__ = [
-    "__version__", "init", "shutdown", "health", "get_pipeline",
-    "OpenCVPipeline", "VisualFrame", "ProcessedFrame", "FramePool",
-    "FrameMetadata", "MemoryStats",
+    "__version__",
+    "init",
+    "shutdown",
+    "health",
+    "get_pipeline",
+    "OpenCVPipeline",
+    "VisualFrame",
+    "ProcessedFrame",
+    "FramePool",
+    "FrameMetadata",
+    "MemoryStats",
 ]

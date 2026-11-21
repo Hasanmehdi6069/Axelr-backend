@@ -5,6 +5,7 @@ so the router never stalls on disk I/O. Aggregation computes tier breakdown,
 total cost, p50/p95 latency, escalation rate, and the recent N entries the
 dashboard renders.
 """
+
 from __future__ import annotations
 
 import asyncio

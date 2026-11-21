@@ -4,6 +4,7 @@ Fixes the v1.5 file: the trailing v1.0 duplicate (which caused a module-level
 syntax error and would shadow the real class) has been removed. All v1.5
 behaviour and v1.6 dispatch/health/batch additions are preserved.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -71,17 +72,18 @@ class TierBudget:
 
 
 TIER_BUDGET: Dict[str, TierBudget] = {
-    intern_str("free"):       TierBudget( 800,  50, 0, False, 10,  15, 15),
-    intern_str("guest"):      TierBudget( 800,  50, 0, False, 10,  15, 15),
-    intern_str("pro"):        TierBudget(1400, 200, 1, True,  30,  70, 30),
-    intern_str("business"):   TierBudget(1400, 500, 2, True,  70, 140, 60),
+    intern_str("free"): TierBudget(800, 50, 0, False, 10, 15, 15),
+    intern_str("guest"): TierBudget(800, 50, 0, False, 10, 15, 15),
+    intern_str("pro"): TierBudget(1400, 200, 1, True, 30, 70, 30),
+    intern_str("business"): TierBudget(1400, 500, 2, True, 70, 140, 60),
     intern_str("enterprise"): TierBudget(2000, 1000, 3, True, 999, -1, -1),
 }
 
 
 class AntiHallucinationEngine:
     def __init__(
-        self, *,
+        self,
+        *,
         extractor_timeout_s: float = 60.0,
         default_max_chunk_chars: int = 1400,
         adjudicator_strict: bool = True,
@@ -102,8 +104,7 @@ class AntiHallucinationEngine:
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
 
     # ── Non-streaming full-run ───────────────────────────────────────────
-    async def run(self, req: ExtractionRequest,
-                  raw_bytes: bytes) -> VerifiedPayload:
+    async def run(self, req: ExtractionRequest, raw_bytes: bytes) -> VerifiedPayload:
         t0 = time.perf_counter()
         budget = TIER_BUDGET.get(req.tier.lower())
         if budget is None:
@@ -112,7 +113,8 @@ class AntiHallucinationEngine:
         self._preflight(req, budget, raw_bytes)
         if req.enforce_quota:
             self.quota.check_and_consume(
-                workspace=req.workspace, tier=req.tier,
+                workspace=req.workspace,
+                tier=req.tier,
                 mb_used=len(raw_bytes) / (1024 * 1024),
                 max_queries=budget.monthly_queries,
                 max_mb=budget.monthly_mb,
@@ -135,14 +137,18 @@ class AntiHallucinationEngine:
             remaining = deadline - time.perf_counter()
             if remaining <= 0:
                 raise UnverifiableDataError(
-                    "pipeline_timeout", {"stage": "pre_extract"},
+                    "pipeline_timeout",
+                    {"stage": "pre_extract"},
                 )
             try:
                 claims = await asyncio.wait_for(
                     extractor.extract(
-                        query=req.query, target_fields=req.target_fields,
-                        chunks=doc.chunks, workspace=req.workspace,
-                        tier=req.tier, correction_hint=correction_hint,
+                        query=req.query,
+                        target_fields=req.target_fields,
+                        chunks=doc.chunks,
+                        workspace=req.workspace,
+                        tier=req.tier,
+                        correction_hint=correction_hint,
                     ),
                     timeout=remaining,
                 )
@@ -150,16 +156,12 @@ class AntiHallucinationEngine:
                 break
             except SchemaViolationError as e:
                 last_err = e
-                correction_hint = (
-                    f"{e.message} :: details={json.dumps(e.details)[:400]}"
-                )
-                log.warning("extractor_schema_violation attempt=%d error=%s",
-                            attempt + 1, e.message)
+                correction_hint = f"{e.message} :: details={json.dumps(e.details)[:400]}"
+                log.warning("extractor_schema_violation attempt=%d error=%s", attempt + 1, e.message)
         if last_err is not None:
             raise last_err
         if len(claims) > budget.max_claims:
-            raise SchemaViolationError(
-                f"Claim count {len(claims)} exceeds tier limit {budget.max_claims}")
+            raise SchemaViolationError(f"Claim count {len(claims)} exceeds tier limit {budget.max_claims}")
 
         caps = TokenCaps(per_field=1024, global_=budget.max_claims * 1024)
         total = 0
@@ -171,29 +173,31 @@ class AntiHallucinationEngine:
         verdicts = self._verify_claims(claims, chunks_by_id, doc, req)
 
         payload = self.adjudicator.adjudicate(
-            document_id=req.document_id, claims=claims,
-            chunks_by_id=chunks_by_id, verdicts=verdicts,
+            document_id=req.document_id,
+            claims=claims,
+            chunks_by_id=chunks_by_id,
+            verdicts=verdicts,
         )
 
         if self.emit_chunk_hashes:
-            payload.chunk_hashes = {
-                c.chunk_id: c.hash16() for c in doc.chunks
-            }
+            payload.chunk_hashes = {c.chunk_id: c.hash16() for c in doc.chunks}
 
         self._finalize_payload(payload, req, raw_bytes)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         log.info(
-            "verified document_id=%s tier=%s claims=%d score=%d "
-            "audit=%s elapsed_ms=%.1f",
-            req.document_id, req.tier, len(payload.claims),
-            payload.conformance_score, payload.merkle_root[:12], elapsed_ms,
+            "verified document_id=%s tier=%s claims=%d score=%d audit=%s elapsed_ms=%.1f",
+            req.document_id,
+            req.tier,
+            len(payload.claims),
+            payload.conformance_score,
+            payload.merkle_root[:12],
+            elapsed_ms,
         )
         return payload
 
     # ── Batched streaming full-run ───────────────────────────────────────
-    async def run_streaming(self, req: ExtractionRequest,
-                            raw_bytes: bytes) -> VerifiedPayload:
+    async def run_streaming(self, req: ExtractionRequest, raw_bytes: bytes) -> VerifiedPayload:
         t0 = time.perf_counter()
         budget = TIER_BUDGET.get(req.tier.lower())
         if budget is None:
@@ -202,7 +206,8 @@ class AntiHallucinationEngine:
         self._preflight(req, budget, raw_bytes)
         if req.enforce_quota:
             self.quota.check_and_consume(
-                workspace=req.workspace, tier=req.tier,
+                workspace=req.workspace,
+                tier=req.tier,
                 mb_used=len(raw_bytes) / (1024 * 1024),
                 max_queries=budget.monthly_queries,
                 max_mb=budget.monthly_mb,
@@ -227,8 +232,11 @@ class AntiHallucinationEngine:
             try:
                 claims = await asyncio.wait_for(
                     extractor.extract(
-                        query=req.query, target_fields=req.target_fields,
-                        chunks=batch, workspace=req.workspace, tier=req.tier,
+                        query=req.query,
+                        target_fields=req.target_fields,
+                        chunks=batch,
+                        workspace=req.workspace,
+                        tier=req.tier,
                     ),
                     timeout=max(0.1, deadline - time.perf_counter()),
                 )
@@ -240,28 +248,29 @@ class AntiHallucinationEngine:
                 caps.check_field(c.field_name, c.value)
                 total_chars += len(c.value)
                 v = self.skeptic.cross_examine(
-                    c, chunk_map, doc_stub, req.query,
+                    c,
+                    chunk_map,
+                    doc_stub,
+                    req.query,
                 )
                 if not v.verified:
-                    rejection_summary[v.reason_code] = (
-                        rejection_summary.get(v.reason_code, 0) + 1
-                    )
+                    rejection_summary[v.reason_code] = rejection_summary.get(v.reason_code, 0) + 1
                     continue
                 s0, s1, neg = negation_window(
-                    chunk_map[c.chunk_id].text, v.char_start, v.char_end,
+                    chunk_map[c.chunk_id].text,
+                    v.char_start,
+                    v.char_end,
                 )
                 if neg and contradiction(
-                    c.value, chunk_map[c.chunk_id].text[s0:s1],
+                    c.value,
+                    chunk_map[c.chunk_id].text[s0:s1],
                 ):
-                    rejection_summary[REASON_NEGATED] = (
-                        rejection_summary.get(REASON_NEGATED, 0) + 1
-                    )
+                    rejection_summary[REASON_NEGATED] = rejection_summary.get(REASON_NEGATED, 0) + 1
                     continue
                 shape = req.value_shapes.get(c.field_name)
                 if shape and not matches_shape(c.value, shape):
                     raise SchemaViolationError(
-                        f"value for '{c.field_name}' does not match shape "
-                        f"'{shape}'",
+                        f"value for '{c.field_name}' does not match shape '{shape}'",
                         {"value": c.value, "shape": shape},
                     )
                 canon_value = canonicalize(c.value)[0]
@@ -270,10 +279,13 @@ class AntiHallucinationEngine:
                     verified[seen_keys[key]].verification.evidence_count += 1
                     continue
                 li = LineageIndex()
-                li.record(c.field_name, canon_value, req.document_id,
-                          c.chunk_id, v.char_start, v.char_end)
+                li.record(c.field_name, canon_value, req.document_id, c.chunk_id, v.char_start, v.char_end)
                 vc = self.adjudicator._to_verified(
-                    req.document_id, chunk_map, c, v, li,
+                    req.document_id,
+                    chunk_map,
+                    c,
+                    v,
+                    li,
                 )
                 seen_keys[key] = len(verified)
                 verified.append(vc)
@@ -285,7 +297,8 @@ class AntiHallucinationEngine:
                 break
             if time.perf_counter() > deadline:
                 raise UnverifiableDataError(
-                    "pipeline_timeout", {"stage": "streaming"},
+                    "pipeline_timeout",
+                    {"stage": "streaming"},
                 )
             batch.append(chunk)
             if len(batch) >= self.chunk_batch_size:
@@ -298,12 +311,13 @@ class AntiHallucinationEngine:
         if not verified:
             raise UnverifiableDataError(
                 "Source document does not contain explicit data point",
-                {"document_id": req.document_id,
-                 "rejection_summary": rejection_summary},
+                {"document_id": req.document_id, "rejection_summary": rejection_summary},
             )
 
         payload = VerifiedPayload(
-            document_id=req.document_id, claims=verified, audit_hash="",
+            document_id=req.document_id,
+            claims=verified,
+            audit_hash="",
             rejection_summary=rejection_summary,
         )
 
@@ -318,29 +332,30 @@ class AntiHallucinationEngine:
             src_canon, _ = canonicalize(ch.text[ls:le])
             val_canon, _ = canonicalize(vc.value)
             if val_canon and val_canon not in src_canon:
-                raise SchemaViolationError(
-                    "post-build: value not derivable from emitted coordinate"
-                )
+                raise SchemaViolationError("post-build: value not derivable from emitted coordinate")
 
         if self.emit_chunk_hashes:
-            payload.chunk_hashes = {
-                cid: ch.hash16() for cid, ch in verified_chunks.items()
-            }
+            payload.chunk_hashes = {cid: ch.hash16() for cid, ch in verified_chunks.items()}
 
         self._finalize_payload(payload, req, raw_bytes)
 
         elapsed_ms = (time.perf_counter() - t0) * 1000.0
         log.info(
-            "verified_streaming document_id=%s tier=%s claims=%d score=%d "
-            "audit=%s elapsed_ms=%.1f",
-            req.document_id, req.tier, len(payload.claims),
-            payload.conformance_score, payload.merkle_root[:12], elapsed_ms,
+            "verified_streaming document_id=%s tier=%s claims=%d score=%d audit=%s elapsed_ms=%.1f",
+            req.document_id,
+            req.tier,
+            len(payload.claims),
+            payload.conformance_score,
+            payload.merkle_root[:12],
+            elapsed_ms,
         )
         return payload
 
     # ── Async streaming iterator ─────────────────────────────────────────
     async def run_streaming_iter(
-        self, req: ExtractionRequest, raw_bytes: bytes,
+        self,
+        req: ExtractionRequest,
+        raw_bytes: bytes,
     ) -> AsyncIterator[VerifiedClaim]:
         budget = TIER_BUDGET.get(req.tier.lower())
         if budget is None:
@@ -348,7 +363,8 @@ class AntiHallucinationEngine:
         self._preflight(req, budget, raw_bytes)
         if req.enforce_quota:
             self.quota.check_and_consume(
-                workspace=req.workspace, tier=req.tier,
+                workspace=req.workspace,
+                tier=req.tier,
                 mb_used=len(raw_bytes) / (1024 * 1024),
                 max_queries=budget.monthly_queries,
                 max_mb=budget.monthly_mb,
@@ -371,8 +387,11 @@ class AntiHallucinationEngine:
             try:
                 claims = await asyncio.wait_for(
                     extractor.extract(
-                        query=req.query, target_fields=req.target_fields,
-                        chunks=batch, workspace=req.workspace, tier=req.tier,
+                        query=req.query,
+                        target_fields=req.target_fields,
+                        chunks=batch,
+                        workspace=req.workspace,
+                        tier=req.tier,
                     ),
                     timeout=max(0.1, deadline - time.perf_counter()),
                 )
@@ -384,22 +403,27 @@ class AntiHallucinationEngine:
                 caps.check_field(c.field_name, c.value)
                 total_chars += len(c.value)
                 v = self.skeptic.cross_examine(
-                    c, chunk_map, doc_stub, req.query,
+                    c,
+                    chunk_map,
+                    doc_stub,
+                    req.query,
                 )
                 if not v.verified:
                     continue
                 s0, s1, neg = negation_window(
-                    chunk_map[c.chunk_id].text, v.char_start, v.char_end,
+                    chunk_map[c.chunk_id].text,
+                    v.char_start,
+                    v.char_end,
                 )
                 if neg and contradiction(
-                    c.value, chunk_map[c.chunk_id].text[s0:s1],
+                    c.value,
+                    chunk_map[c.chunk_id].text[s0:s1],
                 ):
                     continue
                 shape = req.value_shapes.get(c.field_name)
                 if shape and not matches_shape(c.value, shape):
                     raise SchemaViolationError(
-                        f"value for '{c.field_name}' does not match shape "
-                        f"'{shape}'",
+                        f"value for '{c.field_name}' does not match shape '{shape}'",
                         {"value": c.value, "shape": shape},
                     )
                 canon_value = canonicalize(c.value)[0]
@@ -407,10 +431,13 @@ class AntiHallucinationEngine:
                 if key in seen_keys:
                     continue
                 li = LineageIndex()
-                li.record(c.field_name, canon_value, req.document_id,
-                          c.chunk_id, v.char_start, v.char_end)
+                li.record(c.field_name, canon_value, req.document_id, c.chunk_id, v.char_start, v.char_end)
                 vc = self.adjudicator._to_verified(
-                    req.document_id, chunk_map, c, v, li,
+                    req.document_id,
+                    chunk_map,
+                    c,
+                    v,
+                    li,
                 )
                 seen_keys[key] = seen_count
                 seen_count += 1
@@ -422,7 +449,8 @@ class AntiHallucinationEngine:
                 break
             if time.perf_counter() > deadline:
                 raise UnverifiableDataError(
-                    "pipeline_timeout", {"stage": "streaming_iter"},
+                    "pipeline_timeout",
+                    {"stage": "streaming_iter"},
                 )
             batch.append(chunk)
             if len(batch) >= self.chunk_batch_size:
@@ -448,6 +476,7 @@ class AntiHallucinationEngine:
         }
         try:
             from ._verify import MinimalPerfectHash
+
             m = MinimalPerfectHash([b"a", b"b", b"c"])
             report["mph_ok"] = (b"a" in m) and (b"z" not in m)
         except Exception as e:  # noqa: BLE001
@@ -455,21 +484,19 @@ class AntiHallucinationEngine:
             report["mph_error"] = str(e)
         try:
             from .bounding import canonicalize as _c
+
             report["canon_ok"] = _c("A B")[0] == "A B"
         except Exception as e:  # noqa: BLE001
             report["canon_ok"] = False
             report["canon_error"] = str(e)
         try:
             from ._runtime import merkle_root
-            report["merkle_ok"] = (
-                merkle_root([b"a", b"b"]) == merkle_root([b"a", b"b"])
-            )
+
+            report["merkle_ok"] = merkle_root([b"a", b"b"]) == merkle_root([b"a", b"b"])
         except Exception as e:  # noqa: BLE001
             report["merkle_ok"] = False
             report["merkle_error"] = str(e)
-        report["healthy"] = all(
-            report.get(k) for k in ("mph_ok", "canon_ok", "merkle_ok")
-        )
+        report["healthy"] = all(report.get(k) for k in ("mph_ok", "canon_ok", "merkle_ok"))
         return report
 
     # ── Helpers ──────────────────────────────────────────────────────────
@@ -482,8 +509,7 @@ class AntiHallucinationEngine:
         )
 
     @staticmethod
-    def _preflight(req: ExtractionRequest, budget: TierBudget,
-                   raw_bytes: bytes) -> None:
+    def _preflight(req: ExtractionRequest, budget: TierBudget, raw_bytes: bytes) -> None:
         if len(raw_bytes) > req.max_document_bytes:
             raise DocumentParseError(
                 f"Document exceeds max_document_bytes={req.max_document_bytes}",
@@ -525,24 +551,25 @@ class AntiHallucinationEngine:
                         {"names": u[:20]},
                     )
             elif req.code_dialect:
-                tokens = [bytes(raw_bytes[s:e])
-                          for k, s, e in ByteTokenizer(raw_bytes) if k == 1]
+                tokens = [bytes(raw_bytes[s:e]) for k, s, e in ByteTokenizer(raw_bytes) if k == 1]
                 leaked = cross_language_leak(tokens, req.code_dialect)
                 if leaked:
                     raise SchemaViolationError(
                         "dialect leak",
-                        {"tokens": [t.decode('ascii', 'replace')
-                                    for t in leaked[:10]]},
+                        {"tokens": [t.decode("ascii", "replace") for t in leaked[:10]]},
                     )
         elif dt == "json":
             ok, why = json_fsa_valid(raw_bytes)
             if not ok:
                 raise DocumentParseError(f"json structure: {why}")
         elif dt == "text":
-            bad = [eq for ok, eq, _ in
-                   check_arithmetic(
-                       raw_bytes.decode("utf-8", "replace"),
-                   ) if not ok]
+            bad = [
+                eq
+                for ok, eq, _ in check_arithmetic(
+                    raw_bytes.decode("utf-8", "replace"),
+                )
+                if not ok
+            ]
             if bad:
                 raise SchemaViolationError(
                     "arithmetic mismatch in source",
@@ -552,7 +579,10 @@ class AntiHallucinationEngine:
     def _verify_claims(self, claims, chunks_by_id, doc, req):
         verdicts = [
             self.skeptic.cross_examine(
-                c, chunks_by_id, doc, query=req.query,
+                c,
+                chunks_by_id,
+                doc,
+                query=req.query,
             )
             for c in claims
         ]
@@ -560,10 +590,13 @@ class AntiHallucinationEngine:
             if not v.verified or v.char_start is None:
                 continue
             s0, s1, neg = negation_window(
-                chunks_by_id[c.chunk_id].text, v.char_start, v.char_end,
+                chunks_by_id[c.chunk_id].text,
+                v.char_start,
+                v.char_end,
             )
             if neg and contradiction(
-                c.value, chunks_by_id[c.chunk_id].text[s0:s1],
+                c.value,
+                chunks_by_id[c.chunk_id].text[s0:s1],
             ):
                 v.verified = False
                 v.reason = "source negated; claim dropped negator (L25)"
@@ -573,15 +606,12 @@ class AntiHallucinationEngine:
             shape = req.value_shapes.get(c.field_name)
             if shape and not matches_shape(c.value, shape):
                 raise SchemaViolationError(
-                    f"value for '{c.field_name}' does not match shape "
-                    f"'{shape}'",
+                    f"value for '{c.field_name}' does not match shape '{shape}'",
                     {"value": c.value, "shape": shape},
                 )
         return verdicts
 
-    def _finalize_payload(self, payload: VerifiedPayload,
-                          req: ExtractionRequest,
-                          raw_bytes: bytes) -> None:
+    def _finalize_payload(self, payload: VerifiedPayload, req: ExtractionRequest, raw_bytes: bytes) -> None:
         payload.claims = stable_tie_break(payload.claims)
         payload.audit_hash = compute_audit_hash(payload)
         payload.merkle_root, payload.crc32 = build_audit(payload)
@@ -604,26 +634,22 @@ class AntiHallucinationEngine:
             canon_version=payload.canon_version,
         )
         payload.signature = sign_root(
-            payload.merkle_root, req.workspace, self.signing_secret,
+            payload.merkle_root,
+            req.workspace,
+            self.signing_secret,
         )
 
         verified_n = sum(1 for c in payload.claims if c.verification.verified)
-        evidence_mean = (
-            sum(c.verification.evidence_count for c in payload.claims) /
-            max(1, len(payload.claims))
-        )
-        neg_clean = (
-            sum(1 for c in payload.claims if not c.verification.negated) /
-            max(1, len(payload.claims))
-        )
-        multi_doc = (
-            sum(1 for c in payload.claims if c.verification.doc_diversity > 1) /
-            max(1, len(payload.claims))
-        )
+        evidence_mean = sum(c.verification.evidence_count for c in payload.claims) / max(1, len(payload.claims))
+        neg_clean = sum(1 for c in payload.claims if not c.verification.negated) / max(1, len(payload.claims))
+        multi_doc = sum(1 for c in payload.claims if c.verification.doc_diversity > 1) / max(1, len(payload.claims))
         payload.conformance_score = conformance_score(
-            verified=verified_n, total=len(payload.claims),
-            evidence_mean=evidence_mean, negation_clean_ratio=neg_clean,
-            canon_ratio=1.0, multi_doc_ratio=multi_doc,
+            verified=verified_n,
+            total=len(payload.claims),
+            evidence_mean=evidence_mean,
+            negation_clean_ratio=neg_clean,
+            canon_ratio=1.0,
+            multi_doc_ratio=multi_doc,
         )
 
         violations = verify_invariants(payload)
@@ -638,12 +664,18 @@ class AntiHallucinationEngine:
 # v1.6 additions: registry registration + dispatch/health/batch
 # ═══════════════════════════════════════════════════════════════════════════
 for _name, _b in TIER_BUDGET.items():
-    REGISTRY.register(TierSpec(
-        name=_name, max_chunk_chars=_b.max_chunk_chars,
-        max_claims=_b.max_claims, retries=_b.retries,
-        allow_llm=_b.allow_llm, max_files_per_prompt=_b.max_files_per_prompt,
-        monthly_queries=_b.monthly_queries, monthly_mb=_b.monthly_mb,
-    ))
+    REGISTRY.register(
+        TierSpec(
+            name=_name,
+            max_chunk_chars=_b.max_chunk_chars,
+            max_claims=_b.max_claims,
+            retries=_b.retries,
+            allow_llm=_b.allow_llm,
+            max_files_per_prompt=_b.max_files_per_prompt,
+            monthly_queries=_b.monthly_queries,
+            monthly_mb=_b.monthly_mb,
+        )
+    )
 
 
 async def dispatch(req, raw_bytes, *, engine=None, replay_cache=None):
@@ -654,8 +686,10 @@ async def dispatch(req, raw_bytes, *, engine=None, replay_cache=None):
     if e.circuit_breaker.is_open():
         raise UnverifiableDataError("circuit_open", {"stage": "dispatch"})
     fp = request_fingerprint(
-        document_bytes=raw_bytes, query=req.query,
-        target_fields=req.target_fields, tier=req.tier,
+        document_bytes=raw_bytes,
+        query=req.query,
+        target_fields=req.target_fields,
+        tier=req.tier,
     )
     if replay_cache is not None and fp in replay_cache:
         return replay_cache[fp]
@@ -694,6 +728,12 @@ async def run_batch(reqs, *, engine=None, max_concurrency=4):
 
 
 __all__ = [
-    "AntiHallucinationEngine", "TIER_BUDGET", "TierBudget",
-    "dispatch", "healthz", "readyz", "livez", "run_batch",
+    "AntiHallucinationEngine",
+    "TIER_BUDGET",
+    "TierBudget",
+    "dispatch",
+    "healthz",
+    "readyz",
+    "livez",
+    "run_batch",
 ]

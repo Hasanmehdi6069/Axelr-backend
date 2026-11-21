@@ -14,6 +14,7 @@ Contract (every section):
     * Never raise to the caller.
     * Bounded state, bounded retries, deterministic behaviour.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,6 +47,7 @@ def get_redis_client() -> Any:
 
 class _DummyAsyncCache:
     """No-op stand-in with the same async surface as a Redis client."""
+
     def __init__(self):
         self._data: dict[str, Any] = {}
         self._ttl: dict[str, float] = {}
@@ -83,6 +85,7 @@ class _DummyAsyncCache:
 
     async def keys(self, pattern: str = "*"):
         import fnmatch
+
         return [k for k in self._data.keys() if fnmatch.fnmatch(k, pattern)]
 
     async def ttl(self, key: str):
@@ -230,7 +233,7 @@ class ContextRegistry:
             entry_tokens = _estimate_tokens(entry_text)
             if total_tokens + entry_tokens > max_tokens:
                 remaining = max_tokens - total_tokens
-                summary_parts.append(entry_text[:remaining * _CHARS_PER_TOKEN])
+                summary_parts.append(entry_text[: remaining * _CHARS_PER_TOKEN])
                 break
             summary_parts.append(entry_text)
             total_tokens += entry_tokens
@@ -255,11 +258,10 @@ class ContextRegistry:
     def _load_sources() -> dict[str, dict[str, str]]:
         s: dict[str, dict[str, str]] = {}
         if (u := os.getenv("JIRA_URL")) and (t := os.getenv("JIRA_TOKEN")):
-            s["jira"] = {"url": u.rstrip("/"), "token": t,
-                         "project": os.getenv("JIRA_PROJECT", "AXELR")}
-        if (k := os.getenv("LINEAR_API_KEY")):
+            s["jira"] = {"url": u.rstrip("/"), "token": t, "project": os.getenv("JIRA_PROJECT", "AXELR")}
+        if k := os.getenv("LINEAR_API_KEY"):
             s["linear"] = {"api_key": k}
-        if (u := os.getenv("OPENAPI_CONTEXT_URL")):
+        if u := os.getenv("OPENAPI_CONTEXT_URL"):
             s["openapi"] = {"url": u, "token": os.getenv("OPENAPI_CONTEXT_TOKEN", "")}
         return s
 
@@ -273,9 +275,12 @@ class ContextRegistry:
 
     async def _fetch_all(self, user_id: str) -> list[ContextItem]:
         fetchers = []
-        if "jira" in self._sources:    fetchers.append(self._fetch_jira(user_id))
-        if "linear" in self._sources:  fetchers.append(self._fetch_linear(user_id))
-        if "openapi" in self._sources: fetchers.append(self._fetch_openapi(user_id))
+        if "jira" in self._sources:
+            fetchers.append(self._fetch_jira(user_id))
+        if "linear" in self._sources:
+            fetchers.append(self._fetch_linear(user_id))
+        if "openapi" in self._sources:
+            fetchers.append(self._fetch_openapi(user_id))
         if not fetchers:
             return []
         results = await asyncio.gather(*fetchers, return_exceptions=True)
@@ -294,8 +299,11 @@ class ContextRegistry:
             resp = await c.get(
                 f"{cfg['url']}/rest/api/3/search",
                 headers={"Authorization": f"Bearer {cfg['token']}", "Accept": "application/json"},
-                params={"jql": f'project={cfg["project"]} AND assignee="{user_id}"',
-                        "fields": "summary,description,status,priority", "maxResults": 10},
+                params={
+                    "jql": f'project={cfg["project"]} AND assignee="{user_id}"',
+                    "fields": "summary,description,status,priority",
+                    "maxResults": 10,
+                },
             )
             resp.raise_for_status()
             data = resp.json()
@@ -305,13 +313,16 @@ class ContextRegistry:
         out: list[ContextItem] = []
         for issue in data.get("issues", [])[:10]:
             f = issue.get("fields", {})
-            out.append(ContextItem(
-                source="jira", type="issue",
-                title=str(f.get("summary", ""))[:200],
-                description=str(f.get("description", "") or ""),
-                status=str((f.get("status") or {}).get("name", "")),
-                priority=str((f.get("priority") or {}).get("name", "")),
-            ))
+            out.append(
+                ContextItem(
+                    source="jira",
+                    type="issue",
+                    title=str(f.get("summary", ""))[:200],
+                    description=str(f.get("description", "") or ""),
+                    status=str((f.get("status") or {}).get("name", "")),
+                    priority=str((f.get("priority") or {}).get("name", "")),
+                )
+            )
         return out
 
     async def _fetch_linear(self, user_id: str) -> list[ContextItem]:
@@ -320,23 +331,26 @@ class ContextRegistry:
                    state{name} priorityLabel updatedAt}}}}"""
         try:
             c = await self._get_http()
-            r = await c.post("https://api.linear.app/graphql",
-                             headers={"Authorization": cfg["api_key"],
-                                      "Content-Type": "application/json"},
-                             json={"query": query})
+            r = await c.post(
+                "https://api.linear.app/graphql",
+                headers={"Authorization": cfg["api_key"], "Content-Type": "application/json"},
+                json={"query": query},
+            )
             r.raise_for_status()
             data = r.json()
         except Exception as e:
             logger.warning("linear_fetch_failed error=%s", e)
             return []
-        nodes = ((data.get("data") or {}).get("viewer") or {}).get(
-            "assignedIssues", {}).get("nodes", [])
+        nodes = ((data.get("data") or {}).get("viewer") or {}).get("assignedIssues", {}).get("nodes", [])
         return [
-            ContextItem(source="linear", type="issue",
-                        title=str(n.get("title", ""))[:200],
-                        description=str(n.get("description", "") or ""),
-                        status=str((n.get("state") or {}).get("name", "")),
-                        priority=str(n.get("priorityLabel", "")))
+            ContextItem(
+                source="linear",
+                type="issue",
+                title=str(n.get("title", ""))[:200],
+                description=str(n.get("description", "") or ""),
+                status=str((n.get("state") or {}).get("name", "")),
+                priority=str(n.get("priorityLabel", "")),
+            )
             for n in nodes[:10]
         ]
 
@@ -354,12 +368,16 @@ class ContextRegistry:
         if not isinstance(data, list):
             return []
         return [
-            ContextItem(source="openapi", type="item",
-                        title=str(row.get("title", ""))[:200],
-                        description=str(row.get("description", "") or ""),
-                        status=str(row.get("status", "")),
-                        priority=str(row.get("priority", "")))
-            for row in data[:10] if isinstance(row, dict)
+            ContextItem(
+                source="openapi",
+                type="item",
+                title=str(row.get("title", ""))[:200],
+                description=str(row.get("description", "") or ""),
+                status=str(row.get("status", "")),
+                priority=str(row.get("priority", "")),
+            )
+            for row in data[:10]
+            if isinstance(row, dict)
         ]
 
     @staticmethod
@@ -401,8 +419,7 @@ class ContextRegistry:
         with contextlib.suppress(Exception):
             await self._db.update_one(
                 {"userId": user_id, "workspace": workspace},
-                {"$set": {"context": summary,
-                          "updatedAt": datetime.now(timezone.utc)}},
+                {"$set": {"context": summary, "updatedAt": datetime.now(timezone.utc)}},
                 upsert=True,
             )
 
@@ -466,13 +483,14 @@ def context_audit() -> dict[str, Any]:
 _CF_ACCT = (os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
 _CF_KEY = (os.getenv("CLOUDFLARE_API_KEY") or "").strip()
 _CF_EMBED_MODEL = os.getenv("CF_EMBED_MODEL", "@cf/baai/bge-small-en-v1.5").strip()
-_CF_EMBED_URL = ("https://api.cloudflare.com/client/v4/accounts/{acct}"
-                 "/ai/run/{model}")
+_CF_EMBED_URL = "https://api.cloudflare.com/client/v4/accounts/{acct}/ai/run/{model}"
 _CF_EMBED_TIMEOUT_S = float(os.getenv("CF_EMBED_TIMEOUT_S", "15.0"))
 
 
 async def cf_embed_batch(
-    texts: list[str], *, model: str | None = None,
+    texts: list[str],
+    *,
+    model: str | None = None,
     timeout_s: float | None = None,
 ) -> list[list[float]] | None:
     """
@@ -489,8 +507,7 @@ async def cf_embed_batch(
         ) as client:
             r = await client.post(
                 url,
-                headers={"Authorization": f"Bearer {_CF_KEY}",
-                         "Content-Type": "application/json"},
+                headers={"Authorization": f"Bearer {_CF_KEY}", "Content-Type": "application/json"},
                 json={"text": texts},
             )
             r.raise_for_status()

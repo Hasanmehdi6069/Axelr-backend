@@ -12,6 +12,7 @@ metric recording.
 
 The registry `PROVIDER_HTTP` is a `dict[str, Callable]`.
 """
+
 from __future__ import annotations
 
 import logging
@@ -57,20 +58,26 @@ logger = logging.getLogger("axelr.provider_http")
 # §1 — Shared POST helper
 # ═══════════════════════════════════════════════════════════════════════════
 async def _post_json(
-    url: str, headers: dict[str, str], payload: dict[str, Any],
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
     timeout: int = 60,
 ) -> dict[str, Any]:
     """POST JSON, return parsed body. Raises on non-2xx."""
     async with aiohttp.ClientSession() as session:
         async with session.post(
-            url, headers=headers, json=payload,
+            url,
+            headers=headers,
+            json=payload,
             timeout=aiohttp.ClientTimeout(total=timeout),
         ) as resp:
             if resp.status >= 400:
                 err = await resp.text()
                 logger.error(
                     "provider_http_failed status=%d url=%s err=%s",
-                    resp.status, url, err[:300],
+                    resp.status,
+                    url,
+                    err[:300],
                 )
                 raise Exception(f"HTTP {resp.status}: {err[:200]}")
             return await resp.json()
@@ -80,23 +87,28 @@ async def _post_json(
 # §2 — Non-standard adapters
 # ═══════════════════════════════════════════════════════════════════════════
 async def gemini_adapter(
-    prompt: str, max_tokens: int, temp: float,
+    prompt: str,
+    max_tokens: int,
+    temp: float,
     model: str | None = None,
 ) -> str:
     if not GEMINI_API_KEY:
         raise Exception("GEMINI_API_KEY missing")
     model_name = model or (GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-1.5-flash")
-    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-           f"{model_name}:generateContent?key={GEMINI_API_KEY}")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
-            "temperature": temp, "maxOutputTokens": max_tokens,
+            "temperature": temp,
+            "maxOutputTokens": max_tokens,
         },
         "safetySettings": [
-            {"category": c, "threshold": "BLOCK_NONE"} for c in (
-                "HARM_CATEGORY_HARASSMENT", "HARM_CATEGORY_HATE_SPEECH",
-                "HARM_CATEGORY_SEXUALLY_EXPLICIT", "HARM_CATEGORY_DANGEROUS_CONTENT",
+            {"category": c, "threshold": "BLOCK_NONE"}
+            for c in (
+                "HARM_CATEGORY_HARASSMENT",
+                "HARM_CATEGORY_HATE_SPEECH",
+                "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                "HARM_CATEGORY_DANGEROUS_CONTENT",
             )
         ],
     }
@@ -108,20 +120,23 @@ async def gemini_adapter(
 
 
 async def cloudflare_adapter(
-    prompt: str, max_tokens: int, temp: float,
+    prompt: str,
+    max_tokens: int,
+    temp: float,
     model: str | None = None,
 ) -> str:
     if not CLOUDFLARE_API_KEY or not CLOUDFLARE_ACCOUNT_ID:
         raise Exception("Cloudflare credentials missing")
-    url = (f"https://api.cloudflare.com/client/v4/accounts/"
-           f"{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or CLOUDFLARE_MODEL}")
+    url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or CLOUDFLARE_MODEL}"
     payload = {
         "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": max_tokens, "temperature": temp,
+        "max_tokens": max_tokens,
+        "temperature": temp,
     }
     data = await _post_json(
-        url, {"Authorization": f"Bearer {CLOUDFLARE_API_KEY}",
-              "Content-Type": "application/json"}, payload,
+        url,
+        {"Authorization": f"Bearer {CLOUDFLARE_API_KEY}", "Content-Type": "application/json"},
+        payload,
     )
     return data.get("result", {}).get("response", "")
 
@@ -130,12 +145,17 @@ async def cloudflare_adapter(
 # §3 — OpenAI-compatible factory
 # ═══════════════════════════════════════════════════════════════════════════
 def _openai_compat(
-    *, name: str, base_url: str, key: str,
+    *,
+    name: str,
+    base_url: str,
+    key: str,
     default_model: str | None = None,
     extra_headers: dict[str, str] | None = None,
 ) -> Any:
     async def _call(
-        prompt: str, max_tokens: int, temp: float,
+        prompt: str,
+        max_tokens: int,
+        temp: float,
         model: str | None = None,
     ) -> str:
         if not key:
@@ -158,6 +178,7 @@ def _openai_compat(
         if not data.get("choices"):
             raise Exception(f"{name}: no choices returned")
         return data["choices"][0]["message"]["content"]
+
     return _call
 
 
@@ -165,23 +186,24 @@ def _openai_compat(
 # §4 — Local fallback (registered by providers.py)
 # ═══════════════════════════════════════════════════════════════════════════
 async def local_adapter(
-    prompt: str, max_tokens: int, temp: float,
+    prompt: str,
+    max_tokens: int,
+    temp: float,
     model: str | None = None,
 ) -> str:
     # The actual message is built by providers.build_local_fallback_response.
     # This adapter is a thin passthrough so `PROVIDER_HTTP` has a `local` entry.
     # The proper implementation with workspace-aware messaging is registered
     # by `providers.call_local_fallback` which OVERWRITES this at import time.
-    return ("I'm sorry, all AI services are temporarily unavailable. "
-            "Please try again in a few minutes.")
+    return "I'm sorry, all AI services are temporarily unavailable. Please try again in a few minutes."
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # §5 — Registry
 # ═══════════════════════════════════════════════════════════════════════════
 PROVIDER_HTTP: dict[str, Any] = {
-    "gemini":       gemini_adapter,
-    "cloudflare":   cloudflare_adapter,
+    "gemini": gemini_adapter,
+    "cloudflare": cloudflare_adapter,
     "groq": _openai_compat(
         name="groq",
         base_url="https://api.groq.com/openai/v1/chat/completions",

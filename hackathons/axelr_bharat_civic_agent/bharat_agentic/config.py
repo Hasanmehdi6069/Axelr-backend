@@ -3,6 +3,7 @@
 Reads env vars once at startup. Any invalid value raises `ConfigError`
 *immediately* — no silent defaults that bite in production.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,8 +21,8 @@ class EngineConfig:
     node_id: str = "node-1"
 
     # Input caps
-    max_text_bytes: int = 2 * 1024 * 1024       # 2 MiB
-    max_file_bytes: int = 20 * 1024 * 1024      # 20 MiB
+    max_text_bytes: int = 2 * 1024 * 1024  # 2 MiB
+    max_file_bytes: int = 20 * 1024 * 1024  # 20 MiB
     max_text_chars: int = 500_000
 
     # Timeouts & retries (seconds)
@@ -102,8 +103,7 @@ def configure_logging(level: int = logging.INFO) -> None:
     if getattr(root, "_bharat_configured", False):
         return
     handler = logging.StreamHandler()
-    handler.setFormatter(logging.Formatter(
-        "%(asctime)s %(levelname)s %(name)s %(message)s"))
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s"))
     root.addHandler(handler)
     root.setLevel(level)
     setattr(root, "_bharat_configured", True)

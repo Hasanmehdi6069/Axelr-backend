@@ -8,6 +8,7 @@ RAM optimizations:
   * iter_chunks: yields one chunk at a time (streaming).
   * JSON walker: iterative (no recursion).
 """
+
 from __future__ import annotations
 
 import csv as csv_mod
@@ -37,18 +38,46 @@ _NO_PDF = os.environ.get("AXELR_NO_PDF", "").lower() in ("1", "true", "yes")
 
 
 # ── Canonicalization tables ──────────────────────────────────────────────
-_INVISIBLE = frozenset({
-    "\u200b", "\u200c", "\u200d", "\u200e", "\u200f",
-    "\u202a", "\u202b", "\u202c", "\u202d", "\u202e",
-    "\u2060", "\u2061", "\u2062", "\u2063", "\u2064",
-    "\u2066", "\u2067", "\u2068", "\u2069",
-    "\u180e", "\ufeff", "\u00ad",
-})
+_INVISIBLE = frozenset(
+    {
+        "\u200b",
+        "\u200c",
+        "\u200d",
+        "\u200e",
+        "\u200f",
+        "\u202a",
+        "\u202b",
+        "\u202c",
+        "\u202d",
+        "\u202e",
+        "\u2060",
+        "\u2061",
+        "\u2062",
+        "\u2063",
+        "\u2064",
+        "\u2066",
+        "\u2067",
+        "\u2068",
+        "\u2069",
+        "\u180e",
+        "\ufeff",
+        "\u00ad",
+    }
+)
 
 _CONFUSABLES = {
-    "\u0430": "a", "\u0435": "e", "\u043e": "o", "\u0440": "p",
-    "\u0441": "c", "\u0445": "x", "\u0443": "y", "\u04bb": "h",
-    "\u0501": "d", "\u0456": "i", "\u0458": "j", "\u04cf": "l",
+    "\u0430": "a",
+    "\u0435": "e",
+    "\u043e": "o",
+    "\u0440": "p",
+    "\u0441": "c",
+    "\u0445": "x",
+    "\u0443": "y",
+    "\u04bb": "h",
+    "\u0501": "d",
+    "\u0456": "i",
+    "\u0458": "j",
+    "\u04cf": "l",
 }
 
 
@@ -78,22 +107,23 @@ def _canonicalize_slow(text: str) -> Tuple[str, Optional[array]]:
     while i < n:
         ch = text[i]
         if ch in _INVISIBLE:
-            i += 1; continue
+            i += 1
+            continue
         j = i + 1
         while j < n and unicodedata.combining(text[j]):
             j += 1
         folded = "".join(
-            _CONFUSABLES.get(c, c)
-            for c in unicodedata.normalize("NFKC", text[i:j])
-            if c not in _INVISIBLE
+            _CONFUSABLES.get(c, c) for c in unicodedata.normalize("NFKC", text[i:j]) if c not in _INVISIBLE
         )
         for sub in folded:
             if sub.isspace():
                 if not prev_ws:
-                    out.append(" "); idx.append(i)
+                    out.append(" ")
+                    idx.append(i)
                 prev_ws = True
             else:
-                out.append(sub); idx.append(i)
+                out.append(sub)
+                idx.append(i)
                 prev_ws = False
         i = j
     result = "".join(out)
@@ -132,18 +162,33 @@ def detect_adversarial_unicode(text: str) -> Dict[str, int]:
 # ── Chunk ────────────────────────────────────────────────────────────────
 class Chunk:
     __slots__ = (
-        "chunk_id", "text", "origin_offset", "char_end",
-        "_bbox_raw", "_bbox_model",
-        "row_index", "col_index", "json_path",
-        "_canon", "_map", "_hash", "__weakref__",
+        "chunk_id",
+        "text",
+        "origin_offset",
+        "char_end",
+        "_bbox_raw",
+        "_bbox_model",
+        "row_index",
+        "col_index",
+        "json_path",
+        "_canon",
+        "_map",
+        "_hash",
+        "__weakref__",
     )
 
-    def __init__(self, *, chunk_id: str, text: str, origin_offset: int,
-                 char_end: int,
-                 bbox_raw: Optional[tuple] = None,
-                 row_index: Optional[int] = None,
-                 col_index: Optional[int] = None,
-                 json_path: Optional[str] = None) -> None:
+    def __init__(
+        self,
+        *,
+        chunk_id: str,
+        text: str,
+        origin_offset: int,
+        char_end: int,
+        bbox_raw: Optional[tuple] = None,
+        row_index: Optional[int] = None,
+        col_index: Optional[int] = None,
+        json_path: Optional[str] = None,
+    ) -> None:
         self.chunk_id = chunk_id
         self.text = text
         self.origin_offset = origin_offset
@@ -172,7 +217,8 @@ class Chunk:
     def hash16(self) -> str:
         if self._hash is None:
             self._hash = hashlib.blake2b(
-                self.text.encode("utf-8", "replace"), digest_size=16,
+                self.text.encode("utf-8", "replace"),
+                digest_size=16,
             ).hexdigest()
         return self._hash
 
@@ -191,8 +237,8 @@ class Chunk:
 
 class DocumentBuffer:
     __slots__ = ("chunks", "adversarial_counts")
-    def __init__(self, chunks: List[Chunk],
-                 adversarial_counts: Optional[Dict[str, int]] = None) -> None:
+
+    def __init__(self, chunks: List[Chunk], adversarial_counts: Optional[Dict[str, int]] = None) -> None:
         self.chunks = chunks
         self.adversarial_counts = adversarial_counts or {}
 
@@ -204,13 +250,16 @@ class DocumentIngestor:
     def __init__(self, *, max_chunk_chars: int = 1400) -> None:
         self.max_chunk_chars = max_chunk_chars
 
-    def iter_chunks(self, req: ExtractionRequest,
-                    raw_bytes: bytes) -> Iterator[Chunk]:
+    def iter_chunks(self, req: ExtractionRequest, raw_bytes: bytes) -> Iterator[Chunk]:
         dt = req.document_type
-        if dt == "pdf":     units = self._ingest_pdf(raw_bytes)
-        elif dt == "csv":   units = self._ingest_csv(raw_bytes)
-        elif dt == "json":  units = self._ingest_json(raw_bytes)
-        elif dt == "text":  units = self._ingest_text(raw_bytes)
+        if dt == "pdf":
+            units = self._ingest_pdf(raw_bytes)
+        elif dt == "csv":
+            units = self._ingest_csv(raw_bytes)
+        elif dt == "json":
+            units = self._ingest_json(raw_bytes)
+        elif dt == "text":
+            units = self._ingest_text(raw_bytes)
         elif dt in ("html", "py", "js"):
             units = self._ingest_text(raw_bytes)
         else:
@@ -221,8 +270,10 @@ class DocumentIngestor:
         for i, (text, extra) in enumerate(units):
             cid = sys.intern(f"{prefix}{i:05d}")
             yield Chunk(
-                chunk_id=cid, text=text,
-                origin_offset=cursor, char_end=cursor + len(text),
+                chunk_id=cid,
+                text=text,
+                origin_offset=cursor,
+                char_end=cursor + len(text),
                 bbox_raw=extra.get("_bbox_raw"),
                 row_index=extra.get("row_index"),
                 col_index=extra.get("col_index"),
@@ -235,9 +286,7 @@ class DocumentIngestor:
         adversarial: Dict[str, int] = {}
         for chunk in self.iter_chunks(req, raw_bytes):
             if len(chunks) >= req.max_chunks:
-                raise DocumentParseError(
-                    f"Document produced more than max_chunks={req.max_chunks}"
-                )
+                raise DocumentParseError(f"Document produced more than max_chunks={req.max_chunks}")
             for k, v in detect_adversarial_unicode(chunk.text).items():
                 adversarial[k] = adversarial.get(k, 0) + v
             chunks.append(chunk)
@@ -246,23 +295,18 @@ class DocumentIngestor:
     # ── PDF ──────────────────────────────────────────────────────────────
     def _ingest_pdf(self, raw: bytes) -> List[Tuple[str, Dict[str, Any]]]:
         if _NO_PDF:
-            raise DocumentParseError(
-                "PDF ingestion disabled via AXELR_NO_PDF=1"
-            )
+            raise DocumentParseError("PDF ingestion disabled via AXELR_NO_PDF=1")
         try:
             import pdfplumber  # type: ignore
             import PyPDF2  # type: ignore
         except ImportError as e:
-            raise DocumentParseError(
-                "pdfplumber and PyPDF2 are required for PDF ingestion"
-            ) from e
+            raise DocumentParseError("pdfplumber and PyPDF2 are required for PDF ingestion") from e
 
         primary: List[Tuple[str, Dict[str, Any]]] = []
         try:
             with pdfplumber.open(io.BytesIO(raw)) as pdf:
                 for pno, page in enumerate(pdf.pages, start=1):
-                    words = page.extract_words(use_text_flow=False,
-                                               keep_blank_chars=False)
+                    words = page.extract_words(use_text_flow=False, keep_blank_chars=False)
                     if not words:
                         continue
                     lines: Dict[float, List[Dict[str, Any]]] = {}
@@ -271,16 +315,21 @@ class DocumentIngestor:
                     for top in sorted(lines):
                         lw = sorted(lines[top], key=lambda x: x["x0"])
                         text = " ".join(w["text"] for w in lw)
-                        primary.append((text, {
-                            "_bbox_raw": (
-                                pno,
-                                min(w["x0"] for w in lw),
-                                min(w["top"] for w in lw),
-                                max(w["x1"] for w in lw),
-                                max(w["bottom"] for w in lw),
-                            ),
-                            "page": pno,
-                        }))
+                        primary.append(
+                            (
+                                text,
+                                {
+                                    "_bbox_raw": (
+                                        pno,
+                                        min(w["x0"] for w in lw),
+                                        min(w["top"] for w in lw),
+                                        max(w["x1"] for w in lw),
+                                        max(w["bottom"] for w in lw),
+                                    ),
+                                    "page": pno,
+                                },
+                            )
+                        )
         except Exception:
             primary = []
 
@@ -317,10 +366,12 @@ class DocumentIngestor:
                 continue
             for c, cell in enumerate(row):
                 name = header[c] if c < len(header) else f"col_{c}"
-                units.append((
-                    f"[row={r} col={c} name={name}] {cell}",
-                    {"row_index": r, "col_index": c},
-                ))
+                units.append(
+                    (
+                        f"[row={r} col={c} name={name}] {cell}",
+                        {"row_index": r, "col_index": c},
+                    )
+                )
         return units
 
     # ── JSON (iterative, no recursion) ───────────────────────────────────
@@ -358,23 +409,28 @@ class DocumentIngestor:
         for p in paras:
             if len(p) > self.max_chunk_chars:
                 if buf.strip():
-                    units.append((buf.strip(), {})); buf = ""
+                    units.append((buf.strip(), {}))
+                    buf = ""
                 for s in range(0, len(p), self.max_chunk_chars):
-                    units.append((p[s:s + self.max_chunk_chars], {}))
+                    units.append((p[s : s + self.max_chunk_chars], {}))
                 continue
             if buf and len(buf) + len(p) + 2 > self.max_chunk_chars:
-                units.append((buf.strip(), {})); buf = ""
+                units.append((buf.strip(), {}))
+                buf = ""
             buf += p + "\n\n"
         if buf.strip():
             units.append((buf.strip(), {}))
         if not units and text.strip():
             t = text.strip()
             for s in range(0, len(t), self.max_chunk_chars):
-                units.append((t[s:s + self.max_chunk_chars], {}))
+                units.append((t[s : s + self.max_chunk_chars], {}))
         return units
 
 
 __all__ = [
-    "Chunk", "DocumentBuffer", "DocumentIngestor",
-    "canonicalize", "detect_adversarial_unicode",
+    "Chunk",
+    "DocumentBuffer",
+    "DocumentIngestor",
+    "canonicalize",
+    "detect_adversarial_unicode",
 ]

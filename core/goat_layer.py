@@ -22,6 +22,7 @@ problem, not a *parameter* problem. Spend tokens only where complexity
 demands them; strip everything else to the bones. That is the entire
 philosophy of this layer.
 """
+
 from __future__ import annotations
 
 import logging
@@ -66,8 +67,9 @@ _CONJ_RE = re.compile(r"\b(?:and|also|plus|then|next|additionally|as\s+well\s+as
 @dataclass(frozen=True, slots=True)
 class WorkloadProfile:
     """Immutable verdict from the complexity gatekeeper."""
-    tier: str                       # shed | lite | standard | deep
-    score: float                    # 0–100
+
+    tier: str  # shed | lite | standard | deep
+    score: float  # 0–100
     signals: tuple[str, ...]
     use_pipeline: bool
     use_reflection: bool
@@ -76,9 +78,11 @@ class WorkloadProfile:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "tier": self.tier, "score": self.score,
+            "tier": self.tier,
+            "score": self.score,
             "signals": list(self.signals),
-            "pipeline": self.use_pipeline, "reflection": self.use_reflection,
+            "pipeline": self.use_pipeline,
+            "reflection": self.use_reflection,
             "rounds": self.recommended_rounds,
         }
 
@@ -96,10 +100,14 @@ def classify_workload(prompt: str, task_type: str = "", workspace: str = "") -> 
     score = 0.0
     signals: list[str] = []
 
-    if n_words >= 150:   score += 35
-    elif n_words >= 60:  score += 25
-    elif n_words >= 25:  score += 15
-    elif n_words >= 8:   score += 6
+    if n_words >= 150:
+        score += 35
+    elif n_words >= 60:
+        score += 25
+    elif n_words >= 25:
+        score += 15
+    elif n_words >= 8:
+        score += 6
 
     parts = len(_MULTI_PART_RE.findall(text))
     if parts >= 2:
@@ -128,10 +136,14 @@ def classify_workload(prompt: str, task_type: str = "", workspace: str = "") -> 
 
     score = max(0.0, min(100.0, score))
 
-    if score < 20:      tier = "shed"
-    elif score < 45:    tier = "lite"
-    elif score < 75:    tier = "standard"
-    else:               tier = "deep"
+    if score < 20:
+        tier = "shed"
+    elif score < 45:
+        tier = "lite"
+    elif score < 75:
+        tier = "standard"
+    else:
+        tier = "deep"
 
     pipeline = _ENABLE_PIPELINE and tier in ("standard", "deep")
     reflection = tier in ("standard", "deep")
@@ -139,9 +151,13 @@ def classify_workload(prompt: str, task_type: str = "", workspace: str = "") -> 
     rec_tokens = {"shed": 1024, "lite": 1536, "standard": 2048, "deep": 3072}[tier]
 
     return WorkloadProfile(
-        tier=tier, score=round(score, 1), signals=tuple(signals),
-        use_pipeline=pipeline, use_reflection=reflection,
-        recommended_rounds=rounds, recommended_max_tokens=rec_tokens,
+        tier=tier,
+        score=round(score, 1),
+        signals=tuple(signals),
+        use_pipeline=pipeline,
+        use_reflection=reflection,
+        recommended_rounds=rounds,
+        recommended_max_tokens=rec_tokens,
     )
 
 
@@ -153,7 +169,8 @@ _FENCE_RE = re.compile(r"```[\s\S]*?```", re.DOTALL)
 _ASSIGN_RE = re.compile(r"\b[A-Za-z_][A-Za-z0-9_]{0,63}\s*(?:=|:)\s*[^\n,;]{1,120}")
 _INSTR_RE = re.compile(
     r"\b(?:must|should|need(?:s|ed)?|require(?:s|d)?|ensure|always|never|"
-    r"do\s+not|don'?t|only|exactly|specifically)\b", re.I,
+    r"do\s+not|don'?t|only|exactly|specifically)\b",
+    re.I,
 )
 _ERROR_RE = re.compile(r"\b(?:error|exception|traceback|failed|warning|timeout|refused)\b", re.I)
 _PATH_RE = re.compile(r"\b(?:/[\w./-]+\.\w{1,6}|[A-Za-z]:\\[\w\\.-]+)\b")
@@ -172,7 +189,8 @@ _ANCHOR_SIGNALS: tuple[tuple[re.Pattern[str], int], ...] = (
 
 _FILLER_RE = re.compile(
     r"^(?:ok(?:ay)?|sure|cool|thanks?|thank you|hi|hello|hey|"
-    r"got it|sounds good|perfect|great|nice|yep|yeah|nope)[\s!.,]*$", re.I,
+    r"got it|sounds good|perfect|great|nice|yep|yeah|nope)[\s!.,]*$",
+    re.I,
 )
 
 
@@ -249,8 +267,11 @@ def _compress_text(text: str, *, max_chars: int = 800) -> str:
 
 
 def compress_anchors(
-    history: Iterable[dict] | None, *,
-    max_anchors: int = 10, keep_recent: int = 4, max_chars_per_anchor: int = 800,
+    history: Iterable[dict] | None,
+    *,
+    max_anchors: int = 10,
+    keep_recent: int = 4,
+    max_chars_per_anchor: int = 800,
 ) -> list[dict]:
     """
     Walk the history. Keep the last `keep_recent` turns verbatim. Compress
@@ -370,8 +391,7 @@ def local_repair(text: str) -> ReflectionResult:
             delta = tail.count(o) - tail.count(c)
             if delta > 0:
                 out += c * delta
-                issues.append(ReflectionIssue(
-                    "unbalanced_bracket", f"appended {delta}×{c}", 0.4))
+                issues.append(ReflectionIssue("unbalanced_bracket", f"appended {delta}×{c}", 0.4))
                 repaired = True
 
     dups = _dup_sentences(out)
@@ -410,11 +430,16 @@ explanation, no apology.
 
 
 async def llm_reflect(
-    text: str, *,
+    text: str,
+    *,
     issues: list[ReflectionIssue],
     route_fn: Callable[..., Awaitable[dict[str, Any]]],
-    workspace: str, task_type: str, prompt: str,
-    tier: str, user: dict | None, max_tokens: int = 1024,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    tier: str,
+    user: dict | None,
+    max_tokens: int = 1024,
 ) -> tuple[str, bool]:
     """One bounded LLM correction round. Opt-in via AXELR_GOAT_REFLECTION_LLM."""
     if not _ENABLE_REFLECTION_LLM or not text or not issues:
@@ -424,14 +449,23 @@ async def llm_reflect(
         return text, False
     issue_lines = "\n".join(f"- {i.kind}: {i.detail}" for i in actionable)
     reflect_prompt = _LLM_REFLECT_PROMPT.format(
-        issues=issue_lines, prompt=prompt[:600], text=text[:4000],
+        issues=issue_lines,
+        prompt=prompt[:600],
+        text=text[:4000],
     )
     try:
         result = await route_fn(
-            workspace=workspace, task_type=task_type,
-            prompt=reflect_prompt, history=[], files=[],
-            max_tokens=max_tokens, temp=0.2, tier=tier,
-            user=user, context="", request=None,
+            workspace=workspace,
+            task_type=task_type,
+            prompt=reflect_prompt,
+            history=[],
+            files=[],
+            max_tokens=max_tokens,
+            temp=0.2,
+            tier=tier,
+            user=user,
+            context="",
+            request=None,
         )
     except Exception as e:
         logger.debug("goat_llm_reflect_failed error=%s", e)
@@ -505,16 +539,34 @@ def _empty_result() -> dict[str, Any]:
 
 
 async def _call(
-    route_fn, *, workspace: str, task_type: str, prompt: str,
-    history, files, max_tokens: int, temp: float, tier: str,
-    user: dict | None, context: str, request: Any,
+    route_fn,
+    *,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history,
+    files,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None,
+    context: str,
+    request: Any,
 ) -> dict[str, Any]:
     """Call the router. Any failure → empty result, never raises."""
     try:
         r = await route_fn(
-            workspace=workspace, task_type=task_type, prompt=prompt,
-            history=history, files=files, max_tokens=max_tokens, temp=temp,
-            tier=tier, user=user, context=context, request=request,
+            workspace=workspace,
+            task_type=task_type,
+            prompt=prompt,
+            history=history,
+            files=files,
+            max_tokens=max_tokens,
+            temp=temp,
+            tier=tier,
+            user=user,
+            context=context,
+            request=request,
         )
     except Exception as e:
         logger.warning("goat_call_failed error=%s", e)
@@ -531,10 +583,17 @@ def _clean(text: str, cap: int = 6000) -> str:
 async def run_cognitive_pipeline(
     *,
     route_fn: Callable[..., Awaitable[dict[str, Any]]],
-    workspace: str, task_type: str, prompt: str,
-    history: list[dict] | None, files: list[dict] | None,
-    max_tokens: int, temp: float, tier: str,
-    user: dict | None, context: str, request: Any,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: list[dict] | None,
+    files: list[dict] | None,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None,
+    context: str,
+    request: Any,
     profile: WorkloadProfile,
 ) -> dict[str, Any]:
     """
@@ -550,13 +609,23 @@ async def run_cognitive_pipeline(
     plan_tokens = min(512, max(128, max_tokens // 4))
     if profile.tier in ("standard", "deep") and calls < _MAX_PIPELINE_CALLS:
         plan_prompt = _PLAN_PROMPT.format(
-            workspace=workspace, task_type=task_type, prompt=prompt[:1500],
+            workspace=workspace,
+            task_type=task_type,
+            prompt=prompt[:1500],
         )
         plan_result = await _call(
-            route_fn, workspace=workspace, task_type=task_type,
-            prompt=plan_prompt, history=None, files=None,
-            max_tokens=plan_tokens, temp=0.3, tier=tier, user=None,
-            context=context, request=request,
+            route_fn,
+            workspace=workspace,
+            task_type=task_type,
+            prompt=plan_prompt,
+            history=None,
+            files=None,
+            max_tokens=plan_tokens,
+            temp=0.3,
+            tier=tier,
+            user=None,
+            context=context,
+            request=request,
         )
         calls += 1
         if plan_result.get("success"):
@@ -564,15 +633,20 @@ async def run_cognitive_pipeline(
         trace.append({"scope": "plan", "ok": bool(plan_text)})
 
     # ── Scope 2 — generate (always) ─────────────────────────────────────
-    gen_prompt = (
-        _GENERATE_PROMPT.format(plan=plan_text, prompt=prompt)
-        if plan_text else prompt
-    )
+    gen_prompt = _GENERATE_PROMPT.format(plan=plan_text, prompt=prompt) if plan_text else prompt
     gen_result = await _call(
-        route_fn, workspace=workspace, task_type=task_type,
-        prompt=gen_prompt, history=history, files=files,
-        max_tokens=max_tokens, temp=temp, tier=tier, user=user,
-        context=context, request=request,
+        route_fn,
+        workspace=workspace,
+        task_type=task_type,
+        prompt=gen_prompt,
+        history=history,
+        files=files,
+        max_tokens=max_tokens,
+        temp=temp,
+        tier=tier,
+        user=user,
+        context=context,
+        request=request,
     )
     calls += 1
     trace.append({"scope": "generate", "ok": bool(gen_result.get("success"))})
@@ -587,42 +661,61 @@ async def run_cognitive_pipeline(
             answer=_clean(gen_result.get("text", ""), cap=3000),
         )
         critic_result = await _call(
-            route_fn, workspace=workspace, task_type=task_type,
-            prompt=critic_prompt, history=None, files=None,
-            max_tokens=min(384, plan_tokens), temp=0.1, tier=tier,
-            user=None, context="", request=None,
+            route_fn,
+            workspace=workspace,
+            task_type=task_type,
+            prompt=critic_prompt,
+            history=None,
+            files=None,
+            max_tokens=min(384, plan_tokens),
+            temp=0.1,
+            tier=tier,
+            user=None,
+            context="",
+            request=None,
         )
         calls += 1
         if critic_result.get("success"):
             critique = _clean(critic_result.get("text", ""), cap=800)
-        trace.append({
-            "scope": "critique", "ok": bool(critique),
-            "clean": critique.strip().upper().startswith("CLEAN"),
-        })
+        trace.append(
+            {
+                "scope": "critique",
+                "ok": bool(critique),
+                "clean": critique.strip().upper().startswith("CLEAN"),
+            }
+        )
 
     # ── Scope 4 — polish (only when critique is real) ───────────────────
-    if (critique and not critique.strip().upper().startswith("CLEAN")
-            and calls < _MAX_PIPELINE_CALLS):
+    if critique and not critique.strip().upper().startswith("CLEAN") and calls < _MAX_PIPELINE_CALLS:
         polish_prompt = _POLISH_PROMPT.format(
             answer=_clean(gen_result.get("text", ""), cap=4000),
             critique=critique,
         )
         polish_result = await _call(
-            route_fn, workspace=workspace, task_type=task_type,
-            prompt=polish_prompt, history=None, files=None,
-            max_tokens=max_tokens, temp=0.3, tier=tier, user=user,
-            context=context, request=None,
+            route_fn,
+            workspace=workspace,
+            task_type=task_type,
+            prompt=polish_prompt,
+            history=None,
+            files=None,
+            max_tokens=max_tokens,
+            temp=0.3,
+            tier=tier,
+            user=user,
+            context=context,
+            request=None,
         )
         calls += 1
         trace.append({"scope": "polish", "ok": bool(polish_result.get("success"))})
         if polish_result.get("success") and polish_result.get("text"):
-            gen_result = {**gen_result, **polish_result,
-                          "text": polish_result["text"]}
+            gen_result = {**gen_result, **polish_result, "text": polish_result["text"]}
 
     gen_result["goat"] = {
-        "tier": profile.tier, "score": profile.score,
+        "tier": profile.tier,
+        "score": profile.score,
         "signals": list(profile.signals),
-        "calls": calls, "trace": trace,
+        "calls": calls,
+        "trace": trace,
         "elapsed_ms": round((time.monotonic() - t0) * 1000, 2),
     }
     return gen_result
@@ -639,26 +732,32 @@ def audit() -> dict[str, Any]:
         "max_calls": _MAX_PIPELINE_CALLS,
         "reflect_gate": _REFLECT_SEVERITY_GATE,
     }
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # §6 — Reflection (from reflection.py)
 # ═══════════════════════════════════════════════════════════════════════════
 _FENCE_ONLY_RE = re.compile(r"```")
 _REFUSAL_RE = re.compile(
     r"\b(i\s+can(?:'?t|not)|i\s+am\s+unable|as an ai|i'?m just an ai|"
-    r"i'?m sorry,? (?:but )?i)\b", re.I)
+    r"i'?m sorry,? (?:but )?i)\b",
+    re.I,
+)
 _LEAK_RE = re.compile(
     r"</?(?:system_identity|core_directives|reasoning_protocol|"
     r"intent_veto|data_drift_defiance|modern_styling|"
     r"transactional_directive|extraction_directive|styling_directive|"
     r"strategy_directive|diagnostic_directive|"
-    r"thinking|workspace_anchor|MASTER_PROMPT)>", re.I)
+    r"thinking|workspace_anchor|MASTER_PROMPT)>",
+    re.I,
+)
 _PLACEHOLDER_RE = re.compile(
     r"(\[insert[^\]]*\]|<your[^>]*>|\bTODO\b|\bFIXME\b|"
     r"\bXXX\b|\.\.\.\s*(?:rest of|remaining|etc)|"
-    r"\byour\s+\w+\s+here\b)", re.I)
-_SELFCORRECT_RE = re.compile(
-    r"(?:\bactually\b|\bwait\b|\blet me (?:re|correct)|\bcorrection:|\bno,?\s+wait\b)",
-    re.I)
+    r"\byour\s+\w+\s+here\b)",
+    re.I,
+)
+_SELFCORRECT_RE = re.compile(r"(?:\bactually\b|\bwait\b|\blet me (?:re|correct)|\bcorrection:|\bno,?\s+wait\b)", re.I)
 _TERMINAL_RE = re.compile(r"[.!?`)\]}\"'”’>]\s*$")
 _OPEN_BRACKETS = (("(", ")"), ("[", "]"), ("{", "}"))
 _MAX_REPAIR_INPUT = 8000
@@ -671,8 +770,7 @@ class Reflection:
     focus: str = ""
 
     def to_dict(self) -> dict[str, Any]:
-        return {"needs_repair": self.needs_repair, "issues": list(self.issues),
-                "focus": self.focus}
+        return {"needs_repair": self.needs_repair, "issues": list(self.issues), "focus": self.focus}
 
 
 def scan(text: str) -> Reflection:
@@ -710,7 +808,7 @@ def scan(text: str) -> Reflection:
         if idx > 0:
             prev = stripped.rfind("```", 0, idx)
             if prev != -1:
-                focus = stripped[prev:idx + 3][:1200]
+                focus = stripped[prev : idx + 3][:1200]
     return Reflection(bool(issues), tuple(issues), focus)
 
 
@@ -724,15 +822,24 @@ def _build_repair_prompt(user_prompt: str, draft: str, r: Reflection) -> str:
         f"{focus_block}\n"
         f"<draft_to_repair>\n{draft[:_MAX_REPAIR_INPUT]}\n</draft_to_repair>\n\n"
         "Return the FULL corrected answer. No preamble. No meta-commentary.\n"
-        "</reflection_repair>")
+        "</reflection_repair>"
+    )
 
 
 async def repair(
-    route_fn: Callable[..., Awaitable[dict[str, Any]]], *,
-    workspace: str, task_type: str, prompt: str, text: str,
-    max_tokens: int, temp: float, tier: str,
-    user: dict | None = None, context: str = "",
-    request: Any = None, timeout_s: float = 18.0,
+    route_fn: Callable[..., Awaitable[dict[str, Any]]],
+    *,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    text: str,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None = None,
+    context: str = "",
+    request: Any = None,
+    timeout_s: float = 18.0,
 ) -> tuple[str, dict[str, Any]]:
     """One targeted reflection pass. Returns (final_text, meta)."""
     r = scan(text)
@@ -742,9 +849,9 @@ async def repair(
     repair_prompt = _build_repair_prompt(prompt, text, r)
     try:
         res = await asyncio.wait_for(
-            route_fn(workspace, task_type, repair_prompt, None, None,
-                     max_tokens, temp, tier, user, context, request),
-            timeout=max(4.0, float(timeout_s)))
+            route_fn(workspace, task_type, repair_prompt, None, None, max_tokens, temp, tier, user, context, request),
+            timeout=max(4.0, float(timeout_s)),
+        )
     except asyncio.TimeoutError:
         meta["reason"] = "timeout"
         return text, meta
@@ -764,9 +871,15 @@ async def repair(
     meta["model"] = res.get("model_used")
     return repaired, meta
 
+
 __all__ = [
-    "WorkloadProfile", "classify_workload",
+    "WorkloadProfile",
+    "classify_workload",
     "compress_anchors",
-    "ReflectionIssue", "ReflectionResult", "local_repair", "llm_reflect",
+    "ReflectionIssue",
+    "ReflectionResult",
+    "local_repair",
+    "llm_reflect",
     "run_cognitive_pipeline",
-    "audit",]
+    "audit",
+]

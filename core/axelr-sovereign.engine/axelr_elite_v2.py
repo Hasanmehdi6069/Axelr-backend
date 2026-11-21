@@ -2,6 +2,7 @@
 
 Each is deterministic, testable, falsifiable, honest, and independent.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -48,8 +49,7 @@ class FrameIntegrityChecker:
         return True, None
 
     def stats(self) -> Dict[str, Any]:
-        return {"checks": self.checks, "violations": self.violations,
-                "healthy": self.violations == 0}
+        return {"checks": self.checks, "violations": self.violations, "healthy": self.violations == 0}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -88,15 +88,21 @@ class SchemaFingerprint:
     """Hash the schema-relevant config. Reject sessions written by different config."""
 
     RELEVANT_KEYS = (
-        "engine_version", "protocol_version", "tier", "quantization",
-        "model_size", "sample_rate", "confidence_threshold",
+        "engine_version",
+        "protocol_version",
+        "tier",
+        "quantization",
+        "model_size",
+        "sample_rate",
+        "confidence_threshold",
     )
 
     @staticmethod
     def compute(config: Dict[str, Any]) -> str:
         h = hashlib.sha256()
         for key in SchemaFingerprint.RELEVANT_KEYS:
-            h.update(key.encode("utf-8")); h.update(b"=")
+            h.update(key.encode("utf-8"))
+            h.update(b"=")
             h.update(str(config.get(key, "")).encode("utf-8"))
             h.update(b"\x00")
         return h.hexdigest()[:32]
@@ -121,10 +127,10 @@ class CrossRequestCache:
     @staticmethod
     def _hash(log_mel) -> str:
         import numpy as np
+
         if not isinstance(log_mel, np.ndarray):
             log_mel = np.asarray(log_mel, dtype=np.float32)
-        return hashlib.blake2b(
-            log_mel.tobytes(), digest_size=16).hexdigest()
+        return hashlib.blake2b(log_mel.tobytes(), digest_size=16).hexdigest()
 
     def get(self, log_mel) -> Optional[List[str]]:
         key = self._hash(log_mel)
@@ -137,16 +143,12 @@ class CrossRequestCache:
     def put(self, log_mel, tokens: List[str]) -> None:
         if len(self._cache) >= self.max_size:
             # Evict oldest 25%
-            for k in list(self._cache)[:self.max_size // 4]:
+            for k in list(self._cache)[: self.max_size // 4]:
                 del self._cache[k]
         self._cache[self._hash(log_mel)] = list(tokens)
 
     def stats(self) -> Dict[str, Any]:
-        return {"hits": self.hits, "misses": self.misses,
-                "size": len(self._cache), "capacity": self.max_size}
-
-
-
+        return {"hits": self.hits, "misses": self.misses, "size": len(self._cache), "capacity": self.max_size}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -171,9 +173,6 @@ class DeterminismGuard:
         return not self.violations
 
 
-
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # 8. AudioSilenceDetector — distinguish silence from dead mic
 # ═══════════════════════════════════════════════════════════════════════════
@@ -184,18 +183,18 @@ class AudioSilenceDetector:
     literal zeros or one-shot transients (a mechanical fault, buffer underrun).
     """
 
-    def __init__(self, rms_floor: float = 1e-4,
-                 spectral_min: float = 1e-6) -> None:
+    def __init__(self, rms_floor: float = 1e-4, spectral_min: float = 1e-6) -> None:
         self.rms_floor = rms_floor
         self.spectral_min = spectral_min
 
     def classify(self, samples) -> str:
         import numpy as np
+
         if not isinstance(samples, np.ndarray):
             samples = np.asarray(samples, dtype=np.float32)
         if samples.size == 0:
             return "empty"
-        rms = float(np.sqrt(np.mean(samples ** 2)))
+        rms = float(np.sqrt(np.mean(samples**2)))
         if rms >= self.rms_floor:
             return "active"
         # RMS is below floor. Check spectral energy.
@@ -233,10 +232,13 @@ class CloudFallbackBudget:
         self.bytes += payload_bytes
 
     def stats(self) -> Dict[str, Any]:
-        return {"calls": self.calls, "bytes": self.bytes,
-                "rejected": self.rejected,
-                "calls_remaining": self.max_calls - self.calls,
-                "bytes_remaining": self.max_bytes - self.bytes}
+        return {
+            "calls": self.calls,
+            "bytes": self.bytes,
+            "rejected": self.rejected,
+            "calls_remaining": self.max_calls - self.calls,
+            "bytes_remaining": self.max_bytes - self.bytes,
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -248,8 +250,7 @@ class WordBoundaryPreserver:
     Uses RMS minima within the trailing window. Deterministic.
     """
 
-    def __init__(self, window_samples: int = 160, tail_pct: float = 0.15,
-                 ratio: float = 0.35) -> None:
+    def __init__(self, window_samples: int = 160, tail_pct: float = 0.15, ratio: float = 0.35) -> None:
         self.window = window_samples
         self.tail_pct = tail_pct
         self.ratio = ratio
@@ -257,6 +258,7 @@ class WordBoundaryPreserver:
     def trim(self, samples) -> int:
         """Return number of samples to keep (never 0 if input non-empty)."""
         import numpy as np
+
         if not isinstance(samples, np.ndarray):
             samples = np.asarray(samples, dtype=np.float32)
         n = samples.size
@@ -268,8 +270,8 @@ class WordBoundaryPreserver:
         best_end = n
         best_rms = float("inf")
         for i in range(0, tail.size - self.window, self.window // 2):
-            chunk = tail[i:i + self.window]
-            rms = float(np.sqrt(np.mean(chunk ** 2)))
+            chunk = tail[i : i + self.window]
+            rms = float(np.sqrt(np.mean(chunk**2)))
             if rms < best_rms:
                 best_rms = rms
                 best_end = tail_start + i + self.window
@@ -348,13 +350,10 @@ class DeterministicReplay:
     def __init__(self) -> None:
         self._records: List[_ReplayRecord] = []
 
-    def record(self, log_mel_hash: str, tokens: List[str],
-               config_hash: str) -> None:
-        self._records.append(_ReplayRecord(
-            log_mel_hash, list(tokens), config_hash))
+    def record(self, log_mel_hash: str, tokens: List[str], config_hash: str) -> None:
+        self._records.append(_ReplayRecord(log_mel_hash, list(tokens), config_hash))
 
-    def verify(self, log_mel_hash: str, tokens: List[str],
-               config_hash: str) -> Tuple[bool, Optional[str]]:
+    def verify(self, log_mel_hash: str, tokens: List[str], config_hash: str) -> Tuple[bool, Optional[str]]:
         for rec in self._records:
             if rec.log_mel_hash == log_mel_hash:
                 if rec.config_hash != config_hash:
@@ -375,11 +374,18 @@ class ContractVerifier:
     """Validate an IPC envelope against protocol.json's requirements."""
 
     REQUIRED_FIELDS = ("type", "id", "payload")
-    VALID_ERROR_CODES = frozenset({
-        "bad_json", "bad_handshake", "unknown_command", "internal_error",
-        "unsupported_payload", "session_closed", "protocol_mismatch",
-        "rate_limit",
-    })
+    VALID_ERROR_CODES = frozenset(
+        {
+            "bad_json",
+            "bad_handshake",
+            "unknown_command",
+            "internal_error",
+            "unsupported_payload",
+            "session_closed",
+            "protocol_mismatch",
+            "rate_limit",
+        }
+    )
 
     def __init__(self) -> None:
         self.violations: List[str] = []
@@ -403,47 +409,61 @@ class ContractVerifier:
         return len(issues) == 0, issues
 
 
-
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # Bundle
 # ═══════════════════════════════════════════════════════════════════════════
 @dataclass
 class EliteV2:
-    frame_integrity: FrameIntegrityChecker = field(
-        default_factory=lambda: FrameIntegrityChecker(8192))
+    frame_integrity: FrameIntegrityChecker = field(default_factory=lambda: FrameIntegrityChecker(8192))
     latency: LatencyBudgetEnforcer = field(
-        default_factory=lambda: LatencyBudgetEnforcer({
-            "correct": 5.0, "transcribe": 500.0, "drain": 1.0,
-            "context": 2.0, "calibrate": 1.0,
-        }))
+        default_factory=lambda: LatencyBudgetEnforcer(
+            {
+                "correct": 5.0,
+                "transcribe": 500.0,
+                "drain": 1.0,
+                "context": 2.0,
+                "calibrate": 1.0,
+            }
+        )
+    )
     schema_fp: type = SchemaFingerprint
     cross_cache: CrossRequestCache = field(default_factory=CrossRequestCache)
     cold_start: ColdStartProfiler = field(
-        default_factory=lambda: ColdStartProfiler({
-            "warmup": 1000.0, "model_load": 15000.0, "ring_setup": 100.0,
-        }))
+        default_factory=lambda: ColdStartProfiler(
+            {
+                "warmup": 1000.0,
+                "model_load": 15000.0,
+                "ring_setup": 100.0,
+            }
+        )
+    )
     determinism: DeterminismGuard = field(default_factory=DeterminismGuard)
-    memory_gradient: MemoryGradientMonitor = field(
-        default_factory=MemoryGradientMonitor)
+    memory_gradient: MemoryGradientMonitor = field(default_factory=MemoryGradientMonitor)
     silence: AudioSilenceDetector = field(default_factory=AudioSilenceDetector)
     cloud_budget: CloudFallbackBudget = field(default_factory=CloudFallbackBudget)
     word_boundary: WordBoundaryPreserver = field(default_factory=WordBoundaryPreserver)
     session_verify: type = SessionResumeVerifier
-    concurrent_quota: ConcurrentQuotaGuard = field(
-        default_factory=ConcurrentQuotaGuard)
+    concurrent_quota: ConcurrentQuotaGuard = field(default_factory=ConcurrentQuotaGuard)
     replay: DeterministicReplay = field(default_factory=DeterministicReplay)
     contract: ContractVerifier = field(default_factory=ContractVerifier)
-    tier_consistency: TierConsistencyChecker = field(
-        default_factory=TierConsistencyChecker)
+    tier_consistency: TierConsistencyChecker = field(default_factory=TierConsistencyChecker)
 
 
 __all__ = [
-    "FrameIntegrityChecker", "LatencyBudgetEnforcer", "SchemaFingerprint",
-    "CrossRequestCache", "ColdStartProfiler", "DeterminismGuard",
-    "MemoryGradientMonitor", "AudioSilenceDetector", "CloudFallbackBudget",
-    "WordBoundaryPreserver", "SessionResumeVerifier", "ConcurrentQuotaGuard",
-    "DeterministicReplay", "ContractVerifier", "TierConsistencyChecker",
+    "FrameIntegrityChecker",
+    "LatencyBudgetEnforcer",
+    "SchemaFingerprint",
+    "CrossRequestCache",
+    "ColdStartProfiler",
+    "DeterminismGuard",
+    "MemoryGradientMonitor",
+    "AudioSilenceDetector",
+    "CloudFallbackBudget",
+    "WordBoundaryPreserver",
+    "SessionResumeVerifier",
+    "ConcurrentQuotaGuard",
+    "DeterministicReplay",
+    "ContractVerifier",
+    "TierConsistencyChecker",
     "EliteV2",
 ]

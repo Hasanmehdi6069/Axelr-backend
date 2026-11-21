@@ -8,6 +8,7 @@ Honest note: startup does not raise if credentials are missing — the
 health endpoint reports `healthy: false` instead. That's intentional so
 healthchecks and CI can boot the app without secrets.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,8 +33,7 @@ from .core import (
 )
 from .routes import router as paypal_router
 
-logging.basicConfig(level=logging.INFO,
-                    format="%(asctime)s %(levelname)s %(name)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 logger = logging.getLogger("axelr.paypal.main")
 
 # Re-export public API — this file doubles as the package entry.
@@ -129,17 +129,19 @@ async def _act_create_order(body: dict) -> tuple[dict, int]:
     try:
         req = CreateOrderRequest(**{k: v for k, v in body.items() if k != "action"})
     except Exception as e:
-        return {"success": False,
-                "error": {"code": "VALIDATION", "message": str(e)[:300]}}, 422
+        return {"success": False, "error": {"code": "VALIDATION", "message": str(e)[:300]}}, 422
     try:
         order = await get_paypal_client().create_order(req.model_dump())
     except PayPalAPIError as e:
-        return {"success": False,
-                "error": {"code": "PAYPAL", "message": str(e)[:400]}}, 502
-    return {"success": True, "order": {
-        "id": order.get("id"), "status": order.get("status"),
-        "approve_url": order.get("approve_url"),
-    }}, 201
+        return {"success": False, "error": {"code": "PAYPAL", "message": str(e)[:400]}}, 502
+    return {
+        "success": True,
+        "order": {
+            "id": order.get("id"),
+            "status": order.get("status"),
+            "approve_url": order.get("approve_url"),
+        },
+    }, 201
 
 
 _ACTIONS = {"health": _act_health, "create_order": _act_create_order}
@@ -150,20 +152,26 @@ async def main(context: AppwriteContext) -> dict[str, Any]:
     action = body.get("action", "health")
     handler = _ACTIONS.get(action)
     if handler is None:
-        return context.res.json({
-            "success": False,
-            "error": {"code": "UNKNOWN_ACTION", "message": f"action={action}"},
-            "available_actions": sorted(_ACTIONS),
-        }, 400)
+        return context.res.json(
+            {
+                "success": False,
+                "error": {"code": "UNKNOWN_ACTION", "message": f"action={action}"},
+                "available_actions": sorted(_ACTIONS),
+            },
+            400,
+        )
     try:
         result, status = await handler(body)
         return context.res.json(result, status)
     except Exception as e:
         logger.exception("appwrite fn unhandled action=%s err=%s", action, e)
-        return context.res.json({
-            "success": False,
-            "error": {"code": "INTERNAL", "message": str(e)[:300]},
-        }, 500)
+        return context.res.json(
+            {
+                "success": False,
+                "error": {"code": "INTERNAL", "message": str(e)[:300]},
+            },
+            500,
+        )
 
 
 async def _local_demo() -> None:
@@ -173,10 +181,17 @@ async def _local_demo() -> None:
         print(await main(AppwriteContext({"action": "health"})))
         if os.getenv("PAYPAL_CLIENT_ID"):
             print("\n=== create_order ===")
-            print(await main(AppwriteContext({
-                "action": "create_order",
-                "amount": "9.99", "currency": "USD",
-            })))
+            print(
+                await main(
+                    AppwriteContext(
+                        {
+                            "action": "create_order",
+                            "amount": "9.99",
+                            "currency": "USD",
+                        }
+                    )
+                )
+            )
         else:
             print("\n(skipping create_order — PAYPAL_CLIENT_ID unset)")
     finally:
@@ -188,22 +203,41 @@ if __name__ == "__main__":
 
 
 __all__ = [
-    "app", "create_app", "main", "AppwriteContext",
-    "__version__", "MODULE_VERSION",
+    "app",
+    "create_app",
+    "main",
+    "AppwriteContext",
+    "__version__",
+    "MODULE_VERSION",
     # core
-    "ModuleSettings", "HealthStatus", "PayPalCoreModule",
-    "Transaction", "TransactionStore",
-    "get_core_module", "get_transaction_store",
-    "is_healthy", "health_probe",
-    "AuditEvent", "log_audit", "log_audit_event",
-    "get_audit_logs", "get_audit_stats",
+    "ModuleSettings",
+    "HealthStatus",
+    "PayPalCoreModule",
+    "Transaction",
+    "TransactionStore",
+    "get_core_module",
+    "get_transaction_store",
+    "is_healthy",
+    "health_probe",
+    "AuditEvent",
+    "log_audit",
+    "log_audit_event",
+    "get_audit_logs",
+    "get_audit_stats",
     # client / ai
-    "PayPalClient", "PayPalAPIError", "get_paypal_client",
+    "PayPalClient",
+    "PayPalAPIError",
+    "get_paypal_client",
     "extract_payment_intent",
     # schemas
-    "AIExtractionRequest", "CaptureOrderRequest", "CreateOrderRequest",
-    "OrderItem", "PaymentIntent", "RefundRequest",
-    "TransactionState", "WebhookEvent",
+    "AIExtractionRequest",
+    "CaptureOrderRequest",
+    "CreateOrderRequest",
+    "OrderItem",
+    "PaymentIntent",
+    "RefundRequest",
+    "TransactionState",
+    "WebhookEvent",
     # webhooks
     "verify_and_dispatch",
 ]

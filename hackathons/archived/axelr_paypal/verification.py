@@ -4,6 +4,7 @@
 Exit 0 = all checks pass. Exit 1 = one or more failed.
 Run against a live backend: AXELR_BASE_URL=... AXELR_TOKEN=... python -m axelr_paypal.verification
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,7 +34,9 @@ class Verifier:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         self.client = httpx.AsyncClient(
-            base_url=self.base, headers=headers, timeout=30.0,
+            base_url=self.base,
+            headers=headers,
+            timeout=30.0,
         )
 
     def rec(self, name: str, ok: bool, ms: float, detail: str = "") -> bool:
@@ -89,21 +92,23 @@ class Verifier:
             return self.rec("paypal_create_order_e2e", True, 0, "SKIP no PAYPAL_CLIENT_ID")
         t0 = time.perf_counter()
         try:
-            r = await self.client.post("/paypal/orders", json={
-                "amount": "9.99", "currency": "USD",
-                "description": "Verification test order",
-                "reference_id": "verif",
-                "return_url": "https://axelr.in/ok",
-                "cancel_url": "https://axelr.in/cancel",
-            })
+            r = await self.client.post(
+                "/paypal/orders",
+                json={
+                    "amount": "9.99",
+                    "currency": "USD",
+                    "description": "Verification test order",
+                    "reference_id": "verif",
+                    "return_url": "https://axelr.in/ok",
+                    "cancel_url": "https://axelr.in/cancel",
+                },
+            )
             ms = (time.perf_counter() - t0) * 1000
             if r.status_code != 201:
-                return self.rec("paypal_create_order_e2e", False, ms,
-                                f"status={r.status_code} body={r.text[:200]}")
+                return self.rec("paypal_create_order_e2e", False, ms, f"status={r.status_code} body={r.text[:200]}")
             order = r.json().get("order", {})
             ok = bool(order.get("id") and order.get("approve_url"))
-            return self.rec("paypal_create_order_e2e", ok, ms,
-                            f"order_id={order.get('id', '')[:20]}")
+            return self.rec("paypal_create_order_e2e", ok, ms, f"order_id={order.get('id', '')[:20]}")
         except Exception as e:
             return self.rec("paypal_create_order_e2e", False, 0, f"error={e}")
 
@@ -112,7 +117,8 @@ class Verifier:
         try:
             payload = json.dumps({"id": "EVT-BAD", "event_type": "CHECKOUT.ORDER.APPROVED", "resource": {}}).encode()
             r = await self.client.post(
-                "/paypal/webhooks", content=payload,
+                "/paypal/webhooks",
+                content=payload,
                 headers={"Content-Type": "application/json"},
             )
             ms = (time.perf_counter() - t0) * 1000
@@ -126,13 +132,16 @@ class Verifier:
             return self.rec("paypal_refund_requires_confirm", True, 0, "SKIP no token")
         t0 = time.perf_counter()
         try:
-            r = await self.client.post("/paypal/refunds", json={
-                "capture_id": "FAKECAP12345",
-                "amount": "1.00",
-                "currency": "USD",
-                "reason": "test",
-                "confirm": False,
-            })
+            r = await self.client.post(
+                "/paypal/refunds",
+                json={
+                    "capture_id": "FAKECAP12345",
+                    "amount": "1.00",
+                    "currency": "USD",
+                    "reason": "test",
+                    "confirm": False,
+                },
+            )
             ms = (time.perf_counter() - t0) * 1000
             ok = r.status_code == 422  # Pydantic validation error for confirm=False
             return self.rec("paypal_refund_requires_confirm", ok, ms, f"status={r.status_code}")

@@ -14,6 +14,7 @@ at once:
 All five are deterministic (no ML), async-safe, never raise to their
 caller, and RAM-bounded (< 20 MB aggregate).
 """
+
 from __future__ import annotations
 
 import ast
@@ -35,28 +36,69 @@ logger = logging.getLogger("axelr.code")
 # §1 — Dependency tracker (was core/dependency.py)
 # ═══════════════════════════════════════════════════════════════════════════
 _EXT_LANG: dict[str, str] = {
-    ".py": "python", ".pyi": "python",
-    ".js": "javascript", ".jsx": "javascript",
-    ".mjs": "javascript", ".cjs": "javascript",
-    ".ts": "typescript", ".tsx": "typescript",
-    ".html": "html", ".htm": "html",
-    ".css": "css", ".scss": "css", ".sass": "css", ".less": "css",
-    ".json": "json", ".yaml": "yaml", ".yml": "yaml",
-    ".vue": "vue", ".svelte": "svelte",
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".html": "html",
+    ".htm": "html",
+    ".css": "css",
+    ".scss": "css",
+    ".sass": "css",
+    ".less": "css",
+    ".json": "json",
+    ".yaml": "yaml",
+    ".yml": "yaml",
+    ".vue": "vue",
+    ".svelte": "svelte",
 }
 _RESOLVE_EXTS: tuple[str, ...] = (
-    ".py", ".pyi", ".js", ".jsx", ".ts", ".tsx",
-    ".html", ".htm", ".css", ".scss", ".json", ".vue", ".svelte",
+    ".py",
+    ".pyi",
+    ".js",
+    ".jsx",
+    ".ts",
+    ".tsx",
+    ".html",
+    ".htm",
+    ".css",
+    ".scss",
+    ".json",
+    ".vue",
+    ".svelte",
 )
 _INDEX_FILES: tuple[str, ...] = (
-    "index.js", "index.ts", "index.jsx", "index.tsx", "__init__.py",
+    "index.js",
+    "index.ts",
+    "index.jsx",
+    "index.tsx",
+    "__init__.py",
 )
-_SKIP_DIRS: frozenset[str] = frozenset({
-    "node_modules", ".git", "__pycache__", ".venv", "venv",
-    "dist", "build", ".next", ".nuxt", "coverage",
-    ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
-    "env", ".env", "site-packages",
-})
+_SKIP_DIRS: frozenset[str] = frozenset(
+    {
+        "node_modules",
+        ".git",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "dist",
+        "build",
+        ".next",
+        ".nuxt",
+        "coverage",
+        ".pytest_cache",
+        ".mypy_cache",
+        ".ruff_cache",
+        ".tox",
+        "env",
+        ".env",
+        "site-packages",
+    }
+)
 _PY_IMPORT_RE = re.compile(
     r"""^[ \t]*(?:from\s+([\w\.]+)\s+import|import\s+([\w\.]+))""",
     re.MULTILINE,
@@ -68,18 +110,22 @@ _JS_IMPORT_RE = re.compile(
       | require \s* \( \s* ['"]([^'"]+)['"] \s* \)
       | import \s* \( \s* ['"]([^'"]+)['"] \s* \)
     )
-    """, re.MULTILINE)
+    """,
+    re.MULTILINE,
+)
 _HTML_REF_RE = re.compile(
     r"""(?xi)
     <(?:script|link|img|iframe|source|video|audio)\b[^>]*?
     (?:src|href)\s*=\s*["']([^"'#?]+)["']
-    """)
+    """
+)
 _CSS_IMPORT_RE = re.compile(r"""(?xi) @import\s+(?:url\()?["']([^"')]+)["']\)?""")
 _VUE_IMPORT_RE = re.compile(
     r"""(?xi)
     (?:import\s+.*?from\s+["']([^"']+)["'])
     |(?:src\s*=\s*["']([^"']+)["'])
-    """)
+    """
+)
 
 
 @dataclass(slots=True)
@@ -90,12 +136,12 @@ class BlastRadius:
     count: int = 0
 
     def to_dict(self) -> dict:
-        return {"file": self.file, "dependents": list(self.dependents),
-                "severity": self.severity, "count": self.count}
+        return {"file": self.file, "dependents": list(self.dependents), "severity": self.severity, "count": self.count}
 
 
 class DependencyTracker:
     """In-memory dependency graph builder. Python AST + regex fallback."""
+
     __slots__ = ("_built", "_graph", "_reverse", "_root")
 
     def __init__(self, root: str | Path) -> None:
@@ -164,12 +210,13 @@ class DependencyTracker:
         dependents = sorted(seen)
         n = len(dependents)
         severity = "high" if n >= 10 else "medium" if n >= 3 else "low"
-        return BlastRadius(file=root_key, dependents=dependents,
-                           severity=severity, count=n)
+        return BlastRadius(file=root_key, dependents=dependents, severity=severity, count=n)
 
     def to_dict(self) -> dict:
-        return {"graph": {k: sorted(v) for k, v in self._graph.items()},
-                "reverse": {k: sorted(v) for k, v in self._reverse.items()}}
+        return {
+            "graph": {k: sorted(v) for k, v in self._graph.items()},
+            "reverse": {k: sorted(v) for k, v in self._reverse.items()},
+        }
 
     def _iter_source_files(self, *, max_files: int) -> Iterator[Path]:
         count = 0
@@ -199,8 +246,7 @@ class DependencyTracker:
             ast_imports = self._extract_python_imports_ast(content)
             if ast_imports:
                 return ast_imports
-            return [(m.group(1) or m.group(2) or "")
-                    for m in _PY_IMPORT_RE.finditer(content)]
+            return [(m.group(1) or m.group(2) or "") for m in _PY_IMPORT_RE.finditer(content)]
         results: list[str] = []
         if lang in ("javascript", "typescript"):
             for m in _JS_IMPORT_RE.finditer(content):
@@ -239,8 +285,7 @@ class DependencyTracker:
                 continue
             if imp.startswith(("http://", "https://", "//", "data:")):
                 continue
-            candidates = [(source_dir / imp).resolve(),
-                          (self._root / imp).resolve()]
+            candidates = [(source_dir / imp).resolve(), (self._root / imp).resolve()]
             for cand in candidates:
                 match = self._match_file(cand)
                 if match:
@@ -267,8 +312,6 @@ class DependencyTracker:
         return None
 
 
-
-
 # ═══════════════════════════════════════════════════════════════════════════
 # §2 — Security scanner (was core/security.py)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -278,7 +321,9 @@ _SQL_INJECTION = re.compile(
     r"""(?ix)
     (?: \b(?: select|insert|update|delete|drop|union|alter) \b .{0,120}? )
     (?: \$\{ | %s | \+\s*[a-z_] | f["'].*\{ )
-    """, re.DOTALL)
+    """,
+    re.DOTALL,
+)
 _CMD_INJECTION = re.compile(
     r"""(?ix)
     (?: os\.system|os\.popen|subprocess\.(?:call|run|Popen|check_output)|
@@ -289,7 +334,9 @@ _CMD_INJECTION = re.compile(
         | [^)]*\+[^)]*
         | [^)]*%\s*[a-z_]
     )
-    """, re.DOTALL)
+    """,
+    re.DOTALL,
+)
 _XSS_SINK = re.compile(
     r"""(?ix)
     (?:
@@ -300,7 +347,8 @@ _XSS_SINK = re.compile(
         | \.insertAdjacentHTML \s*\(
         | eval \s*\(
     )
-    """)
+    """
+)
 _EVAL_USAGE = re.compile(r"(?<![A-Za-z0-9_])eval\s*\(")
 _EXEC_USAGE = re.compile(r"(?<![A-Za-z0-9_])exec\s*\(")
 _PICKLE_LOAD = re.compile(r"pickle\.loads?\s*\(")
@@ -312,25 +360,32 @@ _PATH_TRAVERSAL = re.compile(
         | os\.path\.join \s*\( [^)]* (?:request|input|user|param)
         | \.\./\.\./
     )
-    """)
+    """
+)
 _SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("AWS Access Key", re.compile(r"AKIA[0-9A-Z]{16}")),
     ("Google API Key", re.compile(r"AIza[0-9A-Za-z\-_]{35}")),
     ("Slack Token", re.compile(r"xox[baprs]-[0-9A-Za-z\-]{10,48}")),
     ("GitHub Token", re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}")),
     ("Stripe Live Key", re.compile(r"sk_live_[0-9a-zA-Z]{24,}")),
-    ("Private Key Block", re.compile(
-        r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")),
+    ("Private Key Block", re.compile(r"-----BEGIN (?:RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----")),
     ("Generic Bearer", re.compile(r"(?i)bearer\s+[A-Za-z0-9\-_\.=]{20,}")),
-    ("Generic API key assignment", re.compile(
-        r"""(?ix)
+    (
+        "Generic API key assignment",
+        re.compile(
+            r"""(?ix)
         (?: api[_-]?key | secret[_-]?key | access[_-]?token | auth[_-]?token )
         \s*[:=]\s*
         ["'][A-Za-z0-9\-_/+=]{16,}["']
-        """)),
+        """
+        ),
+    ),
 )
 _SEVERITY_WEIGHT: dict[str, int] = {
-    "low": 2, "medium": 5, "high": 12, "critical": 25,
+    "low": 2,
+    "medium": 5,
+    "high": 12,
+    "critical": 25,
 }
 
 
@@ -354,10 +409,12 @@ class ScanResult:
     score: int = 100
 
     def to_dict(self) -> dict:
-        return {"findings": [f.to_dict() for f in self.findings],
-                "syntax_ok": self.syntax_ok,
-                "syntax_error": self.syntax_error,
-                "score": self.score}
+        return {
+            "findings": [f.to_dict() for f in self.findings],
+            "syntax_ok": self.syntax_ok,
+            "syntax_error": self.syntax_error,
+            "score": self.score,
+        }
 
 
 def _line_number(text: str, index: int) -> int:
@@ -372,6 +429,7 @@ def _snippet(text: str, index: int, window: int = 60) -> str:
 
 class CodeGuard:
     """Stateless code security scanner. Deterministic. Never raises."""
+
     __slots__ = ("_patterns", "_secret_patterns")
 
     def __init__(self) -> None:
@@ -387,8 +445,7 @@ class CodeGuard:
         )
         self._secret_patterns = _SECRET_PATTERNS
 
-    async def scan(self, code: str, language: str = "python",
-                   *, check_syntax: bool = True) -> ScanResult:
+    async def scan(self, code: str, language: str = "python", *, check_syntax: bool = True) -> ScanResult:
         if not code:
             return ScanResult()
 
@@ -403,24 +460,30 @@ class CodeGuard:
                 try:
                     for m in pattern.finditer(code):
                         idx = m.start()
-                        r.findings.append(Finding(
-                            type=name, severity=severity,
-                            message=self._describe(name),
-                            line=_line_number(code, idx),
-                            snippet=_snippet(code, idx),
-                        ))
+                        r.findings.append(
+                            Finding(
+                                type=name,
+                                severity=severity,
+                                message=self._describe(name),
+                                line=_line_number(code, idx),
+                                snippet=_snippet(code, idx),
+                            )
+                        )
                 except Exception:
                     continue
             for label, pattern in self._secret_patterns:
                 try:
                     for m in pattern.finditer(code):
                         idx = m.start()
-                        r.findings.append(Finding(
-                            type="hardcoded_secret", severity="critical",
-                            message=f"Potential {label} committed in source",
-                            line=_line_number(code, idx),
-                            snippet=_snippet(code, idx),
-                        ))
+                        r.findings.append(
+                            Finding(
+                                type="hardcoded_secret",
+                                severity="critical",
+                                message=f"Potential {label} committed in source",
+                                line=_line_number(code, idx),
+                                snippet=_snippet(code, idx),
+                            )
+                        )
                 except Exception:
                     continue
             penalty = sum(_SEVERITY_WEIGHT.get(f.severity, 0) for f in r.findings)
@@ -436,11 +499,15 @@ class CodeGuard:
         except SyntaxError as exc:
             result.syntax_ok = False
             result.syntax_error = f"Line {exc.lineno}: {exc.msg}"
-            result.findings.append(Finding(
-                type="syntax_error", severity="high",
-                message=f"Python syntax error: {exc.msg}",
-                line=exc.lineno or 0, snippet=(exc.text or "").strip(),
-            ))
+            result.findings.append(
+                Finding(
+                    type="syntax_error",
+                    severity="high",
+                    message=f"Python syntax error: {exc.msg}",
+                    line=exc.lineno or 0,
+                    snippet=(exc.text or "").strip(),
+                )
+            )
 
     @staticmethod
     def _describe(name: str) -> str:
@@ -484,14 +551,27 @@ Do NOT add commentary, warnings, or explanations.
 """
 
 _LANG_TAG: dict[str, str] = {
-    "python": "python", "py": "python",
-    "javascript": "javascript", "js": "javascript",
-    "typescript": "typescript", "ts": "typescript",
-    "tsx": "tsx", "jsx": "jsx",
-    "html": "html", "css": "css", "json": "json",
-    "go": "go", "rust": "rust", "rs": "rust",
-    "java": "java", "ruby": "ruby", "rb": "ruby",
-    "php": "php", "swift": "swift", "kotlin": "kotlin", "kt": "kotlin",
+    "python": "python",
+    "py": "python",
+    "javascript": "javascript",
+    "js": "javascript",
+    "typescript": "typescript",
+    "ts": "typescript",
+    "tsx": "tsx",
+    "jsx": "jsx",
+    "html": "html",
+    "css": "css",
+    "json": "json",
+    "go": "go",
+    "rust": "rust",
+    "rs": "rust",
+    "java": "java",
+    "ruby": "ruby",
+    "rb": "ruby",
+    "php": "php",
+    "swift": "swift",
+    "kotlin": "kotlin",
+    "kt": "kotlin",
 }
 _FENCE_RE = re.compile(r"```[A-Za-z0-9_+\-]*\s*\n(.*?)```", re.DOTALL)
 _HUNK_RE = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@")
@@ -506,8 +586,13 @@ class HealResult:
     error: str | None = None
 
     def to_dict(self) -> dict:
-        return {"success": self.success, "final_code": self.final_code,
-                "diff": self.diff, "attempts": self.attempts, "error": self.error}
+        return {
+            "success": self.success,
+            "final_code": self.final_code,
+            "diff": self.diff,
+            "attempts": self.attempts,
+            "error": self.error,
+        }
 
 
 class SelfHealer:
@@ -519,9 +604,16 @@ class SelfHealer:
         self._route = route_func
         self._max_retries = max(1, int(max_retries))
 
-    async def heal(self, code: str, error: str, *, language: str = "python",
-                   tier: str = "free", user: dict | None = None,
-                   context: str = "") -> HealResult:
+    async def heal(
+        self,
+        code: str,
+        error: str,
+        *,
+        language: str = "python",
+        tier: str = "free",
+        user: dict | None = None,
+        context: str = "",
+    ) -> HealResult:
         if not code or not code.strip():
             return HealResult(success=False, final_code=code, error="empty code")
         original = code
@@ -531,9 +623,16 @@ class SelfHealer:
             prompt = self._build_prompt(original, current_error, language)
             try:
                 response = await self._route(
-                    workspace="design", task_type="touch_fix", prompt=prompt,
-                    history=[], files=[], max_tokens=4096, temp=0.15,
-                    tier=tier, user=user, context=context,
+                    workspace="design",
+                    task_type="touch_fix",
+                    prompt=prompt,
+                    history=[],
+                    files=[],
+                    max_tokens=4096,
+                    temp=0.15,
+                    tier=tier,
+                    user=user,
+                    context=context,
                 )
             except Exception as exc:
                 last_error = f"route error: {exc}"
@@ -547,18 +646,17 @@ class SelfHealer:
                 current_error = f"{current_error}\n\nPrevious attempt did not change the code."
                 continue
             diff = self._unified_diff(original, fixed, language)
-            return HealResult(success=True, final_code=fixed,
-                              diff=diff, attempts=attempt)
-        return HealResult(success=False, final_code=original,
-                          attempts=self._max_retries,
-                          error=last_error or "self-heal failed")
+            return HealResult(success=True, final_code=fixed, diff=diff, attempts=attempt)
+        return HealResult(
+            success=False, final_code=original, attempts=self._max_retries, error=last_error or "self-heal failed"
+        )
 
     @staticmethod
     def _build_prompt(code: str, error: str, language: str) -> str:
         lang = language.lower()
         return _BLOCK_FIX_PROMPT.format(
-            language=language, lang_tag=_LANG_TAG.get(lang, lang),
-            error=(error or "").strip()[:2000], code=code)
+            language=language, lang_tag=_LANG_TAG.get(lang, lang), error=(error or "").strip()[:2000], code=code
+        )
 
     @staticmethod
     def _extract_code(text: str) -> str:
@@ -570,14 +668,20 @@ class SelfHealer:
     @staticmethod
     def _unified_diff(original: str, fixed: str, language: str) -> str:
         ext = _LANG_TAG.get(language.lower(), "txt")
-        return "".join(difflib.unified_diff(
-            original.splitlines(keepends=True),
-            fixed.splitlines(keepends=True),
-            fromfile=f"original.{ext}", tofile=f"fixed.{ext}", n=3))
+        return "".join(
+            difflib.unified_diff(
+                original.splitlines(keepends=True),
+                fixed.splitlines(keepends=True),
+                fromfile=f"original.{ext}",
+                tofile=f"fixed.{ext}",
+                n=3,
+            )
+        )
 
 
 class TouchFixEngine:
     """Surgical block-level patcher. Never raises."""
+
     __slots__ = ("_route",)
 
     def __init__(self, route_func: RouteFunc | None = None) -> None:
@@ -591,31 +695,37 @@ class TouchFixEngine:
         except Exception:
             return code
 
-    async def fix_block(self, full_code: str, error_block: str,
-                        error_message: str, *, language: str = "python",
-                        tier: str = "free",
-                        user: dict | None = None) -> str:
+    async def fix_block(
+        self,
+        full_code: str,
+        error_block: str,
+        error_message: str,
+        *,
+        language: str = "python",
+        tier: str = "free",
+        user: dict | None = None,
+    ) -> str:
         if not full_code or not error_block:
             return full_code
         try:
-            return await self._fix_block_inner(
-                full_code, error_block, error_message, language, tier, user)
+            return await self._fix_block_inner(full_code, error_block, error_message, language, tier, user)
         except Exception:
             return full_code
 
-    async def _fix_block_inner(self, full_code: str, error_block: str,
-                               error_message: str, language: str, tier: str,
-                               user: dict | None) -> str:
+    async def _fix_block_inner(
+        self, full_code: str, error_block: str, error_message: str, language: str, tier: str, user: dict | None
+    ) -> str:
         start, end = self._locate_block(full_code, error_block)
-        fixed_block = await self._ai_fix_block(
-            error_block, error_message, language, tier, user)
+        fixed_block = await self._ai_fix_block(error_block, error_message, language, tier, user)
         if not fixed_block or fixed_block == error_block:
             return full_code
         original_lines = full_code.splitlines(keepends=True)
         block_lines = original_lines[start:end]
-        diff = "".join(difflib.unified_diff(
-            block_lines, [l + "\n" for l in fixed_block.splitlines()],
-            fromfile="block", tofile="fixed", n=3))
+        diff = "".join(
+            difflib.unified_diff(
+                block_lines, [l + "\n" for l in fixed_block.splitlines()], fromfile="block", tofile="fixed", n=3
+            )
+        )
         if diff:
             return self._apply_unified_diff(full_code, diff)
         return full_code
@@ -629,7 +739,7 @@ class TouchFixEngine:
         stripped = [l.rstrip() for l in block_lines]
         n = len(block_lines)
         for i in range(len(code_lines) - n + 1):
-            window = [l.rstrip() for l in code_lines[i:i + n]]
+            window = [l.rstrip() for l in code_lines[i : i + n]]
             if window == stripped:
                 return i, i + n
         anchor = next((l.strip() for l in block_lines if l.strip()), "")
@@ -643,7 +753,8 @@ class TouchFixEngine:
             for j in range(i + 1, len(code_lines)):
                 s = code_lines[j].strip()
                 if not s:
-                    end = j + 1; continue
+                    end = j + 1
+                    continue
                 cur_indent = len(code_lines[j]) - len(code_lines[j].lstrip())
                 if cur_indent <= indent:
                     break
@@ -651,20 +762,28 @@ class TouchFixEngine:
             return i, end
         return 0, len(code_lines)
 
-    async def _ai_fix_block(self, error_block: str, error_message: str,
-                            language: str, tier: str,
-                            user: dict | None) -> str | None:
+    async def _ai_fix_block(
+        self, error_block: str, error_message: str, language: str, tier: str, user: dict | None
+    ) -> str | None:
         if self._route is None:
             return None
         lang_tag = _LANG_TAG.get(language.lower(), "text")
         prompt = _BLOCK_FIX_PROMPT.format(
-            language=language, lang_tag=lang_tag,
-            error=(error_message or "").strip()[:2000], code=error_block)
+            language=language, lang_tag=lang_tag, error=(error_message or "").strip()[:2000], code=error_block
+        )
         try:
             result = await self._route(
-                workspace="design", task_type="touch_fix", prompt=prompt,
-                history=[], files=[], max_tokens=2048, temp=0.2,
-                tier=tier, user=user, context="")
+                workspace="design",
+                task_type="touch_fix",
+                prompt=prompt,
+                history=[],
+                files=[],
+                max_tokens=2048,
+                temp=0.2,
+                tier=tier,
+                user=user,
+                context="",
+            )
         except Exception:
             return None
         if not isinstance(result, dict) or not result.get("success"):
@@ -685,18 +804,20 @@ class TouchFixEngine:
         while i < len(diff_lines):
             m = _HUNK_RE.match(diff_lines[i])
             if not m:
-                i += 1; continue
+                i += 1
+                continue
             old_start = int(m.group(1))
             i += 1
             if old_start > 0:
-                result.extend(code_lines[pos:old_start - 1])
+                result.extend(code_lines[pos : old_start - 1])
             pos = old_start - 1
             while i < len(diff_lines):
                 hline = diff_lines[i]
                 if _HUNK_RE.match(hline):
                     break
                 if not hline:
-                    i += 1; continue
+                    i += 1
+                    continue
                 first = hline[0]
                 if first == "+":
                     result.append(hline[1:])
@@ -711,10 +832,15 @@ class TouchFixEngine:
 
 
 def make_diff(original: str, fixed: str, label: str = "txt") -> str:
-    return "".join(difflib.unified_diff(
-        original.splitlines(keepends=True),
-        fixed.splitlines(keepends=True),
-        fromfile=f"original.{label}", tofile=f"fixed.{label}", n=3))
+    return "".join(
+        difflib.unified_diff(
+            original.splitlines(keepends=True),
+            fixed.splitlines(keepends=True),
+            fromfile=f"original.{label}",
+            tofile=f"fixed.{label}",
+            n=3,
+        )
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -733,26 +859,32 @@ class PRShieldInput:
     extra_notes: str | None = None
 
     def to_dict(self) -> dict:
-        return {"title": self.title, "author": self.author,
-                "files_changed": list(self.files_changed),
-                "blast_radius": dict(self.blast_radius) if self.blast_radius else None,
-                "security_findings": [dict(f) for f in self.security_findings],
-                "self_heal": dict(self.self_heal) if self.self_heal else None,
-                "test_results": dict(self.test_results) if self.test_results else None,
-                "recommendations": list(self.recommendations),
-                "extra_notes": self.extra_notes}
+        return {
+            "title": self.title,
+            "author": self.author,
+            "files_changed": list(self.files_changed),
+            "blast_radius": dict(self.blast_radius) if self.blast_radius else None,
+            "security_findings": [dict(f) for f in self.security_findings],
+            "self_heal": dict(self.self_heal) if self.self_heal else None,
+            "test_results": dict(self.test_results) if self.test_results else None,
+            "recommendations": list(self.recommendations),
+            "extra_notes": self.extra_notes,
+        }
 
 
 class PRShield:
     """Stateless Markdown report builder. Never raises."""
+
     __slots__ = ()
     _SEVERITY_ORDER = ("critical", "high", "medium", "low")
 
     def render(self, data: PRShieldInput) -> str:
         if data is None:
             return "# PR Defense Report\n\n_No data supplied._\n"
-        parts = [f"# PR Defense Report — {data.title}",
-                 f"**Generated:** {datetime.now(timezone.utc).isoformat(timespec='seconds')}"]
+        parts = [
+            f"# PR Defense Report — {data.title}",
+            f"**Generated:** {datetime.now(timezone.utc).isoformat(timespec='seconds')}",
+        ]
         if data.author:
             parts.append(f"**Author:** {data.author}")
         parts += ["", "---", ""]
@@ -802,15 +934,22 @@ class PRShield:
             return "\n".join(out)
         success = bool(heal.get("success", False))
         attempts = int(heal.get("attempts", 0) or 0)
-        out += [f"**Self-heal outcome:** {'✅ success' if success else '❌ failed'}",
-                f"**Attempts:** {attempts}"]
+        out += [f"**Self-heal outcome:** {'✅ success' if success else '❌ failed'}", f"**Attempts:** {attempts}"]
         err = heal.get("error")
         if err:
             out.append(f"**Error:** `{err}`")
         diff = heal.get("diff")
         if diff:
-            out += ["", "<details><summary>Show unified diff</summary>", "",
-                    "```diff", str(diff).rstrip(), "```", "", "</details>"]
+            out += [
+                "",
+                "<details><summary>Show unified diff</summary>",
+                "",
+                "```diff",
+                str(diff).rstrip(),
+                "```",
+                "",
+                "</details>",
+            ]
         out.append("")
         return "\n".join(out)
 
@@ -827,12 +966,13 @@ class PRShield:
             bucket = by_sev.get(sev) or []
             if not bucket:
                 continue
-            out += [f"### {sev.title()} ({len(bucket)})", "",
-                    "| Type | Line | Message |", "|------|------|---------|"]
+            out += [f"### {sev.title()} ({len(bucket)})", "", "| Type | Line | Message |", "|------|------|---------|"]
             for f in bucket:
-                out.append(f"| {self._escape_cell(str(f.get('type', '')))} "
-                           f"| {f.get('line', 0)} "
-                           f"| {self._escape_cell(str(f.get('message', '')))} |")
+                out.append(
+                    f"| {self._escape_cell(str(f.get('type', '')))} "
+                    f"| {f.get('line', 0)} "
+                    f"| {self._escape_cell(str(f.get('message', '')))} |"
+                )
             out.append("")
         out += [f"**Total findings:** {len(findings)}", ""]
         return "\n".join(out)
@@ -872,13 +1012,12 @@ class PRShield:
         recs: list[str] = []
         br = data.blast_radius or {}
         if str(br.get("severity", "")).lower() == "high":
-            recs.append("Blast radius is **high** — request reviews from owners "
-                        "of the listed dependent modules before merging.")
-        critical = [f for f in (data.security_findings or [])
-                    if str(f.get("severity", "")).lower() == "critical"]
+            recs.append(
+                "Blast radius is **high** — request reviews from owners of the listed dependent modules before merging."
+            )
+        critical = [f for f in (data.security_findings or []) if str(f.get("severity", "")).lower() == "critical"]
         if critical:
-            recs.append(f"{len(critical)} critical security finding(s) must be "
-                        "resolved before merge.")
+            recs.append(f"{len(critical)} critical security finding(s) must be resolved before merge.")
         heal = data.self_heal or {}
         if heal and not heal.get("success", False):
             recs.append("Self-heal failed — inspect the diff manually.")
@@ -899,8 +1038,7 @@ class PRShield:
 # ═══════════════════════════════════════════════════════════════════════════
 ExecuteFunc = Callable[[str, str, int], Awaitable[dict[str, Any]]]
 
-_TEST_FENCE_RE = re.compile(r"```(?:[A-Za-z0-9_+\-]*)?\s*\n(?P<code>.*?)```",
-                            re.DOTALL)
+_TEST_FENCE_RE = re.compile(r"```(?:[A-Za-z0-9_+\-]*)?\s*\n(?P<code>.*?)```", re.DOTALL)
 
 
 def _extract_fenced(text: str) -> str:
@@ -919,9 +1057,13 @@ class TestIteration:
     error: str | None = None
 
     def to_dict(self) -> dict:
-        return {"iteration": self.iteration, "tests": self.tests,
-                "passed": self.passed, "output": self.output[:2000],
-                "error": self.error}
+        return {
+            "iteration": self.iteration,
+            "tests": self.tests,
+            "passed": self.passed,
+            "output": self.output[:2000],
+            "error": self.error,
+        }
 
 
 @dataclass(slots=True)
@@ -934,10 +1076,14 @@ class TestLoopResult:
     error: str | None = None
 
     def to_dict(self) -> dict:
-        return {"success": self.success, "final_code": self.final_code,
-                "final_tests": self.final_tests,
-                "iterations": [i.to_dict() for i in self.iterations],
-                "elapsed_ms": round(self.elapsed_ms, 2), "error": self.error}
+        return {
+            "success": self.success,
+            "final_code": self.final_code,
+            "final_tests": self.final_tests,
+            "iterations": [i.to_dict() for i in self.iterations],
+            "elapsed_ms": round(self.elapsed_ms, 2),
+            "error": self.error,
+        }
 
 
 _GEN_PROMPT = """\
@@ -985,9 +1131,15 @@ _TEST_LANG_TAG = {"py": "python", "js": "javascript", "ts": "typescript"}
 class TestLoop:
     __slots__ = ("_exec", "_lang_map", "_marker", "_max_iter", "_route", "_timeout")
 
-    def __init__(self, route_func: RouteFunc, execute_func: ExecuteFunc, *,
-                 max_iterations: int = 3, exec_timeout: int = 8,
-                 pass_marker: str = "ALL TESTS PASSED") -> None:
+    def __init__(
+        self,
+        route_func: RouteFunc,
+        execute_func: ExecuteFunc,
+        *,
+        max_iterations: int = 3,
+        exec_timeout: int = 8,
+        pass_marker: str = "ALL TESTS PASSED",
+    ) -> None:
         if route_func is None or execute_func is None:
             raise ValueError("route_func and execute_func are required")
         self._route = route_func
@@ -995,19 +1147,25 @@ class TestLoop:
         self._max_iter = max(1, int(max_iterations))
         self._timeout = max(1, int(exec_timeout))
         self._marker = pass_marker
-        self._lang_map = {"py": "python", "python": "python", "js": "javascript",
-                          "javascript": "javascript", "node": "javascript",
-                          "ts": "typescript", "typescript": "typescript"}
+        self._lang_map = {
+            "py": "python",
+            "python": "python",
+            "js": "javascript",
+            "javascript": "javascript",
+            "node": "javascript",
+            "ts": "typescript",
+            "typescript": "typescript",
+        }
 
-    async def run(self, code: str, language: str = "python", *,
-                  tier: str = "free", user: dict | None = None,
-                  context: str = "") -> TestLoopResult:
+    async def run(
+        self, code: str, language: str = "python", *, tier: str = "free", user: dict | None = None, context: str = ""
+    ) -> TestLoopResult:
         t0 = time.time()
         lang = self._lang_map.get(language.lower(), "python")
         if not code or not code.strip():
-            return TestLoopResult(success=False, final_code=code, final_tests="",
-                                  error="empty code",
-                                  elapsed_ms=(time.time() - t0) * 1000)
+            return TestLoopResult(
+                success=False, final_code=code, final_tests="", error="empty code", elapsed_ms=(time.time() - t0) * 1000
+            )
         current_code = code
         final_tests = ""
         iterations: list[TestIteration] = []
@@ -1018,43 +1176,67 @@ class TestLoop:
                 logger.warning("generate_tests_failed error=%s", e)
                 tests = None
             if not tests:
-                return TestLoopResult(success=False, final_code=current_code,
-                                      final_tests=final_tests, iterations=iterations,
-                                      error="test generation failed",
-                                      elapsed_ms=(time.time() - t0) * 1000)
+                return TestLoopResult(
+                    success=False,
+                    final_code=current_code,
+                    final_tests=final_tests,
+                    iterations=iterations,
+                    error="test generation failed",
+                    elapsed_ms=(time.time() - t0) * 1000,
+                )
             final_tests = tests
             exec_result = await self._safe_execute(tests, lang)
             passed = self._is_pass(exec_result)
-            iterations.append(TestIteration(iteration=i, tests=tests, passed=passed,
-                                            output=str(exec_result.get("output", "")),
-                                            error=exec_result.get("error")))
+            iterations.append(
+                TestIteration(
+                    iteration=i,
+                    tests=tests,
+                    passed=passed,
+                    output=str(exec_result.get("output", "")),
+                    error=exec_result.get("error"),
+                )
+            )
             if passed:
-                return TestLoopResult(success=True, final_code=current_code,
-                                      final_tests=tests, iterations=iterations,
-                                      elapsed_ms=(time.time() - t0) * 1000)
+                return TestLoopResult(
+                    success=True,
+                    final_code=current_code,
+                    final_tests=tests,
+                    iterations=iterations,
+                    elapsed_ms=(time.time() - t0) * 1000,
+                )
             if i == self._max_iter:
                 break
             try:
-                fixed = await self._heal(current_code, tests, exec_result,
-                                         lang, tier, user, context)
+                fixed = await self._heal(current_code, tests, exec_result, lang, tier, user, context)
             except Exception as e:
                 logger.warning("heal_failed error=%s", e)
                 fixed = None
             if not fixed or fixed.strip() == current_code.strip():
                 break
             current_code = fixed
-        return TestLoopResult(success=False, final_code=current_code,
-                              final_tests=final_tests, iterations=iterations,
-                              error=f"tests failed after {len(iterations)} iteration(s)",
-                              elapsed_ms=(time.time() - t0) * 1000)
+        return TestLoopResult(
+            success=False,
+            final_code=current_code,
+            final_tests=final_tests,
+            iterations=iterations,
+            error=f"tests failed after {len(iterations)} iteration(s)",
+            elapsed_ms=(time.time() - t0) * 1000,
+        )
 
-    async def _generate_tests(self, code: str, lang: str, tier: str,
-                              user: dict | None, context: str) -> str | None:
+    async def _generate_tests(self, code: str, lang: str, tier: str, user: dict | None, context: str) -> str | None:
         prompt = _GEN_PROMPT.format(language=lang, code=code)
-        result = await self._route(workspace="design", task_type="generate_tests",
-                                   prompt=prompt, history=[], files=[],
-                                   max_tokens=4096, temp=0.2, tier=tier,
-                                   user=user, context=context)
+        result = await self._route(
+            workspace="design",
+            task_type="generate_tests",
+            prompt=prompt,
+            history=[],
+            files=[],
+            max_tokens=4096,
+            temp=0.2,
+            tier=tier,
+            user=user,
+            context=context,
+        )
         if not result or not result.get("success"):
             return None
         text = _extract_fenced(result.get("text", ""))
@@ -1062,18 +1244,25 @@ class TestLoop:
             text = text + f"\n\nprint({self._marker!r})\n"
         return text or None
 
-    async def _heal(self, code: str, tests: str, exec_result: dict[str, Any],
-                    lang: str, tier: str, user: dict | None,
-                    context: str) -> str | None:
+    async def _heal(
+        self, code: str, tests: str, exec_result: dict[str, Any], lang: str, tier: str, user: dict | None, context: str
+    ) -> str | None:
         output = str(exec_result.get("output", ""))
         error = exec_result.get("error") or ""
         combined = f"{output}\n{error}".strip()[:4000]
-        prompt = _FIX_PROMPT.format(language=lang, code=code,
-                                    tests=tests, output=combined)
-        result = await self._route(workspace="design", task_type="touch_fix",
-                                   prompt=prompt, history=[], files=[],
-                                   max_tokens=4096, temp=0.15, tier=tier,
-                                   user=user, context=context)
+        prompt = _FIX_PROMPT.format(language=lang, code=code, tests=tests, output=combined)
+        result = await self._route(
+            workspace="design",
+            task_type="touch_fix",
+            prompt=prompt,
+            history=[],
+            files=[],
+            max_tokens=4096,
+            temp=0.15,
+            tier=tier,
+            user=user,
+            context=context,
+        )
         if not result or not result.get("success"):
             return None
         return _extract_fenced(result.get("text", "")) or None
@@ -1081,7 +1270,10 @@ class TestLoop:
     async def _safe_execute(self, code: str, lang: str) -> dict[str, Any]:
         try:
             return await self._exec(lang, code, self._timeout) or {
-                "success": False, "output": "", "error": "empty_exec_result"}
+                "success": False,
+                "output": "",
+                "error": "empty_exec_result",
+            }
         except Exception as e:
             logger.warning("execute_failed error=%s", e)
             return {"success": False, "output": "", "error": str(e)}
@@ -1099,13 +1291,26 @@ class TestLoop:
 
 __all__ = [
     # §1
-    "DependencyTracker", "BlastRadius",
+    "DependencyTracker",
+    "BlastRadius",
     # §2
-    "CodeGuard", "Finding", "ScanResult", "Severity", "default_guard",
+    "CodeGuard",
+    "Finding",
+    "ScanResult",
+    "Severity",
+    "default_guard",
     # §3
-    "SelfHealer", "TouchFixEngine", "HealResult", "make_diff", "RouteFunc",
+    "SelfHealer",
+    "TouchFixEngine",
+    "HealResult",
+    "make_diff",
+    "RouteFunc",
     # §4
-    "PRShield", "PRShieldInput",
+    "PRShield",
+    "PRShieldInput",
     # §5
-    "TestLoop", "TestIteration", "TestLoopResult", "ExecuteFunc",
+    "TestLoop",
+    "TestIteration",
+    "TestLoopResult",
+    "ExecuteFunc",
 ]

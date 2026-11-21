@@ -1,4 +1,5 @@
 """aiohttp module entrypoint."""
+
 from __future__ import annotations
 
 import logging
@@ -29,5 +30,6 @@ async def _health_handler(_request: web.Request) -> web.Response:
 
 def init_opencv_module(app):
     return init_module(app)
+
 
 __all__ = ["init_module", "init_opencv_module"]

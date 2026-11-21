@@ -17,6 +17,7 @@ Canonical homes:
     guards.py     — thermal budget / pressure
     utils/misc_utils.py — signal_warmup, pacemaker_loop, prewarm
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -87,8 +88,7 @@ class TaskScheduler:
         self._queue: list[Task] = []
         self._running: set[asyncio.Task[None]] = set()
         self._closed = False
-        self._worker = asyncio.create_task(
-            self._worker_loop(), name="task_scheduler_worker")
+        self._worker = asyncio.create_task(self._worker_loop(), name="task_scheduler_worker")
 
     async def _worker_loop(self) -> None:
         while not self._closed or self._queue:
@@ -96,10 +96,9 @@ class TaskScheduler:
                 self._running.discard(done)
                 with contextlib.suppress(Exception):
                     await done
-            while (len(self._running) < self._max_concurrency and self._queue):
+            while len(self._running) < self._max_concurrency and self._queue:
                 task = self._queue.pop(0)
-                at = asyncio.create_task(
-                    self._execute_task(task), name=f"task_{task.id}")
+                at = asyncio.create_task(self._execute_task(task), name=f"task_{task.id}")
                 self._running.add(at)
             await asyncio.sleep(0.01)
 
@@ -115,13 +114,13 @@ class TaskScheduler:
         finally:
             task.completed_at = time.time()
 
-    def schedule(self, coro: Awaitable[Any],
-                 priority: int = Priority.NORMAL) -> str:
+    def schedule(self, coro: Awaitable[Any], priority: int = Priority.NORMAL) -> str:
         task_id = uuid.uuid4().hex[:8]
         task = Task(id=task_id, coro=coro, priority=int(priority))
         for i, existing in enumerate(self._queue):
             if existing.priority < task.priority:
-                self._queue.insert(i, task); break
+                self._queue.insert(i, task)
+                break
         else:
             self._queue.append(task)
         return task_id
@@ -192,11 +191,21 @@ try:
         signal as signal_prewarm,
     )
 except ImportError:
-    async def signal_warmup(redis_client): return False
-    async def pacemaker_loop(state, *, interval_s=0.5): return
-    def signal_prewarm(*a, **kw): return False
-    def cancel_prewarm(*a, **kw): return False
-    def prewarm_snapshot(): return {}
+
+    async def signal_warmup(redis_client):
+        return False
+
+    async def pacemaker_loop(state, *, interval_s=0.5):
+        return
+
+    def signal_prewarm(*a, **kw):
+        return False
+
+    def cancel_prewarm(*a, **kw):
+        return False
+
+    def prewarm_snapshot():
+        return {}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -221,15 +230,37 @@ def audit() -> dict[str, Any]:
 
 
 __all__ = [
-    "TaskScheduler", "Priority", "Task", "get_task_scheduler",
-    "get_pipeline", "run_pipeline", "stream_pipeline", "get_hot_swap_detector",
-    "ResilientPipeline", "ProviderCascade", "AXELR_COGNITION_LEVEL",
-    "MAX_ROUNDS", "RACE_WIDTH", "PIPELINE_DEADLINE_S",
-    "FAST_TIER_DEADLINE_S", "PRO_TIER_DEADLINE_S",
-    "Tier", "TIERS", "ladder_run", "HotSwapResult", "HotSwapDetector",
+    "TaskScheduler",
+    "Priority",
+    "Task",
+    "get_task_scheduler",
+    "get_pipeline",
+    "run_pipeline",
+    "stream_pipeline",
+    "get_hot_swap_detector",
+    "ResilientPipeline",
+    "ProviderCascade",
+    "AXELR_COGNITION_LEVEL",
+    "MAX_ROUNDS",
+    "RACE_WIDTH",
+    "PIPELINE_DEADLINE_S",
+    "FAST_TIER_DEADLINE_S",
+    "PRO_TIER_DEADLINE_S",
+    "Tier",
+    "TIERS",
+    "ladder_run",
+    "HotSwapResult",
+    "HotSwapDetector",
     "ProviderFunc",
-    "hedge_wrap", "canonical_system", "adapt_max_tokens", "record_token_ratio",
-    "signal_warmup", "pacemaker_loop",
-    "signal_prewarm", "cancel_prewarm", "prewarm_snapshot",
-    "pipeline_stats", "audit",
+    "hedge_wrap",
+    "canonical_system",
+    "adapt_max_tokens",
+    "record_token_ratio",
+    "signal_warmup",
+    "pacemaker_loop",
+    "signal_prewarm",
+    "cancel_prewarm",
+    "prewarm_snapshot",
+    "pipeline_stats",
+    "audit",
 ]

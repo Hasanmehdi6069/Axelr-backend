@@ -5,6 +5,7 @@ from typing import Any, Callable
 
 logger = logging.getLogger("axelr.paypal.retry")
 
+
 def paypal_retry_wrapper(max_retries: int = 3, backoff_base: float = 0.5, backoff_cap: float = 2.0) -> Callable:
     def decorator(func: Callable) -> Callable:
         @wraps(func)
@@ -21,5 +22,7 @@ def paypal_retry_wrapper(max_retries: int = 3, backoff_base: float = 0.5, backof
                         await asyncio.sleep(wait)
             logger.error(f"PayPal API failed after {max_retries} retries: {last_exception}")
             raise last_exception
+
         return wrapper
+
     return decorator

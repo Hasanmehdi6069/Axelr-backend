@@ -20,6 +20,7 @@ Design:
       that patch is gone. Provider-failure propagation is now a
       constructor parameter on `CircuitBreaker._propagate` (see resilience.py).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -41,28 +42,36 @@ _VERSION = "2.0"
 # ═══════════════════════════════════════════════════════════════════════════
 _BASE_TEMP: dict[str, float] = {
     "conversational": 0.55,
-    "transactional":  0.20,
-    "extraction":     0.00,
-    "styling":        0.50,
-    "strategy":       0.65,
-    "diagnostic":     0.10,
+    "transactional": 0.20,
+    "extraction": 0.00,
+    "styling": 0.50,
+    "strategy": 0.65,
+    "diagnostic": 0.10,
 }
 _TASK_TEMP: dict[str, float] = {
-    "frontend":    0.45,
-    "extraction":  0.00,
-    "touch_fix":   0.10,
+    "frontend": 0.45,
+    "extraction": 0.00,
+    "touch_fix": 0.10,
     "structuring": 0.35,
 }
 _TIER_ADJ: dict[str, float] = {
-    "trivial": -0.05, "standard": 0.00, "deep": +0.05,
-    "critical": +0.05, "shed": -0.05, "lite": -0.02,
+    "trivial": -0.05,
+    "standard": 0.00,
+    "deep": +0.05,
+    "critical": +0.05,
+    "shed": -0.05,
+    "lite": -0.02,
 }
 _MIN_TEMP, _MAX_TEMP = 0.0, 0.85
 
 
 def tune_temperature(
-    *, intent: str = "", task_type: str = "", tier: str = "",
-    user_override: float | None = None, workspace: str = "",
+    *,
+    intent: str = "",
+    task_type: str = "",
+    tier: str = "",
+    user_override: float | None = None,
+    workspace: str = "",
 ) -> float:
     """Deterministic. Bounded [0.0, 0.85]. Same inputs → same temp."""
     if user_override is not None:
@@ -82,13 +91,15 @@ def tune_temperature(
 # ═══════════════════════════════════════════════════════════════════════════
 _IDENT_RE = re.compile(
     r"\b(?:[a-z]+_[a-z_]{2,}|[a-z]+(?:[A-Z][a-z0-9]+)+|"
-    r"[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+|[A-Z][A-Z0-9_]{2,})\b")
+    r"[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+|[A-Z][A-Z0-9_]{2,})\b"
+)
 _PATH_RE = re.compile(r"(?:\.{0,2}/[\w./-]{3,}\.\w{1,6}|[A-Za-z]:\\[\w\\.-]+)")
 _URL_RE = re.compile(r"https?://[^\s)\]\"'>]{6,}")
 _ERRSTR_RE = re.compile(
     r"\b(?:Error|Exception|Warning|TypeError|ValueError|KeyError|"
     r"AttributeError|ImportError|RuntimeError|SyntaxError|"
-    r"NullPointerException|SegmentationFault)\b[^\n]{0,120}")
+    r"NullPointerException|SegmentationFault)\b[^\n]{0,120}"
+)
 _MAX_LEDGER_ENTRIES = 40
 _MAX_ENTRY_LEN = 200
 
@@ -107,6 +118,7 @@ def _extract_anchors(text: str) -> list[str]:
 
 class AnchorLedger:
     """Bounded thread-safe LRU of anchors per session."""
+
     __slots__ = ("_lock", "_store", "_max_sessions")
 
     def __init__(self, *, max_sessions: int = 2000) -> None:
@@ -148,10 +160,11 @@ class AnchorLedger:
                 return ""
             ranked = sorted(b.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
         lines = [f"• {a}" for a, _ in ranked]
-        return ("<session_anchors>\n"
-                "Identifiers, paths, and error strings referenced this "
-                "session — preserve exact spelling.\n"
-                + "\n".join(lines) + "\n</session_anchors>")
+        return (
+            "<session_anchors>\n"
+            "Identifiers, paths, and error strings referenced this "
+            "session — preserve exact spelling.\n" + "\n".join(lines) + "\n</session_anchors>"
+        )
 
     def clear(self, session_id: str) -> None:
         with self._lock:
@@ -186,10 +199,13 @@ def stops_for(workspace: str, task_type: str) -> tuple[str, ...]:
 # ═══════════════════════════════════════════════════════════════════════════
 _REFUSAL_LEAD_RE = re.compile(
     r"^\s*(?:i\s+(?:can(?:'?t|not)|am\s+unable|won'?t)|"
-    r"i'?m\s+sorry|as\s+an?\s+ai|i\s+apologize|unfortunately,?\s+i)", re.I)
+    r"i'?m\s+sorry|as\s+an?\s+ai|i\s+apologize|unfortunately,?\s+i)",
+    re.I,
+)
 _GOOD_LEAD_RE = re.compile(
     r"^\s*(?:here|below|the\s+\w+|sure|certainly|"
-    r"```|#{1,6}\s|\d+[.)]\s|[-*•]\s|\w{3,})")
+    r"```|#{1,6}\s|\d+[.)]\s|[-*•]\s|\w{3,})"
+)
 
 
 @dataclass(slots=True)
@@ -199,12 +215,12 @@ class GateDecision:
     force_retry: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {"emit": self.emit, "force_retry": self.force_retry,
-                "buf_len": len(self.buffered)}
+        return {"emit": self.emit, "force_retry": self.force_retry, "buf_len": len(self.buffered)}
 
 
 class StreamQualityGate:
     """Buffer the first ~80 chars; suppress on refusal."""
+
     __slots__ = ("_buf", "_gate_passed", "_max_hold")
 
     def __init__(self, *, max_hold_chars: int = 80) -> None:
@@ -253,35 +269,40 @@ def hedge_wrap(
         return base_route
 
     async def _hedged(
-        workspace: str, task_type: str, prompt: str,
-        history: Any, files: Any, max_tokens: int, temp: float,
-        tier: str, user: dict[str, Any] | None = None,
-        context: str = "", request: Any = None,
+        workspace: str,
+        task_type: str,
+        prompt: str,
+        history: Any,
+        files: Any,
+        max_tokens: int,
+        temp: float,
+        tier: str,
+        user: dict[str, Any] | None = None,
+        context: str = "",
+        request: Any = None,
     ) -> dict[str, Any]:
         try:
             from .structured_gen import classify as _classify
-            decision = _classify(prompt, files, intent=task_type,
-                                 tier=tier or "free", workspace=workspace)
+
+            decision = _classify(prompt, files, intent=task_type, tier=tier or "free", workspace=workspace)
         except Exception:
             decision = None
 
         if decision is None or getattr(decision, "route", "api") != "local":
             return await base_route(
-                workspace, task_type, prompt, history, files,
-                max_tokens, temp, tier, user, context, request)
+                workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context, request
+            )
 
-        local_task = asyncio.create_task(
-            _local_attempt(workspace, task_type, prompt, decision),
-            name="hedge_local")
+        local_task = asyncio.create_task(_local_attempt(workspace, task_type, prompt, decision), name="hedge_local")
         base_task = asyncio.create_task(
-            base_route(workspace, task_type, prompt, history, files,
-                       max_tokens, temp, tier, user, context, request),
-            name="hedge_remote")
+            base_route(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context, request),
+            name="hedge_remote",
+        )
 
         try:
             done, _ = await asyncio.wait(
-                [local_task], timeout=_HEDGE_LOCAL_MS / 1000.0,
-                return_when=asyncio.FIRST_COMPLETED)
+                [local_task], timeout=_HEDGE_LOCAL_MS / 1000.0, return_when=asyncio.FIRST_COMPLETED
+            )
         except asyncio.CancelledError:
             if not base_task.done():
                 base_task.cancel()
@@ -298,11 +319,11 @@ def hedge_wrap(
                     await base_task
                 # Update Prometheus local wins counter (GAP4)
                 from core.model_specialization import _HEDGE_LOCAL_WINS
+
                 if _HEDGE_LOCAL_WINS is not None:
                     with contextlib.suppress(Exception):
                         _HEDGE_LOCAL_WINS.inc()
-                local_result.setdefault(
-                    "router", decision.to_dict() if hasattr(decision, "to_dict") else {})
+                local_result.setdefault("router", decision.to_dict() if hasattr(decision, "to_dict") else {})
                 local_result.setdefault("hedge", "local_win")
                 return local_result
 
@@ -314,18 +335,20 @@ def hedge_wrap(
                 with contextlib.suppress(Exception):
                     await local_task
         if isinstance(result, dict):
-            result.setdefault(
-                "router", decision.to_dict() if hasattr(decision, "to_dict") else {})
+            result.setdefault("router", decision.to_dict() if hasattr(decision, "to_dict") else {})
             result.setdefault("hedge", "remote_won")
         return result
 
-    _hedged._axelr_elite_hedge = True                     # type: ignore[attr-defined]
-    _hedged._axelr_original = base_route                  # type: ignore[attr-defined]
+    _hedged._axelr_elite_hedge = True  # type: ignore[attr-defined]
+    _hedged._axelr_original = base_route  # type: ignore[attr-defined]
     return _hedged
 
 
 async def _local_attempt(
-    workspace: str, task_type: str, prompt: str, decision: Any,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    decision: Any,
 ) -> dict[str, Any] | None:
     try:
         from .twin_engine import execute_local_inference
@@ -333,25 +356,28 @@ async def _local_attempt(
         return None
     try:
         text = await asyncio.wait_for(
-            execute_local_inference(workspace, task_type, prompt),
-            timeout=max(0.3, _HEDGE_LOCAL_MS / 1000.0))
+            execute_local_inference(workspace, task_type, prompt), timeout=max(0.3, _HEDGE_LOCAL_MS / 1000.0)
+        )
     except (asyncio.TimeoutError, Exception):
         return None
     if not text or text.lstrip().startswith("[stub]"):
         return None
     try:
         from .structured_gen import verify as _verify
-        v = _verify(text, kind=getattr(decision, "verifier_kind", "none"),
-                    prompt=prompt)
+
+        v = _verify(text, kind=getattr(decision, "verifier_kind", "none"), prompt=prompt)
     except Exception:
         return None
     # Degraded verdicts = verifier didn't actually run. Not a pass.
     if not v.passed or getattr(v, "degraded", False):
         return None
     return {
-        "success": True, "text": text, "provider": "local_twin",
+        "success": True,
+        "text": text,
+        "provider": "local_twin",
         "model_used": f"local:{getattr(decision, 'task_class', 'unknown')}",
-        "tokens_used": len(text.split()), "latency_ms": 0.0,
+        "tokens_used": len(text.split()),
+        "latency_ms": 0.0,
         "verifier": v.to_dict() if hasattr(v, "to_dict") else {},
     }
 
@@ -367,8 +393,7 @@ _CANON_LOCK = threading.Lock()
 def canonical_system(workspace: str, tier: str) -> str:
     """Byte-stable system directive per (workspace, tier)."""
     if not _ENABLE_CANON:
-        return (f"<workspace_anchor>{workspace or 'core'}</workspace_anchor>\n"
-                f"<tier>{tier or 'free'}</tier>")
+        return f"<workspace_anchor>{workspace or 'core'}</workspace_anchor>\n<tier>{tier or 'free'}</tier>"
     key = (workspace or "core", tier or "free")
     with _CANON_LOCK:
         cached = _CANON_CACHE.get(key)
@@ -377,14 +402,17 @@ def canonical_system(workspace: str, tier: str) -> str:
         text = ""
         try:
             from .context import build as _vault_build
-            text = _vault_build(
-                workspace=workspace or "core", intent="generic",
-                sub_intent="", prompt="", include_drift=True) or ""
+
+            text = (
+                _vault_build(
+                    workspace=workspace or "core", intent="generic", sub_intent="", prompt="", include_drift=True
+                )
+                or ""
+            )
         except Exception:
             text = ""
         if not text:
-            text = (f"<workspace_anchor>{workspace or 'core'}</workspace_anchor>\n"
-                    f"<tier>{tier or 'free'}</tier>")
+            text = f"<workspace_anchor>{workspace or 'core'}</workspace_anchor>\n<tier>{tier or 'free'}</tier>"
         _CANON_CACHE[key] = text
         return text
 
@@ -412,7 +440,10 @@ def adapt_max_tokens(provider: str, workspace: str, requested: int) -> int:
 
 
 def record_token_ratio(
-    provider: str, workspace: str, output_tokens: int, max_tokens: int,
+    provider: str,
+    workspace: str,
+    output_tokens: int,
+    max_tokens: int,
 ) -> None:
     if max_tokens <= 0 or output_tokens <= 0:
         return
@@ -446,17 +477,20 @@ __all__ = [
     # Temperature
     "tune_temperature",
     # Anchors
-    "AnchorLedger", "LEDGER",
+    "AnchorLedger",
+    "LEDGER",
     # Stops
     "stops_for",
     # Gate
-    "StreamQualityGate", "GateDecision",
+    "StreamQualityGate",
+    "GateDecision",
     # Hedge
     "hedge_wrap",
     # Canonical
     "canonical_system",
     # Trim
-    "adapt_max_tokens", "record_token_ratio",
+    "adapt_max_tokens",
+    "record_token_ratio",
     # Audit
     "audit",
 ]

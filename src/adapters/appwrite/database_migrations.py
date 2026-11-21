@@ -1,4 +1,5 @@
 """Appwrite database migration scripts to create required collections for payments and support"""
+
 import logging
 import os
 from typing import Any, Dict, List
@@ -8,6 +9,7 @@ from appwrite.exception import AppwriteException
 from appwrite.services.databases import Databases
 
 logger = logging.getLogger("axelr.db_migrations")
+
 
 class DatabaseMigrator:
     """
@@ -31,7 +33,7 @@ class DatabaseMigrator:
             "transactions": "transactions",
             "subscriptions": "subscriptions",
             "support_tickets": "support_tickets",
-            "audit_logs": "audit_logs"
+            "audit_logs": "audit_logs",
         }
 
     def get_transactions_attributes(self) -> List[Dict[str, Any]]:
@@ -42,14 +44,38 @@ class DatabaseMigrator:
             {"key": "user_email", "type": "string", "required": True, "array": False, "size": 255},
             {"key": "amount", "type": "double", "required": True, "array": False},
             {"key": "currency", "type": "string", "required": True, "array": False, "size": 10, "default": "INR"},
-            {"key": "payment_gateway", "type": "string", "required": True, "array": False, "size": 50},  # Supports: paytm_upi, jio, hyperswitch, etc.
+            {
+                "key": "payment_gateway",
+                "type": "string",
+                "required": True,
+                "array": False,
+                "size": 50,
+            },  # Supports: paytm_upi, jio, hyperswitch, etc.
             {"key": "status", "type": "string", "required": True, "array": False, "size": 32, "default": "pending"},
             {"key": "transaction_timestamp", "type": "datetime", "required": True, "array": False},
             {"key": "email_received_timestamp", "type": "datetime", "required": True, "array": False},
             {"key": "verified_at", "type": "datetime", "required": False, "array": False},
-            {"key": "payer_details", "type": "string", "required": False, "array": False, "size": 65535},  # JSON stored as string
-            {"key": "verification_metadata", "type": "string", "required": False, "array": False, "size": 65535},  # JSON stored as string
-            {"key": "gateway_metadata", "type": "string", "required": False, "array": False, "size": 65535}  # Future: gateway-specific data
+            {
+                "key": "payer_details",
+                "type": "string",
+                "required": False,
+                "array": False,
+                "size": 65535,
+            },  # JSON stored as string
+            {
+                "key": "verification_metadata",
+                "type": "string",
+                "required": False,
+                "array": False,
+                "size": 65535,
+            },  # JSON stored as string
+            {
+                "key": "gateway_metadata",
+                "type": "string",
+                "required": False,
+                "array": False,
+                "size": 65535,
+            },  # Future: gateway-specific data
         ]
 
     def get_subscriptions_attributes(self) -> List[Dict[str, Any]]:
@@ -60,7 +86,7 @@ class DatabaseMigrator:
             {"key": "subscription_tier", "type": "string", "required": True, "array": False, "size": 50},
             {"key": "valid_until", "type": "datetime", "required": True, "array": False},
             {"key": "transaction_id", "type": "string", "required": True, "array": False, "size": 255},
-            {"key": "updated_at", "type": "datetime", "required": True, "array": False}
+            {"key": "updated_at", "type": "datetime", "required": True, "array": False},
         ]
 
     def get_support_tickets_attributes(self) -> List[Dict[str, Any]]:
@@ -76,7 +102,13 @@ class DatabaseMigrator:
             {"key": "status", "type": "string", "required": True, "array": False, "size": 32, "default": "open"},
             {"key": "created_at", "type": "datetime", "required": True, "array": False},
             {"key": "assigned_to", "type": "string", "required": False, "array": False, "size": 255},
-            {"key": "metadata", "type": "string", "required": False, "array": False, "size": 65535}  # JSON stored as string
+            {
+                "key": "metadata",
+                "type": "string",
+                "required": False,
+                "array": False,
+                "size": 65535,
+            },  # JSON stored as string
         ]
 
     def get_audit_logs_attributes(self) -> List[Dict[str, Any]]:
@@ -90,16 +122,13 @@ class DatabaseMigrator:
             {"key": "resource_id", "type": "string", "required": False, "array": False, "size": 255},
             {"key": "ip_address", "type": "string", "required": False, "array": False, "size": 45},
             {"key": "metadata", "type": "string", "required": False, "array": False, "size": 65535},
-            {"key": "success", "type": "boolean", "required": True, "array": False, "default": True}
+            {"key": "success", "type": "boolean", "required": True, "array": False, "default": True},
         ]
 
     def collection_exists(self, collection_id: str) -> bool:
         """Check if a collection already exists in the database"""
         try:
-            self.databases.get_collection(
-                database_id=self.database_id,
-                collection_id=collection_id
-            )
+            self.databases.get_collection(database_id=self.database_id, collection_id=collection_id)
             return True
         except AppwriteException as e:
             if e.code == 404:
@@ -121,7 +150,7 @@ class DatabaseMigrator:
             name=collection_name,
             permission="document",
             read=["role:system"],  # Strict least-privilege: only system can read by default
-            write=["role:system"]   # Strict least-privilege: only system can write by default
+            write=["role:system"],  # Strict least-privilege: only system can write by default
         )
 
         # Add all attributes
@@ -136,7 +165,7 @@ class DatabaseMigrator:
                         required=attr["required"],
                         array=attr["array"],
                         size=attr.get("size", 255),
-                        default=attr.get("default")
+                        default=attr.get("default"),
                     )
                 elif attr["type"] == "double":
                     self.databases.create_float_attribute(
@@ -146,7 +175,7 @@ class DatabaseMigrator:
                         required=attr["required"],
                         array=attr["array"],
                         min=attr.get("min"),
-                        max=attr.get("max")
+                        max=attr.get("max"),
                     )
                 elif attr["type"] == "datetime":
                     self.databases.create_datetime_attribute(
@@ -155,7 +184,7 @@ class DatabaseMigrator:
                         key=attr["key"],
                         required=attr["required"],
                         array=attr["array"],
-                        default=attr.get("default")
+                        default=attr.get("default"),
                     )
                 elif attr["type"] == "boolean":
                     self.databases.create_boolean_attribute(
@@ -164,7 +193,7 @@ class DatabaseMigrator:
                         key=attr["key"],
                         required=attr["required"],
                         array=attr["array"],
-                        default=attr.get("default")
+                        default=attr.get("default"),
                     )
             except AppwriteException as e:
                 logger.warning(f"Error creating attribute {attr['key']}: {e}")
@@ -179,34 +208,57 @@ class DatabaseMigrator:
 
         # Collection-specific indexes
         if collection_id == "transactions":
-            indexes.extend([
-                {"key": "transaction_id_idx", "type": "unique", "attributes": ["transaction_id"], "orders": ["ASC"]},
-                {"key": "user_id_idx", "type": "key", "attributes": ["user_id"], "orders": ["ASC"]},
-                {"key": "user_email_idx", "type": "key", "attributes": ["user_email"], "orders": ["ASC"]},
-                {"key": "status_idx", "type": "key", "attributes": ["status"], "orders": ["ASC"]},
-                {"key": "transaction_timestamp_idx", "type": "key", "attributes": ["transaction_timestamp"], "orders": ["DESC"]}
-            ])
+            indexes.extend(
+                [
+                    {
+                        "key": "transaction_id_idx",
+                        "type": "unique",
+                        "attributes": ["transaction_id"],
+                        "orders": ["ASC"],
+                    },
+                    {"key": "user_id_idx", "type": "key", "attributes": ["user_id"], "orders": ["ASC"]},
+                    {"key": "user_email_idx", "type": "key", "attributes": ["user_email"], "orders": ["ASC"]},
+                    {"key": "status_idx", "type": "key", "attributes": ["status"], "orders": ["ASC"]},
+                    {
+                        "key": "transaction_timestamp_idx",
+                        "type": "key",
+                        "attributes": ["transaction_timestamp"],
+                        "orders": ["DESC"],
+                    },
+                ]
+            )
         elif collection_id == "subscriptions":
-            indexes.extend([
-                {"key": "user_id_idx", "type": "key", "attributes": ["user_id"], "orders": ["ASC"]},
-                {"key": "transaction_id_idx", "type": "unique", "attributes": ["transaction_id"], "orders": ["ASC"]},
-                {"key": "valid_until_idx", "type": "key", "attributes": ["valid_until"], "orders": ["ASC"]}
-            ])
+            indexes.extend(
+                [
+                    {"key": "user_id_idx", "type": "key", "attributes": ["user_id"], "orders": ["ASC"]},
+                    {
+                        "key": "transaction_id_idx",
+                        "type": "unique",
+                        "attributes": ["transaction_id"],
+                        "orders": ["ASC"],
+                    },
+                    {"key": "valid_until_idx", "type": "key", "attributes": ["valid_until"], "orders": ["ASC"]},
+                ]
+            )
         elif collection_id == "support_tickets":
-            indexes.extend([
-                {"key": "ticket_id_idx", "type": "unique", "attributes": ["ticket_id"], "orders": ["ASC"]},
-                {"key": "user_email_idx", "type": "key", "attributes": ["user_email"], "orders": ["ASC"]},
-                {"key": "category_idx", "type": "key", "attributes": ["category"], "orders": ["ASC"]},
-                {"key": "priority_idx", "type": "key", "attributes": ["priority"], "orders": ["ASC"]},
-                {"key": "status_idx", "type": "key", "attributes": ["status"], "orders": ["ASC"]}
-            ])
+            indexes.extend(
+                [
+                    {"key": "ticket_id_idx", "type": "unique", "attributes": ["ticket_id"], "orders": ["ASC"]},
+                    {"key": "user_email_idx", "type": "key", "attributes": ["user_email"], "orders": ["ASC"]},
+                    {"key": "category_idx", "type": "key", "attributes": ["category"], "orders": ["ASC"]},
+                    {"key": "priority_idx", "type": "key", "attributes": ["priority"], "orders": ["ASC"]},
+                    {"key": "status_idx", "type": "key", "attributes": ["status"], "orders": ["ASC"]},
+                ]
+            )
         elif collection_id == "audit_logs":
-            indexes.extend([
-                {"key": "event_type_idx", "type": "key", "attributes": ["event_type"], "orders": ["ASC"]},
-                {"key": "actor_id_idx", "type": "key", "attributes": ["actor_id"], "orders": ["ASC"]},
-                {"key": "timestamp_idx", "type": "key", "attributes": ["timestamp"], "orders": ["DESC"]},
-                {"key": "resource_id_idx", "type": "key", "attributes": ["resource_id"], "orders": ["ASC"]}
-            ])
+            indexes.extend(
+                [
+                    {"key": "event_type_idx", "type": "key", "attributes": ["event_type"], "orders": ["ASC"]},
+                    {"key": "actor_id_idx", "type": "key", "attributes": ["actor_id"], "orders": ["ASC"]},
+                    {"key": "timestamp_idx", "type": "key", "attributes": ["timestamp"], "orders": ["DESC"]},
+                    {"key": "resource_id_idx", "type": "key", "attributes": ["resource_id"], "orders": ["ASC"]},
+                ]
+            )
 
         # Create all indexes
         for idx in indexes:
@@ -217,7 +269,7 @@ class DatabaseMigrator:
                     key=idx["key"],
                     type=idx["type"],
                     attributes=idx["attributes"],
-                    orders=idx["orders"]
+                    orders=idx["orders"],
                 )
                 logger.debug(f"Created index {idx['key']} on {collection_id}")
             except AppwriteException as e:
@@ -257,7 +309,7 @@ class DatabaseMigrator:
                 database_id=self.database_id,
                 collection_id=collection_id,
                 read=read_permissions,
-                write=write_permissions
+                write=write_permissions,
             )
             logger.info(f"Updated permissions for {collection_id}: read={read_permissions}, write={write_permissions}")
         except AppwriteException as e:
@@ -265,35 +317,30 @@ class DatabaseMigrator:
 
     def run_migrations(self) -> Dict[str, Any]:
         """Execute all database migrations"""
-        results = {
-            "success": True,
-            "collections_created": [],
-            "collections_skipped": [],
-            "errors": []
-        }
+        results = {"success": True, "collections_created": [], "collections_skipped": [], "errors": []}
 
         # Collections to create with their configurations
         collection_configs = [
             {
                 "id": self.collections["transactions"],
                 "name": "Transactions",
-                "attributes": self.get_transactions_attributes()
+                "attributes": self.get_transactions_attributes(),
             },
             {
                 "id": self.collections["subscriptions"],
                 "name": "Subscriptions",
-                "attributes": self.get_subscriptions_attributes()
+                "attributes": self.get_subscriptions_attributes(),
             },
             {
                 "id": self.collections["support_tickets"],
                 "name": "Support Tickets",
-                "attributes": self.get_support_tickets_attributes()
+                "attributes": self.get_support_tickets_attributes(),
             },
             {
                 "id": self.collections["audit_logs"],
                 "name": "Audit Logs",
-                "attributes": self.get_audit_logs_attributes()
-            }
+                "attributes": self.get_audit_logs_attributes(),
+            },
         ]
 
         for config in collection_configs:

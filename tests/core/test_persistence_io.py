@@ -15,6 +15,7 @@ Fixes:
   • Time-sensitive throughput tests → @perf marker
   • Added missing @pytest.mark.asyncio on E2E tests
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,25 +36,22 @@ from core.persistence import ChatMessage, PersistenceEngine, _ChatStore
 
 # ── A1. Memory primitive ───────────────────────────────────────────────────
 
+
 def test_memory_item_render():
-    m = memory.MemoryItem(id="x", text="hi", role="user", session_id="s",
-                          score=0.9, created_at=1.0)
+    m = memory.MemoryItem(id="x", text="hi", role="user", session_id="s", score=0.9, created_at=1.0)
     assert m.render() == "[user] hi"
 
 
 def test_memory_item_to_dict_roundtrip():
-    m = memory.MemoryItem(id="x", text="hi", role="user", session_id="s",
-                          score=0.9, created_at=1.0)
+    m = memory.MemoryItem(id="x", text="hi", role="user", session_id="s", score=0.9, created_at=1.0)
     assert memory.MemoryItem(**m.to_dict()).id == m.id
 
 
 @pytest.mark.asyncio
 async def test_memory_remember_empty_returns_none():
     m = memory.Memory(redis_client=None, http_client=AsyncMock())
-    assert await m.remember(user_id="u", session_id="s",
-                            role="user", text="") is None
-    assert await m.remember(user_id="u", session_id="s",
-                            role="user", text="   ") is None
+    assert await m.remember(user_id="u", session_id="s", role="user", text="") is None
+    assert await m.remember(user_id="u", session_id="s", role="user", text="   ") is None
 
 
 @pytest.mark.asyncio
@@ -79,6 +77,7 @@ async def test_memory_forget_removes_session():
 
 # ── A2. ChatMessage ────────────────────────────────────────────────────────
 
+
 def test_chat_message_id_is_uuid_not_hash():
     a = ChatMessage(session_id="s", user_id="u", role="user", content="hi")
     b = ChatMessage(session_id="s", user_id="u", role="user", content="hi")
@@ -91,6 +90,7 @@ def test_chat_message_committed_default_true():
 
 
 # ── A3. Session metadata ───────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_touch_session_upserts():
@@ -111,8 +111,13 @@ async def test_free_tier_gated_to_one_session():
         async def __aiter__(self):
             for sid in ("s1", "s2", "s3"):
                 yield {"session_id": sid}
-        def sort(self, *a, **k): return self
-        def limit(self, n): return self
+
+        def sort(self, *a, **k):
+            return self
+
+        def limit(self, n):
+            return self
+
     coll.find = lambda *a, **k: FakeCursor()
     store._sessions = coll
 
@@ -129,8 +134,13 @@ async def test_none_tier_no_gate():
         async def __aiter__(self):
             yield {"session_id": "s1"}
             yield {"session_id": "s2"}
-        def sort(self, *a, **k): return self
-        def limit(self, n): return self
+
+        def sort(self, *a, **k):
+            return self
+
+        def limit(self, n):
+            return self
+
     coll.find = lambda *a, **k: FakeCursor()
     store._sessions = coll
 
@@ -138,6 +148,7 @@ async def test_none_tier_no_gate():
 
 
 # ── A4. WAL orphan reconciliation ──────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_sweep_flips_old_uncommitted():
@@ -148,6 +159,7 @@ async def test_sweep_flips_old_uncommitted():
     class FakeCursor:
         async def __aiter__(self):
             yield {"_id": "msg1", "created_at": old_ts, "committed": False}
+
     coll.find = lambda *a, **k: FakeCursor()
     coll.update_one = AsyncMock()
     store._messages = coll
@@ -165,6 +177,7 @@ async def test_sweep_skips_recent_uncommitted():
         async def __aiter__(self):
             return
             yield
+
     coll.find = lambda *a, **k: EmptyCursor()
     coll.update_one = AsyncMock()
     store._messages = coll
@@ -182,6 +195,7 @@ async def test_wal_grace_window_boundary():
         async def __aiter__(self):
             return
             yield
+
     coll.find = lambda *a, **k: AtGraceCursor()
     coll.update_one = AsyncMock()
     store._messages = coll
@@ -190,6 +204,7 @@ async def test_wal_grace_window_boundary():
 
 
 # ── A5. Commit exchange ────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_commit_exchange_all_success():
@@ -204,6 +219,7 @@ async def test_commit_exchange_partial_failure():
 
     async def flaky(mid):
         return mid != "m2"
+
     engine.chats.commit_message = flaky
     assert await engine.commit_exchange("m1", "m2") is False
 
@@ -214,11 +230,13 @@ async def test_commit_exchange_exception_returns_false():
 
     async def boom(mid):
         raise RuntimeError("db gone")
+
     engine.chats.commit_message = boom
     assert await engine.commit_exchange("m1") is False
 
 
 # ── A6. Guest deletion ─────────────────────────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_delete_guest_sets_expire_at():
@@ -247,6 +265,7 @@ async def test_delete_guest_no_side_effects():
 
 # ── A7. Persistence engine stress (bounded) ────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_record_exchange_ordering():
     engine = PersistenceEngine()
@@ -255,9 +274,9 @@ async def test_record_exchange_ordering():
     async def track(**kw):
         order.append(kw["role"])
         return "msg_id"
+
     engine.record_message = track
-    await engine.record_exchange(session_id="s", user_id="u",
-                                 user_content="u", assistant_content="a")
+    await engine.record_exchange(session_id="s", user_id="u", user_content="u", assistant_content="a")
     assert order == ["user", "assistant"]
 
 
@@ -268,8 +287,8 @@ async def test_record_message_concurrent_no_loss():
 
     async def hit(n):
         for i in range(20):
-            await engine.record_message(session_id=f"s{n}", user_id=f"u{n}",
-                                        role="user", content=f"t{i}")
+            await engine.record_message(session_id=f"s{n}", user_id=f"u{n}", role="user", content=f"t{i}")
+
     await asyncio.gather(*(hit(n) for n in range(10)))
     assert engine.chats.record_message.await_count == 200
 
@@ -281,8 +300,7 @@ async def test_persistence_bounded_state_no_leak():
     engine.record_message = AsyncMock(return_value="msg_id")
     engine.commit_exchange = AsyncMock(return_value=True)
     for i in range(1000):
-        await engine.record_message(session_id=f"s{i % 100}", user_id=f"u{i % 10}",
-                                    role="user", content=f"t{i}")
+        await engine.record_message(session_id=f"s{i % 100}", user_id=f"u{i % 10}", role="user", content=f"t{i}")
     # Internal state must be bounded (memo, LRU, etc.)
     for attr in ("_memo", "_recent"):
         if hasattr(engine, attr):
@@ -297,8 +315,7 @@ async def test_persistence_degraded_mode_doesnt_crash():
     engine.chats.record_message = AsyncMock(side_effect=ConnectionError("db down"))
     for _ in range(50):
         try:
-            result = await engine.record_message(session_id="s", user_id="u",
-                                                 role="user", content="t")
+            result = await engine.record_message(session_id="s", user_id="u", role="user", content="t")
             assert result is None or isinstance(result, str)
         except Exception:
             pass  # acceptable
@@ -309,6 +326,7 @@ async def test_persistence_degraded_mode_doesnt_crash():
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ── B1. Worker sandbox ─────────────────────────────────────────────────────
+
 
 def test_worker_sandbox_empty_code_unavailable():
     assert io_pipeline.WorkerSandbox().run("").unavailable is True
@@ -362,6 +380,7 @@ def test_worker_sandbox_concurrent_isolation():
 
 # ── B2. Webhook signatures ─────────────────────────────────────────────────
 
+
 def test_webhook_missing_secret_prod_refuses():
     webhook = io_pipeline.WebhookHandler(secret=None, prod=True)
     assert webhook.verify_signature("payload", "sig") is False
@@ -399,9 +418,16 @@ def test_webhook_invalid_signature_fails():
 
 # ── B3. SLO gates ──────────────────────────────────────────────────────────
 
-@pytest.mark.parametrize("tier,expected", [
-    ("free", 3.5), ("pro", 5.5), ("business", 7.0), ("goat", 10.0),
-])
+
+@pytest.mark.parametrize(
+    "tier,expected",
+    [
+        ("free", 3.5),
+        ("pro", 5.5),
+        ("business", 7.0),
+        ("goat", 10.0),
+    ],
+)
 def test_tier_deadline_lookup(tier, expected):
     assert io_pipeline.get_tier_deadline(tier) == pytest.approx(expected, rel=0.01)
 
@@ -424,6 +450,7 @@ def test_stub_response_fast():
 # PART C — E2E INTEGRATION
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_e2e_pipeline_flow():
     p = pipeline.ResilientPipeline()
@@ -434,6 +461,7 @@ async def test_e2e_pipeline_flow():
 @pytest.mark.asyncio
 async def test_e2e_breaker_opens_skips_provider():
     from core.orchestration import Conductor
+
     conductor = Conductor()
     conductor.record_failure("single")
     conductor.record_failure("single")
@@ -442,6 +470,7 @@ async def test_e2e_breaker_opens_skips_provider():
 
 def test_e2e_streaming_scrubber_watermark_cut():
     from core.streaming import InFlightScrubber
+
     scrubber = InFlightScrubber()
     scrubber.feed("normal content <|watermark|> after watermark")
     flushed = scrubber.flush()
@@ -451,6 +480,7 @@ def test_e2e_streaming_scrubber_watermark_cut():
 
 def test_e2e_ahe_strict_adjudicator_audit_hash():
     from core.anti_hallucination import engine
+
     result = engine.run("key: value", schema={"key": str}, strict=True)
     assert result.audit_hash is not None
     assert result.verified is True
@@ -459,6 +489,7 @@ def test_e2e_ahe_strict_adjudicator_audit_hash():
 @pytest.mark.asyncio
 async def test_e2e_ghost_agent_cycle():
     from core import ghost_agent
+
     agent = ghost_agent.GhostAgent()
     cycle = await agent.create_cycle("test task")
     assert cycle.status == "pending"
@@ -470,6 +501,7 @@ async def test_e2e_ghost_agent_cycle():
 # ═══════════════════════════════════════════════════════════════════════════
 # Part D — Audit surface
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_io_pipeline_audit_shape():
     audit = io_pipeline.audit()

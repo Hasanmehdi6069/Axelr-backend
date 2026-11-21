@@ -8,6 +8,7 @@ distinct concerns (chat recall vs codebase index).
 
 Public: RepoIndexer, IndexStats, CodeChunk
 """
+
 from __future__ import annotations
 
 import ast
@@ -34,16 +35,30 @@ _GITHUB_API = "https://api.github.com"
 _REPO_HTTP_TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 
 _INDEXABLE_EXTS: dict[str, str] = {
-    ".py": "python", ".pyi": "python",
-    ".js": "javascript", ".jsx": "javascript",
-    ".mjs": "javascript", ".cjs": "javascript",
-    ".ts": "typescript", ".tsx": "typescript",
-    ".go": "go", ".rs": "rust", ".rb": "ruby",
-    ".java": "java", ".kt": "kotlin", ".swift": "swift",
-    ".cs": "csharp", ".php": "php", ".scala": "scala",
-    ".html": "html", ".css": "css", ".scss": "css",
-    ".vue": "vue", ".svelte": "svelte",
-    ".md": "markdown", ".sh": "shell",
+    ".py": "python",
+    ".pyi": "python",
+    ".js": "javascript",
+    ".jsx": "javascript",
+    ".mjs": "javascript",
+    ".cjs": "javascript",
+    ".ts": "typescript",
+    ".tsx": "typescript",
+    ".go": "go",
+    ".rs": "rust",
+    ".rb": "ruby",
+    ".java": "java",
+    ".kt": "kotlin",
+    ".swift": "swift",
+    ".cs": "csharp",
+    ".php": "php",
+    ".scala": "scala",
+    ".html": "html",
+    ".css": "css",
+    ".scss": "css",
+    ".vue": "vue",
+    ".svelte": "svelte",
+    ".md": "markdown",
+    ".sh": "shell",
 }
 _SKIP_PATH_PATTERNS = re.compile(
     r"""(?xi)
@@ -54,7 +69,8 @@ _SKIP_PATH_PATTERNS = re.compile(
       | target | bin | obj | out
     )
     (?:/|$)
-    """)
+    """
+)
 _DEFAULT_BRANCH_FALLBACK = "main"
 _MAX_DEFAULT_FILE_BYTES = 200 * 1024
 _MAX_DEFAULT_FILES = 500
@@ -81,13 +97,19 @@ class IndexStats:
     skipped_reason: str | None = None
 
     def to_dict(self) -> dict:
-        return {"repo": self.repo, "branch": self.branch,
-                "head_sha": self.head_sha, "files_seen": self.files_seen,
-                "files_indexed": self.files_indexed,
-                "files_skipped": self.files_skipped, "chunks": self.chunks,
-                "duration_ms": round(self.duration_ms, 2),
-                "errors": self.errors[:20], "truncated": self.truncated,
-                "skipped_reason": self.skipped_reason}
+        return {
+            "repo": self.repo,
+            "branch": self.branch,
+            "head_sha": self.head_sha,
+            "files_seen": self.files_seen,
+            "files_indexed": self.files_indexed,
+            "files_skipped": self.files_skipped,
+            "chunks": self.chunks,
+            "duration_ms": round(self.duration_ms, 2),
+            "errors": self.errors[:20],
+            "truncated": self.truncated,
+            "skipped_reason": self.skipped_reason,
+        }
 
 
 @dataclass(slots=True)
@@ -107,10 +129,17 @@ class CodeChunk:
         return f"`{self.path}` (L{self.start_line}-{self.end_line}):\n```{lang}\n{self.text}\n```"
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "path": self.path, "language": self.language,
-                "text": self.text, "start_line": self.start_line,
-                "end_line": self.end_line, "score": round(self.score, 4),
-                "repo": self.repo, "branch": self.branch}
+        return {
+            "id": self.id,
+            "path": self.path,
+            "language": self.language,
+            "text": self.text,
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "score": round(self.score, 4),
+            "repo": self.repo,
+            "branch": self.branch,
+        }
 
 
 def _parse_repo_url(url: str) -> tuple[str, str]:
@@ -124,8 +153,7 @@ def _parse_repo_url(url: str) -> tuple[str, str]:
     return m.group(1), m.group(2)
 
 
-def _chunk_lines(content: str, max_chars: int = 2400,
-                 overlap: int = 6) -> list[tuple[int, int, str]]:
+def _chunk_lines(content: str, max_chars: int = 2400, overlap: int = 6) -> list[tuple[int, int, str]]:
     lines = content.splitlines(keepends=True)
     if not lines:
         return []
@@ -186,7 +214,9 @@ _JS_BOUNDARY_RE = re.compile(
     r"""(?m)
     ^(?:export\s+)?(?:default\s+)?(?:async\s+)?
     (?:function|class|const|let|var)\b
-    """, re.VERBOSE)
+    """,
+    re.VERBOSE,
+)
 
 
 def _chunk_js(content: str, max_chars: int = 2400) -> list[tuple[int, int, str]]:
@@ -215,8 +245,7 @@ def _chunk_js(content: str, max_chars: int = 2400) -> list[tuple[int, int, str]]
     return chunks
 
 
-async def _chunk_file(path: str, content: str,
-                      max_chars: int = 2400) -> list[tuple[int, int, str]]:
+async def _chunk_file(path: str, content: str, max_chars: int = 2400) -> list[tuple[int, int, str]]:
     ext = Path(path).suffix.lower()
 
     def _sync():
@@ -231,28 +260,44 @@ async def _chunk_file(path: str, content: str,
 
 class RepoIndexer:
     """GitHub repo → Cloudflare Vectorize. Never raises on index_repo()."""
-    __slots__ = ("_embed_batch", "_fp_prefix", "_gh_token", "_http",
-                 "_max_chunks", "_max_file_bytes", "_max_files",
-                 "_owns_http", "_redis", "_vec")
 
-    def __init__(self, *, account_id: str | None = None,
-                 api_key: str | None = None, index_name: str | None = None,
-                 github_token: str | None = None, redis_client: Any | None = None,
-                 http_client: httpx.AsyncClient | None = None,
-                 max_file_bytes: int = _MAX_DEFAULT_FILE_BYTES,
-                 max_files: int = _MAX_DEFAULT_FILES,
-                 max_chunks: int = _MAX_DEFAULT_CHUNKS,
-                 embed_batch: int = _DEFAULT_EMBED_BATCH) -> None:
+    __slots__ = (
+        "_embed_batch",
+        "_fp_prefix",
+        "_gh_token",
+        "_http",
+        "_max_chunks",
+        "_max_file_bytes",
+        "_max_files",
+        "_owns_http",
+        "_redis",
+        "_vec",
+    )
+
+    def __init__(
+        self,
+        *,
+        account_id: str | None = None,
+        api_key: str | None = None,
+        index_name: str | None = None,
+        github_token: str | None = None,
+        redis_client: Any | None = None,
+        http_client: httpx.AsyncClient | None = None,
+        max_file_bytes: int = _MAX_DEFAULT_FILE_BYTES,
+        max_files: int = _MAX_DEFAULT_FILES,
+        max_chunks: int = _MAX_DEFAULT_CHUNKS,
+        embed_batch: int = _DEFAULT_EMBED_BATCH,
+    ) -> None:
         acct = (account_id or os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
         key = (api_key or os.getenv("CLOUDFLARE_API_KEY") or "").strip()
         idx = (index_name or os.getenv("REPO_INDEX") or "axelr-repo-index").strip()
-        tok = (github_token or os.getenv("GITHUB_INDEX_TOKEN")
-               or os.getenv("GITHUB_TOKEN") or "").strip()
+        tok = (github_token or os.getenv("GITHUB_INDEX_TOKEN") or os.getenv("GITHUB_TOKEN") or "").strip()
         if http_client is None:
             self._http = httpx.AsyncClient(
                 timeout=_REPO_HTTP_TIMEOUT,
                 limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-                headers={"User-Agent": "axelr-repo-indexer/1.0"})
+                headers={"User-Agent": "axelr-repo-indexer/1.0"},
+            )
             self._owns_http = True
         else:
             self._http = http_client
@@ -266,15 +311,12 @@ class RepoIndexer:
         self._embed_batch = max(1, min(128, int(embed_batch)))
         self._fp_prefix = "axelr:repo:fp"
 
-    async def index_repo(self, repo_url: str, branch: str | None = None, *,
-                         force: bool = False) -> IndexStats:
+    async def index_repo(self, repo_url: str, branch: str | None = None, *, force: bool = False) -> IndexStats:
         t0 = time.time()
         try:
             owner, repo = _parse_repo_url(repo_url)
         except ValueError as e:
-            return IndexStats(repo=repo_url,
-                              branch=branch or _DEFAULT_BRANCH_FALLBACK,
-                              errors=[str(e)])
+            return IndexStats(repo=repo_url, branch=branch or _DEFAULT_BRANCH_FALLBACK, errors=[str(e)])
         stats = IndexStats(repo=f"{owner}/{repo}", branch="")
         try:
             head_sha, resolved_branch = await self._resolve_head(owner, repo, branch)
@@ -297,9 +339,9 @@ class RepoIndexer:
         stats.duration_ms = (time.time() - t0) * 1000
         return stats
 
-    async def query(self, repo_url: str, query: str, *, top_k: int = 10,
-                    branch: str | None = None,
-                    min_score: float = 0.0) -> list[CodeChunk]:
+    async def query(
+        self, repo_url: str, query: str, *, top_k: int = 10, branch: str | None = None, min_score: float = 0.0
+    ) -> list[CodeChunk]:
         try:
             owner, repo = _parse_repo_url(repo_url)
         except ValueError:
@@ -311,8 +353,7 @@ class RepoIndexer:
             return []
         filters: dict[str, Any] = {"repo": {"$eq": f"{owner}/{repo}"}}
         if branch:
-            filters = {"$and": [{"repo": {"$eq": f"{owner}/{repo}"}},
-                                {"branch": {"$eq": branch}}]}
+            filters = {"$and": [{"repo": {"$eq": f"{owner}/{repo}"}}, {"branch": {"$eq": branch}}]}
         matches = await self._vec.query(vec, top_k=top_k, filters=filters)
         out: list[CodeChunk] = []
         for m in matches:
@@ -320,13 +361,19 @@ class RepoIndexer:
             if score < min_score:
                 continue
             md = m.get("metadata") or {}
-            out.append(CodeChunk(
-                id=str(m.get("id", "")), path=str(md.get("path", "")),
-                language=str(md.get("language", "")), text=str(md.get("text", "")),
-                start_line=int(md.get("start_line", 0) or 0),
-                end_line=int(md.get("end_line", 0) or 0),
-                score=score, repo=str(md.get("repo", "")),
-                branch=str(md.get("branch", ""))))
+            out.append(
+                CodeChunk(
+                    id=str(m.get("id", "")),
+                    path=str(md.get("path", "")),
+                    language=str(md.get("language", "")),
+                    text=str(md.get("text", "")),
+                    start_line=int(md.get("start_line", 0) or 0),
+                    end_line=int(md.get("end_line", 0) or 0),
+                    score=score,
+                    repo=str(md.get("repo", "")),
+                    branch=str(md.get("branch", "")),
+                )
+            )
         return out
 
     async def invalidate(self, repo_url: str, branch: str | None = None) -> bool:
@@ -343,8 +390,7 @@ class RepoIndexer:
         except Exception:
             return False
 
-    async def is_stale(self, repo_url: str, branch: str | None = None, *,
-                       max_age: int = 86_400) -> bool:
+    async def is_stale(self, repo_url: str, branch: str | None = None, *, max_age: int = 86_400) -> bool:
         try:
             owner, repo = _parse_repo_url(repo_url)
         except ValueError:
@@ -368,18 +414,15 @@ class RepoIndexer:
 
     # ── GitHub ─────────────────────────────────────────────────────────
     def _gh_headers(self) -> dict[str, str]:
-        h = {"Accept": "application/vnd.github+json",
-             "X-GitHub-Api-Version": "2022-11-28"}
+        h = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
         if self._gh_token:
             h["Authorization"] = f"Bearer {self._gh_token}"
         return h
 
-    async def _gh_get_json(self, url: str,
-                           *, params: dict[str, Any] | None = None) -> Any | None:
+    async def _gh_get_json(self, url: str, *, params: dict[str, Any] | None = None) -> Any | None:
         for attempt in range(2):
             try:
-                r = await self._http.get(url, headers=self._gh_headers(),
-                                         params=params, timeout=20.0)
+                r = await self._http.get(url, headers=self._gh_headers(), params=params, timeout=20.0)
                 remaining = r.headers.get("x-ratelimit-remaining")
                 reset = r.headers.get("x-ratelimit-reset")
                 if r.status_code in (403, 429) and remaining is not None:
@@ -387,44 +430,43 @@ class RepoIndexer:
                         if int(remaining) <= 1 and reset:
                             wait = max(1, min(60, int(reset) - int(time.time())))
                             logger.warning("github_rate_limited sleeping_s=%s", wait)
-                            await asyncio.sleep(wait); continue
+                            await asyncio.sleep(wait)
+                            continue
                     except Exception:
                         pass
                 r.raise_for_status()
                 return r.json()
             except httpx.HTTPStatusError as e:
                 if e.response.status_code >= 500 and attempt == 0:
-                    await asyncio.sleep(1.5); continue
-                logger.warning("github_get_failed url=%s status=%s",
-                               url, e.response.status_code)
+                    await asyncio.sleep(1.5)
+                    continue
+                logger.warning("github_get_failed url=%s status=%s", url, e.response.status_code)
                 return None
             except Exception as e:
                 if attempt == 0:
-                    await asyncio.sleep(1.0); continue
+                    await asyncio.sleep(1.0)
+                    continue
                 logger.warning("github_get_error url=%s error=%s", url, e)
                 return None
         return None
 
-    async def _resolve_head(self, owner: str, repo: str,
-                            branch: str | None) -> tuple[str, str]:
+    async def _resolve_head(self, owner: str, repo: str, branch: str | None) -> tuple[str, str]:
         meta = await self._gh_get_json(f"{_GITHUB_API}/repos/{owner}/{repo}")
         default_branch = (meta or {}).get("default_branch") or _DEFAULT_BRANCH_FALLBACK
         resolved = branch or default_branch
-        ref = await self._gh_get_json(
-            f"{_GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{resolved}")
+        ref = await self._gh_get_json(f"{_GITHUB_API}/repos/{owner}/{repo}/git/ref/heads/{resolved}")
         sha = ""
         if ref and isinstance(ref, dict):
             sha = str(((ref.get("object") or {}).get("sha")) or "")
         if not sha:
             commits = await self._gh_get_json(
-                f"{_GITHUB_API}/repos/{owner}/{repo}/commits/{resolved}",
-                params={"per_page": 1})
+                f"{_GITHUB_API}/repos/{owner}/{repo}/commits/{resolved}", params={"per_page": 1}
+            )
             if commits and isinstance(commits, list) and commits:
                 sha = str(commits[0].get("sha") or "")
         return sha, resolved
 
-    async def _list_blobs(self, owner: str, repo: str, head_sha: str,
-                          stats: IndexStats) -> list[dict[str, Any]]:
+    async def _list_blobs(self, owner: str, repo: str, head_sha: str, stats: IndexStats) -> list[dict[str, Any]]:
         if not head_sha:
             return []
         url = f"{_GITHUB_API}/repos/{owner}/{repo}/git/trees/{head_sha}"
@@ -438,8 +480,7 @@ class RepoIndexer:
             stats.errors.append("tree_truncated")
         return self._filter_entries(entries)
 
-    def _filter_entries(self, entries: Sequence[dict[str, Any]]
-                        ) -> list[dict[str, Any]]:
+    def _filter_entries(self, entries: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
         out: list[dict[str, Any]] = []
         for e in entries:
             try:
@@ -463,8 +504,9 @@ class RepoIndexer:
                 continue
         return out
 
-    async def _index_blobs(self, owner: str, repo: str, branch: str,
-                           blobs: list[dict[str, Any]], stats: IndexStats) -> None:
+    async def _index_blobs(
+        self, owner: str, repo: str, branch: str, blobs: list[dict[str, Any]], stats: IndexStats
+    ) -> None:
         stats.files_seen = len(blobs)
         if not blobs:
             return
@@ -480,40 +522,53 @@ class RepoIndexer:
             try:
                 content = await self._fetch_blob(owner, repo, entry["sha"])
             except Exception:
-                stats.files_skipped += 1; continue
+                stats.files_skipped += 1
+                continue
             if content is None:
-                stats.files_skipped += 1; continue
+                stats.files_skipped += 1
+                continue
             path = entry["path"]
             language = _INDEXABLE_EXTS.get(Path(path).suffix.lower(), "")
             pieces = await _chunk_file(path, content)
             if not pieces:
-                stats.files_skipped += 1; continue
+                stats.files_skipped += 1
+                continue
             for start, end, text in pieces:
                 if chunk_count >= self._max_chunks:
                     break
                 cid = _sha(f"{repo_key}|{branch}|{path}|{start}|{end}")[:32]
                 pending_texts.append(text)
-                pending_meta.append({"id": cid, "path": path, "language": language,
-                                     "text": text, "start_line": int(start),
-                                     "end_line": int(end), "repo": repo_key,
-                                     "branch": branch})
+                pending_meta.append(
+                    {
+                        "id": cid,
+                        "path": path,
+                        "language": language,
+                        "text": text,
+                        "start_line": int(start),
+                        "end_line": int(end),
+                        "repo": repo_key,
+                        "branch": branch,
+                    }
+                )
                 chunk_count += 1
                 if len(pending_texts) >= self._embed_batch:
                     await self._flush(pending_texts, pending_meta, stats)
-                    pending_texts.clear(); pending_meta.clear()
+                    pending_texts.clear()
+                    pending_meta.clear()
             stats.files_indexed += 1
         if pending_texts:
             await self._flush(pending_texts, pending_meta, stats)
         stats.chunks = chunk_count
 
-    async def _flush(self, texts: list[str], metas: list[dict[str, Any]],
-                     stats: IndexStats) -> None:
+    async def _flush(self, texts: list[str], metas: list[dict[str, Any]], stats: IndexStats) -> None:
         vectors = await self._embed_many(texts)
         if not vectors or len(vectors) != len(metas):
-            stats.errors.append("embed_batch_failed"); return
-        payload = [{"id": meta["id"], "values": vec,
-                    "metadata": {k: v for k, v in meta.items() if k != "id"}}
-                   for vec, meta in zip(vectors, metas)]
+            stats.errors.append("embed_batch_failed")
+            return
+        payload = [
+            {"id": meta["id"], "values": vec, "metadata": {k: v for k, v in meta.items() if k != "id"}}
+            for vec, meta in zip(vectors, metas)
+        ]
         if not await self._vec.upsert(payload):
             stats.errors.append("vectorize_upsert_failed")
 
@@ -533,8 +588,7 @@ class RepoIndexer:
                 return None
         return str(content)
 
-    async def _is_fresh(self, owner: str, repo: str, branch: str,
-                        head_sha: str) -> bool:
+    async def _is_fresh(self, owner: str, repo: str, branch: str, head_sha: str) -> bool:
         if self._redis is None or not head_sha:
             return False
         try:
@@ -545,14 +599,12 @@ class RepoIndexer:
         except Exception:
             return False
 
-    async def _store_fingerprint(self, owner: str, repo: str, branch: str,
-                                 head_sha: str) -> None:
+    async def _store_fingerprint(self, owner: str, repo: str, branch: str, head_sha: str) -> None:
         if self._redis is None or not head_sha:
             return
         with contextlib.suppress(Exception):
             key = f"{self._fp_prefix}:{owner}/{repo}:{branch}"
-            await self._redis.setex(key, _FINGERPRINT_TTL,
-                                    json.dumps({"sha": head_sha, "ts": time.time()}))
+            await self._redis.setex(key, _FINGERPRINT_TTL, json.dumps({"sha": head_sha, "ts": time.time()}))
 
     async def _embed_one(self, text: str) -> list[float] | None:
         vecs = await self._embed_many([text])
@@ -567,9 +619,10 @@ class RepoIndexer:
         try:
             r = await self._http.post(
                 url,
-                headers={"Authorization": f"Bearer {self._vec._key}",
-                         "Content-Type": "application/json"},
-                json={"text": texts}, timeout=30.0)
+                headers={"Authorization": f"Bearer {self._vec._key}", "Content-Type": "application/json"},
+                json={"text": texts},
+                timeout=30.0,
+            )
             r.raise_for_status()
             data = r.json()
             vecs = (data.get("result") or {}).get("data") or []

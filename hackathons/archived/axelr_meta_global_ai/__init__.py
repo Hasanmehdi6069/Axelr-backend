@@ -1,4 +1,5 @@
 """Meta Llama 3 Function Calling — v1.1.0"""
+
 from .core import (
     FunctionCall,
     FunctionCallSession,
@@ -14,8 +15,15 @@ from .core import (
 )
 
 __all__ = [
-    "__version__", "init", "shutdown", "health", "get_orchestrator",
-    "Llama3FunctionCallOrchestrator", "FunctionDefinition",
-    "FunctionParameter", "FunctionCall", "FunctionCallSession",
+    "__version__",
+    "init",
+    "shutdown",
+    "health",
+    "get_orchestrator",
+    "Llama3FunctionCallOrchestrator",
+    "FunctionDefinition",
+    "FunctionParameter",
+    "FunctionCall",
+    "FunctionCallSession",
     "FunctionRegistry",
 ]

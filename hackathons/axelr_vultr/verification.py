@@ -1,5 +1,6 @@
 # axelr_vultr/verification.py
 """E2E verification — safe by default, destructive only if VULTR_E2E=1."""
+
 from __future__ import annotations
 
 import asyncio
@@ -29,7 +30,9 @@ class Verifier:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         self.client = httpx.AsyncClient(
-            base_url=self.base, headers=headers, timeout=120.0,
+            base_url=self.base,
+            headers=headers,
+            timeout=120.0,
         )
 
     def rec(self, name: str, ok: bool, ms: float, detail: str = "") -> bool:
@@ -85,8 +88,7 @@ class Verifier:
             return self.rec("vultr_rejects_bad_blueprint", True, 0, "SKIP no token")
         t0 = time.perf_counter()
         try:
-            r = await self.client.post("/vultr/instances",
-                                       json={"blueprint": "not_a_real_blueprint"})
+            r = await self.client.post("/vultr/instances", json={"blueprint": "not_a_real_blueprint"})
             ms = (time.perf_counter() - t0) * 1000
             ok = r.status_code == 422
             return self.rec("vultr_rejects_bad_blueprint", ok, ms, f"status={r.status_code}")
@@ -118,8 +120,7 @@ class Verifier:
             ok = r1.status_code in (200, 503) and r2.status_code in (200, 503)
             regions = len(r1.json().get("regions", [])) if r1.status_code == 200 else 0
             plans = len(r2.json().get("plans", [])) if r2.status_code == 200 else 0
-            return self.rec("vultr_regions_and_plans", ok, ms,
-                            f"regions={regions} plans={plans}")
+            return self.rec("vultr_regions_and_plans", ok, ms, f"regions={regions} plans={plans}")
         except Exception as e:
             return self.rec("vultr_regions_and_plans", False, 0, str(e))
 
@@ -132,15 +133,17 @@ class Verifier:
         t0 = time.perf_counter()
         iid: str | None = None
         try:
-            r = await self.client.post("/vultr/instances", json={
-                "blueprint": "web_node",
-                "label": "axelr-verify-e2e",
-                "dry_run": False,
-            })
+            r = await self.client.post(
+                "/vultr/instances",
+                json={
+                    "blueprint": "web_node",
+                    "label": "axelr-verify-e2e",
+                    "dry_run": False,
+                },
+            )
             ms = (time.perf_counter() - t0) * 1000
             if r.status_code != 201:
-                return self.rec("vultr_provision_e2e", False, ms,
-                                f"{r.status_code} {r.text[:200]}")
+                return self.rec("vultr_provision_e2e", False, ms, f"{r.status_code} {r.text[:200]}")
             body = r.json()
             iid = body.get("instance", {}).get("id")
             if not iid:
@@ -151,13 +154,11 @@ class Verifier:
             wms = (time.perf_counter() - t0) * 1000
             if w.status_code != 200:
                 await self._destroy(iid)
-                return self.rec("vultr_provision_e2e", False, wms,
-                                f"wait_failed {w.status_code}")
+                return self.rec("vultr_provision_e2e", False, wms, f"wait_failed {w.status_code}")
             status = w.json().get("instance", {}).get("status")
             ok = status in ("active", "stopped")
             await self._destroy(iid)
-            return self.rec("vultr_provision_e2e", ok, wms,
-                            f"final_status={status} destroyed=true")
+            return self.rec("vultr_provision_e2e", ok, wms, f"final_status={status} destroyed=true")
         except Exception as e:
             if iid:
                 await self._destroy(iid)

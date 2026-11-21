@@ -17,6 +17,7 @@ Design contract:
   7. Observability via Prometheus counters/histograms.
   8. Input is injection-hardened at the enhancer boundary.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -49,21 +50,21 @@ router = APIRouter(tags=["enhancer"])
 
 # ── Constants ────────────────────────────────────────────────────────────────
 
-ENHANCER_VERSION           = "27.0"
-ENHANCER_TIMEOUT_S         = 4.0
-ENHANCER_RACE_TOP_N        = 3
-ENHANCER_MAX_INPUT_CHARS   = 8000
+ENHANCER_VERSION = "27.0"
+ENHANCER_TIMEOUT_S = 4.0
+ENHANCER_RACE_TOP_N = 3
+ENHANCER_MAX_INPUT_CHARS = 8000
 ENHANCER_MAX_OUTPUT_TOKENS = 1024
-ENHANCER_TEMPERATURE       = 0.2
-ENHANCER_CACHE_TTL         = 3600
-ENHANCER_CACHE_MAX         = 2000
+ENHANCER_TEMPERATURE = 0.2
+ENHANCER_CACHE_TTL = 3600
+ENHANCER_CACHE_MAX = 2000
 
 ENHANCER_DAILY_LIMIT = {
-    "free":       3,
-    "pro":        15,
-    "business":   50,
+    "free": 3,
+    "pro": 15,
+    "business": 50,
     "enterprise": 9999,
-    "guest":      0,
+    "guest": 0,
 }
 
 
@@ -78,28 +79,30 @@ def _metric(name: str, factory):
             raise
         return existing
 
+
 ENHANCER_REQUESTS = _metric(
     "enhancer_requests_total",
-    lambda: Counter("enhancer_requests_total", "Prompt enhancer requests",
-                    ["tier", "status", "provider"]),
+    lambda: Counter("enhancer_requests_total", "Prompt enhancer requests", ["tier", "status", "provider"]),
 )
 
 ENHANCER_LATENCY = _metric(
     "enhancer_latency_seconds",
-    lambda: Histogram("enhancer_latency_seconds", "Prompt enhancer latency",
-                      ["provider", "outcome"]),
+    lambda: Histogram("enhancer_latency_seconds", "Prompt enhancer latency", ["provider", "outcome"]),
 )
 
 ENHANCER_QUALITY_DELTA = _metric(
     "enhancer_quality_delta",
-    lambda: Histogram("enhancer_quality_delta", "Score delta (enhanced − original)",
-                      buckets=[-50, -25, -10, -5, 0, 5, 10, 25, 50, 100]),
+    lambda: Histogram(
+        "enhancer_quality_delta",
+        "Score delta (enhanced − original)",
+        buckets=[-50, -25, -10, -5, 0, 5, 10, 25, 50, 100],
+    ),
 )
 
 
 # ── Module-local state ───────────────────────────────────────────────────────
 
-_ENHANCER_MEM_QUOTA: dict[str, tuple[int, str]] = {}   # user_id -> (count, date)
+_ENHANCER_MEM_QUOTA: dict[str, tuple[int, str]] = {}  # user_id -> (count, date)
 _ENHANCER_UNAVAILABLE_UNTIL: float = 0.0
 _ENHANCER_UNAVAILABLE_COOLDOWN_S: float = 30.0
 
@@ -149,8 +152,7 @@ _ENHANCER_MODES = {
         "Specify: layout, components, states, responsive behaviour, accessibility."
     ),
     "core": (
-        "MODE: CORE. Rewrite into a sharper, denser, more actionable instruction. "
-        "Preserve every concrete detail."
+        "MODE: CORE. Rewrite into a sharper, denser, more actionable instruction. Preserve every concrete detail."
     ),
 }
 
@@ -255,6 +257,7 @@ def _sanitize_enhanced_prompt(text: str, original: str) -> str:
 
 # ── Diff (token-level with displayable segments) ─────────────────────────────
 
+
 def _build_diff(original: str, enhanced: str) -> dict:
     orig_tokens = re.findall(r"\S+\s*", original)
     enh_tokens = re.findall(r"\S+\s*", enhanced)
@@ -294,6 +297,7 @@ def _build_diff(original: str, enhanced: str) -> dict:
 
 # ── Scoring (multi-axis) ─────────────────────────────────────────────────────
 
+
 def _compute_scores(original: str, enhanced: str) -> dict:
     def _clarity(t: str) -> int:
         words = re.findall(r"\b\w+\b", t)
@@ -309,22 +313,48 @@ def _compute_scores(original: str, enhanced: str) -> dict:
     def _specificity(t: str) -> int:
         numbers = len(re.findall(r"\b\d+(?:\.\d+)?\b", t))
         quoted = len(re.findall(r'"[^"]{2,}"|`[^`]{2,}`|\'[^\']{2,}\'', t))
-        tech = len(re.findall(
-            r"\b(?:function|class|method|api|endpoint|schema|field|column|"
-            r"input|output|format|json|csv|sql|regex|step|example|"
-            r"constraint|requirement|edge\s?case|error|test|assert|"
-            r"responsive|accessibility|component|state|prop)\b",
-            t, re.IGNORECASE,
-        ))
+        tech = len(
+            re.findall(
+                r"\b(?:function|class|method|api|endpoint|schema|field|column|"
+                r"input|output|format|json|csv|sql|regex|step|example|"
+                r"constraint|requirement|edge\s?case|error|test|assert|"
+                r"responsive|accessibility|component|state|prop)\b",
+                t,
+                re.IGNORECASE,
+            )
+        )
         named = len(re.findall(r"\b[A-Z][a-zA-Z0-9]{2,}\b", t))
         return min(100, numbers * 8 + quoted * 10 + tech * 6 + named * 4)
 
     def _density(t: str) -> int:
         filler = {
-            "please", "kindly", "just", "really", "very", "actually", "basically",
-            "simply", "would", "could", "should", "might", "maybe", "perhaps",
-            "i", "me", "my", "we", "us", "you", "your",
-            "want", "need", "like", "help", "trying", "try",
+            "please",
+            "kindly",
+            "just",
+            "really",
+            "very",
+            "actually",
+            "basically",
+            "simply",
+            "would",
+            "could",
+            "should",
+            "might",
+            "maybe",
+            "perhaps",
+            "i",
+            "me",
+            "my",
+            "we",
+            "us",
+            "you",
+            "your",
+            "want",
+            "need",
+            "like",
+            "help",
+            "trying",
+            "try",
         }
         words = re.findall(r"\b\w+\b", t.lower())
         if not words:
@@ -334,20 +364,29 @@ def _compute_scores(original: str, enhanced: str) -> dict:
 
     def _structure(t: str) -> int:
         bullets = len(re.findall(r"^\s*(?:[-*]|\d+[.)])\s", t, re.MULTILINE))
-        cues = len(re.findall(
-            r"\b(?:include|cover|specify|ensure|return|output|format|"
-            r"step|list|e\.g\.|for example|do not|must|should)\b",
-            t, re.IGNORECASE,
-        ))
-        if bullets >= 2: return 100
-        if bullets == 1 or cues >= 2: return 80
-        if cues == 1: return 65
+        cues = len(
+            re.findall(
+                r"\b(?:include|cover|specify|ensure|return|output|format|"
+                r"step|list|e\.g\.|for example|do not|must|should)\b",
+                t,
+                re.IGNORECASE,
+            )
+        )
+        if bullets >= 2:
+            return 100
+        if bullets == 1 or cues >= 2:
+            return 80
+        if cues == 1:
+            return 65
         return 50
 
     def bundle(t: str) -> dict:
         c, s, d, st = _clarity(t), _specificity(t), _density(t), _structure(t)
         return {
-            "clarity": c, "specificity": s, "density": d, "structure": st,
+            "clarity": c,
+            "specificity": s,
+            "density": d,
+            "structure": st,
             "overall": int((c + s + d + st) / 4),
         }
 
@@ -382,6 +421,7 @@ def _build_rationale(original: str, enhanced: str, mode: str, scores: dict) -> l
 
 # ── Quota (atomic, DB-optional) ──────────────────────────────────────────────
 
+
 async def _try_reserve_enhancer_quota(user: dict | None) -> tuple[bool, str]:
     if not user:
         return False, "no_user"
@@ -399,9 +439,7 @@ async def _try_reserve_enhancer_quota(user: dict | None) -> tuple[bool, str]:
         )
         await state.users_col.update_one(
             {"_id": user["_id"], "enhancerQuota.date": {"$ne": today}},
-            {"$set": {"enhancerQuota.date": today,
-                      "enhancerQuota.count": 0,
-                      "enhancerQuota.limit": limit}},
+            {"$set": {"enhancerQuota.date": today, "enhancerQuota.count": 0, "enhancerQuota.limit": limit}},
         )
         # Atomic increment with limit guard.
         res = await state.users_col.update_one(
@@ -442,8 +480,11 @@ async def _rollback_enhancer_quota(user: dict | None) -> None:
 
 # ── Provider racing ──────────────────────────────────────────────────────────
 
+
 async def _enhance_via_provider(
-    provider_name: str, full_prompt: str, timeout: float,
+    provider_name: str,
+    full_prompt: str,
+    timeout: float,
 ) -> tuple[str, str, float]:
     func = PROVIDER_FUNC_MAP.get(provider_name)
     models = PROVIDER_MODELS.get(provider_name) or []
@@ -464,7 +505,9 @@ async def _enhance_via_provider(
     except Exception as e:
         latency = time.time() - t0
         await record_provider_result(
-            provider_name, latency, success=False,
+            provider_name,
+            latency,
+            success=False,
             is_rate_limit=("429" in str(e) or "quota" in str(e).lower()),
         )
         raise
@@ -490,7 +533,9 @@ async def _race_enhancer_providers(full_prompt: str):
         # Execute only this single provider (one bid at a time, zero redundant cost).
         try:
             return await _enhance_via_provider(
-                provider_name, full_prompt, ENHANCER_TIMEOUT_S,
+                provider_name,
+                full_prompt,
+                ENHANCER_TIMEOUT_S,
             )
         except Exception:
             continue
@@ -501,6 +546,7 @@ async def _race_enhancer_providers(full_prompt: str):
 
 
 # ── Endpoints ────────────────────────────────────────────────────────────────
+
 
 class EnhanceRequest(BaseModel):
     promptText: str
@@ -521,10 +567,13 @@ async def enhance_prompt(
     if not prompt_text:
         raise HTTPException(400, {"code": "EMPTY_INPUT", "message": "No text provided."})
     if len(prompt_text) > ENHANCER_MAX_INPUT_CHARS:
-        raise HTTPException(413, {
-            "code": "INPUT_TOO_LARGE",
-            "message": f"Prompt exceeds {ENHANCER_MAX_INPUT_CHARS} characters.",
-        })
+        raise HTTPException(
+            413,
+            {
+                "code": "INPUT_TOO_LARGE",
+                "message": f"Prompt exceeds {ENHANCER_MAX_INPUT_CHARS} characters.",
+            },
+        )
 
     # ---- injection boundary ----
     if _is_enhancer_injection(prompt_text):
@@ -550,19 +599,19 @@ async def enhance_prompt(
     ok, reason = await _try_reserve_enhancer_quota(user)
     if not ok:
         ENHANCER_REQUESTS.labels(tier=tier, status=f"quota_{reason}", provider="none").inc()
-        raise HTTPException(403, {
-            "code": "LIMIT_REACHED",
-            "limit": ENHANCER_DAILY_LIMIT.get(tier, 0),
-            "used": user.get("enhancerQuota", {}).get("count", 0),
-            "message": "Daily enhancement limit reached.",
-        })
+        raise HTTPException(
+            403,
+            {
+                "code": "LIMIT_REACHED",
+                "limit": ENHANCER_DAILY_LIMIT.get(tier, 0),
+                "used": user.get("enhancerQuota", {}).get("count", 0),
+                "message": "Daily enhancement limit reached.",
+            },
+        )
 
     charged = True
     try:
-        full_prompt = (
-            f"{_ENHANCER_SYSTEM}\n{_ENHANCER_MODES[mode]}\n\n"
-            f"<input>\n{prompt_text}\n</input>"
-        )
+        full_prompt = f"{_ENHANCER_SYSTEM}\n{_ENHANCER_MODES[mode]}\n\n<input>\n{prompt_text}\n</input>"
         race_result = await _race_enhancer_providers(full_prompt)
 
         # ---- no provider available ----
@@ -595,8 +644,7 @@ async def enhance_prompt(
                 "mode": mode,
                 "provider": provider_used,
                 "note": "no_change",
-                "diff": {"segments": [], "additions": [], "removals": [],
-                         "similarity": 1.0, "changed": False},
+                "diff": {"segments": [], "additions": [], "removals": [], "similarity": 1.0, "changed": False},
                 "scores": _compute_scores(prompt_text, prompt_text),
                 "rationale": ["Prompt already optimal."],
             }
@@ -657,15 +705,17 @@ async def enhance_prompt_feedback(
     """Record accept/reject for future reranker training. Never fails loudly."""
     try:
         if state.db_available and state.db is not None:
-            await state.db.get_collection("enhancer_feedback").insert_one({
-                "userId": str(user["_id"]) if user and "_id" in user else None,
-                "tier": (user or {}).get("tier", "free"),
-                "cacheKey": data.cache_key,
-                "accepted": bool(data.accepted),
-                "mode": data.mode,
-                "provider": data.provider,
-                "createdAt": datetime.now(timezone.utc),
-            })
+            await state.db.get_collection("enhancer_feedback").insert_one(
+                {
+                    "userId": str(user["_id"]) if user and "_id" in user else None,
+                    "tier": (user or {}).get("tier", "free"),
+                    "cacheKey": data.cache_key,
+                    "accepted": bool(data.accepted),
+                    "mode": data.mode,
+                    "provider": data.provider,
+                    "createdAt": datetime.now(timezone.utc),
+                }
+            )
     except Exception as e:
         logger.warning("enhancer_feedback_insert_failed error=%s", e)
     return {"success": True}
@@ -677,10 +727,18 @@ __all__ = [
     "ENHANCER_VERSION",
     "ENHANCER_DAILY_LIMIT",
     # exposed for tests
-    "_detect_enhancer_mode", "_is_enhancer_injection",
-    "_sanitize_enhanced_prompt", "_build_diff", "_compute_scores",
-    "_build_rationale", "_try_reserve_enhancer_quota",
-    "_rollback_enhancer_quota", "_race_enhancer_providers",
-    "_ENHANCER_MEM_QUOTA", "_ENHANCER_UNAVAILABLE_UNTIL",
-    "ENHANCER_REQUESTS", "ENHANCER_LATENCY", "ENHANCER_QUALITY_DELTA",
+    "_detect_enhancer_mode",
+    "_is_enhancer_injection",
+    "_sanitize_enhanced_prompt",
+    "_build_diff",
+    "_compute_scores",
+    "_build_rationale",
+    "_try_reserve_enhancer_quota",
+    "_rollback_enhancer_quota",
+    "_race_enhancer_providers",
+    "_ENHANCER_MEM_QUOTA",
+    "_ENHANCER_UNAVAILABLE_UNTIL",
+    "ENHANCER_REQUESTS",
+    "ENHANCER_LATENCY",
+    "ENHANCER_QUALITY_DELTA",
 ]

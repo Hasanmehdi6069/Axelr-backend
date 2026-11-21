@@ -1,4 +1,5 @@
 """Appwrite Inbound Email Function for automated Paytm/UPI payment verification"""
+
 import logging
 import os
 import re
@@ -15,8 +16,10 @@ from .retry import with_exponential_backoff
 
 logger = logging.getLogger("axelr.payment_processor")
 
+
 class PaymentEmailData(BaseModel):
     """Pydantic schema for validated payment data extracted from incoming emails"""
+
     utr_number: str = Field(..., min_length=12, max_length=22, description="UPI transaction ID (UTR)")
     amount: float = Field(..., ge=1.0, description="Payment amount in INR")
     payer_vpa: str = Field(..., max_length=50, description="Payer's UPI VPA")
@@ -26,28 +29,29 @@ class PaymentEmailData(BaseModel):
     email_subject: str = Field(..., description="Subject line of the payment confirmation email")
     raw_email_body: str = Field(..., max_length=100000, description="Full raw email body content")
 
-    @field_validator('utr_number')
+    @field_validator("utr_number")
     def validate_utr(cls, v: str) -> str:
         """Validate UTR format - Indian bank UTR numbers follow specific patterns"""
         patterns = [
-            r'^[A-Za-z0-9]{12,22}$',  # Generic UTR format
-            r'^PAYTM[0-9]{16}$',       # Paytm specific format
-            r'^UPI[0-9]{16}$'          # Generic UPI format
+            r"^[A-Za-z0-9]{12,22}$",  # Generic UTR format
+            r"^PAYTM[0-9]{16}$",  # Paytm specific format
+            r"^UPI[0-9]{16}$",  # Generic UPI format
         ]
         if not any(re.match(pattern, v) for pattern in patterns):
             raise ValueError(f"Invalid UTR number format: {v}")
         return v.upper()
 
-    @field_validator('payer_vpa', 'payee_vpa')
+    @field_validator("payer_vpa", "payee_vpa")
     def validate_vpa(cls, v: str) -> str:
         """Validate UPI VPA format"""
-        if not re.match(r'^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$', v):
+        if not re.match(r"^[a-zA-Z0-9._-]+@[a-zA-Z0-9]+$", v):
             raise ValueError(f"Invalid UPI VPA format: {v}")
         return v.lower()
 
 
 class TransactionRecord(BaseModel):
     """Gateway-agnostic transaction schema for Appwrite database"""
+
     transaction_id: str = Field(..., description="Unique transaction ID (UTR for UPI, gateway ID for others)")
     user_id: Optional[str] = Field(None, description="Associated Appwrite user ID")
     user_email: str = Field(..., description="User's email address")
@@ -56,13 +60,16 @@ class TransactionRecord(BaseModel):
     payment_gateway: str = Field(..., description="Payment gateway used (paytm_upi, jio, hyperswitch, etc.)")
     status: str = Field(default="pending", description="Transaction status: pending/verified/failed/duplicate")
     transaction_timestamp: datetime = Field(..., description="When transaction occurred")
-    email_received_timestamp: datetime = Field(default_factory=datetime.utcnow, description="When we received the email")
+    email_received_timestamp: datetime = Field(
+        default_factory=datetime.utcnow, description="When we received the email"
+    )
     payer_details: Dict[str, Any] = Field(default_factory=dict, description="Payer metadata")
     verification_metadata: Dict[str, Any] = Field(default_factory=dict, description="Automation verification data")
 
 
 class SubscriptionUpdate(BaseModel):
     """Subscription schema for Appwrite database"""
+
     user_id: str = Field(..., description="Appwrite user ID")
     credits_added: float = Field(..., description="Number of credits added to user account")
     subscription_tier: str = Field(..., description="Subscription tier activated")
@@ -97,21 +104,21 @@ class PaymentEmailProcessor:
             "alerts@hdfcbank.net",
             "alerts@icicibank.com",
             "upialerts@oksbi.com",
-            "notification@axlrbilling.ai"
+            "notification@axlrbilling.ai",
         }
 
         # Our business VPA to verify payments are intended for us
         self.business_vpas = {
             os.getenv("BUSINESS_VPA", "axelr@paytm").lower(),
-            os.getenv("BUSINESS_VPA_ALT", "contact@axelr").lower()
+            os.getenv("BUSINESS_VPA_ALT", "contact@axelr").lower(),
         }
 
         # Credit mapping: INR amount -> platform credits
         self.credit_conversion = {
-            99: 100,    # ₹99 = 100 credits
-            249: 300,   # ₹249 = 300 credits
-            499: 700,   # ₹499 = 700 credits
-            999: 1500   # ₹999 = 1500 credits
+            99: 100,  # ₹99 = 100 credits
+            249: 300,  # ₹249 = 300 credits
+            499: 700,  # ₹499 = 700 credits
+            999: 1500,  # ₹999 = 1500 credits
         }
 
     def extract_payment_data_from_email(self, email_payload: Dict[str, Any]) -> PaymentEmailData:
@@ -129,11 +136,11 @@ class PaymentEmailProcessor:
 
         # Extract UTR/transaction ID - common patterns in Indian bank emails
         utr_patterns = [
-            r'UTR\s*(?:number|):\s*([A-Za-z0-9]{12,22})',
-            r'Transaction ID:\s*([A-Za-z0-9]{12,22})',
-            r'Ref\.? no\.\s*:\s*([A-Za-z0-9]{12,22})',
-            r'PAYTM([0-9]{16})',
-            r'UPI([0-9]{16})'
+            r"UTR\s*(?:number|):\s*([A-Za-z0-9]{12,22})",
+            r"Transaction ID:\s*([A-Za-z0-9]{12,22})",
+            r"Ref\.? no\.\s*:\s*([A-Za-z0-9]{12,22})",
+            r"PAYTM([0-9]{16})",
+            r"UPI([0-9]{16})",
         ]
 
         utr = None
@@ -147,11 +154,7 @@ class PaymentEmailProcessor:
             raise ValueError("Could not extract valid UTR/transaction ID from email")
 
         # Extract amount
-        amount_patterns = [
-            r'Rs\.?\s*(\d+(?:\.\d{2})?)',
-            r'INR\s*(\d+(?:\.\d{2})?)',
-            r'₹\s*(\d+(?:\.\d{2})?)'
-        ]
+        amount_patterns = [r"Rs\.?\s*(\d+(?:\.\d{2})?)", r"INR\s*(\d+(?:\.\d{2})?)", r"₹\s*(\d+(?:\.\d{2})?)"]
 
         amount = None
         for pattern in amount_patterns:
@@ -164,7 +167,7 @@ class PaymentEmailProcessor:
             raise ValueError("Could not extract valid payment amount from email")
 
         # Extract VPAs
-        vpa_pattern = r'([a-zA-Z0-9._-]+@[a-zA-Z0-9]+)'
+        vpa_pattern = r"([a-zA-Z0-9._-]+@[a-zA-Z0-9]+)"
         vpas = re.findall(vpa_pattern, full_content)
         if len(vpas) < 2:
             raise ValueError(f"Could not find enough VPA addresses: found {len(vpas)}")
@@ -173,10 +176,7 @@ class PaymentEmailProcessor:
         payee_vpa = vpas[1]
 
         # Extract transaction timestamp
-        timestamp_patterns = [
-            r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})',
-            r'(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2})'
-        ]
+        timestamp_patterns = [r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})", r"(\d{2}/\d{2}/\d{4}\s+\d{2}:\d{2})"]
 
         txn_timestamp = None
         for pattern in timestamp_patterns:
@@ -199,7 +199,7 @@ class PaymentEmailProcessor:
             transaction_timestamp=txn_timestamp,
             sender_email=from_email,
             email_subject=subject,
-            raw_email_body=full_content
+            raw_email_body=full_content,
         )
 
     @with_exponential_backoff(max_retries=3)
@@ -210,7 +210,7 @@ class PaymentEmailProcessor:
             response = self.databases.list_documents(
                 database_id=self.database_id,
                 collection_id=self.transactions_collection,
-                queries=[f"transaction_id.equal({utr_number})"]
+                queries=[f"transaction_id.equal({utr_number})"],
             )
             return len(response.get("documents", [])) > 0
         except Exception as e:
@@ -225,16 +225,13 @@ class PaymentEmailProcessor:
             user_email=payment_data.sender_email,
             amount=payment_data.amount,
             payment_gateway="paytm_upi",
-            payer_details={
-                "vpa": payment_data.payer_vpa,
-                "email": payment_data.sender_email
-            },
+            payer_details={"vpa": payment_data.payer_vpa, "email": payment_data.sender_email},
             transaction_timestamp=payment_data.transaction_timestamp,
             verification_metadata={
                 "email_subject": payment_data.email_subject,
                 "sender_email_verified": payment_data.sender_email in self.approved_senders,
-                "payee_vpa_verified": payment_data.payee_vpa in self.business_vpas
-            }
+                "payee_vpa_verified": payment_data.payee_vpa in self.business_vpas,
+            },
         )
 
         # Verify we're the intended payee
@@ -251,7 +248,7 @@ class PaymentEmailProcessor:
             database_id=self.database_id,
             collection_id=self.transactions_collection,
             document_id=payment_data.utr_number,  # Use UTR as document ID for idempotency
-            data=transaction.dict()
+            data=transaction.dict(),
         )
 
         return response["$id"]
@@ -299,14 +296,12 @@ class PaymentEmailProcessor:
             credits_added=credits,
             subscription_tier=tier,
             valid_until=valid_until,
-            transaction_id=transaction_id
+            transaction_id=transaction_id,
         )
 
         # Create subscription record
         self.databases.create_document(
-            database_id=self.database_id,
-            collection_id=self.subscriptions_collection,
-            data=subscription.dict()
+            database_id=self.database_id, collection_id=self.subscriptions_collection, data=subscription.dict()
         )
 
         # Update user's metadata with current credit balance
@@ -320,11 +315,13 @@ class PaymentEmailProcessor:
             prefs={
                 "credits": new_credits,
                 "subscription_tier": tier,
-                "subscription_valid_until": valid_until.isoformat()
-            }
+                "subscription_valid_until": valid_until.isoformat(),
+            },
         )
 
-        logger.info(f"Successfully updated user {user_id}: +{credits} credits, tier: {tier}, valid until: {valid_until}")
+        logger.info(
+            f"Successfully updated user {user_id}: +{credits} credits, tier: {tier}, valid until: {valid_until}"
+        )
 
     @with_exponential_backoff(max_retries=3)
     def mark_transaction_verified(self, transaction_id: str) -> None:
@@ -333,10 +330,7 @@ class PaymentEmailProcessor:
             database_id=self.database_id,
             collection_id=self.transactions_collection,
             document_id=transaction_id,
-            data={
-                "status": "verified",
-                "verified_at": datetime.utcnow().isoformat()
-            }
+            data={"status": "verified", "verified_at": datetime.utcnow().isoformat()},
         )
 
     def process(self, context: Any, email_payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -346,7 +340,9 @@ class PaymentEmailProcessor:
         try:
             # Step 1: Extract and validate payment data from email
             payment_data = self.extract_payment_data_from_email(email_payload)
-            logger.info(f"Successfully extracted payment data: UTR={payment_data.utr_number}, Amount=₹{payment_data.amount}")
+            logger.info(
+                f"Successfully extracted payment data: UTR={payment_data.utr_number}, Amount=₹{payment_data.amount}"
+            )
 
             # Step 2: Idempotency check - avoid duplicate processing
             if self.check_duplicate_transaction(payment_data.utr_number):
@@ -370,7 +366,7 @@ class PaymentEmailProcessor:
                 database_id=self.database_id,
                 collection_id=self.transactions_collection,
                 document_id=transaction_id,
-                data={"user_id": user_id}
+                data={"user_id": user_id},
             )
 
             # Step 5: Update user's subscription and credits
@@ -385,7 +381,7 @@ class PaymentEmailProcessor:
                 "success": True,
                 "transaction_id": transaction_id,
                 "user_id": user_id,
-                "utr": payment_data.utr_number
+                "utr": payment_data.utr_number,
             }
 
         except ValidationError as e:

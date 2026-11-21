@@ -4,6 +4,7 @@ Rules for this file:
   * every test is marked `slow` — excluded from fast PR runs
   * thresholds are conservative (CI-friendly); tighten after a week of data
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,13 +20,15 @@ pytestmark = [pytest.mark.slow]
 # A. Concurrency
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_a1_50_parallel_builds(buildx_engine):
     """50 parallel build jobs must complete without errors."""
+
     async def one(i):
         return await buildx_engine.start_build(f"build-{i}", {"dockerfile": "test.Dockerfile"})
-    results = await asyncio.gather(*[one(i) for i in range(50)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[one(i) for i in range(50)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/50 builds failed: {failures[:2]}"
 
@@ -33,10 +36,11 @@ async def test_a1_50_parallel_builds(buildx_engine):
 @pytest.mark.asyncio
 async def test_a2_concurrent_image_pulls_no_corruption(buildx_engine):
     """20 concurrent image pulls must not corrupt images."""
+
     async def pull(i):
         return await buildx_engine.pull_image(f"alpine:{i}")
-    results = await asyncio.gather(*[pull(i) for i in range(20)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[pull(i) for i in range(20)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/20 pulls failed"
     images = await buildx_engine.list_images()
@@ -46,10 +50,11 @@ async def test_a2_concurrent_image_pulls_no_corruption(buildx_engine):
 @pytest.mark.asyncio
 async def test_a3_parallel_log_streams_no_deadlock(buildx_engine):
     """30 parallel log streams must complete without deadlock."""
+
     async def stream(i):
         return await buildx_engine.get_build_logs(f"build-{i % 10}")
-    results = await asyncio.gather(*[stream(i) for i in range(30)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[stream(i) for i in range(30)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/30 log streams failed"
 
@@ -58,11 +63,14 @@ async def test_a3_parallel_log_streams_no_deadlock(buildx_engine):
 # B. Chaos
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_b1_daemon_crash_mid_build(buildx_engine, monkeypatch):
     """Docker daemon crash mid-build must return clean error, not hang."""
+
     def mock_daemon_crash(*args, **kwargs):
         raise ConnectionError("Docker daemon crashed")
+
     monkeypatch.setattr(buildx_engine, "start_build", mock_daemon_crash)
     with pytest.raises(ConnectionError):
         await buildx_engine.start_build("crash-test", {})
@@ -71,8 +79,10 @@ async def test_b1_daemon_crash_mid_build(buildx_engine, monkeypatch):
 @pytest.mark.asyncio
 async def test_b2_corrupt_dockerfile_handled(buildx_engine, monkeypatch):
     """Corrupt Dockerfile must be handled gracefully."""
+
     def mock_corrupt_build(*args, **kwargs):
         raise ValueError("Invalid Dockerfile syntax")
+
     monkeypatch.setattr(buildx_engine, "start_build", mock_corrupt_build)
     with pytest.raises(ValueError):
         await buildx_engine.start_build("corrupt-test", {})
@@ -81,8 +91,10 @@ async def test_b2_corrupt_dockerfile_handled(buildx_engine, monkeypatch):
 @pytest.mark.asyncio
 async def test_b3_registry_timeout_handled(buildx_engine, monkeypatch):
     """Registry timeout must be handled gracefully."""
+
     def mock_reg_timeout(*args, **kwargs):
         raise TimeoutError("Registry connection timed out")
+
     monkeypatch.setattr(buildx_engine, "pull_image", mock_reg_timeout)
     with pytest.raises(TimeoutError):
         await buildx_engine.pull_image("timeout-test")
@@ -91,6 +103,7 @@ async def test_b3_registry_timeout_handled(buildx_engine, monkeypatch):
 # ══════════════════════════════════════════════════════════════════════════
 # C. Performance envelope
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_c1_build_queue_latency_p50_p99(buildx_engine):
@@ -133,6 +146,7 @@ async def test_c3_log_fetch_throughput(buildx_engine):
 # D. Soak — bounded sustained load
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 @pytest.mark.soak
 async def test_d1_60s_soak_no_degradation(buildx_engine):
@@ -148,4 +162,4 @@ async def test_d1_60s_soak_no_degradation(buildx_engine):
         iterations += 1
     first, last = statistics.mean(buckets[0]), statistics.mean(buckets[2])
     print(f"\n  soak: {iterations} iters, first20s={first:.0f}ms last20s={last:.0f}ms")
-    assert last < first * 1.5, f"degradation detected: {last/first:.2f}x ratio"
+    assert last < first * 1.5, f"degradation detected: {last / first:.2f}x ratio"

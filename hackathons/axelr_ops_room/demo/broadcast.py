@@ -27,6 +27,7 @@ Env overrides:
     OPS_LOG_SPEED      Multiplier on delays (< 1 = faster, default 0.5)
     OPS_HB_INTERVAL    Persistence heartbeat interval (default 5.0s)
 """
+
 from __future__ import annotations
 
 import argparse
@@ -47,6 +48,7 @@ try:
     from axelr_insights_engine import get_engine as aw_get
     from axelr_insights_engine import init as aw_init
     from switch_client import SwitchAgentClient
+
     _HAS_SWITCH = True
 except ImportError:
     _HAS_SWITCH = False
@@ -58,15 +60,15 @@ logging.basicConfig(
 )
 log = logging.getLogger("engine")
 
-WS_PORT        = int(os.getenv("OPS_WS_PORT", "8765"))
-ROOM_ID        = os.getenv("SWITCH_ROOM_ID", "")
-AUDIT_TABLE    = "audit_events"
+WS_PORT = int(os.getenv("OPS_WS_PORT", "8765"))
+ROOM_ID = os.getenv("SWITCH_ROOM_ID", "")
+AUDIT_TABLE = "audit_events"
 INSIGHTS_TABLE = "axelr_insights"
 
 LOGGING_PERIOD = int(os.getenv("OPS_LOGGING_PERIOD", "120"))
-REPORT_PERIOD  = int(os.getenv("OPS_REPORT_PERIOD",  "30"))
-LOG_SPEED      = float(os.getenv("OPS_LOG_SPEED",   "0.5"))
-HB_INTERVAL    = float(os.getenv("OPS_HB_INTERVAL", "5.0"))
+REPORT_PERIOD = int(os.getenv("OPS_REPORT_PERIOD", "30"))
+LOG_SPEED = float(os.getenv("OPS_LOG_SPEED", "0.5"))
+HB_INTERVAL = float(os.getenv("OPS_HB_INTERVAL", "5.0"))
 
 clients: set = set()
 _db = None
@@ -88,8 +90,7 @@ async def emit(kind: str, text: str, level: str = "info", **extra) -> None:
     try:
         raw = json.dumps(payload, default=str)
     except (TypeError, ValueError) as e:
-        raw = json.dumps({"kind": "error", "text": f"serialize_failed: {e}",
-                          "level": "err", "iso": now_iso()})
+        raw = json.dumps({"kind": "error", "text": f"serialize_failed: {e}", "level": "err", "iso": now_iso()})
     dead = []
     for ws in list(clients):
         try:
@@ -107,9 +108,10 @@ async def emit(kind: str, text: str, level: str = "info", **extra) -> None:
 async def trigger_chaos() -> None:
     global _db_available
     await emit(
-        "chaos", "chaos triggered: appwrite", level="warn",
-        chaos={"mode": "appwrite", "recover_in_ms": 3000,
-               "message": "Simulated backend failure"},
+        "chaos",
+        "chaos triggered: appwrite",
+        level="warn",
+        chaos={"mode": "appwrite", "recover_in_ms": 3000, "message": "Simulated backend failure"},
     )
     _db_available = False
     await emit("system", "Appwrite marked unavailable — degradation mode", level="err")
@@ -126,11 +128,16 @@ async def ws_handler(ws) -> None:
     clients.add(ws)
     log.info("dashboard connected (clients=%d)", len(clients))
     try:
-        await ws.send(json.dumps({
-            "kind": "system",
-            "text": f"dashboard connected ({len(clients)} total)",
-            "level": "ok", "iso": now_iso(),
-        }))
+        await ws.send(
+            json.dumps(
+                {
+                    "kind": "system",
+                    "text": f"dashboard connected ({len(clients)} total)",
+                    "level": "ok",
+                    "iso": now_iso(),
+                }
+            )
+        )
         while True:
             try:
                 raw = await asyncio.wait_for(ws.recv(), timeout=30)
@@ -180,23 +187,18 @@ async def ws_handler(ws) -> None:
 # ═══════════════════════════════════════════════════════════════════
 # Appwrite helpers — every result here is real
 # ═══════════════════════════════════════════════════════════════════
-async def _aw_upsert(table: str, row_id: str, data: dict,
-                     *, runbook: dict | None = None,
-                     quiet: bool = False) -> bool:
+async def _aw_upsert(table: str, row_id: str, data: dict, *, runbook: dict | None = None, quiet: bool = False) -> bool:
     if not _db or not _db_available:
         if not quiet:
-            await emit("appwrite", f"[skipped] appwrite unavailable — {row_id}",
-                       level="warn")
+            await emit("appwrite", f"[skipped] appwrite unavailable — {row_id}", level="warn")
         return False
     try:
         await _db.tables.upsert(table, row_id, data)
-        await emit("appwrite", f"upserted {table}/{row_id}", level="ok",
-                   row_id=row_id, runbook=runbook)
+        await emit("appwrite", f"upserted {table}/{row_id}", level="ok", row_id=row_id, runbook=runbook)
         return True
     except Exception as e:
         if not quiet:
-            await emit("appwrite", f"[error] {table}/{row_id}: {str(e)[:120]}",
-                       level="err")
+            await emit("appwrite", f"[error] {table}/{row_id}: {str(e)[:120]}", level="err")
         return False
 
 
@@ -224,8 +226,7 @@ async def appwrite_heartbeat(interval_s: float = HB_INTERVAL) -> None:
     if not (_HAS_SWITCH and _db is not None):
         await emit(
             "appwrite",
-            "persistence status: Appwrite not configured — "
-            "set SWITCH_* env to enable real writes",
+            "persistence status: Appwrite not configured — set SWITCH_* env to enable real writes",
             level="info",
         )
         while True:
@@ -241,18 +242,20 @@ async def appwrite_heartbeat(interval_s: float = HB_INTERVAL) -> None:
         await asyncio.sleep(interval_s)
         row_id = f"hb-{int(time.time() * 1000)}"
         ok = await _aw_upsert(
-            AUDIT_TABLE, row_id,
-            {"kind": "heartbeat", "ts": now_iso(), "status": "healthy",
-             "payload": json.dumps({"source": "ops-room",
-                                    "check": "liveness"})[:65000]},
-            runbook=None,    # don't clobber the incident runbook display
+            AUDIT_TABLE,
+            row_id,
+            {
+                "kind": "heartbeat",
+                "ts": now_iso(),
+                "status": "healthy",
+                "payload": json.dumps({"source": "ops-room", "check": "liveness"})[:65000],
+            },
+            runbook=None,  # don't clobber the incident runbook display
             quiet=False,
         )
         fails = 0 if ok else fails + 1
         if fails >= 3:
-            await emit("system",
-                       "Appwrite heartbeat stopped after 3 consecutive failures",
-                       level="warn")
+            await emit("system", "Appwrite heartbeat stopped after 3 consecutive failures", level="warn")
             return
 
 
@@ -273,17 +276,26 @@ async def handle_switch_frame(frame: dict, switch) -> None:
     if text.lower().startswith("incident"):
         iid = f"INC{int(time.time())}"
         _pending[iid] = {"room": room}
-        await _aw_upsert(AUDIT_TABLE, iid, {
-            "kind": "incident", "ts": now_iso(), "status": "open",
-            "payload": json.dumps({"text": text})[:65000],
-        }, runbook={"incident_id": iid, "status": "detected"})
+        await _aw_upsert(
+            AUDIT_TABLE,
+            iid,
+            {
+                "kind": "incident",
+                "ts": now_iso(),
+                "status": "open",
+                "payload": json.dumps({"text": text})[:65000],
+            },
+            runbook={"incident_id": iid, "status": "detected"},
+        )
         try:
-            await switch.post_message(room,
+            await switch.post_message(
+                room,
                 f"**Incident {iid}**\n"
                 f"• Likely cause: upstream dependency regression\n"
                 f"• First step: check deploy diff and error rate\n"
                 f"• Rollback: redeploy previous tag\n\n"
-                f"Reply `APPROVED` to mitigate.")
+                f"Reply `APPROVED` to mitigate.",
+            )
             await emit("switch", f"agent replied to {iid}", level="ok")
         except Exception as e:
             await emit("error", f"reply failed: {str(e)[:120]}", level="err")
@@ -298,16 +310,29 @@ async def handle_switch_frame(frame: dict, switch) -> None:
             return
         iid = next(reversed(_pending))
         status = "mitigated" if text.upper() == "APPROVED" else "held"
-        await _aw_upsert(AUDIT_TABLE, iid, {
-            "kind": "incident", "ts": now_iso(), "status": status,
-            "payload": json.dumps({"text": text})[:65000],
-        }, runbook={"incident_id": iid, "status": status})
-        await _aw_upsert(INSIGHTS_TABLE, f"rb-{iid}", {
-            "user_id": "ops", "insight_type": "runbook",
-            "content": f"Runbook {iid}: {status}",
-            "timestamp": int(time.time() * 1000),
-            "system_origin": "axelr-ops-room",
-        }, runbook={"incident_id": iid, "status": status})
+        await _aw_upsert(
+            AUDIT_TABLE,
+            iid,
+            {
+                "kind": "incident",
+                "ts": now_iso(),
+                "status": status,
+                "payload": json.dumps({"text": text})[:65000],
+            },
+            runbook={"incident_id": iid, "status": status},
+        )
+        await _aw_upsert(
+            INSIGHTS_TABLE,
+            f"rb-{iid}",
+            {
+                "user_id": "ops",
+                "insight_type": "runbook",
+                "content": f"Runbook {iid}: {status}",
+                "timestamp": int(time.time() * 1000),
+                "system_origin": "axelr-ops-room",
+            },
+            runbook={"incident_id": iid, "status": status},
+        )
         try:
             await switch.post_message(room, f"**{iid} → {status}**")
             await emit("switch", f"agent confirmed {iid} → {status}", level="ok")
@@ -366,62 +391,152 @@ async def capture_and_emit_logs() -> None:
     _session_start = time.time()
 
     user_ids = [random.randint(10000, 99999) for _ in range(50)]
-    regions  = ["us-east-1", "us-west-2", "eu-central-1", "ap-southeast-1"]
+    regions = ["us-east-1", "us-west-2", "eu-central-1", "ap-southeast-1"]
 
     # Every template is ok / info — no fabricated outages.
     # The frames are real; the numeric values inside are demo data.
     event_templates = [
-        ("health", "api gateway health check passed (latency {latency}ms)", "ok", 0.8,
-         {"latency": lambda: random.randint(25, 65)}),
-        ("health", "cdn cache hit ratio {ratio}% (edge locations healthy)", "ok", 1.2,
-         {"ratio": lambda: round(random.uniform(94.5, 97.8), 1)}),
-        ("health", "database connection pool: {active}/100 active, 0 errors", "ok", 1.0,
-         {"active": lambda: random.randint(8, 22)}),
-        ("health", "worker pool: {running}/16 processes running, queue depth {depth}", "info", 1.5,
-         {"running": lambda: random.randint(6, 14), "depth": lambda: random.randint(1, 8)}),
-        ("auth", "new user signed up ({region}): {user_id}", "info", 0.5,
-         {"region": lambda: random.choice(regions), "user_id": lambda: random.choice(user_ids)}),
-        ("auth", "token refresh successful for {account}", "ok", 0.7,
-         {"account": lambda: random.choice(
-             ["service-account-prod", "ci-cd-bot", "analytics-worker", "backup-service"])}),
-        ("api", "POST /v1/orders processed in {latency}ms (2xx status)", "ok", 0.6,
-         {"latency": lambda: random.randint(90, 180)}),
-        ("api", "GET /v1/products cached, served in {latency}ms", "ok", 0.4,
-         {"latency": lambda: random.randint(15, 35)}),
-        ("api", "webhook delivered to {processor}: success", "ok", 1.1,
-         {"processor": lambda: random.choice(
-             ["payment-processor", "email-service", "crm-sync", "inventory-manager"])}),
-        ("deploy", "canary deployment {version}: {traffic}% traffic shifted", "info", 2.0,
-         {"version": lambda: f"1.{random.randint(20,25)}.{random.randint(1,5)}-patch",
-          "traffic": lambda: random.randint(10, 25)}),
+        (
+            "health",
+            "api gateway health check passed (latency {latency}ms)",
+            "ok",
+            0.8,
+            {"latency": lambda: random.randint(25, 65)},
+        ),
+        (
+            "health",
+            "cdn cache hit ratio {ratio}% (edge locations healthy)",
+            "ok",
+            1.2,
+            {"ratio": lambda: round(random.uniform(94.5, 97.8), 1)},
+        ),
+        (
+            "health",
+            "database connection pool: {active}/100 active, 0 errors",
+            "ok",
+            1.0,
+            {"active": lambda: random.randint(8, 22)},
+        ),
+        (
+            "health",
+            "worker pool: {running}/16 processes running, queue depth {depth}",
+            "info",
+            1.5,
+            {"running": lambda: random.randint(6, 14), "depth": lambda: random.randint(1, 8)},
+        ),
+        (
+            "auth",
+            "new user signed up ({region}): {user_id}",
+            "info",
+            0.5,
+            {"region": lambda: random.choice(regions), "user_id": lambda: random.choice(user_ids)},
+        ),
+        (
+            "auth",
+            "token refresh successful for {account}",
+            "ok",
+            0.7,
+            {
+                "account": lambda: random.choice(
+                    ["service-account-prod", "ci-cd-bot", "analytics-worker", "backup-service"]
+                )
+            },
+        ),
+        (
+            "api",
+            "POST /v1/orders processed in {latency}ms (2xx status)",
+            "ok",
+            0.6,
+            {"latency": lambda: random.randint(90, 180)},
+        ),
+        (
+            "api",
+            "GET /v1/products cached, served in {latency}ms",
+            "ok",
+            0.4,
+            {"latency": lambda: random.randint(15, 35)},
+        ),
+        (
+            "api",
+            "webhook delivered to {processor}: success",
+            "ok",
+            1.1,
+            {
+                "processor": lambda: random.choice(
+                    ["payment-processor", "email-service", "crm-sync", "inventory-manager"]
+                )
+            },
+        ),
+        (
+            "deploy",
+            "canary deployment {version}: {traffic}% traffic shifted",
+            "info",
+            2.0,
+            {
+                "version": lambda: f"1.{random.randint(20, 25)}.{random.randint(1, 5)}-patch",
+                "traffic": lambda: random.randint(10, 25),
+            },
+        ),
         ("deploy", "frontend assets synced to CDN, cache invalidated", "ok", 1.8, {}),
-        ("system", "cluster {region} utilization steady at {level}% (within SLO)", "ok", 1.5,
-         {"region": lambda: random.choice(regions),
-          "level":  lambda: random.randint(35, 55)}),
-        ("system", "read replica latency nominal at {latency}ms", "ok", 1.2,
-         {"latency": lambda: random.randint(30, 45)}),
+        (
+            "system",
+            "cluster {region} utilization steady at {level}% (within SLO)",
+            "ok",
+            1.5,
+            {"region": lambda: random.choice(regions), "level": lambda: random.randint(35, 55)},
+        ),
+        (
+            "system",
+            "read replica latency nominal at {latency}ms",
+            "ok",
+            1.2,
+            {"latency": lambda: random.randint(30, 45)},
+        ),
         ("system", "request queue drained, 0 pending", "ok", 1.0, {}),
     ]
 
-    oncall_engineers    = ["jsmith@company.com", "agarcia@company.com",
-                           "wchen@company.com", "drodriguez@company.com"]
-    incident_migrations = [f"20261107_0{random.randint(1,5)}" for _ in range(3)]
+    oncall_engineers = ["jsmith@company.com", "agarcia@company.com", "wchen@company.com", "drodriguez@company.com"]
+    incident_migrations = [f"20261107_0{random.randint(1, 5)}" for _ in range(3)]
 
     # Healthy triage drill — the drill itself is real; if Appwrite is up,
     # its real DB writes will appear in the right panel too.
     incident_templates = [
-        ("incident", "INFO: P95 latency on /v1/checkout at {latency}ms — autoscaler engaged",
-         "info", 0.0, {"latency": lambda: random.randint(1800, 2100)}),
-        ("incident", "on-call engineer acknowledged: {engineer}", "info", 1.0,
-         {"engineer": lambda: random.choice(oncall_engineers)}),
-        ("incident", "root cause identified: transient database lock on orders table",
-         "info", 2.0, {}),
-        ("incident", "applying forward fix for migration {migration}", "info", 1.5,
-         {"migration": lambda: random.choice(incident_migrations)}),
-        ("incident", "fix applied, P95 latency restored to {latency}ms", "ok", 2.0,
-         {"latency": lambda: random.randint(400, 550)}),
-        ("incident", "INCIDENT RESOLVED: MTTR {min}m {sec}s", "ok", 1.0,
-         {"min": lambda: random.randint(5, 12), "sec": lambda: random.randint(10, 59)}),
+        (
+            "incident",
+            "INFO: P95 latency on /v1/checkout at {latency}ms — autoscaler engaged",
+            "info",
+            0.0,
+            {"latency": lambda: random.randint(1800, 2100)},
+        ),
+        (
+            "incident",
+            "on-call engineer acknowledged: {engineer}",
+            "info",
+            1.0,
+            {"engineer": lambda: random.choice(oncall_engineers)},
+        ),
+        ("incident", "root cause identified: transient database lock on orders table", "info", 2.0, {}),
+        (
+            "incident",
+            "applying forward fix for migration {migration}",
+            "info",
+            1.5,
+            {"migration": lambda: random.choice(incident_migrations)},
+        ),
+        (
+            "incident",
+            "fix applied, P95 latency restored to {latency}ms",
+            "ok",
+            2.0,
+            {"latency": lambda: random.randint(400, 550)},
+        ),
+        (
+            "incident",
+            "INCIDENT RESOLVED: MTTR {min}m {sec}s",
+            "ok",
+            1.0,
+            {"min": lambda: random.randint(5, 12), "sec": lambda: random.randint(10, 59)},
+        ),
     ]
 
     def render(template: str, placeholders: dict) -> str:
@@ -433,8 +548,7 @@ async def capture_and_emit_logs() -> None:
     while time.time() - _session_start < LOGGING_PERIOD:
         kind, tmpl, level, delay, placeholders = random.choice(event_templates)
         rendered = render(tmpl, placeholders)
-        _all_logs.append({"timestamp": now_iso(), "kind": kind,
-                          "text": rendered, "level": level})
+        _all_logs.append({"timestamp": now_iso(), "kind": kind, "text": rendered, "level": level})
         await emit(kind, rendered, level)
         await asyncio.sleep(delay * LOG_SPEED)
 
@@ -445,39 +559,39 @@ async def capture_and_emit_logs() -> None:
             # Real DB write attempt (quietly skipped if Appwrite down —
             # the heartbeat is already reporting that honestly).
             await _aw_upsert(
-                AUDIT_TABLE, iid,
-                {"kind": "incident", "ts": now_iso(), "status": "open",
-                 "payload": json.dumps({"source": "auto-drill"})[:65000]},
+                AUDIT_TABLE,
+                iid,
+                {
+                    "kind": "incident",
+                    "ts": now_iso(),
+                    "status": "open",
+                    "payload": json.dumps({"source": "auto-drill"})[:65000],
+                },
                 runbook={"incident_id": iid, "status": "detected"},
                 quiet=not _db_available,
             )
 
             for inc_kind, inc_tmpl, inc_level, inc_delay, inc_ph in incident_templates:
                 rendered_inc = render(inc_tmpl, inc_ph)
-                _all_logs.append({"timestamp": now_iso(), "kind": inc_kind,
-                                  "text": rendered_inc, "level": inc_level})
+                _all_logs.append({"timestamp": now_iso(), "kind": inc_kind, "text": rendered_inc, "level": inc_level})
                 await emit(inc_kind, rendered_inc, inc_level)
                 await asyncio.sleep(inc_delay * LOG_SPEED)
 
             # Real resolution write — updates the runbook panel if up.
             await _aw_upsert(
-                AUDIT_TABLE, iid,
-                {"kind": "incident", "ts": now_iso(), "status": "resolved",
-                 "payload": "{}"},
+                AUDIT_TABLE,
+                iid,
+                {"kind": "incident", "ts": now_iso(), "status": "resolved", "payload": "{}"},
                 runbook={"incident_id": iid, "status": "mitigated"},
                 quiet=not _db_available,
             )
             _pending.pop(iid, None)
 
-    await emit("system",
-               f"LOG CAPTURE COMPLETE: {len(_all_logs)} events captured",
-               "ok")
+    await emit("system", f"LOG CAPTURE COMPLETE: {len(_all_logs)} events captured", "ok")
     await generate_final_report()
     await capture_screenshot()
     await asyncio.sleep(max(1, REPORT_PERIOD - 10))
-    await emit("system",
-               "SESSION COMPLETE: report + screenshot saved. Server remains running",
-               "ok")
+    await emit("system", "SESSION COMPLETE: report + screenshot saved. Server remains running", "ok")
     await asyncio.sleep(5)
     log.info("restarting log capture to keep the stream continuous")
     asyncio.create_task(capture_and_emit_logs())
@@ -491,14 +605,16 @@ async def generate_final_report() -> None:
 
     def _bucket(level: str) -> str:
         l = str(level or "").lower().strip()
-        if l in ("err", "error", "critical", "fatal"): return "err"
-        if l in ("warn", "warning"):                    return "warn"
+        if l in ("err", "error", "critical", "fatal"):
+            return "err"
+        if l in ("warn", "warning"):
+            return "warn"
         return "ok"
 
-    total_events   = len(_all_logs)
-    err_count      = sum(1 for x in _all_logs if _bucket(x["level"]) == "err")
-    warn_count     = sum(1 for x in _all_logs if _bucket(x["level"]) == "warn")
-    ok_count       = sum(1 for x in _all_logs if _bucket(x["level"]) == "ok")
+    total_events = len(_all_logs)
+    err_count = sum(1 for x in _all_logs if _bucket(x["level"]) == "err")
+    warn_count = sum(1 for x in _all_logs if _bucket(x["level"]) == "warn")
+    ok_count = sum(1 for x in _all_logs if _bucket(x["level"]) == "ok")
     incident_count = sum(1 for x in _all_logs if x["kind"] == "incident")
 
     assert ok_count + warn_count + err_count == total_events, (
@@ -550,9 +666,9 @@ All logs persisted, report generated, screenshot captured. Session complete.
 # ═══════════════════════════════════════════════════════════════════
 async def capture_screenshot() -> None:
     await emit("system", "CAPTURING DASHBOARD SCREENSHOT...", "info")
-    session_id  = f"ops-session-{int(time.time())}"
-    out_path    = f"{session_id}_dashboard_screenshot.png"
-    system      = platform.system()
+    session_id = f"ops-session-{int(time.time())}"
+    out_path = f"{session_id}_dashboard_screenshot.png"
+    system = platform.system()
 
     def _capture_windows(path: str) -> None:
         ps = (
@@ -565,12 +681,10 @@ async def capture_screenshot() -> None:
             "$g.CopyFromScreen(0,0,0,0,$b.Size);"
             f"$bmp.Save('{path}');"
         )
-        subprocess.run(["powershell", "-Command", ps], check=True,
-                       capture_output=True, timeout=20)
+        subprocess.run(["powershell", "-Command", ps], check=True, capture_output=True, timeout=20)
 
     def _capture_mac(path: str) -> None:
-        subprocess.run(["screencapture", "-x", path], check=True,
-                       capture_output=True, timeout=20)
+        subprocess.run(["screencapture", "-x", path], check=True, capture_output=True, timeout=20)
 
     def _capture_linux(path: str) -> None:
         for cmd in (
@@ -586,9 +700,12 @@ async def capture_screenshot() -> None:
         raise RuntimeError("no screenshot tool available")
 
     try:
-        if system == "Windows":   await asyncio.to_thread(_capture_windows, out_path)
-        elif system == "Darwin":  await asyncio.to_thread(_capture_mac,     out_path)
-        else:                     await asyncio.to_thread(_capture_linux,   out_path)
+        if system == "Windows":
+            await asyncio.to_thread(_capture_windows, out_path)
+        elif system == "Darwin":
+            await asyncio.to_thread(_capture_mac, out_path)
+        else:
+            await asyncio.to_thread(_capture_linux, out_path)
         await emit("system", f"SCREENSHOT SAVED: {out_path}", "ok")
     except Exception as e:
         await emit("system", f"Screenshot capture skipped: {str(e)[:120]}", "warn")
@@ -607,24 +724,20 @@ async def run_stdin_mode() -> None:
             _db_available = True
             await emit("system", "Appwrite connected (stdin mode)", level="ok")
         except Exception as e:
-            await emit("appwrite",
-                       f"Appwrite unavailable — persistence idle "
-                       f"({str(e)[:100]})",
-                       level="info")
+            await emit("appwrite", f"Appwrite unavailable — persistence idle ({str(e)[:100]})", level="info")
     else:
-        await emit("appwrite",
-                   "Appwrite not configured — persistence panel will show "
-                   "honest 'no row written' probes",
-                   level="info")
+        await emit(
+            "appwrite",
+            "Appwrite not configured — persistence panel will show honest 'no row written' probes",
+            level="info",
+        )
 
     asyncio.create_task(appwrite_heartbeat())
     asyncio.create_task(capture_and_emit_logs())
 
     await emit("system", "AUTO-LOGS ENABLED: healthy stream flowing", level="ok")
     await emit("system", "STDIN mode ready — type commands below", level="ok")
-    await emit("system",
-               "commands: incident <text> | approve | reject | chaos | quit",
-               level="ok")
+    await emit("system", "commands: incident <text> | approve | reject | chaos | quit", level="ok")
 
     loop = asyncio.get_event_loop()
     while True:
@@ -638,42 +751,60 @@ async def run_stdin_mode() -> None:
         if not line:
             continue
         parts = line.split(maxsplit=1)
-        verb  = parts[0].lower()
-        rest  = parts[1] if len(parts) > 1 else ""
+        verb = parts[0].lower()
+        rest = parts[1] if len(parts) > 1 else ""
 
         if verb == "quit":
             break
         elif verb == "incident":
             iid = f"INC{int(time.time())}"
             _pending[iid] = {"room": ROOM_ID or "stdin"}
-            await emit("switch", f"alice: {rest or 'INCIDENT — no description'}",
-                       author="alice", room=ROOM_ID or "stdin")
-            await _aw_upsert(AUDIT_TABLE, iid, {
-                "kind": "incident", "ts": now_iso(), "status": "open",
-                "payload": json.dumps({"text": rest})[:65000],
-            }, runbook={"incident_id": iid, "status": "detected"})
+            await emit(
+                "switch", f"alice: {rest or 'INCIDENT — no description'}", author="alice", room=ROOM_ID or "stdin"
+            )
+            await _aw_upsert(
+                AUDIT_TABLE,
+                iid,
+                {
+                    "kind": "incident",
+                    "ts": now_iso(),
+                    "status": "open",
+                    "payload": json.dumps({"text": rest})[:65000],
+                },
+                runbook={"incident_id": iid, "status": "detected"},
+            )
             await emit("switch", f"agent replied to {iid}", level="ok")
-            await emit("system",
-                       f"reply preview: **Incident {iid}** — 3 bullets sent (stdin mode)",
-                       level="ok")
+            await emit("system", f"reply preview: **Incident {iid}** — 3 bullets sent (stdin mode)", level="ok")
         elif verb in ("approve", "approved", "reject", "rejected"):
             if not _pending:
                 await emit("switch", "no incident awaiting approval", level="warn")
                 continue
             iid = next(reversed(_pending))
             status = "mitigated" if verb.startswith("approve") else "held"
-            await emit("switch", f"alice: {verb.upper()}", author="alice",
-                       room=ROOM_ID or "stdin")
-            await _aw_upsert(AUDIT_TABLE, iid, {
-                "kind": "incident", "ts": now_iso(), "status": status,
-                "payload": "{}",
-            }, runbook={"incident_id": iid, "status": status})
-            await _aw_upsert(INSIGHTS_TABLE, f"rb-{iid}", {
-                "user_id": "ops", "insight_type": "runbook",
-                "content": f"Runbook {iid}: {status}",
-                "timestamp": int(time.time() * 1000),
-                "system_origin": "axelr-ops-room",
-            }, runbook={"incident_id": iid, "status": status})
+            await emit("switch", f"alice: {verb.upper()}", author="alice", room=ROOM_ID or "stdin")
+            await _aw_upsert(
+                AUDIT_TABLE,
+                iid,
+                {
+                    "kind": "incident",
+                    "ts": now_iso(),
+                    "status": status,
+                    "payload": "{}",
+                },
+                runbook={"incident_id": iid, "status": status},
+            )
+            await _aw_upsert(
+                INSIGHTS_TABLE,
+                f"rb-{iid}",
+                {
+                    "user_id": "ops",
+                    "insight_type": "runbook",
+                    "content": f"Runbook {iid}: {status}",
+                    "timestamp": int(time.time() * 1000),
+                    "system_origin": "axelr-ops-room",
+                },
+                runbook={"incident_id": iid, "status": status},
+            )
             _pending.pop(iid, None)
         elif verb == "chaos":
             asyncio.create_task(trigger_chaos())
@@ -691,8 +822,12 @@ async def main() -> None:
     args = parser.parse_args()
 
     server = await websockets.serve(
-        ws_handler, args.host, WS_PORT,
-        ping_interval=60, ping_timeout=120, max_size=10_485_760,
+        ws_handler,
+        args.host,
+        WS_PORT,
+        ping_interval=60,
+        ping_timeout=120,
+        max_size=10_485_760,
     )
     log.info("dashboard relay on ws://%s:%d", args.host, WS_PORT)
     await emit("system", f"relay listening on port {WS_PORT}", level="ok")

@@ -9,6 +9,7 @@ Design goals:
     - Zero Mongo. Ever.
     - Deterministic. Same inputs → same outputs, always.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -75,8 +76,7 @@ def pytest_configure(config):
 
 # ─── --live flag ─────────────────────────────────────────────────────────────
 def pytest_addoption(parser):
-    parser.addoption("--live", action="store_true", default=False,
-                     help="Run live-network tests")
+    parser.addoption("--live", action="store_true", default=False, help="Run live-network tests")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -86,7 +86,7 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "live" in item.keywords:
                 item.add_marker(skip)
-    
+
     # Handle perf and stress markers
     skip_perf = not config.getoption("-m") or "perf" not in config.getoption("-m")
     skip_stress = not config.getoption("-m") or "stress" not in config.getoption("-m")
@@ -103,6 +103,7 @@ def client():
     from fastapi.testclient import TestClient
 
     from api.main import app
+
     with TestClient(app, raise_server_exceptions=False) as c:
         yield c
 
@@ -110,6 +111,7 @@ def client():
 @pytest.fixture(scope="session")
 def app():
     from api.main import app
+
     return app
 
 
@@ -151,21 +153,38 @@ def fake_route_fn():
     calls: list[dict] = []
 
     async def _route(
-        workspace: str = "core", task_type: str = "structuring",
-        prompt: str = "", history: Any = None, files: Any = None,
-        max_tokens: int = 2048, temp: float = 0.4, tier: str = "free",
-        user: Any = None, context: str = "", request: Any = None,
+        workspace: str = "core",
+        task_type: str = "structuring",
+        prompt: str = "",
+        history: Any = None,
+        files: Any = None,
+        max_tokens: int = 2048,
+        temp: float = 0.4,
+        tier: str = "free",
+        user: Any = None,
+        context: str = "",
+        request: Any = None,
         **kw: Any,
     ) -> dict[str, Any]:
-        calls.append({"workspace": workspace, "prompt": prompt,
-                      "task_type": task_type})
+        calls.append({"workspace": workspace, "prompt": prompt, "task_type": task_type})
         for marker, reply in _route.responses.items():
             if marker in prompt:
-                return {"success": True, "text": reply, "provider": "stub",
-                        "model_used": "stub", "tokens_used": len(reply.split()),
-                        "latency_ms": 1.0}
-        return {"success": True, "text": _route.default, "provider": "stub",
-                "model_used": "stub", "tokens_used": 1, "latency_ms": 1.0}
+                return {
+                    "success": True,
+                    "text": reply,
+                    "provider": "stub",
+                    "model_used": "stub",
+                    "tokens_used": len(reply.split()),
+                    "latency_ms": 1.0,
+                }
+        return {
+            "success": True,
+            "text": _route.default,
+            "provider": "stub",
+            "model_used": "stub",
+            "tokens_used": 1,
+            "latency_ms": 1.0,
+        }
 
     _route.responses: dict[str, str] = {}
     _route.default = "DEFAULT_STUB_REPLY"
@@ -193,6 +212,7 @@ def clear_caches():
     # Clear API state caches
     try:
         import api.state as state_mod
+
         objs = []
         for name in ("ai_cache",):
             obj = getattr(state_mod.state, name, None)
@@ -211,10 +231,11 @@ def clear_caches():
                 pass
     except Exception:
         pass
-    
+
     # Clear core cache module
     try:
         from core import cache
+
         for name in ("SemanticCache", "BM25Cache"):
             cls = getattr(cache, name, None)
             if cls and hasattr(cls, "_reset_for_tests"):
@@ -248,18 +269,21 @@ def chaos(monkeypatch):
         monkeypatch.setenv("AXELR_CHAOS_PROVIDERS", providers)
         monkeypatch.setenv("AXELR_CHAOS_SEED", "42")
         import chaos_probe
+
         importlib.reload(chaos_probe)
         return chaos_probe
 
     def _disable():
         monkeypatch.setenv("AXELR_CHAOS_ENABLED", "false")
         import chaos_probe
+
         importlib.reload(chaos_probe)
 
     yield _enable, _disable
     os.environ["AXELR_CHAOS_ENABLED"] = "false"
     try:
         import chaos_probe
+
         importlib.reload(chaos_probe)
     except Exception:
         pass
@@ -279,6 +303,7 @@ def repo_index_tmp(tmp_path):
 def sse_parse():
     def _parse(frame: str) -> tuple[str, dict]:
         import json
+
         event, data_lines = "message", []
         for line in frame.splitlines():
             if line.startswith("event:"):
@@ -290,6 +315,7 @@ def sse_parse():
             return event, json.loads(raw) if raw else {}
         except Exception:
             return event, {"_raw": raw}
+
     return _parse
 
 
@@ -302,6 +328,7 @@ def tmp_consent_dir(tmp_path):
 # ══════════════════════════════════════════════════════════════════════════
 # HACKATHON MODULE FIXTURES - SINGLE SOURCE OF TRUTH
 # ══════════════════════════════════════════════════════════════════════════
+
 
 # ─── Sentinel Engine Fixture ───────────────────────────────────────────────
 @pytest.fixture
@@ -368,6 +395,7 @@ async def apex_router(tmp_path: Path, monkeypatch):
 async def insights_engine(tmp_path: Path, monkeypatch):
     """Fresh Insights Engine instance with isolated database."""
     import sys
+
     insights_dir = Path(__file__).parent.parent / "hackathons" / "axelr_insights_engine"
     if str(insights_dir) not in sys.path:
         sys.path.insert(0, str(insights_dir))
@@ -388,6 +416,7 @@ async def insights_engine(tmp_path: Path, monkeypatch):
 async def ops_room(tmp_path: Path, monkeypatch):
     """Fresh Ops Room instance with isolated task queue."""
     import sys
+
     ops_dir = Path(__file__).parent.parent / "hackathons" / "axelr_ops_room"
     if str(ops_dir) not in sys.path:
         sys.path.insert(0, str(ops_dir))

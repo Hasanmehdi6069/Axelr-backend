@@ -1,4 +1,5 @@
 """Vultr module core — settings, HTTP, retry, limiter, breaker, cache, metrics, advanced observability."""
+
 from __future__ import annotations
 
 import asyncio
@@ -115,10 +116,14 @@ settings = Settings.from_env()
 
 # ── Advanced Error Hierarchy ───────────────────────────────────────────────
 class VultrAPIError(Exception):
-    def __init__(self, status: int, payload: dict[str, Any] | str,
-                 request_id: str | None = None,
-                 retry_after_s: float | None = None,
-                 error_code: str | None = None) -> None:
+    def __init__(
+        self,
+        status: int,
+        payload: dict[str, Any] | str,
+        request_id: str | None = None,
+        retry_after_s: float | None = None,
+        error_code: str | None = None,
+    ) -> None:
         self.status = status
         self.payload = payload
         self.request_id = request_id
@@ -230,8 +235,7 @@ def metrics() -> dict[str, Any]:
 
 # ── Advanced Adaptive Rate Limiter ─────────────────────────────────────────
 class AdaptiveRateLimiter:
-    def __init__(self, capacity: int, refill_per_sec: float,
-                 adaptive: bool = True) -> None:
+    def __init__(self, capacity: int, refill_per_sec: float, adaptive: bool = True) -> None:
         self.base_capacity = float(capacity)
         self.capacity = float(capacity)
         self.refill_per_sec = refill_per_sec
@@ -245,8 +249,7 @@ class AdaptiveRateLimiter:
     async def acquire(self, cost: float = 1.0, *, max_wait_s: float = 15.0) -> None:
         async with self._lock:
             now = time.monotonic()
-            self.tokens = min(self.capacity,
-                              self.tokens + (now - self.last_refill) * self.refill_per_sec)
+            self.tokens = min(self.capacity, self.tokens + (now - self.last_refill) * self.refill_per_sec)
             self.last_refill = now
 
             if self._adaptive:
@@ -275,9 +278,9 @@ class AdaptiveRateLimiter:
             self._success_window.append(True)
 
 
-_limiter = AdaptiveRateLimiter(settings.rate_limit_per_min,
-                                settings.rate_limit_per_min / 60.0,
-                                adaptive=settings.adaptive_scaling_enabled)
+_limiter = AdaptiveRateLimiter(
+    settings.rate_limit_per_min, settings.rate_limit_per_min / 60.0, adaptive=settings.adaptive_scaling_enabled
+)
 
 
 def limiter() -> AdaptiveRateLimiter:
@@ -286,8 +289,7 @@ def limiter() -> AdaptiveRateLimiter:
 
 # ── Enhanced Circuit Breaker with Predictive Recovery ─────────────────────
 class PredictiveCircuitBreaker:
-    def __init__(self, name: str, threshold: int, window_s: float,
-                 cooldown_s: float) -> None:
+    def __init__(self, name: str, threshold: int, window_s: float, cooldown_s: float) -> None:
         self.name = name
         self.threshold = threshold
         self.window_s = window_s
@@ -301,7 +303,8 @@ class PredictiveCircuitBreaker:
 
     def snapshot(self) -> dict[str, Any]:
         return {
-            "name": self.name, "state": self.state,
+            "name": self.name,
+            "state": self.state,
             "failures_in_window": len(self.failures),
             "success_rate": sum(1 for t in self.successes if time.monotonic() - t < 60) / max(len(self.successes), 1),
         }
@@ -340,8 +343,9 @@ class PredictiveCircuitBreaker:
             return result
 
 
-_breaker = PredictiveCircuitBreaker("vultr_api", settings.breaker_threshold,
-                                     settings.breaker_window_s, settings.breaker_cooldown_s)
+_breaker = PredictiveCircuitBreaker(
+    "vultr_api", settings.breaker_threshold, settings.breaker_window_s, settings.breaker_cooldown_s
+)
 
 
 def breaker() -> PredictiveCircuitBreaker:
@@ -353,8 +357,7 @@ _coalesce: dict[str, tuple[asyncio.Future, int]] = {}
 _coalesce_lock = asyncio.Lock()
 
 
-async def coalesce(key: str, fn: Callable[[], Awaitable[Any]],
-                   priority: int = 0) -> Any:
+async def coalesce(key: str, fn: Callable[[], Awaitable[Any]], priority: int = 0) -> Any:
     """Concurrent callers of key share one execution with priority support."""
     async with _coalesce_lock:
         existing = _coalesce.get(key)
@@ -407,7 +410,7 @@ class LRUCache:
         async with self._lock:
             if len(self._store) >= self.max_size:
                 sorted_items = sorted(self._store.items(), key=lambda x: x[1][2])
-                for old_key, _ in sorted_items[:int(self.max_size * 0.1)]:
+                for old_key, _ in sorted_items[: int(self.max_size * 0.1)]:
                     del self._store[old_key]
             self._access_count += 1
             self._store[key] = (time.monotonic(), value, self._access_count)
@@ -448,8 +451,7 @@ async def idem_get(key: str) -> dict[str, Any] | None:
         return None
 
 
-async def idem_set(key: str, result: dict[str, Any],
-                   request_hash: str | None = None) -> None:
+async def idem_set(key: str, result: dict[str, Any], request_hash: str | None = None) -> None:
     async with _idem_lock:
         _idem_store[key] = (time.monotonic(), result, request_hash or "")
 
@@ -494,9 +496,9 @@ async def close_http() -> None:
 
 
 # ── Intelligent Retry with Exponential Backoff + Jitter ───────────────────
-async def retry(fn: Callable[[], Awaitable[Any]],
-                *, max_attempts: int | None = None,
-                retry_on_all: bool = False) -> Any:
+async def retry(
+    fn: Callable[[], Awaitable[Any]], *, max_attempts: int | None = None, retry_on_all: bool = False
+) -> Any:
     attempts = max_attempts or settings.max_retries
     last: Exception | None = None
 
@@ -510,12 +512,11 @@ async def retry(fn: Callable[[], Awaitable[Any]],
             if not retry_on_all and 400 <= e.status < 500 and e.status != 429:
                 raise
             last = e
-        except (httpx.TimeoutException, httpx.NetworkError,
-                httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
+        except (httpx.TimeoutException, httpx.NetworkError, httpx.RemoteProtocolError, httpx.HTTPStatusError) as e:
             last = e
 
         if i < attempts - 1:
-            base_delay = 0.5 * (2 ** i)
+            base_delay = 0.5 * (2**i)
             jitter = random.uniform(0.5, 1.5)
             delay = base_delay * jitter
 
@@ -716,9 +717,11 @@ def retry(max_attempts: int = 3, backoff: float = 1.0, backoff_base: float = 2.0
                     if not isinstance(e, retry_on):
                         raise
                     last_exception = e
-                    await asyncio.sleep(backoff * (backoff_base ** attempt))
+                    await asyncio.sleep(backoff * (backoff_base**attempt))
             raise last_exception
+
         return wrapper
+
     return decorator
 
 

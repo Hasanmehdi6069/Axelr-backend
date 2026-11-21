@@ -9,6 +9,7 @@ Quick start:
     db = get_engine()
     await db.insert_for_user("axelr_insights", "user_1", {...})
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -110,7 +111,8 @@ async def init(
     if _engine is not None and _engine.initialized:
         return _engine
     _engine = InsightsEngine(
-        config, sdk_factory=sdk_factory,
+        config,
+        sdk_factory=sdk_factory,
     )
     await _engine.init(bootstrap=bootstrap)
     return _engine
@@ -119,9 +121,7 @@ async def init(
 def get_engine() -> InsightsEngine:
     """Return the singleton engine. Raises if `init()` was never called."""
     if _engine is None or not _engine.initialized:
-        raise RuntimeError(
-            "engine not initialized — call `await init(config)` first"
-        )
+        raise RuntimeError("engine not initialized — call `await init(config)` first")
     return _engine
 
 
@@ -172,6 +172,7 @@ def export_metrics() -> dict[str, Any]:
 # Convenience — module factory
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def as_axelr_module(
     config: AppwriteConfig | dict[str, Any] | None = None,
     **options: Any,
@@ -188,43 +189,98 @@ __all__ = [
     # Version
     "__version__",
     # Singleton lifecycle
-    "init", "get_engine", "destroy", "health_check",
-    "describe", "export_metrics", "run_self_test",
+    "init",
+    "get_engine",
+    "destroy",
+    "health_check",
+    "describe",
+    "export_metrics",
+    "run_self_test",
     # Engine
-    "InsightsEngine", "create_engine", "create_axelr_module", "as_axelr_module",
+    "InsightsEngine",
+    "create_engine",
+    "create_axelr_module",
+    "as_axelr_module",
     # Config
-    "AppwriteConfig", "DEFAULTS", "resolve_config",
+    "AppwriteConfig",
+    "DEFAULTS",
+    "resolve_config",
     # Namespaces
-    "TablesNamespace", "AppwriteSDK",
+    "TablesNamespace",
+    "AppwriteSDK",
     # Models
-    "QueryFilter", "QueryOptions", "SchemaDefinition",
-    "AttributeSpec", "IndexSpec",
-    "BaseRow", "AuditEventRow", "InsightRow", "DocumentRow", "HealthReport",
+    "QueryFilter",
+    "QueryOptions",
+    "SchemaDefinition",
+    "AttributeSpec",
+    "IndexSpec",
+    "BaseRow",
+    "AuditEventRow",
+    "InsightRow",
+    "DocumentRow",
+    "HealthReport",
     # Schemas
     "ALL_SCHEMAS",
     "SCHEMA_AUDIT_EVENTS",
     "SCHEMA_INDEXED_DOCUMENTS",
     "SCHEMA_AXELR_INSIGHTS",
-    "ensure_table", "ensure_all_tables",
-    "verify_table", "verify_all_tables",
+    "ensure_table",
+    "ensure_all_tables",
+    "verify_table",
+    "verify_all_tables",
     # Resilience
-    "TokenBucket", "CircuitBreaker", "CBState",
-    "Semaphore", "LocalCache", "RequestDeduplicator",
-    "MetricsCollector", "StructuredLogger", "RetryPolicy",
-    "IdempotencyStore", "CallInfo", "HookRegistry", "stable_hash",
+    "TokenBucket",
+    "CircuitBreaker",
+    "CBState",
+    "Semaphore",
+    "LocalCache",
+    "RequestDeduplicator",
+    "MetricsCollector",
+    "StructuredLogger",
+    "RetryPolicy",
+    "IdempotencyStore",
+    "CallInfo",
+    "HookRegistry",
+    "stable_hash",
     # Errors
-    "AppwriteError", "APIError", "ConfigurationError",
-    "ValidationFailed", "NotFoundError", "ConflictError",
-    "UnauthorizedError", "ForbiddenError",
-    "RateLimitError", "CircuitBreakerOpenError",
-    "OfflineError", "TimeoutError_", "NetworkError", "ClientError",
-    "SchemaError", "VersionConflictError", "IdempotencyConflictError",
-    "is_retryable", "normalize_error", "to_result",
+    "AppwriteError",
+    "APIError",
+    "ConfigurationError",
+    "ValidationFailed",
+    "NotFoundError",
+    "ConflictError",
+    "UnauthorizedError",
+    "ForbiddenError",
+    "RateLimitError",
+    "CircuitBreakerOpenError",
+    "OfflineError",
+    "TimeoutError_",
+    "NetworkError",
+    "ClientError",
+    "SchemaError",
+    "VersionConflictError",
+    "IdempotencyConflictError",
+    "is_retryable",
+    "normalize_error",
+    "to_result",
     # Validation helpers (v1.1.0)
-    "sanitize_row_id", "is_valid_row_id", "ensure_valid_row_id", "make_row_id",
-    "validate_data", "validate_table_name",
-    "is_not_found", "is_conflict", "is_auth_error", "classify_error",
+    "sanitize_row_id",
+    "is_valid_row_id",
+    "ensure_valid_row_id",
+    "make_row_id",
+    "validate_data",
+    "validate_table_name",
+    "is_not_found",
+    "is_conflict",
+    "is_auth_error",
+    "classify_error",
     # Env system
-    "env", "Env", "AppwriteEnv", "SwitchEnv", "VultrEnv", "PayPalEnv",
-    "AuthEnv", "load_env",
+    "env",
+    "Env",
+    "AppwriteEnv",
+    "SwitchEnv",
+    "VultrEnv",
+    "PayPalEnv",
+    "AuthEnv",
+    "load_env",
 ]

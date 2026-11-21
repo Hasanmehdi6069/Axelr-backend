@@ -14,6 +14,7 @@ Design:
     • ``with_retry`` is the ONLY backoff loop in the codebase.
     • ``Settings`` is frozen at ``load()`` time; ``reload()`` exists for tests.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -59,6 +60,7 @@ def _str(k: str, d: str = "") -> str:
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Frozen snapshot of the environment. Cached after first load()."""
+
     # Test fields required by tests
     max_tokens: int = field(default_factory=lambda: _int("AXELR_MAX_TOKENS", 8192))
     temperature: float = field(default_factory=lambda: _float("AXELR_TEMPERATURE", 0.7))
@@ -138,8 +140,6 @@ class Settings:
     local_cache_max_rows: int = field(default_factory=lambda: _int("LOCAL_CACHE_MAX_ROWS", 20_000))
 
 
-
-
 _CFG: Settings | None = None
 
 
@@ -163,6 +163,7 @@ def reload() -> Settings:
 # ═══════════════════════════════════════════════════════════════════════════
 class AxelrError(Exception):
     """Base class for every error raised on the request path."""
+
     status_code: int = 500
     code: str = "internal_error"
     default_message: str = "Internal error"
@@ -170,7 +171,9 @@ class AxelrError(Exception):
 
     __slots__ = ("message", "details", "error_code")
 
-    def __init__(self, message: str | None = None, details: dict[str, Any] | None = None, code: str | None = None) -> None:
+    def __init__(
+        self, message: str | None = None, details: dict[str, Any] | None = None, code: str | None = None
+    ) -> None:
         super().__init__(message or self.default_message)
         self.message = message or self.default_message
         self.details = details or {}
@@ -185,8 +188,14 @@ class AxelrError(Exception):
         return self.status_code
 
     def to_payload(self, document_id: str | None = None) -> dict[str, Any]:
-        return {"status": self.status_code, "code": self.error_code, "message": self.message,
-                "details": self.details or None, "document_id": document_id, "error": self.message}
+        return {
+            "status": self.status_code,
+            "code": self.error_code,
+            "message": self.message,
+            "details": self.details or None,
+            "document_id": document_id,
+            "error": self.message,
+        }
 
     @classmethod
     def is_retryable(cls) -> bool:
@@ -195,9 +204,18 @@ class AxelrError(Exception):
     @classmethod
     def to_result(cls, exc: BaseException, *, provider: str = "none", tier: str = "stub") -> dict[str, Any]:
         import traceback
+
         msg = exc.message if isinstance(exc, AxelrError) else f"{type(exc).__name__}: {str(exc)[:200]}"
-        return {"success": False, "text": "", "provider": provider, "model_used": "",
-                "error": msg, "tier": tier, "degraded": True, "traceback": traceback.format_exc()}
+        return {
+            "success": False,
+            "text": "",
+            "provider": provider,
+            "model_used": "",
+            "error": msg,
+            "tier": tier,
+            "degraded": True,
+            "traceback": traceback.format_exc(),
+        }
 
 
 def error_to_payload(err: AxelrError) -> dict[str, Any]:
@@ -270,8 +288,15 @@ def is_retryable(exc: BaseException) -> bool:
 def to_result(exc: BaseException, *, provider: str = "none", tier: str = "stub") -> dict[str, Any]:
     """Convert any exception to the route_fn return shape. Never raises."""
     msg = exc.message if isinstance(exc, AxelrError) else f"{type(exc).__name__}: {str(exc)[:200]}"
-    return {"success": False, "text": "", "provider": provider, "model_used": "",
-            "error": msg, "tier": tier, "degraded": True}
+    return {
+        "success": False,
+        "text": "",
+        "provider": provider,
+        "model_used": "",
+        "error": msg,
+        "tier": tier,
+        "degraded": True,
+    }
 
 
 def error_to_result(exc: BaseException, *, provider: str = "none", tier: str = "stub") -> dict[str, Any]:
@@ -297,7 +322,17 @@ class RetryPolicy:
     def max_delay(self) -> float:
         return self.max_delay_s
 
-    def __init__(self, max_attempts: int = 3, base_delay_s: float = 0.35, max_delay_s: float = 8.0, jitter: float = 0.15, retry_on: tuple[type[BaseException], ...] = (), no_retry_on: tuple[type[BaseException], ...] = (), on_retry: Callable[[int, BaseException], None] | None = None, **kwargs):
+    def __init__(
+        self,
+        max_attempts: int = 3,
+        base_delay_s: float = 0.35,
+        max_delay_s: float = 8.0,
+        jitter: float = 0.15,
+        retry_on: tuple[type[BaseException], ...] = (),
+        no_retry_on: tuple[type[BaseException], ...] = (),
+        on_retry: Callable[[int, BaseException], None] | None = None,
+        **kwargs,
+    ):
         # Handle alias parameters
         if "max_delay" in kwargs:
             max_delay_s = kwargs.pop("max_delay")
@@ -325,6 +360,7 @@ class RetryPolicy:
                 return self._async_wrapper(fn, *args, **kw)
             else:
                 import time
+
                 last = None
                 for attempt in range(1, self.max_attempts + 1):
                     try:
@@ -338,6 +374,7 @@ class RetryPolicy:
                         time.sleep(self.delay_for(attempt))
                 assert last is not None
                 raise last
+
         return wrapper
 
     async def _async_wrapper(self, fn: Callable[..., Awaitable[Any]], *args: Any, **kw: Any) -> Any:
@@ -453,15 +490,27 @@ POLICY_NETWORK = RetryPolicy(max_attempts=4, base_delay_s=0.5, max_delay_s=12.0)
 POLICY_IDEMPOTENT = RetryPolicy(max_attempts=2, base_delay_s=0.2, max_delay_s=2.0)
 
 
-def with_retry(fn: Callable[..., Any], *args: Any, max_attempts: int | None = None,
-                base_delay: float | None = None, on_retry: Callable[[int, BaseException], None] | None = None,
-                policy: RetryPolicy = POLICY_DEFAULT, **kw: Any) -> Any:
+def with_retry(
+    fn: Callable[..., Any],
+    *args: Any,
+    max_attempts: int | None = None,
+    base_delay: float | None = None,
+    on_retry: Callable[[int, BaseException], None] | None = None,
+    policy: RetryPolicy = POLICY_DEFAULT,
+    **kw: Any,
+) -> Any:
     if max_attempts is not None:
-        policy = RetryPolicy(max_attempts=max_attempts, base_delay_s=base_delay or policy.base_delay_s,
-                             max_delay_s=policy.max_delay_s, jitter=policy.jitter,
-                             retry_on=policy.retry_on, no_retry_on=policy.no_retry_on)
+        policy = RetryPolicy(
+            max_attempts=max_attempts,
+            base_delay_s=base_delay or policy.base_delay_s,
+            max_delay_s=policy.max_delay_s,
+            jitter=policy.jitter,
+            retry_on=policy.retry_on,
+            no_retry_on=policy.no_retry_on,
+        )
     last: BaseException | None = None
     if inspect.iscoroutinefunction(fn):
+
         async def async_wrapper() -> Any:
             nonlocal last
             for attempt in range(1, policy.max_attempts + 1):
@@ -478,9 +527,11 @@ def with_retry(fn: Callable[..., Any], *args: Any, max_attempts: int | None = No
                     await asyncio.sleep(policy.delay_for(attempt))
             assert last is not None
             raise last
+
         return async_wrapper()
     else:
         import time
+
         for attempt in range(1, policy.max_attempts + 1):
             try:
                 return fn(*args, **kw)
@@ -507,8 +558,8 @@ async def initialize_all() -> None:
     _ADAPTER_STATUSES.clear()
     for name, module_path in (
         ("appwrite", "insights_engine.core"),
-        ("paypal",   "axelr_paypal.core"),
-        ("vultr",    "axelr_vultr.core"),
+        ("paypal", "axelr_paypal.core"),
+        ("vultr", "axelr_vultr.core"),
     ):
         try:
             mod = __import__(module_path, fromlist=["init"])
@@ -518,9 +569,11 @@ async def initialize_all() -> None:
         except Exception as e:
             _ADAPTER_STATUSES[name] = {"healthy": False, "error": str(e)[:200]}
             logger.info("adapter_skipped name=%s error=%s", name, str(e)[:120])
-    logger.info("adapter_init_done healthy=%d total=%d",
-                sum(1 for v in _ADAPTER_STATUSES.values() if v["healthy"]),
-                len(_ADAPTER_STATUSES))
+    logger.info(
+        "adapter_init_done healthy=%d total=%d",
+        sum(1 for v in _ADAPTER_STATUSES.values() if v["healthy"]),
+        len(_ADAPTER_STATUSES),
+    )
 
 
 def get_adapter_statuses() -> dict[str, dict[str, Any]]:
@@ -613,7 +666,24 @@ class ConsentStore:
 # ═══════════════════════════════════════════════════════════════════════════
 def audit() -> dict[str, Any]:
     s = load()
-    return {"version": "2.0", "settings": {"max_tokens": s.max_tokens, "temperature": s.temperature, "debug": s.debug, "default_model": s.default_model}, "errors": [e.__name__ for e in AxelrError.__subclasses__()], "retry_policy": {"max_attempts": POLICY_DEFAULT.max_attempts, "base_delay_s": POLICY_DEFAULT.base_delay_s, "max_delay_s": POLICY_DEFAULT.max_delay_s, "jitter": POLICY_DEFAULT.jitter, "retry_on": list(POLICY_DEFAULT.retry_on), "no_retry_on": list(POLICY_DEFAULT.no_retry_on)}}
+    return {
+        "version": "2.0",
+        "settings": {
+            "max_tokens": s.max_tokens,
+            "temperature": s.temperature,
+            "debug": s.debug,
+            "default_model": s.default_model,
+        },
+        "errors": [e.__name__ for e in AxelrError.__subclasses__()],
+        "retry_policy": {
+            "max_attempts": POLICY_DEFAULT.max_attempts,
+            "base_delay_s": POLICY_DEFAULT.base_delay_s,
+            "max_delay_s": POLICY_DEFAULT.max_delay_s,
+            "jitter": POLICY_DEFAULT.jitter,
+            "retry_on": list(POLICY_DEFAULT.retry_on),
+            "no_retry_on": list(POLICY_DEFAULT.no_retry_on),
+        },
+    }
 
 
 # Re-export ContextRegistry from infra for test compatibility
@@ -621,18 +691,36 @@ from .infra import ContextRegistry
 
 __all__ = [
     # Settings
-    "Settings", "load", "reload",
+    "Settings",
+    "load",
+    "reload",
     # Errors
-    "AxelrError", "ProviderError", "DeadlineExceeded", "ValidationFailed",
-    "RateLimited", "NoProviderAvailable", "CircuitOpen", "ConfigError",
-    "PermissionDenied", "is_retryable", "to_result", "error_to_result",
+    "AxelrError",
+    "ProviderError",
+    "DeadlineExceeded",
+    "ValidationFailed",
+    "RateLimited",
+    "NoProviderAvailable",
+    "CircuitOpen",
+    "ConfigError",
+    "PermissionDenied",
+    "is_retryable",
+    "to_result",
+    "error_to_result",
     # Retry
-    "RetryPolicy", "with_retry",
-    "POLICY_DEFAULT", "POLICY_NETWORK", "POLICY_IDEMPOTENT",
+    "RetryPolicy",
+    "with_retry",
+    "POLICY_DEFAULT",
+    "POLICY_NETWORK",
+    "POLICY_IDEMPOTENT",
     # Permissions
-    "Permission", "UserConsent", "ConsentStore", "check_permissions",
+    "Permission",
+    "UserConsent",
+    "ConsentStore",
+    "check_permissions",
     # Adapters
-    "initialize_all", "get_adapter_statuses",
+    "initialize_all",
+    "get_adapter_statuses",
     # Audit
     "audit",
     # Context Registry

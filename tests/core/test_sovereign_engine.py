@@ -15,6 +15,7 @@ call to a real `assert`, making failures visible to CI.
 The `Sovereign` and `twin` fixtures skip cleanly when the binary/engine
 is unavailable — SKIP is honest, false-green is not.
 """
+
 from __future__ import annotations
 
 import ast
@@ -82,6 +83,7 @@ try:
     from axelr_ring import RingBufferConfig, ZeroCopyRingBuffer
     from axelr_telemetry import MetricsExporter, SessionStore, new_trace_id, trace_id
     from axelr_utils import TokenBucket
+
     _SOVEREIGN_OK, _SOVEREIGN_ERR = True, ""
 except ImportError as e:
     _SOVEREIGN_OK, _SOVEREIGN_ERR = False, str(e)
@@ -95,6 +97,7 @@ try:
         route as route_model,
     )
     from core.twin_roster import ROSTER_BY_ID
+
     _TWIN_OK, _TWIN_ERR = True, ""
 except ImportError as e:
     _TWIN_OK, _TWIN_ERR = False, str(e)
@@ -106,6 +109,7 @@ pytestmark = pytest.mark.quality
 # ═══════════════════════════════════════════════════════════════════════════
 # Import gates
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.fixture(scope="module")
 def sovereign():
@@ -125,24 +129,41 @@ def twin():
 # PART A — SOVEREIGN PRIMITIVES
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("word,expected", [
-    ("Robert", "R163"), ("Rupert", "R163"),
-    ("Tymczak", "T522"), ("Honeyman", "H555"), ("", ""),
-])
+
+@pytest.mark.parametrize(
+    "word,expected",
+    [
+        ("Robert", "R163"),
+        ("Rupert", "R163"),
+        ("Tymczak", "T522"),
+        ("Honeyman", "H555"),
+        ("", ""),
+    ],
+)
 def test_soundex(sovereign, word, expected):
     assert soundex(word) == expected
 
 
-@pytest.mark.parametrize("a,b,dist", [
-    ("kitten", "sitting", 3), ("", "abc", 3), ("abc", "abd", 1),
-])
+@pytest.mark.parametrize(
+    "a,b,dist",
+    [
+        ("kitten", "sitting", 3),
+        ("", "abc", 3),
+        ("abc", "abd", 1),
+    ],
+)
 def test_edit_distance(sovereign, a, b, dist):
     assert edit_distance(a, b) == dist
 
 
-@pytest.mark.parametrize("a,b", [
-    ("phone", "fone"), ("right", "write"), ("night", "knight"),
-])
+@pytest.mark.parametrize(
+    "a,b",
+    [
+        ("phone", "fone"),
+        ("right", "write"),
+        ("night", "knight"),
+    ],
+)
 def test_metaphone_equivalence(sovereign, a, b):
     m = Metaphone()
     assert m.compute(a) == m.compute(b)
@@ -164,15 +185,18 @@ def test_trie_lexicon(sovereign):
 
 def test_corrector_known_words(sovereign):
     p = PhoneticCorrector()
-    p.load(["receive", "their", "there", "your", "you're",
-            "its", "it's", "to", "too", "two"])
+    p.load(["receive", "their", "there", "your", "you're", "its", "it's", "to", "too", "two"])
     assert p.correct("recieve") == "receive"
     assert p.correct("thier") == "their"
 
 
-@pytest.mark.parametrize("loaded,typo", [
-    ("kubernetes", "kubernetse"), ("foobarbazqux", "foobarbazqax"),
-])
+@pytest.mark.parametrize(
+    "loaded,typo",
+    [
+        ("kubernetes", "kubernetse"),
+        ("foobarbazqux", "foobarbazqax"),
+    ],
+)
 def test_corrector_loads_new_words(sovereign, loaded, typo):
     """Anti-stub: correctly answers after loading a previously-unknown word."""
     p = PhoneticCorrector()
@@ -212,6 +236,7 @@ def test_calibrator_bounds(sovereign):
 # ═══════════════════════════════════════════════════════════════════════════
 # PART B — ELITE v2 FEATURES
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_elite_frame_integrity(sovereign):
     f = FrameIntegrityChecker(1024)
@@ -271,10 +296,13 @@ def test_elite_word_boundary(sovereign):
 
 
 def test_elite_session_resume(sovereign):
-    ok, _ = SessionResumeVerifier.verify_payload({
-        "schema_version": 1, "calibration_temperature": 1.4,
-        "lexicon": ["hello"],
-    })
+    ok, _ = SessionResumeVerifier.verify_payload(
+        {
+            "schema_version": 1,
+            "calibration_temperature": 1.4,
+            "lexicon": ["hello"],
+        }
+    )
     assert ok
 
 
@@ -303,6 +331,7 @@ def test_elite_contract_verifier(sovereign):
 # PART C — SESSION, LADDER, BUCKET, METRICS
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_session_store_persistence(sovereign, tmp_path):
     path = tmp_path / "session.json"
     s1 = SessionStore(path=path)
@@ -318,15 +347,13 @@ def test_session_store_persistence(sovereign, tmp_path):
 def test_degradation_ladder(sovereign):
     ladder = GracefulFeatureLadder()
     state = {"rerank": True, "repair": True, "cloud": True}
-    ladder.add("streaming_rerank",
-               lambda: state.__setitem__("rerank", False),
-               lambda: state.__setitem__("rerank", True))
-    ladder.add("structured_repair",
-               lambda: state.__setitem__("repair", False),
-               lambda: state.__setitem__("repair", True))
-    ladder.add("cloud_fallback",
-               lambda: state.__setitem__("cloud", False),
-               lambda: state.__setitem__("cloud", True))
+    ladder.add(
+        "streaming_rerank", lambda: state.__setitem__("rerank", False), lambda: state.__setitem__("rerank", True)
+    )
+    ladder.add(
+        "structured_repair", lambda: state.__setitem__("repair", False), lambda: state.__setitem__("repair", True)
+    )
+    ladder.add("cloud_fallback", lambda: state.__setitem__("cloud", False), lambda: state.__setitem__("cloud", True))
     ladder.on_high(0.9)
     assert state["rerank"] is False and state["repair"] is False
     ladder.on_high(0.9)
@@ -354,6 +381,7 @@ def test_metrics_exporter(sovereign):
 # ═══════════════════════════════════════════════════════════════════════════
 # PART D — REGRESSIONS
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_regression_event_loop_safety(sovereign):
     """_shed_cloud must be safe outside an async loop."""
@@ -416,6 +444,7 @@ def test_protocol_conformance(sovereign):
 # PART E — DETERMINISM / ADVERSARIAL / MEMORY / THREADS
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_corrector_deterministic_100x(sovereign):
     p = PhoneticCorrector()
     p.load(["receive", "their", "there"])
@@ -423,17 +452,20 @@ def test_corrector_deterministic_100x(sovereign):
     assert all(p.correct("recieve") == first for _ in range(100))
 
 
-@pytest.mark.parametrize("adversarial", [
-    "a" * 100_000,
-    "",
-    "\u200b" * 1000,
-    "\u202e" + "hello",
-    "\x00\x01\x02\x03",
-    "🎉" * 5000,
-    "SELECT * FROM users; DROP TABLE--",
-    "\\" * 2000,
-    "\u0301" * 200 + "word",
-])
+@pytest.mark.parametrize(
+    "adversarial",
+    [
+        "a" * 100_000,
+        "",
+        "\u200b" * 1000,
+        "\u202e" + "hello",
+        "\x00\x01\x02\x03",
+        "🎉" * 5000,
+        "SELECT * FROM users; DROP TABLE--",
+        "\\" * 2000,
+        "\u0301" * 200 + "word",
+    ],
+)
 def test_adversarial_inputs(sovereign, adversarial):
     p = PhoneticCorrector()
     p.load(["hello", "world"])
@@ -491,14 +523,13 @@ def test_stress_sla_real(sovereign):
             p.correct(w)
 
     result = st.run_stress_suite(op, num_operations=2000, concurrency=20)
-    assert result.passed, (
-        f"SLA p95={result.p95_latency_ms:.1f}ms throughput={result.throughput_ops:.0f}/s"
-    )
+    assert result.passed, f"SLA p95={result.p95_latency_ms:.1f}ms throughput={result.throughput_ops:.0f}/s"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # PART F — DEVICE CLASSIFICATION
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_device_classification(sovereign):
     profile = classify()
@@ -506,10 +537,16 @@ def test_device_classification(sovereign):
     assert profile.total_ram_gb > 0 and profile.cpu_cores >= 1
 
 
-@pytest.mark.parametrize("feature_id", [
-    "web_speech", "wasm_whisper_tiny", "python_cpu_tiny",
-    "python_gpu_tiny", "streaming_partials",
-])
+@pytest.mark.parametrize(
+    "feature_id",
+    [
+        "web_speech",
+        "wasm_whisper_tiny",
+        "python_cpu_tiny",
+        "python_gpu_tiny",
+        "streaming_partials",
+    ],
+)
 def test_device_feature_check_returns_bool(sovereign, feature_id):
     ok, msg = check_feature(feature_id, classify())
     assert isinstance(ok, bool)
@@ -528,9 +565,16 @@ def test_device_user_summary(sovereign):
 
 def test_gpu_feature_gated_on_no_gpu(sovereign):
     no_gpu = DeviceProfile(
-        tier=DeviceTier.STANDARD, total_ram_gb=12.0, free_ram_gb=4.8,
-        is_mobile=False, is_battery=False, gpu_kind="none", gpu_name="",
-        cpu_cores=8, platform="linux", detected_at=time.time(),
+        tier=DeviceTier.STANDARD,
+        total_ram_gb=12.0,
+        free_ram_gb=4.8,
+        is_mobile=False,
+        is_battery=False,
+        gpu_kind="none",
+        gpu_name="",
+        cpu_cores=8,
+        platform="linux",
+        detected_at=time.time(),
     )
     ok, msg = check_feature("python_gpu_tiny", no_gpu)
     assert not ok and "GPU" in msg
@@ -561,8 +605,7 @@ def verify_code(text, *, expected_fn_name=None, test_input=None, expected_output
     if test_input is not None and expected_output is not None:
         ns = {}
         try:
-            exec(compile(code, "<test>", "exec"),
-                 {"__builtins__": __builtins__}, ns)
+            exec(compile(code, "<test>", "exec"), {"__builtins__": __builtins__}, ns)
         except Exception as e:
             return False, f"exec_failed:{type(e).__name__}:{e}"
         fn = ns.get(expected_fn_name) if expected_fn_name else None
@@ -614,11 +657,9 @@ def verify_extraction(text, schema):
         if t == "string":
             return None if isinstance(node, str) else f"{path}:not_str"
         if t == "number":
-            return (None if isinstance(node, (int, float)) and not isinstance(node, bool)
-                    else f"{path}:not_num")
+            return None if isinstance(node, (int, float)) and not isinstance(node, bool) else f"{path}:not_num"
         if t == "integer":
-            return (None if isinstance(node, int) and not isinstance(node, bool)
-                    else f"{path}:not_int")
+            return None if isinstance(node, int) and not isinstance(node, bool) else f"{path}:not_int"
         if t == "boolean":
             return None if isinstance(node, bool) else f"{path}:not_bool"
         return None
@@ -628,8 +669,7 @@ def verify_extraction(text, schema):
 
 
 def verify_math(text, expected):
-    return (expected in (text or ""),
-            "ok" if expected in (text or "") else "miss")
+    return (expected in (text or ""), "ok" if expected in (text or "") else "miss")
 
 
 def verify_format_code(text):
@@ -656,27 +696,41 @@ def verify_format_extraction(text):
 
 
 _CODE_CASES = [
-    ("reverse_string", "write a function reverse_string(s) returning s reversed",
-     "reverse_string", ("abc",), "cba"),
-    ("sum_list", "write a function sum_list(xs) returning the sum of xs",
-     "sum_list", ([1, 2, 3, 4],), 10),
-    ("is_palindrome", "write a function is_palindrome(s) returning bool",
-     "is_palindrome", ("racecar",), True),
-    ("factorial", "write a function factorial(n) returning n!",
-     "factorial", (5,), 120),
-    ("fizzbuzz", "write a function fizzbuzz(n) returning list 1..n with fizzbuzz rules",
-     "fizzbuzz", (5,), ["1", "2", "fizz", "4", "buzz"]),
+    ("reverse_string", "write a function reverse_string(s) returning s reversed", "reverse_string", ("abc",), "cba"),
+    ("sum_list", "write a function sum_list(xs) returning the sum of xs", "sum_list", ([1, 2, 3, 4],), 10),
+    ("is_palindrome", "write a function is_palindrome(s) returning bool", "is_palindrome", ("racecar",), True),
+    ("factorial", "write a function factorial(n) returning n!", "factorial", (5,), 120),
+    (
+        "fizzbuzz",
+        "write a function fizzbuzz(n) returning list 1..n with fizzbuzz rules",
+        "fizzbuzz",
+        (5,),
+        ["1", "2", "fizz", "4", "buzz"],
+    ),
 ]
 
 _EXTRACTION_CASES = [
-    ("simple_object", 'extract name and age from: "Alice, 30 years old"',
-     {"type": "object", "required": ["name", "age"],
-      "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}),
-    ("array_of_records",
-     'extract all people from: "Bob 25, Carol 40, Dave 35"',
-     {"type": "array", "items":
-      {"type": "object", "required": ["name", "age"],
-       "properties": {"name": {"type": "string"}, "age": {"type": "integer"}}}}),
+    (
+        "simple_object",
+        'extract name and age from: "Alice, 30 years old"',
+        {
+            "type": "object",
+            "required": ["name", "age"],
+            "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+        },
+    ),
+    (
+        "array_of_records",
+        'extract all people from: "Bob 25, Carol 40, Dave 35"',
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "required": ["name", "age"],
+                "properties": {"name": {"type": "string"}, "age": {"type": "integer"}},
+            },
+        },
+    ),
 ]
 
 _MATH_CASES = [
@@ -691,6 +745,7 @@ _MATH_CASES = [
 async def _run_local(prompt: str, task: str, workspace: str) -> str:
     try:
         from core.twin_engine import execute_local_inference
+
         return await execute_local_inference(workspace, task, prompt)
     except Exception:
         return ""
@@ -698,13 +753,11 @@ async def _run_local(prompt: str, task: str, workspace: str) -> str:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name,prompt,fn_name,test_input,expected", _CODE_CASES)
-async def test_twin_code_generation_elite(twin, name, prompt, fn_name,
-                                          test_input, expected):
+async def test_twin_code_generation_elite(twin, name, prompt, fn_name, test_input, expected):
     text = await _run_local(prompt, "code_generation", "design")
     if not text or text.startswith("[stub]"):
         pytest.skip("twin engine not available")
-    ok, reason = verify_code(text, expected_fn_name=fn_name,
-                             test_input=test_input, expected_output=expected)
+    ok, reason = verify_code(text, expected_fn_name=fn_name, test_input=test_input, expected_output=expected)
     assert ok, f"{name}: {reason}\n--- output ---\n{text[:600]}"
 
 
@@ -730,8 +783,7 @@ async def test_twin_math_elite(twin, name, prompt, expected):
 
 @pytest.mark.asyncio
 async def test_twin_format_code_single_fence(twin):
-    text = await _run_local("write a function hello() that returns 'world'",
-                            "code_generation", "design")
+    text = await _run_local("write a function hello() that returns 'world'", "code_generation", "design")
     if not text or text.startswith("[stub]"):
         pytest.skip("twin engine not available")
     ok, reason = verify_format_code(text)
@@ -750,6 +802,7 @@ async def test_twin_format_extraction_is_json(twin):
 # ═══════════════════════════════════════════════════════════════════════════
 # PART H — SPECIALIZATION ROUTING
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_specialization_code_routes_to_coder(twin):
     pinned = best_for("code_generation", workspace="design")
@@ -784,8 +837,7 @@ async def test_specialization_100_concurrent_routes(twin):
         task = ["code_generation", "extraction", "math", "reasoning"][i % 4]
         ws = ["design", "data", "core", "core"][i % 4]
         tier = "pro" if i % 2 else "free"
-        return route_model(task, workspace=ws, tier=tier,
-                           concurrency=1 if i % 3 == 0 else 3)
+        return route_model(task, workspace=ws, tier=tier, concurrency=1 if i % 3 == 0 else 3)
 
     results = await asyncio.gather(*[_one(i) for i in range(100)])
     for r in results:
@@ -796,8 +848,10 @@ async def test_specialization_100_concurrent_routes(twin):
 def test_elite_quality_contract_documented():
     """Thresholds this suite enforces must be visible in code."""
     thresholds = {
-        "format_compliance": 0.99, "code_correctness": 0.95,
-        "extraction_f1": 0.98, "math_accuracy": 0.95,
+        "format_compliance": 0.99,
+        "code_correctness": 0.95,
+        "extraction_f1": 0.98,
+        "math_accuracy": 0.95,
         "reasoning_accuracy": 0.85,
     }
     assert thresholds["format_compliance"] == 0.99

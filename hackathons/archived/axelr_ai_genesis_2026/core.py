@@ -15,6 +15,7 @@ Honest scope
 * **`MemoryProfile.capture()` is blocking** (calls `psutil` and `torch`).
   Callers should `await asyncio.to_thread(MemoryProfile.capture)`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,6 +36,7 @@ __version__ = "1.1.0"
 def _torch_available() -> bool:
     try:
         import torch
+
         return torch.cuda.is_available()
     except Exception:
         return False
@@ -63,6 +65,7 @@ class MemoryProfile:
         if _torch_available():
             try:
                 import torch
+
                 for i in range(torch.cuda.device_count()):
                     props = torch.cuda.get_device_properties(i)
                     gpu_total += props.total_memory / (1024 * 1024)
@@ -86,6 +89,7 @@ class BaseInferenceModel(ABC):
     Concrete implementations must not fake success — if the backend isn't
     ready, raise with a clear message.
     """
+
     model_id: str = ""
     model_name: str = ""
     memory_required_mb: float = 0.0
@@ -140,8 +144,7 @@ class ModelRegistry:
     async def register_model(self, model: BaseInferenceModel) -> None:
         async with self.lock:
             self.models[model.model_id] = model
-        logger.info("model_registered id=%s memory_mb=%.1f",
-                    model.model_id, model.memory_required_mb)
+        logger.info("model_registered id=%s memory_mb=%.1f", model.model_id, model.memory_required_mb)
 
     async def get_model(self, model_id: str) -> Optional[BaseInferenceModel]:
         async with self.lock:
@@ -151,8 +154,7 @@ class ModelRegistry:
         if not model.is_loaded:
             profile = await asyncio.to_thread(MemoryProfile.capture)
             if profile.available_memory_mb < model.memory_required_mb:
-                await self._evict_idle_models(
-                    model.memory_required_mb - profile.available_memory_mb)
+                await self._evict_idle_models(model.memory_required_mb - profile.available_memory_mb)
             success = await model.load()
             if success:
                 async with self.lock:
@@ -165,8 +167,7 @@ class ModelRegistry:
 
     async def _evict_idle_models(self, required_mb: float) -> int:
         async with self.lock:
-            candidates = [(m_id, self.models[m_id])
-                          for m_id in self.loaded_models]
+            candidates = [(m_id, self.models[m_id]) for m_id in self.loaded_models]
         candidates.sort(key=lambda kv: kv[1].idle_time, reverse=True)
         freed = 0.0
         evicted = 0
@@ -180,14 +181,14 @@ class ModelRegistry:
                     self.loaded_models.discard(model_id)
                 freed += model.memory_required_mb
                 evicted += 1
-                logger.warning("evicted_model id=%s freed_mb=%.1f",
-                               model_id, model.memory_required_mb)
+                logger.warning("evicted_model id=%s freed_mb=%.1f", model_id, model.memory_required_mb)
             except Exception as e:
                 logger.error("evict_failed id=%s err=%s", model_id, e)
         if evicted:
             await asyncio.to_thread(gc.collect)
             try:
                 import torch
+
                 if torch.cuda.is_available():
                     torch.cuda.empty_cache()
             except Exception:
@@ -197,8 +198,7 @@ class ModelRegistry:
     async def _profiling_loop(self) -> None:
         while not self.shutdown_event.is_set():
             try:
-                await asyncio.wait_for(
-                    self.shutdown_event.wait(), timeout=30.0)
+                await asyncio.wait_for(self.shutdown_event.wait(), timeout=30.0)
                 return
             except asyncio.TimeoutError:
                 pass
@@ -206,10 +206,8 @@ class ModelRegistry:
                 profile = await asyncio.to_thread(MemoryProfile.capture)
                 if profile.memory_pressure > self.memory_pressure_threshold:
                     target = 0.7
-                    need_mb = ((profile.memory_pressure - target)
-                               * profile.total_system_memory_mb)
-                    logger.warning("memory_pressure pressure=%.2f need_mb=%.0f",
-                                   profile.memory_pressure, need_mb)
+                    need_mb = (profile.memory_pressure - target) * profile.total_system_memory_mb
+                    logger.warning("memory_pressure pressure=%.2f need_mb=%.0f", profile.memory_pressure, need_mb)
                     await self._evict_idle_models(need_mb)
             except Exception as e:
                 logger.error("profiling_loop_error err=%s", e)
@@ -249,8 +247,7 @@ async def init() -> None:
     registry = get_registry()
     if registry.profiling_task is None or registry.profiling_task.done():
         registry.shutdown_event.clear()
-        registry.profiling_task = asyncio.create_task(
-            registry._profiling_loop())
+        registry.profiling_task = asyncio.create_task(registry._profiling_loop())
     logger.info("ai_genesis_model_layer_initialized")
 
 
@@ -264,8 +261,7 @@ async def shutdown() -> None:
 
 def health() -> Dict[str, Any]:
     if _registry is None:
-        return {"ok": False, "details": {"reason": "not_initialized",
-                                         "version": __version__}}
+        return {"ok": False, "details": {"reason": "not_initialized", "version": __version__}}
     return {
         "ok": True,
         "details": {

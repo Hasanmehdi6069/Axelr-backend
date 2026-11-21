@@ -13,6 +13,7 @@ Single source of truth for identity:
 
 No route here mutates billing; that's in ``routes_billing``.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -60,6 +61,7 @@ router = APIRouter(tags=["auth"])
 
 # ── Password helpers ─────────────────────────────────────────────────────────
 
+
 def hash_password(password: str) -> str:
     return bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
 
@@ -73,11 +75,10 @@ def verify_password(password: str, hashed: str) -> bool:
 
 # ── JWT helpers ──────────────────────────────────────────────────────────────
 
+
 def create_access_token(data: dict) -> str:
     to_encode = data.copy()
-    to_encode["exp"] = datetime.now(timezone.utc) + timedelta(
-        minutes=ACCESS_TOKEN_EXPIRE_MINUTES
-    )
+    to_encode["exp"] = datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
@@ -90,16 +91,30 @@ def decode_token(token: str) -> dict | None:
 
 # ── User provisioning ────────────────────────────────────────────────────────
 
+
 def _empty_ai_quotas() -> dict[str, int]:
     """Daily per-provider counters, zero-initialised."""
     keys = (
-        "dailyCloudflareQuota", "dailyGeminiQuota", "dailyOpenRouterQuota",
-        "dailyGroqQuota", "dailyHuggingFaceQuota", "dailyMistralQuota",
-        "dailyGithubQuota", "dailyNrouterQuota", "dailyTextCortexQuota",
-        "dailyModelscopeQuota", "dailyOllamaQuota", "dailyNaraQuota",
-        "dailyOvhcloudQuota", "dailySiliconflowQuota", "dailyAgnesQuota",
-        "dailyBazaarlinkQuota", "dailyRequestyQuota", "dailyManifestQuota",
-        "dailyZhipuQuota", "dailyTeamorouterQuota",
+        "dailyCloudflareQuota",
+        "dailyGeminiQuota",
+        "dailyOpenRouterQuota",
+        "dailyGroqQuota",
+        "dailyHuggingFaceQuota",
+        "dailyMistralQuota",
+        "dailyGithubQuota",
+        "dailyNrouterQuota",
+        "dailyTextCortexQuota",
+        "dailyModelscopeQuota",
+        "dailyOllamaQuota",
+        "dailyNaraQuota",
+        "dailyOvhcloudQuota",
+        "dailySiliconflowQuota",
+        "dailyAgnesQuota",
+        "dailyBazaarlinkQuota",
+        "dailyRequestyQuota",
+        "dailyManifestQuota",
+        "dailyZhipuQuota",
+        "dailyTeamorouterQuota",
     )
     return {k: 0 for k in keys}
 
@@ -172,7 +187,9 @@ async def _reset_quotas_if_needed(user_doc: dict) -> dict:
     if last_reset.tzinfo is None:
         last_reset = last_reset.replace(tzinfo=timezone.utc)
     last_reset_day = datetime(
-        last_reset.year, last_reset.month, last_reset.day,
+        last_reset.year,
+        last_reset.month,
+        last_reset.day,
         tzinfo=timezone.utc,
     )
     if today <= last_reset_day:
@@ -180,17 +197,33 @@ async def _reset_quotas_if_needed(user_doc: dict) -> dict:
 
     uid = str(user_doc["_id"])
     fields = (
-        "dailyUsage", "dailyUiUxUsage",
-        "quotas.dailyExtractionsUsed", "quotas.dailyGenerationsUsed",
+        "dailyUsage",
+        "dailyUiUxUsage",
+        "quotas.dailyExtractionsUsed",
+        "quotas.dailyGenerationsUsed",
         "quotas.dailyEnhancementsUsed",
-        "tokenUsage.dailyPromptTokens", "tokenUsage.dailyCompletionTokens",
-        "dailyCloudflareQuota", "dailyGeminiQuota", "dailyOpenRouterQuota",
-        "dailyGroqQuota", "dailyHuggingFaceQuota", "dailyMistralQuota",
-        "dailyGithubQuota", "dailyNrouterQuota", "dailyTextCortexQuota",
-        "dailyModelscopeQuota", "dailyOllamaQuota", "dailyNaraQuota",
-        "dailyOvhcloudQuota", "dailySiliconflowQuota", "dailyAgnesQuota",
-        "dailyBazaarlinkQuota", "dailyRequestyQuota", "dailyManifestQuota",
-        "dailyZhipuQuota", "dailyTeamorouterQuota",
+        "tokenUsage.dailyPromptTokens",
+        "tokenUsage.dailyCompletionTokens",
+        "dailyCloudflareQuota",
+        "dailyGeminiQuota",
+        "dailyOpenRouterQuota",
+        "dailyGroqQuota",
+        "dailyHuggingFaceQuota",
+        "dailyMistralQuota",
+        "dailyGithubQuota",
+        "dailyNrouterQuota",
+        "dailyTextCortexQuota",
+        "dailyModelscopeQuota",
+        "dailyOllamaQuota",
+        "dailyNaraQuota",
+        "dailyOvhcloudQuota",
+        "dailySiliconflowQuota",
+        "dailyAgnesQuota",
+        "dailyBazaarlinkQuota",
+        "dailyRequestyQuota",
+        "dailyManifestQuota",
+        "dailyZhipuQuota",
+        "dailyTeamorouterQuota",
     )
     try:
         async with state.redis_client.pipeline(transaction=False) as pipe:
@@ -198,12 +231,11 @@ async def _reset_quotas_if_needed(user_doc: dict) -> dict:
                 pipe.set(f"quota:{uid}:{f}", 0, ex=172800)
             pipe.set(f"quota:{uid}:last_reset", today.isoformat(), ex=172800)
             await pipe.execute()
-        logger.info("quota_reset_redis_only user_id=%s day=%s",
-                    uid, today.date())
+        logger.info("quota_reset_redis_only user_id=%s day=%s", uid, today.date())
     except Exception as e:
-        logger.warning("quota_reset_redis_failed user_id=%s error=%s",
-                       uid, e)
+        logger.warning("quota_reset_redis_failed user_id=%s error=%s", uid, e)
     return user_doc
+
 
 # ── The auth dependency ──────────────────────────────────────────────────────
 async def get_current_user(
@@ -226,10 +258,11 @@ async def get_current_user(
     # -- Path 1: Google ID token --
     try:
         idinfo = id_token.verify_oauth2_token(
-            token, google_requests.Request(), GOOGLE_CLIENT_ID,
+            token,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID,
         )
-        if idinfo.get("iss") not in ("accounts.google.com",
-                                     "https://accounts.google.com"):
+        if idinfo.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
             raise HTTPException(status_code=401, detail="Invalid issuer")
         user_doc = await state.users_col.find_one({"googleId": idinfo["sub"]})
         if not user_doc:
@@ -256,27 +289,20 @@ async def get_current_user(
         request.state.user = user_doc
     return user_doc
 
-async def validate_mcp_scope(
-    request: Request,
-    user: dict = Depends(get_current_user)
-) -> None:
+
+async def validate_mcp_scope(request: Request, user: dict = Depends(get_current_user)) -> None:
     """Validate that the authenticated user has MCP access scope enabled"""
     # Check if user has mcp scope in their permissions
     if "mcp" not in user.get("scopes", []):
-        raise HTTPException(
-            status_code=403,
-            detail="MCP access not enabled for this user"
-        )
+        raise HTTPException(status_code=403, detail="MCP access not enabled for this user")
     # Verify workspace access if X-Workspace-Id is present
     workspace_id = request.headers.get("X-Workspace-Id")
     if workspace_id and workspace_id not in user.get("workspaces", []):
-        raise HTTPException(
-            status_code=403,
-            detail=f"No access to workspace {workspace_id}"
-        )
+        raise HTTPException(status_code=403, detail=f"No access to workspace {workspace_id}")
 
 
 # ── Email login (dev/testing) ────────────────────────────────────────────────
+
 
 class EmailLoginRequest(BaseModel):
     email: EmailStr
@@ -309,6 +335,7 @@ async def email_login(data: EmailLoginRequest):
 
 # ── GitHub OAuth ─────────────────────────────────────────────────────────────
 
+
 @router.get("/api/auth/github")
 async def github_login():
     if not GITHUB_CLIENT_ID:
@@ -320,9 +347,7 @@ async def github_login():
         "response_type": "code",
         "state": secrets.token_urlsafe(16),
     }
-    return RedirectResponse(
-        url=f"https://github.com/login/oauth/authorize?{urllib.parse.urlencode(params)}"
-    )
+    return RedirectResponse(url=f"https://github.com/login/oauth/authorize?{urllib.parse.urlencode(params)}")
 
 
 @router.get("/api/auth/github/callback")
@@ -363,7 +388,9 @@ async def github_callback(
     user_headers = {"Authorization": f"Bearer {access_token}"}
     try:
         user_resp = await client.get(
-            "https://api.github.com/user", headers=user_headers, timeout=10.0,
+            "https://api.github.com/user",
+            headers=user_headers,
+            timeout=10.0,
         )
         user_resp.raise_for_status()
         user_data = user_resp.json()
@@ -373,7 +400,9 @@ async def github_callback(
 
     try:
         email_resp = await client.get(
-            "https://api.github.com/user/emails", headers=user_headers, timeout=10.0,
+            "https://api.github.com/user/emails",
+            headers=user_headers,
+            timeout=10.0,
         )
         email_resp.raise_for_status()
         emails = email_resp.json()
@@ -393,9 +422,7 @@ async def github_callback(
             is_admin=primary_email == ADMIN_EMAIL,
             githubId=github_id,
             email=primary_email,
-            displayName=(user_data.get("name")
-                         or user_data.get("login")
-                         or primary_email),
+            displayName=(user_data.get("name") or user_data.get("login") or primary_email),
             createdAt=datetime.now(timezone.utc),
         )
         result = await state.users_col.insert_one(new_user)
@@ -429,6 +456,7 @@ try:
         RegistrationCredential,
         UserVerificationRequirement,
     )
+
     WEBAUTHN_AVAILABLE = True
     logger.info("webauthn_enabled")
 except ImportError as e:
@@ -436,6 +464,7 @@ except ImportError as e:
 
 
 if WEBAUTHN_AVAILABLE:
+
     class WebAuthnRegistrationBeginRequest(BaseModel):
         email: EmailStr
 
@@ -461,12 +490,16 @@ if WEBAUTHN_AVAILABLE:
     async def _store_webauthn_credential(user_id, credential_id, public_key, sign_count):
         await state.users_col.update_one(
             {"_id": user_id},
-            {"$push": {"webauthnCredentials": {
-                "credentialId": credential_id.hex(),
-                "publicKey": public_key.hex(),
-                "signCount": sign_count,
-                "transports": [],
-            }}},
+            {
+                "$push": {
+                    "webauthnCredentials": {
+                        "credentialId": credential_id.hex(),
+                        "publicKey": public_key.hex(),
+                        "signCount": sign_count,
+                        "transports": [],
+                    }
+                }
+            },
         )
 
     @router.post("/api/auth/webauthn/register/begin")
@@ -485,7 +518,8 @@ if WEBAUTHN_AVAILABLE:
         )
         await set_redis_cache(
             f"webauthn_challenge:{options.challenge}",
-            {"email": data.email}, ttl=300,
+            {"email": data.email},
+            ttl=300,
         )
         return options.model_dump()
 
@@ -509,8 +543,10 @@ if WEBAUTHN_AVAILABLE:
             logger.error("webauthn_registration_verify_failed error=%s", e)
             raise HTTPException(status_code=400, detail="Registration verification failed")
         await _store_webauthn_credential(
-            user["_id"], verification.credential_id,
-            verification.credential_public_key, verification.sign_count,
+            user["_id"],
+            verification.credential_id,
+            verification.credential_public_key,
+            verification.sign_count,
         )
         return {"success": True, "message": "Passkey registered successfully"}
 
@@ -520,10 +556,7 @@ if WEBAUTHN_AVAILABLE:
         credentials = user.get("webauthnCredentials", [])
         if not credentials:
             raise HTTPException(status_code=400, detail="No passkeys registered for this user")
-        allowed = [
-            PublicKeyCredentialDescriptor(id=bytes.fromhex(c["credentialId"]))
-            for c in credentials
-        ]
+        allowed = [PublicKeyCredentialDescriptor(id=bytes.fromhex(c["credentialId"])) for c in credentials]
         options = generate_authentication_options(
             rp_id=RP_ID,
             challenge=secrets.token_urlsafe(32),
@@ -532,7 +565,8 @@ if WEBAUTHN_AVAILABLE:
         )
         await set_redis_cache(
             f"webauthn_challenge:{options.challenge}",
-            {"email": data.email}, ttl=300,
+            {"email": data.email},
+            ttl=300,
         )
         return options.model_dump()
 
@@ -547,8 +581,7 @@ if WEBAUTHN_AVAILABLE:
         await delete_redis_cache(f"webauthn_challenge:{challenge_token}")
 
         stored = next(
-            (c for c in user.get("webauthnCredentials", [])
-             if c["credentialId"] == data.credential.get("id", "")),
+            (c for c in user.get("webauthnCredentials", []) if c["credentialId"] == data.credential.get("id", "")),
             None,
         )
         if stored is None:

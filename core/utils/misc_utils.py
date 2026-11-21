@@ -26,6 +26,7 @@ Contract:
     * Prewarm deduplication is best-effort, not lock-guarded — concurrent
       calls can at worst spawn one redundant prewarm, never crash.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -56,15 +57,16 @@ async def signal_warmup(redis_client: Any) -> bool:
     if redis_client is None:
         return False
     try:
-        await redis_client.setex(
-            _WARMUP_KEY, _WARMUP_TTL_S, str(time.time()))
+        await redis_client.setex(_WARMUP_KEY, _WARMUP_TTL_S, str(time.time()))
         return True
     except Exception:
         return False
 
 
 async def pacemaker_loop(
-    state: object, *, interval_s: float = 0.5,
+    state: object,
+    *,
+    interval_s: float = 0.5,
 ) -> None:
     """Long-running readiness pinger. Called as a lifespan task.
 
@@ -89,8 +91,7 @@ async def pacemaker_loop(
             db = getattr(state, "db", None)
             if getattr(state, "db_available", False) and db is not None:
                 with contextlib.suppress(Exception):
-                    await asyncio.wait_for(
-                        db.command("ping"), timeout=0.5)
+                    await asyncio.wait_for(db.command("ping"), timeout=0.5)
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(redis.ping(), timeout=0.3)
         except asyncio.CancelledError:
@@ -105,8 +106,7 @@ async def pacemaker_loop(
 _COOLDOWN_S = float(os.getenv("AXELR_PREWARM_COOLDOWN_S", "90.0"))
 _MAX_CONCURRENT = int(os.getenv("AXELR_PREWARM_MAX_CONCURRENT", "4"))
 _PREWARM_TIMEOUT_S = float(os.getenv("AXELR_PREWARM_TIMEOUT_S", "6.0"))
-_PREWARM_ENABLED = (os.getenv("AXELR_PREWARM", "true").lower()
-                    in ("1", "true", "yes"))
+_PREWARM_ENABLED = os.getenv("AXELR_PREWARM", "true").lower() in ("1", "true", "yes")
 
 _SYNTHETIC_PROMPTS: dict[str, str] = {
     "extraction": (
@@ -148,9 +148,14 @@ _state: dict[str, Any] = {
     "in_flight": {},
     "last_ts": {},
     "stats": {
-        "signals": 0, "fires": 0, "coalesced": 0,
-        "cancelled": 0, "skipped_cooldown": 0, "skipped_cap": 0,
-        "skipped_disabled": 0, "skipped_unavailable": 0,
+        "signals": 0,
+        "fires": 0,
+        "coalesced": 0,
+        "cancelled": 0,
+        "skipped_cooldown": 0,
+        "skipped_cap": 0,
+        "skipped_disabled": 0,
+        "skipped_unavailable": 0,
     },
 }
 
@@ -160,12 +165,13 @@ def _key(workspace: str, task_type: str) -> tuple[str, str]:
 
 
 def _synthetic(task_type: str) -> str:
-    return _SYNTHETIC_PROMPTS.get(
-        task_type, _SYNTHETIC_PROMPTS["structuring"])
+    return _SYNTHETIC_PROMPTS.get(task_type, _SYNTHETIC_PROMPTS["structuring"])
 
 
 async def _run_prewarm(
-    workspace: str, task_type: str, prompt_hint: str,
+    workspace: str,
+    task_type: str,
+    prompt_hint: str,
 ) -> None:
     key = _key(workspace, task_type)
     entry: _PrewarmEntry | None = _state["in_flight"].get(key)
@@ -183,9 +189,7 @@ async def _run_prewarm(
             synthetic = prompt_hint[:200] + "\n\n" + synthetic
         t0 = time.monotonic()
         try:
-            await asyncio.wait_for(
-                execute_local_inference(workspace, task_type, synthetic),
-                timeout=_PREWARM_TIMEOUT_S)
+            await asyncio.wait_for(execute_local_inference(workspace, task_type, synthetic), timeout=_PREWARM_TIMEOUT_S)
         except asyncio.TimeoutError:
             if entry:
                 entry.result = "error:timeout"
@@ -203,14 +207,16 @@ async def _run_prewarm(
             entry.result = "ok"
         _state["stats"]["fires"] += 1
         logger.debug(
-            "prewarm_done workspace=%s task=%s elapsed_ms=%.0f",
-            workspace, task_type, (time.monotonic() - t0) * 1000)
+            "prewarm_done workspace=%s task=%s elapsed_ms=%.0f", workspace, task_type, (time.monotonic() - t0) * 1000
+        )
     finally:
         _state["in_flight"].pop(key, None)
 
 
 def signal_prewarm(
-    workspace: str, task_type: str, prompt_hint: str = "",
+    workspace: str,
+    task_type: str,
+    prompt_hint: str = "",
 ) -> bool:
     """Signal that a prewarm for ``(workspace, task_type)`` is worth doing.
 
@@ -242,12 +248,9 @@ def signal_prewarm(
         _state["stats"]["skipped_cap"] += 1
         return False
     _state["last_ts"][key] = now
-    entry = _PrewarmEntry(
-        workspace=workspace, task_type=task_type, started_at=now)
+    entry = _PrewarmEntry(workspace=workspace, task_type=task_type, started_at=now)
     _state["in_flight"][key] = entry
-    entry.task = loop.create_task(
-        _run_prewarm(workspace, task_type, prompt_hint),
-        name=f"prewarm::{key[0]}::{key[1]}")
+    entry.task = loop.create_task(_run_prewarm(workspace, task_type, prompt_hint), name=f"prewarm::{key[0]}::{key[1]}")
     return True
 
 
@@ -285,14 +288,10 @@ def prewarm_snapshot() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════════
 RouteFn = Callable[..., Awaitable[dict[str, Any]]]
 
-_TRACEBACK_RE = re.compile(
-    r"Traceback \(most recent call last\):[\s\S]{0,3000}")
-_JS_ERROR_RE = re.compile(
-    r"^\s*(?:Uncaught\s+)?([A-Z][A-Za-z]+Error):\s*(.+)$", re.MULTILINE)
+_TRACEBACK_RE = re.compile(r"Traceback \(most recent call last\):[\s\S]{0,3000}")
+_JS_ERROR_RE = re.compile(r"^\s*(?:Uncaught\s+)?([A-Z][A-Za-z]+Error):\s*(.+)$", re.MULTILINE)
 _HTTP_5XX_RE = re.compile(r"\b(50[0-9])\b[^\n]{0,120}")
-_PY_EXC_RE = re.compile(
-    r"^([A-Z][A-Za-z]+(?:Error|Exception|Warning)):\s*(.+)$",
-    re.MULTILINE)
+_PY_EXC_RE = re.compile(r"^([A-Z][A-Za-z]+(?:Error|Exception|Warning)):\s*(.+)$", re.MULTILINE)
 _MAX_SIGNATURE_CHARS = 1200
 
 _EXPLAIN_PROMPT = """\
@@ -310,6 +309,7 @@ class ErrorSignature:
     """A detected error snippet. ``kind`` is one of: ``traceback``,
     ``js_error``, ``py_exception``, ``http_5xx``. ``line`` is unused by
     the current detector but preserved for callers that set it."""
+
     kind: str
     text: str
     line: int = 0
@@ -321,27 +321,26 @@ def detect_error(text: str) -> ErrorSignature | None:
         return None
     m = _TRACEBACK_RE.search(text)
     if m:
-        return ErrorSignature(
-            "traceback", m.group(0)[:_MAX_SIGNATURE_CHARS])
+        return ErrorSignature("traceback", m.group(0)[:_MAX_SIGNATURE_CHARS])
     m = _JS_ERROR_RE.search(text)
     if m:
-        return ErrorSignature(
-            "js_error", m.group(0)[:_MAX_SIGNATURE_CHARS])
+        return ErrorSignature("js_error", m.group(0)[:_MAX_SIGNATURE_CHARS])
     m = _PY_EXC_RE.search(text)
     if m:
-        return ErrorSignature(
-            "py_exception", m.group(0)[:_MAX_SIGNATURE_CHARS])
+        return ErrorSignature("py_exception", m.group(0)[:_MAX_SIGNATURE_CHARS])
     m = _HTTP_5XX_RE.search(text)
     if m:
-        return ErrorSignature(
-            "http_5xx", m.group(0)[:_MAX_SIGNATURE_CHARS])
+        return ErrorSignature("http_5xx", m.group(0)[:_MAX_SIGNATURE_CHARS])
     return None
 
 
 async def explain(
-    signature: ErrorSignature, *,
-    route_fn: RouteFn, language: str = "en",
-    tier: str = "free", user: dict[str, Any] | None = None,
+    signature: ErrorSignature,
+    *,
+    route_fn: RouteFn,
+    language: str = "en",
+    tier: str = "free",
+    user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One bounded LLM call that turns an ``ErrorSignature`` into
     ``{cause, fix, guard, source}``.
@@ -356,9 +355,17 @@ async def explain(
     prompt = _EXPLAIN_PROMPT.format(signature=signature.text)
     try:
         result = await route_fn(
-            workspace="core", task_type="touch_fix", prompt=prompt,
-            history=[], files=[], max_tokens=512, temp=0.1,
-            tier=tier, user=user, context="")
+            workspace="core",
+            task_type="touch_fix",
+            prompt=prompt,
+            history=[],
+            files=[],
+            max_tokens=512,
+            temp=0.1,
+            tier=tier,
+            user=user,
+            context="",
+        )
     except Exception as e:
         logger.debug("explainer_route_failed error=%s", e)
         return _static(signature)
@@ -373,7 +380,8 @@ async def explain(
         if not isinstance(data, dict):
             return _static(signature)
         return {
-            "success": True, "kind": signature.kind,
+            "success": True,
+            "kind": signature.kind,
             "cause": str(data.get("cause", ""))[:300],
             "fix": str(data.get("fix", ""))[:300],
             "guard": str(data.get("guard", ""))[:200],
@@ -386,7 +394,8 @@ async def explain(
 def _static(signature: ErrorSignature) -> dict[str, Any]:
     """Deterministic fallback. Never raises."""
     return {
-        "success": True, "kind": signature.kind,
+        "success": True,
+        "kind": signature.kind,
         "cause": "Error detected; no live explanation available.",
         "fix": "Inspect the traceback and check the referenced line.",
         "guard": "Add an assertion or explicit try/except around the call site.",
@@ -395,11 +404,17 @@ def _static(signature: ErrorSignature) -> dict[str, Any]:
 
 
 __all__ = [
-    "signal_warmup", "pacemaker_loop",
-    "signal_prewarm", "cancel_prewarm", "prewarm_snapshot",
-    "ErrorSignature", "detect_error", "explain",
+    "signal_warmup",
+    "pacemaker_loop",
+    "signal_prewarm",
+    "cancel_prewarm",
+    "prewarm_snapshot",
+    "ErrorSignature",
+    "detect_error",
+    "explain",
     "ChunkedReader",
 ]
+
 
 def mask_key(key: str, reveal_last: int = 4) -> str:
     """Mask API keys to avoid exposing full secrets in logs"""
@@ -413,6 +428,7 @@ def mask_key(key: str, reveal_last: int = 4) -> str:
 def ensure_json_serializable(obj):
     """Convert any object to JSON-serializable format"""
     from datetime import datetime
+
     if isinstance(obj, (str, int, float, bool, type(None))):
         return obj
     if isinstance(obj, datetime):
@@ -427,6 +443,7 @@ def ensure_json_serializable(obj):
 def temp_env(**kwargs):
     """Temporarily set environment variables"""
     import os
+
     original = {}
     for k, v in kwargs.items():
         if k in os.environ:
@@ -444,6 +461,7 @@ def temp_env(**kwargs):
 def generate_instance_id() -> str:
     """Generate a unique instance ID for cloud resources"""
     import uuid
+
     return f"axelr-{uuid.uuid4().hex[:12]}"
 
 
@@ -458,6 +476,7 @@ def validate_config(config: dict, required_keys: list[str]) -> tuple[bool, list[
 
 class ChunkedReader:
     """Helper class to read chunks from async stream"""
+
     def __init__(self, stream):
         self.stream = stream
         self.buffer = b""

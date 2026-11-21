@@ -14,6 +14,7 @@ The router's view of the world. Wire-level adapters live in
     §7 get_adapter_statuses   — for /api/health/ready adapter reporting
     §8 build_local_fallback_response + call_local_fallback
 """
+
 from __future__ import annotations
 
 import logging
@@ -70,35 +71,47 @@ PROVIDER_FUNC_MAP: dict[str, Any] = dict(PROVIDER_HTTP)
 # §2 — Key checks
 # ═══════════════════════════════════════════════════════════════════════════
 PROVIDER_KEY_CHECK: dict[str, bool] = {
-    "gemini":           bool(GEMINI_API_KEY),
-    "groq":             bool(GROQ_API_KEY),
-    "cloudflare":       bool(CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID),
-    "openrouter":       bool(OPENROUTER_API_KEY),
-    "modelscope":       bool(MODELSCOPE_API_KEY),
-    "ollama_cloud":     bool(OLLAMA_API_KEY),
-    "nara_router":      bool(NARAROUTER_API_KEY),
-    "mistral":          bool(MISTRAL_API_KEY),
-    "huggingface":      bool(HF_API_KEY),
-    "github_models":    bool(GITHUB_MODELS_TOKEN),
-    "ovhcloud":         bool(OVHCLOUD_API_KEY),
-    "siliconflow":      bool(SILICONFLOW_API_KEY),
-    "agnes_ai":         bool(os.getenv("AGNES_API_KEY")),
-    "bazaarlink":       bool(os.getenv("BAZAARLINK_API_KEY")),
-    "requesty":         bool(REQUESTY_API_KEY),
-    "nrouter":          bool(NROUTER_API_KEY),
-    "qoder":            bool(os.getenv("QODER_API_KEY")),
-    "manifest":         bool(os.getenv("MANIFEST_API_KEY")),
-    "glama":            bool(os.getenv("GLAMA_API_KEY")),
-    "anyapi":           bool(os.getenv("ANYAPI_API_KEY")),
-    "zhipuai":          bool(ZAI_API_KEY),
-    "teamorouter":      bool(TEAMOROUTER_API_KEY),
+    "gemini": bool(GEMINI_API_KEY),
+    "groq": bool(GROQ_API_KEY),
+    "cloudflare": bool(CLOUDFLARE_API_KEY and CLOUDFLARE_ACCOUNT_ID),
+    "openrouter": bool(OPENROUTER_API_KEY),
+    "modelscope": bool(MODELSCOPE_API_KEY),
+    "ollama_cloud": bool(OLLAMA_API_KEY),
+    "nara_router": bool(NARAROUTER_API_KEY),
+    "mistral": bool(MISTRAL_API_KEY),
+    "huggingface": bool(HF_API_KEY),
+    "github_models": bool(GITHUB_MODELS_TOKEN),
+    "ovhcloud": bool(OVHCLOUD_API_KEY),
+    "siliconflow": bool(SILICONFLOW_API_KEY),
+    "agnes_ai": bool(os.getenv("AGNES_API_KEY")),
+    "bazaarlink": bool(os.getenv("BAZAARLINK_API_KEY")),
+    "requesty": bool(REQUESTY_API_KEY),
+    "nrouter": bool(NROUTER_API_KEY),
+    "qoder": bool(os.getenv("QODER_API_KEY")),
+    "manifest": bool(os.getenv("MANIFEST_API_KEY")),
+    "glama": bool(os.getenv("GLAMA_API_KEY")),
+    "anyapi": bool(os.getenv("ANYAPI_API_KEY")),
+    "zhipuai": bool(ZAI_API_KEY),
+    "teamorouter": bool(TEAMOROUTER_API_KEY),
     "free_llm_gateway": bool(os.getenv("FREE_LLM_GATEWAY_URL")),
     # keyless providers → always eligible
-    "bifrost": True, "freegpt4_api": True, "puter": True, "freetheai": True,
-    "omnigpt_gateway": True, "opencode_zen": True, "freeflow": True,
-    "keylessai": True, "chubvenus": True, "blockrun": True, "aymo": True,
-    "zerotwo": True, "aihubmix": True, "aisure": True, "proxygatellm": True,
-    "ninerouter": True, "local": True,
+    "bifrost": True,
+    "freegpt4_api": True,
+    "puter": True,
+    "freetheai": True,
+    "omnigpt_gateway": True,
+    "opencode_zen": True,
+    "freeflow": True,
+    "keylessai": True,
+    "chubvenus": True,
+    "blockrun": True,
+    "aymo": True,
+    "zerotwo": True,
+    "aihubmix": True,
+    "aisure": True,
+    "proxygatellm": True,
+    "ninerouter": True,
+    "local": True,
 }
 
 
@@ -106,67 +119,95 @@ PROVIDER_KEY_CHECK: dict[str, bool] = {
 # §3 — Model catalog
 # ═══════════════════════════════════════════════════════════════════════════
 PROVIDER_MODELS: dict[str, list[str]] = {
-    "gemini":           GEMINI_MODELS,
-    "groq":             GROQ_MODELS,
-    "openrouter":       OPENROUTER_MODELS,
-    "cloudflare":       [CLOUDFLARE_MODEL],
-    "mistral":          MISTRAL_MODELS,
-    "modelscope":       MODELSCOPE_MODELS,
-    "ollama_cloud":     ["mistral-large-3:675b-cloud", "kimi-k2.6", "glm-5.3"],
-    "nara_router":      ["minimax-m3", "deepseek-v3"],
-    "github_models":    [GITHUB_MODEL],
-    "ovhcloud":         OVHCLOUD_MODELS,
-    "siliconflow":      SILICONFLOW_MODELS,
-    "huggingface":      ["meta-llama/Llama-3.2-3B-Instruct",
-                          "mistralai/Mistral-7B-Instruct-v0.3"],
-    "agnes_ai":         ["agnes-2.0-flash"],
-    "zhipuai":          ["glm-4.5-flash"],
-    "teamorouter":      [TEAMOROUTER_MODEL],
-    "bazaarlink":       ["auto:free"],
-    "requesty":         [REQUESTY_MODEL],
-    "nrouter":          [NROUTER_MODEL],
-    "glama":            ["gpt-3.5-turbo"],
-    "bifrost":          ["llama3.1:70b", "mistral:7b"],
-    "freegpt4_api":     ["gpt-4"],
-    "puter":            ["gpt-3.5-turbo"],
-    "freetheai":        ["gpt-3.5-turbo"],
-    "omnigpt_gateway":  ["gpt-3.5-turbo"],
-    "opencode_zen":     ["qwen3-coder"],
-    "freeflow":         ["gpt-3.5-turbo"],
-    "qoder":            ["qwen3-coder"],
-    "manifest":         ["auto:free"],
-    "keylessai":        ["gpt-3.5-turbo"],
-    "chubvenus":        ["gpt-3.5-turbo"],
-    "blockrun":         ["deepseek-v4-flash"],
-    "anyapi":           ["poolside/laguna-xs.2:free"],
-    "aymo":             ["gemini-flash", "deepseek-v3.2", "qwen3"],
-    "zerotwo":          ["gpt-5-mini", "gemini-flash-lite"],
-    "aihubmix":         ["gpt-5.5", "gemini-3", "glm-5.1", "kimi", "minimax"],
-    "aisure":           ["gpt-4o"],
-    "proxygatellm":     ["gpt-3.5-turbo"],
+    "gemini": GEMINI_MODELS,
+    "groq": GROQ_MODELS,
+    "openrouter": OPENROUTER_MODELS,
+    "cloudflare": [CLOUDFLARE_MODEL],
+    "mistral": MISTRAL_MODELS,
+    "modelscope": MODELSCOPE_MODELS,
+    "ollama_cloud": ["mistral-large-3:675b-cloud", "kimi-k2.6", "glm-5.3"],
+    "nara_router": ["minimax-m3", "deepseek-v3"],
+    "github_models": [GITHUB_MODEL],
+    "ovhcloud": OVHCLOUD_MODELS,
+    "siliconflow": SILICONFLOW_MODELS,
+    "huggingface": ["meta-llama/Llama-3.2-3B-Instruct", "mistralai/Mistral-7B-Instruct-v0.3"],
+    "agnes_ai": ["agnes-2.0-flash"],
+    "zhipuai": ["glm-4.5-flash"],
+    "teamorouter": [TEAMOROUTER_MODEL],
+    "bazaarlink": ["auto:free"],
+    "requesty": [REQUESTY_MODEL],
+    "nrouter": [NROUTER_MODEL],
+    "glama": ["gpt-3.5-turbo"],
+    "bifrost": ["llama3.1:70b", "mistral:7b"],
+    "freegpt4_api": ["gpt-4"],
+    "puter": ["gpt-3.5-turbo"],
+    "freetheai": ["gpt-3.5-turbo"],
+    "omnigpt_gateway": ["gpt-3.5-turbo"],
+    "opencode_zen": ["qwen3-coder"],
+    "freeflow": ["gpt-3.5-turbo"],
+    "qoder": ["qwen3-coder"],
+    "manifest": ["auto:free"],
+    "keylessai": ["gpt-3.5-turbo"],
+    "chubvenus": ["gpt-3.5-turbo"],
+    "blockrun": ["deepseek-v4-flash"],
+    "anyapi": ["poolside/laguna-xs.2:free"],
+    "aymo": ["gemini-flash", "deepseek-v3.2", "qwen3"],
+    "zerotwo": ["gpt-5-mini", "gemini-flash-lite"],
+    "aihubmix": ["gpt-5.5", "gemini-3", "glm-5.1", "kimi", "minimax"],
+    "aisure": ["gpt-4o"],
+    "proxygatellm": ["gpt-3.5-turbo"],
     "free_llm_gateway": ["auto"],
-    "ninerouter":       ["auto"],
-    "local":            ["local-model"],
+    "ninerouter": ["auto"],
+    "local": ["local-model"],
 }
 
 # Active (production-ready) vs experimental partitions
 ACTIVE_PROVIDER_ENTRIES: list[tuple[str, Any, list[str]]] = [
-    (n, PROVIDER_FUNC_MAP[n], PROVIDER_MODELS[n]) for n in (
-        "gemini", "groq", "openrouter", "cloudflare", "mistral",
-        "siliconflow", "requesty",
+    (n, PROVIDER_FUNC_MAP[n], PROVIDER_MODELS[n])
+    for n in (
+        "gemini",
+        "groq",
+        "openrouter",
+        "cloudflare",
+        "mistral",
+        "siliconflow",
+        "requesty",
         # All keyless AI gateways promoted to ACTIVE (GREEN) - always available
-        "free_llm_gateway", "ninerouter", "teamorouter",
-        "bifrost", "freegpt4_api", "freetheai", "omnigpt_gateway",
-        "opencode_zen", "freeflow", "keylessai", "blockrun", "anyapi",
-        "aymo", "zerotwo", "aihubmix", "aisure", "proxygatellm",
+        "free_llm_gateway",
+        "ninerouter",
+        "teamorouter",
+        "bifrost",
+        "freegpt4_api",
+        "freetheai",
+        "omnigpt_gateway",
+        "opencode_zen",
+        "freeflow",
+        "keylessai",
+        "blockrun",
+        "anyapi",
+        "aymo",
+        "zerotwo",
+        "aihubmix",
+        "aisure",
+        "proxygatellm",
         "local",
     )
 ]
 EXPERIMENTAL_PROVIDER_ENTRIES: list[tuple[str, Any, list[str]]] = [
-    (n, PROVIDER_FUNC_MAP[n], PROVIDER_MODELS[n]) for n in (
-        "modelscope", "ollama_cloud", "nara_router", "huggingface",
-        "zhipuai", "ovhcloud", "agnes_ai", "bazaarlink", "qoder",
-        "manifest", "glama", "chubvenus",
+    (n, PROVIDER_FUNC_MAP[n], PROVIDER_MODELS[n])
+    for n in (
+        "modelscope",
+        "ollama_cloud",
+        "nara_router",
+        "huggingface",
+        "zhipuai",
+        "ovhcloud",
+        "agnes_ai",
+        "bazaarlink",
+        "qoder",
+        "manifest",
+        "glama",
+        "chubvenus",
     )
 ]
 PROVIDER_CHAIN_ENTRIES = ACTIVE_PROVIDER_ENTRIES + EXPERIMENTAL_PROVIDER_ENTRIES
@@ -181,9 +222,7 @@ def get_healthy_active_providers() -> list[str]:
     """Get all active providers that are healthy (available and have valid keys)."""
     healthy = []
     for p in PROVIDER_TRACKER.values():
-        if (p.name in _ACTIVE_NAMES
-            and PROVIDER_KEY_CHECK.get(p.name, False)
-            and p.is_available):
+        if p.name in _ACTIVE_NAMES and PROVIDER_KEY_CHECK.get(p.name, False) and p.is_available:
             healthy.append(p.name)
     # Always include local as a fallback if needed
     if "local" not in healthy and "local" in _ACTIVE_NAMES:
@@ -204,11 +243,14 @@ def filter_providers_by_tier(providers: list[str], tier: str) -> list[str]:
     # If we have fewer than minimum, supplement with experimental gateway providers that are healthy
     # Prioritize gateway providers to maintain reliability
     gateway_providers = [
-        p.name for p in PROVIDER_TRACKER.values()
-        if (p.name not in providers
+        p.name
+        for p in PROVIDER_TRACKER.values()
+        if (
+            p.name not in providers
             and p.is_available
             and PROVIDER_KEY_CHECK.get(p.name, False)
-            and p.name in ("free_llm_gateway", "ninerouter", "teamorouter", "requesty"))
+            and p.name in ("free_llm_gateway", "ninerouter", "teamorouter", "requesty")
+        )
     ]
     supplemented = providers.copy()
     for gp in gateway_providers:
@@ -218,7 +260,8 @@ def filter_providers_by_tier(providers: list[str], tier: str) -> list[str]:
     # If still not enough, add any remaining healthy providers
     if len(supplemented) < MIN_FREE_TIER_PROVIDERS:
         remaining = [
-            p.name for p in PROVIDER_TRACKER.values()
+            p.name
+            for p in PROVIDER_TRACKER.values()
             if p.name not in supplemented and p.is_available and PROVIDER_KEY_CHECK.get(p.name, False)
         ]
         for rp in remaining:
@@ -233,37 +276,123 @@ def filter_providers_by_tier(providers: list[str], tier: str) -> list[str]:
 # ═══════════════════════════════════════════════════════════════════════════
 WORKSPACE_PRIORITY: dict[str, list[str]] = {
     "data": [
-        "local", "gemini", "modelscope", "groq", "openrouter", "ollama_cloud",
-        "nara_router", "proxygatellm", "free_llm_gateway", "ninerouter",
-        "mistral", "ovhcloud", "siliconflow", "zhipuai", "teamorouter",
-        "nrouter", "bazaarlink", "requesty", "qoder", "manifest",
-        "keylessai", "anyapi", "aymo", "zerotwo", "aihubmix", "aisure",
+        "local",
+        "gemini",
+        "modelscope",
+        "groq",
+        "openrouter",
+        "ollama_cloud",
+        "nara_router",
+        "proxygatellm",
+        "free_llm_gateway",
+        "ninerouter",
+        "mistral",
+        "ovhcloud",
+        "siliconflow",
+        "zhipuai",
+        "teamorouter",
+        "nrouter",
+        "bazaarlink",
+        "requesty",
+        "qoder",
+        "manifest",
+        "keylessai",
+        "anyapi",
+        "aymo",
+        "zerotwo",
+        "aihubmix",
+        "aisure",
     ],
     "design": [
-        "local", "cloudflare", "groq", "gemini", "openrouter", "modelscope",
-        "nara_router", "proxygatellm", "free_llm_gateway", "ninerouter",
-        "agnes_ai", "siliconflow", "zhipuai", "teamorouter", "bifrost",
-        "freegpt4_api", "ovhcloud", "nrouter", "puter", "omnigpt_gateway",
-        "opencode_zen", "qoder", "keylessai", "glama", "chubvenus",
-        "blockrun", "anyapi",
+        "local",
+        "cloudflare",
+        "groq",
+        "gemini",
+        "openrouter",
+        "modelscope",
+        "nara_router",
+        "proxygatellm",
+        "free_llm_gateway",
+        "ninerouter",
+        "agnes_ai",
+        "siliconflow",
+        "zhipuai",
+        "teamorouter",
+        "bifrost",
+        "freegpt4_api",
+        "ovhcloud",
+        "nrouter",
+        "puter",
+        "omnigpt_gateway",
+        "opencode_zen",
+        "qoder",
+        "keylessai",
+        "glama",
+        "chubvenus",
+        "blockrun",
+        "anyapi",
     ],
     "core": [
-        "local", "gemini", "modelscope", "groq", "openrouter", "ollama_cloud",
-        "nara_router", "proxygatellm", "free_llm_gateway", "ninerouter",
-        "mistral", "huggingface", "github_models", "zhipuai", "teamorouter",
-        "ovhcloud", "siliconflow", "nrouter", "bazaarlink", "requesty",
-        "qoder", "freeflow", "manifest", "keylessai", "glama", "chubvenus",
-        "anyapi", "aymo", "zerotwo", "aihubmix", "aisure",
+        "local",
+        "gemini",
+        "modelscope",
+        "groq",
+        "openrouter",
+        "ollama_cloud",
+        "nara_router",
+        "proxygatellm",
+        "free_llm_gateway",
+        "ninerouter",
+        "mistral",
+        "huggingface",
+        "github_models",
+        "zhipuai",
+        "teamorouter",
+        "ovhcloud",
+        "siliconflow",
+        "nrouter",
+        "bazaarlink",
+        "requesty",
+        "qoder",
+        "freeflow",
+        "manifest",
+        "keylessai",
+        "glama",
+        "chubvenus",
+        "anyapi",
+        "aymo",
+        "zerotwo",
+        "aihubmix",
+        "aisure",
     ],
     "prompt": [
-        "gemini", "openrouter", "modelscope", "groq", "nara_router",
-        "ollama_cloud", "proxygatellm", "free_llm_gateway", "ninerouter",
-        "zhipuai", "teamorouter", "requesty", "bazaarlink",
+        "gemini",
+        "openrouter",
+        "modelscope",
+        "groq",
+        "nara_router",
+        "ollama_cloud",
+        "proxygatellm",
+        "free_llm_gateway",
+        "ninerouter",
+        "zhipuai",
+        "teamorouter",
+        "requesty",
+        "bazaarlink",
     ],
     "touch_fix": [
-        "groq", "mistral", "github_models", "zhipuai", "teamorouter",
-        "nara_router", "proxygatellm", "free_llm_gateway", "ninerouter",
-        "ovhcloud", "qoder", "opencode_zen",
+        "groq",
+        "mistral",
+        "github_models",
+        "zhipuai",
+        "teamorouter",
+        "nara_router",
+        "proxygatellm",
+        "free_llm_gateway",
+        "ninerouter",
+        "ovhcloud",
+        "qoder",
+        "opencode_zen",
     ],
 }
 
@@ -322,10 +451,14 @@ class ProviderMetrics:
                     success_rate = sum(self.history) / total
                 if self.latencies:
                     avg_lat = sum(self.latencies) / len(self.latencies)
-        affinity = 15 if (
-            (workspace == "design" and self.name in {"cloudflare", "groq", "gemini"})
-            or (workspace == "data" and self.name in {"gemini", "modelscope", "groq"})
-        ) else 0
+        affinity = (
+            15
+            if (
+                (workspace == "design" and self.name in {"cloudflare", "groq", "gemini"})
+                or (workspace == "data" and self.name in {"gemini", "modelscope", "groq"})
+            )
+            else 0
+        )
         return (success_rate * 100) - (avg_lat * 12) - (self.consecutive_failures * 25) + affinity
 
 
@@ -340,7 +473,10 @@ import httpx
 
 
 async def record_provider_result(
-    name: str, latency: float, success: bool, is_rate_limit: bool = False,
+    name: str,
+    latency: float,
+    success: bool,
+    is_rate_limit: bool = False,
 ) -> None:
     p = PROVIDER_TRACKER.get(name)
     if not p:
@@ -394,7 +530,7 @@ async def health_check_provider(name: str, client: httpx.AsyncClient) -> bool:
                 "teamorouter": os.getenv("TEAMOROUTER_API_URL", "https://router.teamorouter.com"),
                 "requesty": "https://api.requesty.ai",
                 "nara_router": "https://router.bynara.id",
-                "ollama_cloud": os.getenv("OLLAMA_API_URL", "https://api.ollama.ai")
+                "ollama_cloud": os.getenv("OLLAMA_API_URL", "https://api.ollama.ai"),
             }
             base_url = base_urls.get(name)
             if not base_url:
@@ -461,11 +597,12 @@ def start_health_check_background_task() -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 # §6 — Ranking
 # ═══════════════════════════════════════════════════════════════════════════
-async def get_dynamically_ranked_providers(workspace: str, user_tier: str = "free", user: dict | None = None) -> list[str]:
+async def get_dynamically_ranked_providers(
+    workspace: str, user_tier: str = "free", user: dict | None = None
+) -> list[str]:
     """Rank providers. Hot path: one Redis MGET for all metrics. Applies tier-based filtering."""
     eligible = [
-        p for p in PROVIDER_TRACKER.values()
-        if p.name in _ACTIVE_NAMES and PROVIDER_KEY_CHECK.get(p.name, False)
+        p for p in PROVIDER_TRACKER.values() if p.name in _ACTIVE_NAMES and PROVIDER_KEY_CHECK.get(p.name, False)
     ]
     if not eligible:
         return ["local"]
@@ -485,9 +622,13 @@ async def get_dynamically_ranked_providers(workspace: str, user_tier: str = "fre
     KEYS_PER = 5
     keys: list[str] = []
     for p in eligible:
-        keys += [f"metrics:{p.name}:successes", f"metrics:{p.name}:failures",
-                 f"metrics:{p.name}:avg_ttft", f"metrics:{p.name}:consecutive_failures",
-                 f"metrics:{p.name}:cooldown_until"]
+        keys += [
+            f"metrics:{p.name}:successes",
+            f"metrics:{p.name}:failures",
+            f"metrics:{p.name}:avg_ttft",
+            f"metrics:{p.name}:consecutive_failures",
+            f"metrics:{p.name}:cooldown_until",
+        ]
 
     try:
         values = await state.redis_client.mget(keys)
@@ -508,7 +649,7 @@ async def get_dynamically_ranked_providers(workspace: str, user_tier: str = "fre
     scored: list[tuple[float, str]] = []
     for idx, p in enumerate(eligible):
         base = idx * KEYS_PER
-        raw_succ, raw_fail, raw_ttft, raw_consec, raw_cool = values[base:base + KEYS_PER]
+        raw_succ, raw_fail, raw_ttft, raw_consec, raw_cool = values[base : base + KEYS_PER]
         cooldown_until = float(raw_cool) if raw_cool else 0.0
         if now < cooldown_until:
             continue
@@ -518,10 +659,14 @@ async def get_dynamically_ranked_providers(workspace: str, user_tier: str = "fre
         success_rate = (successes / total) if total > 0 else 0.85
         avg_lat = float(raw_ttft) if raw_ttft else 1.5
         consecutive = int(raw_consec or 0)
-        affinity = 15 if (
-            (workspace == "design" and p.name in {"cloudflare", "groq", "gemini"})
-            or (workspace == "data" and p.name in {"gemini", "modelscope", "groq"})
-        ) else 0
+        affinity = (
+            15
+            if (
+                (workspace == "design" and p.name in {"cloudflare", "groq", "gemini"})
+                or (workspace == "data" and p.name in {"gemini", "modelscope", "groq"})
+            )
+            else 0
+        )
         score = (success_rate * 100) - (avg_lat * 12) - (consecutive * 25) + affinity
         scored.append((score, p.name))
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -562,23 +707,20 @@ def get_adapter_statuses() -> dict[str, dict[str, Any]]:
 def build_local_fallback_response(workspace: str, task_type: str, prompt: str) -> str:
     text = (prompt or "").strip()
     if not text:
-        return ("I'm sorry, all AI services are temporarily unavailable. "
-                "Please try again in a few minutes.")
+        return "I'm sorry, all AI services are temporarily unavailable. Please try again in a few minutes."
     if workspace == "design":
-        return (f'Design concept for: "{text[:120]}".\n'
-                f'Here\'s a starting point — refine it and I\'ll assist further.')
+        return f"Design concept for: \"{text[:120]}\".\nHere's a starting point — refine it and I'll assist further."
     if workspace == "data":
-        return (f'Data analysis for: "{text[:120]}".\n'
-                f'Please provide the source data or example output for a more precise analysis.')
+        return (
+            f'Data analysis for: "{text[:120]}".\n'
+            f"Please provide the source data or example output for a more precise analysis."
+        )
     if task_type == "touch_fix":
-        return (f'Debugging: "{text[:120]}".\n'
-                f'Please share the full error, file name, and expected behaviour.')
-    return (f'Request received: "{text[:160]}".\n'
-            f'I can help with a concise plan, code snippet, or structured answer.')
+        return f'Debugging: "{text[:120]}".\nPlease share the full error, file name, and expected behaviour.'
+    return f'Request received: "{text[:160]}".\nI can help with a concise plan, code snippet, or structured answer.'
 
 
-async def call_local_fallback(prompt: str, max_tokens: int, temp: float,
-                               model: str | None = None) -> str:
+async def call_local_fallback(prompt: str, max_tokens: int, temp: float, model: str | None = None) -> str:
     return build_local_fallback_response("core", "core", prompt)
 
 

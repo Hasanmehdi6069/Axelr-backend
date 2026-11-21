@@ -15,6 +15,7 @@ concern lives in one auditable file.
 
 Every function is deterministic, pure-stdlib, and never raises.
 """
+
 from __future__ import annotations
 
 import ast
@@ -34,13 +35,19 @@ __all__ = [
     # §1 pruning
     "prune_system",
     # §2 hyperparams
-    "Hyperparams", "derive", "payload_extras",
+    "Hyperparams",
+    "derive",
+    "payload_extras",
     # §3 repair
     "ast_repair",
     # §4 task split
-    "decompose", "race_tasks", "is_decomposable",
+    "decompose",
+    "race_tasks",
+    "is_decomposable",
     # §5 telemetry
-    "RING", "TelemetryRing", "ProviderEvent",
+    "RING",
+    "TelemetryRing",
+    "ProviderEvent",
     # audit
     "audit",
 ]
@@ -53,13 +60,19 @@ _FENCE_RE = re.compile(r"```[\s\S]*?```")
 _PROSE_FILLER_RE = re.compile(
     r"\b(?:please|kindly|just|really|very|actually|basically|simply|"
     r"maybe|perhaps|you know|like|literally|honestly|frankly|"
-    r"if you don'?t mind|if possible|when you can|at your earliest)\b", re.I)
+    r"if you don'?t mind|if possible|when you can|at your earliest)\b",
+    re.I,
+)
 _HEDGE_RE = re.compile(
     r"\b(?:i think|i believe|it seems|it appears|possibly|probably|"
-    r"might be|may be|could be|sort of|kind of|more or less)\b", re.I)
+    r"might be|may be|could be|sort of|kind of|more or less)\b",
+    re.I,
+)
 _INTENSIFIER_RE = re.compile(
     r"\b(?:very|extremely|incredibly|absolutely|totally|completely|"
-    r"utterly|highly|deeply|strongly)\s+", re.I)
+    r"utterly|highly|deeply|strongly)\s+",
+    re.I,
+)
 _MULTISPACE_RE = re.compile(r"[ \t]{2,}")
 _MULTINL_RE = re.compile(r"\n{3,}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.,;:!?])")
@@ -94,8 +107,7 @@ def prune_system(text: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 # §2 — Hyperparameters
 # ═══════════════════════════════════════════════════════════════════════════
-_CODE_HINT_RE = re.compile(
-    r"```|\bdef\s|\bclass\s|\bfunction\s|\bconst\s|\bSELECT\s|\bINSERT\s")
+_CODE_HINT_RE = re.compile(r"```|\bdef\s|\bclass\s|\bfunction\s|\bconst\s|\bSELECT\s|\bINSERT\s")
 _PUNCT_RE = re.compile(r"[.,;:!?]")
 
 
@@ -147,13 +159,11 @@ def derive(prompt: str, task_type: str = "", intent: str = "") -> Hyperparams:
     )
 
 
-def payload_extras(prompt: str, task_type: str = "",
-                   intent: str = "") -> dict[str, Any]:
+def payload_extras(prompt: str, task_type: str = "", intent: str = "") -> dict[str, Any]:
     """Return only the OpenAI payload extras. Never raises."""
     try:
         hp = derive(prompt, task_type, intent)
-        return {"top_p": hp.top_p, "frequency_penalty": hp.frequency_penalty,
-                "presence_penalty": hp.presence_penalty}
+        return {"top_p": hp.top_p, "frequency_penalty": hp.frequency_penalty, "presence_penalty": hp.presence_penalty}
     except Exception:
         return {}
 
@@ -206,10 +216,12 @@ def _repair_json(text: str) -> tuple[str, list[str]]:
     stripped = _BLOCK_COMMENT_RE.sub("", out)
     stripped = _LINE_COMMENT_RE.sub("", stripped)
     if stripped != out:
-        out = stripped; issues.append("stripped_js_comments")
+        out = stripped
+        issues.append("stripped_js_comments")
     new = _TRAILING_COMMA_RE.sub(r"\1", out)
     if new != out:
-        out = new; issues.append("stripped_trailing_comma")
+        out = new
+        issues.append("stripped_trailing_comma")
     for o, c in _BRACKETS:
         out, fixed = _balance(out, o, c)
         if fixed:
@@ -238,7 +250,8 @@ def _repair_python(text: str) -> tuple[str, list[str]]:
         if fixed:
             issues.append(f"closed_{o}{c}_x{fixed}")
     if not out.endswith("\n"):
-        out += "\n"; issues.append("appended_newline")
+        out += "\n"
+        issues.append("appended_newline")
     try:
         ast.parse(out)
         return out, issues
@@ -301,13 +314,11 @@ def decompose(prompt: str, max_tasks: int = 3) -> list[str]:
         return [prompt]
     max_tasks = max(1, int(max_tasks))
     bullets = _BULLET_RE.findall(prompt)
-    cleaned = [_clean_clause(b) for b in bullets
-               if _MIN_CLAUSE <= len(b) <= _MAX_CLAUSE]
+    cleaned = [_clean_clause(b) for b in bullets if _MIN_CLAUSE <= len(b) <= _MAX_CLAUSE]
     if len(cleaned) >= 2:
         return cleaned[:max_tasks]
     parts = _QUESTION_SPLIT_RE.split(prompt)
-    parts = [_clean_clause(p) + ("?" if not p.rstrip().endswith("?") else "")
-             for p in parts if p.strip()]
+    parts = [_clean_clause(p) + ("?" if not p.rstrip().endswith("?") else "") for p in parts if p.strip()]
     if len(parts) >= 2 and all(len(p) >= 30 for p in parts):
         return parts[:max_tasks]
     return [prompt]
@@ -334,17 +345,25 @@ async def _one(route_fn: RouteFn, prompt: str, **kw) -> dict[str, Any]:
     except Exception as e:
         logger.debug("task_split_subcall_failed error=%s", e)
         return {"success": False, "text": "", "provider": "none"}
-    return r if isinstance(r, dict) else {"success": False, "text": "",
-                                          "provider": "none"}
+    return r if isinstance(r, dict) else {"success": False, "text": "", "provider": "none"}
 
 
 async def race_tasks(
-    route_fn: RouteFn, *,
-    workspace: str, task_type: str, prompt: str,
-    history: Any, files: Any,
-    max_tokens: int, temp: float, tier: str,
-    user: dict | None, context: str, request: Any,
-    max_tasks: int = 3, timeout_s: float = 20.0,
+    route_fn: RouteFn,
+    *,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: Any,
+    files: Any,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None,
+    context: str,
+    request: Any,
+    max_tasks: int = 3,
+    timeout_s: float = 20.0,
 ) -> dict[str, Any] | None:
     """Fire N concurrent sub-calls + one merge call. Returns None on non-decomposable."""
     if not is_decomposable(prompt):
@@ -354,13 +373,23 @@ async def race_tasks(
         return None
     sub_tokens = max(256, max_tokens // max(2, len(subs) + 1))
     tasks = [
-        asyncio.create_task(_one(
-            route_fn, sub,
-            workspace=workspace, task_type=task_type,
-            history=None, files=files,
-            max_tokens=sub_tokens, temp=temp, tier=tier,
-            user=user, context=context, request=request,
-        ), name=f"split::{i}")
+        asyncio.create_task(
+            _one(
+                route_fn,
+                sub,
+                workspace=workspace,
+                task_type=task_type,
+                history=None,
+                files=files,
+                max_tokens=sub_tokens,
+                temp=temp,
+                tier=tier,
+                user=user,
+                context=context,
+                request=request,
+            ),
+            name=f"split::{i}",
+        )
         for i, sub in enumerate(subs)
     ]
     done, pending = await asyncio.wait(tasks, timeout=max(4.0, float(timeout_s)))
@@ -380,13 +409,10 @@ async def race_tasks(
     if len(collected) < 2:
         return None
     subs_block = "\n\n".join(collected)
-    merge_prompt = _MERGE_PROMPT.format(
-        prompt=prompt[:1500], subs=subs_block[:6000])
+    merge_prompt = _MERGE_PROMPT.format(prompt=prompt[:1500], subs=subs_block[:6000])
     try:
         merged = await asyncio.wait_for(
-            route_fn(workspace, task_type, merge_prompt,
-                     None, None, max_tokens, temp, tier,
-                     user, context, request),
+            route_fn(workspace, task_type, merge_prompt, None, None, max_tokens, temp, tier, user, context, request),
             timeout=max(6.0, float(timeout_s)),
         )
     except Exception as e:
@@ -428,13 +454,11 @@ class TelemetryRing:
             self._rings[key] = d
         return d
 
-    def record(self, workspace: str, tier: str, provider: str,
-               success: bool, latency_ms: float) -> None:
+    def record(self, workspace: str, tier: str, provider: str, success: bool, latency_ms: float) -> None:
         if not provider:
             return
         try:
-            ev = ProviderEvent(provider=provider, success=bool(success),
-                               latency_ms=float(latency_ms), ts=time.time())
+            ev = ProviderEvent(provider=provider, success=bool(success), latency_ms=float(latency_ms), ts=time.time())
         except Exception:
             return
         with self._lock:
@@ -447,16 +471,14 @@ class TelemetryRing:
         ok = sum(1 for e in hits if e.success)
         return ok / len(hits), sum(e.latency_ms for e in hits) / len(hits)
 
-    def recommend(self, workspace: str, tier: str,
-                  candidates: list[str]) -> list[str]:
+    def recommend(self, workspace: str, tier: str, candidates: list[str]) -> list[str]:
         if not candidates:
             return candidates
         with self._lock:
             d = self._rings.get((workspace or "core", tier or "free"))
             if not d:
                 return list(candidates)
-            scored = [((-self._rate(d, p)[0], self._rate(d, p)[1], i), p)
-                      for i, p in enumerate(candidates)]
+            scored = [((-self._rate(d, p)[0], self._rate(d, p)[1], i), p) for i, p in enumerate(candidates)]
         scored.sort()
         return [p for _, p in scored]
 
@@ -467,8 +489,7 @@ class TelemetryRing:
                 return {"size": 0, "providers": {}}
             providers: dict[str, dict[str, float]] = {}
             for e in d:
-                r = providers.setdefault(e.provider,
-                                         {"hits": 0, "ok": 0, "lat": 0.0})
+                r = providers.setdefault(e.provider, {"hits": 0, "ok": 0, "lat": 0.0})
                 r["hits"] += 1
                 r["ok"] += 1 if e.success else 0
                 r["lat"] += e.latency_ms
@@ -495,6 +516,8 @@ def audit() -> dict[str, Any]:
         "telemetry_slots": _SLOT_SIZE,
         "telemetry_buckets": len(RING._rings),
     }
+
+
 _MULTINL_RE = re.compile(r"\n{3,}")
 _SPACE_BEFORE_PUNCT_RE = re.compile(r"\s+([.,;:!?])")
 
@@ -528,8 +551,7 @@ def prune_system(text: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 # §2 — Hyperparameters
 # ═══════════════════════════════════════════════════════════════════════════
-_CODE_HINT_RE = re.compile(
-    r"```|\bdef\s|\bclass\s|\bfunction\s|\bconst\s|\bSELECT\s|\bINSERT\s")
+_CODE_HINT_RE = re.compile(r"```|\bdef\s|\bclass\s|\bfunction\s|\bconst\s|\bSELECT\s|\bINSERT\s")
 _PUNCT_RE = re.compile(r"[.,;:!?]")
 
 
@@ -581,13 +603,11 @@ def derive(prompt: str, task_type: str = "", intent: str = "") -> Hyperparams:
     )
 
 
-def payload_extras(prompt: str, task_type: str = "",
-                   intent: str = "") -> dict[str, Any]:
+def payload_extras(prompt: str, task_type: str = "", intent: str = "") -> dict[str, Any]:
     """Return only the OpenAI payload extras. Never raises."""
     try:
         hp = derive(prompt, task_type, intent)
-        return {"top_p": hp.top_p, "frequency_penalty": hp.frequency_penalty,
-                "presence_penalty": hp.presence_penalty}
+        return {"top_p": hp.top_p, "frequency_penalty": hp.frequency_penalty, "presence_penalty": hp.presence_penalty}
     except Exception:
         return {}
 
@@ -640,10 +660,12 @@ def _repair_json(text: str) -> tuple[str, list[str]]:
     stripped = _BLOCK_COMMENT_RE.sub("", out)
     stripped = _LINE_COMMENT_RE.sub("", stripped)
     if stripped != out:
-        out = stripped; issues.append("stripped_js_comments")
+        out = stripped
+        issues.append("stripped_js_comments")
     new = _TRAILING_COMMA_RE.sub(r"\1", out)
     if new != out:
-        out = new; issues.append("stripped_trailing_comma")
+        out = new
+        issues.append("stripped_trailing_comma")
     for o, c in _BRACKETS:
         out, fixed = _balance(out, o, c)
         if fixed:
@@ -672,7 +694,8 @@ def _repair_python(text: str) -> tuple[str, list[str]]:
         if fixed:
             issues.append(f"closed_{o}{c}_x{fixed}")
     if not out.endswith("\n"):
-        out += "\n"; issues.append("appended_newline")
+        out += "\n"
+        issues.append("appended_newline")
     try:
         ast.parse(out)
         return out, issues
@@ -735,13 +758,11 @@ def decompose(prompt: str, max_tasks: int = 3) -> list[str]:
         return [prompt]
     max_tasks = max(1, int(max_tasks))
     bullets = _BULLET_RE.findall(prompt)
-    cleaned = [_clean_clause(b) for b in bullets
-               if _MIN_CLAUSE <= len(b) <= _MAX_CLAUSE]
+    cleaned = [_clean_clause(b) for b in bullets if _MIN_CLAUSE <= len(b) <= _MAX_CLAUSE]
     if len(cleaned) >= 2:
         return cleaned[:max_tasks]
     parts = _QUESTION_SPLIT_RE.split(prompt)
-    parts = [_clean_clause(p) + ("?" if not p.rstrip().endswith("?") else "")
-             for p in parts if p.strip()]
+    parts = [_clean_clause(p) + ("?" if not p.rstrip().endswith("?") else "") for p in parts if p.strip()]
     if len(parts) >= 2 and all(len(p) >= 30 for p in parts):
         return parts[:max_tasks]
     return [prompt]
@@ -768,17 +789,25 @@ async def _one(route_fn: RouteFn, prompt: str, **kw) -> dict[str, Any]:
     except Exception as e:
         logger.debug("task_split_subcall_failed error=%s", e)
         return {"success": False, "text": "", "provider": "none"}
-    return r if isinstance(r, dict) else {"success": False, "text": "",
-                                          "provider": "none"}
+    return r if isinstance(r, dict) else {"success": False, "text": "", "provider": "none"}
 
 
 async def race_tasks(
-    route_fn: RouteFn, *,
-    workspace: str, task_type: str, prompt: str,
-    history: Any, files: Any,
-    max_tokens: int, temp: float, tier: str,
-    user: dict | None, context: str, request: Any,
-    max_tasks: int = 3, timeout_s: float = 20.0,
+    route_fn: RouteFn,
+    *,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: Any,
+    files: Any,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None,
+    context: str,
+    request: Any,
+    max_tasks: int = 3,
+    timeout_s: float = 20.0,
 ) -> dict[str, Any] | None:
     """Fire N concurrent sub-calls + one merge call. Returns None on non-decomposable."""
     if not is_decomposable(prompt):
@@ -788,13 +817,23 @@ async def race_tasks(
         return None
     sub_tokens = max(256, max_tokens // max(2, len(subs) + 1))
     tasks = [
-        asyncio.create_task(_one(
-            route_fn, sub,
-            workspace=workspace, task_type=task_type,
-            history=None, files=files,
-            max_tokens=sub_tokens, temp=temp, tier=tier,
-            user=user, context=context, request=request,
-        ), name=f"split::{i}")
+        asyncio.create_task(
+            _one(
+                route_fn,
+                sub,
+                workspace=workspace,
+                task_type=task_type,
+                history=None,
+                files=files,
+                max_tokens=sub_tokens,
+                temp=temp,
+                tier=tier,
+                user=user,
+                context=context,
+                request=request,
+            ),
+            name=f"split::{i}",
+        )
         for i, sub in enumerate(subs)
     ]
     done, pending = await asyncio.wait(tasks, timeout=max(4.0, float(timeout_s)))
@@ -814,13 +853,10 @@ async def race_tasks(
     if len(collected) < 2:
         return None
     subs_block = "\n\n".join(collected)
-    merge_prompt = _MERGE_PROMPT.format(
-        prompt=prompt[:1500], subs=subs_block[:6000])
+    merge_prompt = _MERGE_PROMPT.format(prompt=prompt[:1500], subs=subs_block[:6000])
     try:
         merged = await asyncio.wait_for(
-            route_fn(workspace, task_type, merge_prompt,
-                     None, None, max_tokens, temp, tier,
-                     user, context, request),
+            route_fn(workspace, task_type, merge_prompt, None, None, max_tokens, temp, tier, user, context, request),
             timeout=max(6.0, float(timeout_s)),
         )
     except Exception as e:
@@ -862,13 +898,11 @@ class TelemetryRing:
             self._rings[key] = d
         return d
 
-    def record(self, workspace: str, tier: str, provider: str,
-               success: bool, latency_ms: float) -> None:
+    def record(self, workspace: str, tier: str, provider: str, success: bool, latency_ms: float) -> None:
         if not provider:
             return
         try:
-            ev = ProviderEvent(provider=provider, success=bool(success),
-                               latency_ms=float(latency_ms), ts=time.time())
+            ev = ProviderEvent(provider=provider, success=bool(success), latency_ms=float(latency_ms), ts=time.time())
         except Exception:
             return
         with self._lock:
@@ -881,16 +915,14 @@ class TelemetryRing:
         ok = sum(1 for e in hits if e.success)
         return ok / len(hits), sum(e.latency_ms for e in hits) / len(hits)
 
-    def recommend(self, workspace: str, tier: str,
-                  candidates: list[str]) -> list[str]:
+    def recommend(self, workspace: str, tier: str, candidates: list[str]) -> list[str]:
         if not candidates:
             return candidates
         with self._lock:
             d = self._rings.get((workspace or "core", tier or "free"))
             if not d:
                 return list(candidates)
-            scored = [((-self._rate(d, p)[0], self._rate(d, p)[1], i), p)
-                      for i, p in enumerate(candidates)]
+            scored = [((-self._rate(d, p)[0], self._rate(d, p)[1], i), p) for i, p in enumerate(candidates)]
         scored.sort()
         return [p for _, p in scored]
 
@@ -901,8 +933,7 @@ class TelemetryRing:
                 return {"size": 0, "providers": {}}
             providers: dict[str, dict[str, float]] = {}
             for e in d:
-                r = providers.setdefault(e.provider,
-                                         {"hits": 0, "ok": 0, "lat": 0.0})
+                r = providers.setdefault(e.provider, {"hits": 0, "ok": 0, "lat": 0.0})
                 r["hits"] += 1
                 r["ok"] += 1 if e.success else 0
                 r["lat"] += e.latency_ms

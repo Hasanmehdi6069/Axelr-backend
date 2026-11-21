@@ -1,4 +1,5 @@
 """Transaction state machine and storage with pluggable backends (in-memory + Redis)"""
+
 from __future__ import annotations
 
 import json
@@ -15,6 +16,7 @@ from .core import get_core_module
 
 logger = logging.getLogger("axelr.paypal.transactions")
 
+
 class TransactionState(str, Enum):
     INITIATED = "INITIATED"
     VALIDATED = "VALIDATED"
@@ -23,6 +25,7 @@ class TransactionState(str, Enum):
     CAPTURED = "CAPTURED"
     REFUNDED = "REFUNDED"
 
+
 # Valid state transitions
 VALID_TRANSITIONS = {
     TransactionState.INITIATED: {TransactionState.VALIDATED},
@@ -30,11 +33,13 @@ VALID_TRANSITIONS = {
     TransactionState.PAYPAL_CREATED: {TransactionState.APPROVED},
     TransactionState.APPROVED: {TransactionState.CAPTURED},
     TransactionState.CAPTURED: {TransactionState.REFUNDED},
-    TransactionState.REFUNDED: set()  # Terminal state
+    TransactionState.REFUNDED: set(),  # Terminal state
 }
+
 
 class Transaction(BaseModel):
     """Model representing a single payment transaction with full audit trail"""
+
     model_config = ConfigDict(extra="forbid")
 
     id: str
@@ -53,8 +58,10 @@ class Transaction(BaseModel):
         """Check if a state transition is valid"""
         return new_state in VALID_TRANSITIONS.get(self.state, set())
 
+
 class TransactionStore:
     """Pluggable transaction store with in-memory and Redis implementations"""
+
     _instance: Optional["TransactionStore"] = None
 
     def __new__(cls):
@@ -98,7 +105,9 @@ class TransactionStore:
             cls._instance = cls()
         return cls._instance
 
-    async def create_transaction(self, amount: str, currency: str, items: List[Dict[str, Any]], metadata: Optional[Dict] = None) -> Transaction:
+    async def create_transaction(
+        self, amount: str, currency: str, items: List[Dict[str, Any]], metadata: Optional[Dict] = None
+    ) -> Transaction:
         """Create a new transaction in INITIATED state"""
         self._initialize_storage()
         txn_id = str(uuid.uuid4())
@@ -113,7 +122,7 @@ class TransactionStore:
             created_at=now,
             updated_at=now,
             history=[{"state": TransactionState.INITIATED, "timestamp": now, "reason": "Transaction created"}],
-            metadata=metadata or {}
+            metadata=metadata or {},
         )
 
         await self._save(txn)
@@ -121,7 +130,9 @@ class TransactionStore:
         logger.info(f"Created new transaction {txn_id} in state INITIATED")
         return txn
 
-    async def transition_state(self, txn_id: str, new_state: TransactionState, reason: str = "State updated") -> Transaction:
+    async def transition_state(
+        self, txn_id: str, new_state: TransactionState, reason: str = "State updated"
+    ) -> Transaction:
         """Transition a transaction to a new state with validation and audit logging"""
         self._initialize_storage()
         txn = await self.get_transaction(txn_id)
@@ -205,6 +216,7 @@ class TransactionStore:
         else:
             txn_id = self._capture_index.get(paypal_capture_id)
             return await self.get_transaction(txn_id) if txn_id else None
+
 
 def get_transaction_store() -> TransactionStore:
     return TransactionStore.get_instance()

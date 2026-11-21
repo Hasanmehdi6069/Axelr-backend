@@ -29,7 +29,12 @@ class TestPaypalMasterAdversarial:
             {"payment_method": "A" * 10000},
             {},
             {"random_field": "random_value"},
-            {"amount": "100", "currency": "USD", "payment_method": "card", "malicious": "<script>alert('xss')</script>"},
+            {
+                "amount": "100",
+                "currency": "USD",
+                "payment_method": "card",
+                "malicious": "<script>alert('xss')</script>",
+            },
             {"amount": 100, "currency": "USD", "payment_method": "card", "order_id": "' OR '1'='1"},
             {"amount": 100, "currency": "USD", "payment_method": "card", "order_id": "../../../etc/passwd"},
             {"amount": 100, "currency": "USD", "payment_method": "card", "order_id": "\x00\x01\x02\x03\x04\x05"},
@@ -41,7 +46,9 @@ class TestPaypalMasterAdversarial:
                 assert isinstance(result, dict), f"Invalid response type for payload: {payload}"
                 assert "success" in result, f"Missing success key for payload: {payload}"
             except Exception as e:
-                assert isinstance(e, (ValueError, TypeError, ValidationError)), f"Unexpected exception type for payload {payload}: {type(e)}"
+                assert isinstance(e, (ValueError, TypeError, ValidationError)), (
+                    f"Unexpected exception type for payload {payload}: {type(e)}"
+                )
 
     @pytest.mark.asyncio
     async def test_state_injection_attacks(self, paypal_engine):
@@ -82,9 +89,7 @@ class TestPaypalMasterAdversarial:
         for signature in forged_signatures:
             try:
                 result = await paypal_engine.verify_webhook_signature(
-                    "test_payload",
-                    signature,
-                    int(datetime.utcnow().timestamp())
+                    "test_payload", signature, int(datetime.utcnow().timestamp())
                 )
                 assert not result.get("valid", True), f"Forged signature accepted: {signature[:50]}"
             except Exception:
@@ -97,9 +102,9 @@ class TestPaypalMasterAdversarial:
             float("-inf"),
             float("nan"),
             10**308,
-            -10**308,
+            -(10**308),
             10**400,
-            -10**400,
+            -(10**400),
             "not_a_number",
             None,
             [],
@@ -134,7 +139,9 @@ class TestPaypalMasterAdversarial:
                 result = await paypal_engine.process_refund(refund)
                 assert isinstance(result, dict), f"Invalid response for refund {refund}"
             except Exception as e:
-                assert isinstance(e, (ValueError, TypeError, ValidationError)), f"Unexpected exception for refund {refund}: {type(e)}"
+                assert isinstance(e, (ValueError, TypeError, ValidationError)), (
+                    f"Unexpected exception for refund {refund}: {type(e)}"
+                )
 
     @pytest.mark.asyncio
     async def test_concurrent_race_conditions(self, paypal_engine):
@@ -157,13 +164,8 @@ class TestPaypalMasterAdversarial:
         payload_sizes = [100, 1000, 10000, 100000, 1000000]
 
         for size in payload_sizes:
-            large_string = ''.join(random.choice(string.ascii_letters) for _ in range(size))
-            payload = {
-                "amount": 100.0,
-                "currency": "USD",
-                "payment_method": "card",
-                "large_field": large_string
-            }
+            large_string = "".join(random.choice(string.ascii_letters) for _ in range(size))
+            payload = {"amount": 100.0, "currency": "USD", "payment_method": "card", "large_field": large_string}
 
             try:
                 result = await paypal_engine.process_payment(payload)
@@ -204,12 +206,9 @@ class TestPaypalMasterAdversarial:
 
         for pattern in injection_patterns:
             try:
-                result = await paypal_engine.process_payment({
-                    "amount": 100.0,
-                    "currency": "USD",
-                    "payment_method": "card",
-                    "order_id": pattern
-                })
+                result = await paypal_engine.process_payment(
+                    {"amount": 100.0, "currency": "USD", "payment_method": "card", "order_id": pattern}
+                )
                 assert isinstance(result, dict), f"Failed with injection pattern: {pattern[:50]}"
             except Exception:
                 pass
@@ -224,17 +223,14 @@ class TestPaypalMasterAdversarial:
             "<iframe src=javascript:alert(1)>",
             "<body onload=alert(1)>",
             "<a href='javascript:alert(1)'>click</a>",
-            "\" onmouseover=alert(1) \"",
+            '" onmouseover=alert(1) "',
         ]
 
         for xss in xss_payloads:
             try:
-                result = await paypal_engine.process_payment({
-                    "amount": 100.0,
-                    "currency": "USD",
-                    "payment_method": "card",
-                    "description": xss
-                })
+                result = await paypal_engine.process_payment(
+                    {"amount": 100.0, "currency": "USD", "payment_method": "card", "description": xss}
+                )
                 assert isinstance(result, dict), f"Failed with XSS payload: {xss[:50]}"
             except Exception:
                 pass

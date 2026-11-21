@@ -7,6 +7,7 @@ recording stay identical.
 Every provider call is wrapped in a strict timeout so a hung real provider
 cannot block the approval state machine.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,9 +30,7 @@ _PHONE_RE = __import__("re").compile(r"^\+?[1-9]\d{6,14}$")
 def _validate_phone(to: str) -> str:
     to = (to or "").strip()
     if not _PHONE_RE.match(to):
-        raise BharatAgentError(
-            f"invalid phone number: {to!r} (expected E.164-ish, "
-            "e.g. +919876543210)")
+        raise BharatAgentError(f"invalid phone number: {to!r} (expected E.164-ish, e.g. +919876543210)")
     return to
 
 
@@ -90,17 +89,33 @@ def _init_receipts_db(db_path: str) -> None:
 
 
 def _record_receipt(
-    db_path: str, reminder_id: str, approval_id: str, case_id: str,
-    channel: str, to: str, status: ApprovalState,
-    message_id: Optional[str], delivered: bool, latency_ms: float,
+    db_path: str,
+    reminder_id: str,
+    approval_id: str,
+    case_id: str,
+    channel: str,
+    to: str,
+    status: ApprovalState,
+    message_id: Optional[str],
+    delivered: bool,
+    latency_ms: float,
 ) -> None:
     with sqlite3.connect(db_path) as conn:
         conn.execute(
-            "INSERT OR REPLACE INTO reminder_receipts VALUES "
-            "(?,?,?,?,?,?,?,?,?,?)",
-            (reminder_id, approval_id, case_id, channel, to,
-             status.value, message_id, int(delivered), latency_ms,
-             time.time()))
+            "INSERT OR REPLACE INTO reminder_receipts VALUES (?,?,?,?,?,?,?,?,?,?)",
+            (
+                reminder_id,
+                approval_id,
+                case_id,
+                channel,
+                to,
+                status.value,
+                message_id,
+                int(delivered),
+                latency_ms,
+                time.time(),
+            ),
+        )
 
 
 def register_reminder_tools(sentinel: Sentinel, db_path: str) -> None:
@@ -108,18 +123,15 @@ def register_reminder_tools(sentinel: Sentinel, db_path: str) -> None:
     _init_receipts_db(db_path)
 
     async def _handle(
-        channel: ReminderChannel, payload: Dict[str, Any],
+        channel: ReminderChannel,
+        payload: Dict[str, Any],
     ) -> Dict[str, Any]:
         to = _validate_phone(payload.get("to", ""))
         provider = _PROVIDERS[channel]
         try:
-            result = await asyncio.wait_for(
-                provider.send(to, payload["body"]),
-                timeout=_PROVIDER_TIMEOUT_SECONDS)
+            result = await asyncio.wait_for(provider.send(to, payload["body"]), timeout=_PROVIDER_TIMEOUT_SECONDS)
         except asyncio.TimeoutError as exc:
-            raise BharatAgentError(
-                f"provider {channel.value} timed out after "
-                f"{_PROVIDER_TIMEOUT_SECONDS}s") from exc
+            raise BharatAgentError(f"provider {channel.value} timed out after {_PROVIDER_TIMEOUT_SECONDS}s") from exc
         _record_receipt(
             db_path=db_path,
             reminder_id=payload["reminder_id"],
@@ -130,25 +142,27 @@ def register_reminder_tools(sentinel: Sentinel, db_path: str) -> None:
             status=ApprovalState.EXECUTED,
             message_id=result["message_id"],
             delivered=bool(result["delivered"]),
-            latency_ms=float(result["latency_ms"]))
+            latency_ms=float(result["latency_ms"]),
+        )
         logger.info(
             "reminder_sent channel=%s case=%s reminder=%s provider_msg=%s",
-            channel.value, payload["case_id"], payload["reminder_id"],
-            result["message_id"])
+            channel.value,
+            payload["case_id"],
+            payload["reminder_id"],
+            result["message_id"],
+        )
         return result
 
-    sentinel.executor.register(
-        "sms_send", lambda p: _handle(ReminderChannel.SMS, p))
-    sentinel.executor.register(
-        "whatsapp_send", lambda p: _handle(ReminderChannel.WHATSAPP, p))
+    sentinel.executor.register("sms_send", lambda p: _handle(ReminderChannel.SMS, p))
+    sentinel.executor.register("whatsapp_send", lambda p: _handle(ReminderChannel.WHATSAPP, p))
 
 
 def _list_receipts_sync(db_path: str, case_id: str) -> List[Dict[str, Any]]:
     with sqlite3.connect(db_path) as conn:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
-            "SELECT * FROM reminder_receipts WHERE case_id=? "
-            "ORDER BY recorded_at DESC", (case_id,)).fetchall()
+            "SELECT * FROM reminder_receipts WHERE case_id=? ORDER BY recorded_at DESC", (case_id,)
+        ).fetchall()
         return [dict(r) for r in rows]
 
 

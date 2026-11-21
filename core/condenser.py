@@ -11,6 +11,7 @@ Two extractive compressors sharing the same regex extraction primitives:
 All pure-stdlib. No LLM. Deterministic. Bounded by input length.
 Preserves code fences verbatim.
 """
+
 from __future__ import annotations
 
 import logging
@@ -40,22 +41,56 @@ _URL = re.compile(r"https?://[^\s)\]\"'>]+")
 _PATH = re.compile(r"(?:\.{0,2}/[\w./-]{2,}|~[/\w.-]{2,})")
 _IDENT = re.compile(
     r"\b(?:[a-z]+_[a-z_]+|[a-z]+(?:[A-Z][a-z0-9]+)+|"
-    r"[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+|[A-Z][A-Z0-9_]{2,})\b")
+    r"[A-Z][a-z]+(?:[A-Z][a-z0-9]+)+|[A-Z][A-Z0-9_]{2,})\b"
+)
 _QUANT = re.compile(
     r"\b\d+(?:\.\d+)?\s*(?:ms|s|m|h|kb|mb|gb|tb|%|x|k|m|b|"
-    r"tokens?|bytes?|words?|chars?|rps|qps|req/s|users?)\b", re.I)
+    r"tokens?|bytes?|words?|chars?|rps|qps|req/s|users?)\b",
+    re.I,
+)
 _IMPERATIVE = re.compile(
     r"^\s*(?:must|should|never|always|ensure|require|avoid|"
     r"do not|don't|only|exactly|prefer|forbid|ensure that|"
     r"the rule is|constraint:|requirement:)\b[^\n]{0,200}$",
-    re.I | re.MULTILINE)
-_FILLER = frozenset({
-    "please", "kindly", "just", "really", "very", "actually",
-    "basically", "simply", "maybe", "perhaps", "sure", "okay",
-    "ok", "well", "anyway", "so", "thus", "hence", "therefore",
-    "hello", "hi", "hey", "thanks", "thank", "cheers", "great",
-    "cool", "nice", "awesome", "got", "it", "you", "i",
-})
+    re.I | re.MULTILINE,
+)
+_FILLER = frozenset(
+    {
+        "please",
+        "kindly",
+        "just",
+        "really",
+        "very",
+        "actually",
+        "basically",
+        "simply",
+        "maybe",
+        "perhaps",
+        "sure",
+        "okay",
+        "ok",
+        "well",
+        "anyway",
+        "so",
+        "thus",
+        "hence",
+        "therefore",
+        "hello",
+        "hi",
+        "hey",
+        "thanks",
+        "thank",
+        "cheers",
+        "great",
+        "cool",
+        "nice",
+        "awesome",
+        "got",
+        "it",
+        "you",
+        "i",
+    }
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -73,12 +108,16 @@ class CondenseResult:
     reason: str
 
     def to_dict(self) -> dict[str, Any]:
-        return {"text": self.text, "original_chars": self.original_chars,
-                "condensed_chars": self.condensed_chars,
-                "sentences_kept": self.sentences_kept,
-                "sentences_dropped": self.sentences_dropped,
-                "fences_kept": self.fences_kept,
-                "ratio": round(self.ratio, 3), "reason": self.reason}
+        return {
+            "text": self.text,
+            "original_chars": self.original_chars,
+            "condensed_chars": self.condensed_chars,
+            "sentences_kept": self.sentences_kept,
+            "sentences_dropped": self.sentences_dropped,
+            "fences_kept": self.fences_kept,
+            "ratio": round(self.ratio, 3),
+            "reason": self.reason,
+        }
 
 
 def prune_whitespace(text: str) -> str:
@@ -114,8 +153,11 @@ def _sentence_score(sent: str) -> float:
 
 
 def condense(
-    text: str, *, target_ratio: float = 0.5,
-    keep_head_sentences: int = 2, keep_tail_sentences: int = 1,
+    text: str,
+    *,
+    target_ratio: float = 0.5,
+    keep_head_sentences: int = 2,
+    keep_tail_sentences: int = 1,
 ) -> CondenseResult:
     """Extractive compression preserving code fences + imperative lines."""
     if not text:
@@ -124,26 +166,32 @@ def condense(
     orig_len = len(text)
 
     fences: list[str] = []
+
     def _stash(m: re.Match) -> str:
         fences.append(m.group(0))
         return f"\x00FENCE{len(fences) - 1}\x00"
+
     stashed = _FENCE.sub(_stash, text)
 
     sentences = [s.strip() for s in _SENT_SPLIT.split(stashed) if s.strip()]
     if len(sentences) <= (keep_head_sentences + keep_tail_sentences + 2):
         joined = _join(stashed, fences)
-        return CondenseResult(joined, orig_len, len(joined), len(sentences),
-                              0, len(fences),
-                              len(joined) / orig_len if orig_len else 1.0,
-                              "short_input")
+        return CondenseResult(
+            joined,
+            orig_len,
+            len(joined),
+            len(sentences),
+            0,
+            len(fences),
+            len(joined) / orig_len if orig_len else 1.0,
+            "short_input",
+        )
 
     head = sentences[:keep_head_sentences]
     tail = sentences[-keep_tail_sentences:] if keep_tail_sentences else []
-    middle = sentences[keep_head_sentences:len(sentences) - keep_tail_sentences]
+    middle = sentences[keep_head_sentences : len(sentences) - keep_tail_sentences]
 
-    scored = sorted(
-        ((_sentence_score(s), i, s) for i, s in enumerate(middle)),
-        key=lambda x: (-x[0], x[1]))
+    scored = sorted(((_sentence_score(s), i, s) for i, s in enumerate(middle)), key=lambda x: (-x[0], x[1]))
 
     budget_chars = int(orig_len * max(0.1, min(target_ratio, 1.0)))
     head_chars = sum(len(s) for s in head)
@@ -166,9 +214,15 @@ def condense(
     final = _join(joined_body, fences)
 
     return CondenseResult(
-        final, orig_len, len(final), len(kept),
-        len(sentences) - len(kept), len(fences),
-        len(final) / orig_len if orig_len else 1.0, "extractive_condense")
+        final,
+        orig_len,
+        len(final),
+        len(kept),
+        len(sentences) - len(kept),
+        len(fences),
+        len(final) / orig_len if orig_len else 1.0,
+        "extractive_condense",
+    )
 
 
 def _join(body: str, fences: list[str]) -> str:
@@ -177,10 +231,9 @@ def _join(body: str, fences: list[str]) -> str:
     parts = [body]
     parts.extend(fences)
     out = "\n\n".join(p for p in parts if p)
-    return re.sub(r"\x00FENCE(\d+)\x00",
-                  lambda m: fences[int(m.group(1))]
-                  if 0 <= int(m.group(1)) < len(fences) else "",
-                  out).strip()
+    return re.sub(
+        r"\x00FENCE(\d+)\x00", lambda m: fences[int(m.group(1))] if 0 <= int(m.group(1)) < len(fences) else "", out
+    ).strip()
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -256,8 +309,11 @@ def _norm_turn(msg: dict) -> dict[str, Any]:
 # §4 — History compression (drop-in for context.clip_history)
 # ═══════════════════════════════════════════════════════════════════════════
 def compress_history(
-    history: Iterable[dict] | None, *, max_tokens: int = 1200,
-    keep_recent: int = 3, per_turn_cap: int = 280,
+    history: Iterable[dict] | None,
+    *,
+    max_tokens: int = 1200,
+    keep_recent: int = 3,
+    per_turn_cap: int = 280,
     max_anchors: int = 40,
 ) -> list[dict[str, Any]]:
     """Anchor-based history compression. Same output shape as clip_history."""
@@ -290,9 +346,8 @@ def compress_history(
 
     out: list[dict[str, Any]] = []
     if anchors:
-        header = (f"[Compressed context — anchors from {len(cold)} earlier turn(s)]")
-        out.append({"role": "system",
-                    "text": header + "\n" + "\n".join(f"• {a}" for a in anchors)})
+        header = f"[Compressed context — anchors from {len(cold)} earlier turn(s)]"
+        out.append({"role": "system", "text": header + "\n" + "\n".join(f"• {a}" for a in anchors)})
 
     header_cost = estimate_tokens(out[0]["text"]) if out else 0
     budget = max(80, int(max_tokens) - header_cost)
@@ -312,6 +367,10 @@ def compress_history(
 
 
 __all__ = [
-    "CondenseResult", "condense", "prune_whitespace",
-    "anchors_of", "compress_history", "estimate_tokens",
+    "CondenseResult",
+    "condense",
+    "prune_whitespace",
+    "anchors_of",
+    "compress_history",
+    "estimate_tokens",
 ]

@@ -5,6 +5,7 @@ Single tier table. Redis-Lua atomic limiter. In-process fallback. FastAPI
 middleware reads identity straight from the JWT — never from
 ``request.state.user`` (populated *after* middleware runs).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -29,8 +30,8 @@ logger = logging.getLogger("axelr.limits")
 @dataclass(frozen=True, slots=True)
 class TierLimits:
     rpm: int
-    rpd: int                    # -1 = unlimited
-    tpm: int                    # -1 = unlimited
+    rpd: int  # -1 = unlimited
+    tpm: int  # -1 = unlimited
     upload_bytes: int
     daily_extractions: int
     daily_generations: int
@@ -46,7 +47,9 @@ class TierLimits:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "rpm": self.rpm, "rpd": self.rpd, "tpm": self.tpm,
+            "rpm": self.rpm,
+            "rpd": self.rpd,
+            "tpm": self.tpm,
             "upload_bytes": self.upload_bytes,
             "daily_extractions": self.daily_extractions,
             "daily_generations": self.daily_generations,
@@ -63,54 +66,90 @@ class TierLimits:
 
 TIERS: dict[str, TierLimits] = {
     "guest": TierLimits(
-        rpm=3, rpd=30, tpm=5_000, upload_bytes=5 * 1024 * 1024,
-        daily_extractions=5, daily_generations=5, daily_enhancements=0,
-        remote_providers_support=["provider_1"], models_description="Basic",
-        file_size_limit_mb=5, max_files_simultaneously=5,
-        context_window_min_tokens=256, context_window_max_tokens=2048,
-        features=[], guest=True,
+        rpm=3,
+        rpd=30,
+        tpm=5_000,
+        upload_bytes=5 * 1024 * 1024,
+        daily_extractions=5,
+        daily_generations=5,
+        daily_enhancements=0,
+        remote_providers_support=["provider_1"],
+        models_description="Basic",
+        file_size_limit_mb=5,
+        max_files_simultaneously=5,
+        context_window_min_tokens=256,
+        context_window_max_tokens=2048,
+        features=[],
+        guest=True,
     ),
     "free": TierLimits(
-        rpm=3, rpd=15, tpm=10_000, upload_bytes=10 * 1024 * 1024,
-        daily_extractions=5, daily_generations=5, daily_enhancements=5,
+        rpm=3,
+        rpd=15,
+        tpm=10_000,
+        upload_bytes=10 * 1024 * 1024,
+        daily_extractions=5,
+        daily_generations=5,
+        daily_enhancements=5,
         remote_providers_support=["gemini", "groq", "cloudflare"],  # Minimum 3 active healthy providers
         models_description="3+ active AI providers with specialized 50M–120M parameter internal engines",
-        file_size_limit_mb=10, max_files_simultaneously=10,
-        context_window_min_tokens=512, context_window_max_tokens=4096, features=[],
+        file_size_limit_mb=10,
+        max_files_simultaneously=10,
+        context_window_min_tokens=512,
+        context_window_max_tokens=4096,
+        features=[],
     ),
     "pro": TierLimits(
-        rpm=30, rpd=60, tpm=64_000, upload_bytes=30 * 1024 * 1024,
-        daily_extractions=20, daily_generations=20, daily_enhancements=20,
+        rpm=30,
+        rpd=60,
+        tpm=64_000,
+        upload_bytes=30 * 1024 * 1024,
+        daily_extractions=20,
+        daily_generations=20,
+        daily_enhancements=20,
         remote_providers_support="All 9+ active providers",
         models_description="Specialized 80M–300M+ parameter internal engines",
-        file_size_limit_mb=30, max_files_simultaneously=12,
-        context_window_min_tokens=2048, context_window_max_tokens=8192,
+        file_size_limit_mb=30,
+        max_files_simultaneously=12,
+        context_window_min_tokens=2048,
+        context_window_max_tokens=8192,
         features=["Anti-hallucination Pro", "Touch & Fix"],
     ),
     "business": TierLimits(
-        rpm=60, rpd=120, tpm=200_000, upload_bytes=50 * 1024 * 1024,
-        daily_extractions=40, daily_generations=40, daily_enhancements=40,
+        rpm=60,
+        rpd=120,
+        tpm=200_000,
+        upload_bytes=50 * 1024 * 1024,
+        daily_extractions=40,
+        daily_generations=40,
+        daily_enhancements=40,
         remote_providers_support="All 40+ providers",
         models_description="Specialized 80M–500M+ parameter internal engines",
-        file_size_limit_mb=50, max_files_simultaneously=20,
-        context_window_min_tokens=8192, context_window_max_tokens=999_999,
-        features=["Anti-hallucination Max", "Touch & Fix",
-                  "Generate tests with loop"],
+        file_size_limit_mb=50,
+        max_files_simultaneously=20,
+        context_window_min_tokens=8192,
+        context_window_max_tokens=999_999,
+        features=["Anti-hallucination Max", "Touch & Fix", "Generate tests with loop"],
     ),
     "enterprise": TierLimits(
-        rpm=500, rpd=-1, tpm=2_000_000, upload_bytes=10 * 1024 * 1024 * 1024,
-        daily_extractions=-1, daily_generations=-1, daily_enhancements=9999,
-        remote_providers_support="Custom", models_description="Custom",
-        file_size_limit_mb=10240, max_files_simultaneously=100,
-        context_window_min_tokens=16384, context_window_max_tokens=9_999_999,
+        rpm=500,
+        rpd=-1,
+        tpm=2_000_000,
+        upload_bytes=10 * 1024 * 1024 * 1024,
+        daily_extractions=-1,
+        daily_generations=-1,
+        daily_enhancements=9999,
+        remote_providers_support="Custom",
+        models_description="Custom",
+        file_size_limit_mb=10240,
+        max_files_simultaneously=100,
+        context_window_min_tokens=16384,
+        context_window_max_tokens=9_999_999,
         features=["Custom"],
     ),
 }
 
 TIER_LIMITS = TIERS
-TIER_CONFIG: dict[str, dict[str, Any]] = {
-    name: {"rpd": t.rpd, "providers": "*"} for name, t in TIERS.items()
-}
+TIER_CONFIG: dict[str, dict[str, Any]] = {name: {"rpd": t.rpd, "providers": "*"} for name, t in TIERS.items()}
 RATE_LIMITS: dict[str, int] = {name: t.rpm for name, t in TIERS.items()}
 
 
@@ -180,10 +219,16 @@ def _mem_check(user_id: str, tier: str, cost: int) -> tuple[bool, dict[str, int]
     minute_start = math.floor(now / 60) * 60
     if len(_MEM) >= _MEM_MAX_KEYS and user_id not in _MEM:
         _MEM.pop(next(iter(_MEM)), None)
-    slot = _MEM.setdefault(user_id, {
-        "minute": 0, "day": 0, "tokens": 0,
-        "minute_start": minute_start, "day_start": day_start,
-    })
+    slot = _MEM.setdefault(
+        user_id,
+        {
+            "minute": 0,
+            "day": 0,
+            "tokens": 0,
+            "minute_start": minute_start,
+            "day_start": day_start,
+        },
+    )
     if slot["minute_start"] != minute_start:
         slot["minute"] = 0
         slot["tokens"] = 0
@@ -197,7 +242,8 @@ def _mem_check(user_id: str, tier: str, cost: int) -> tuple[bool, dict[str, int]
     if limits.rpd >= 0 and slot["day"] >= limits.rpd:
         return False, {
             "rpm_remaining": limits.rpm - slot["minute"],
-            "rpd_remaining": 0, "tpm_remaining": -1,
+            "rpd_remaining": 0,
+            "tpm_remaining": -1,
         }
     if limits.tpm >= 0 and slot["tokens"] + cost > limits.tpm:
         return False, {
@@ -238,7 +284,10 @@ class RateLimiter:
             return None
 
     async def check(
-        self, user_id: str, tier: str, cost_tokens: int = 0,
+        self,
+        user_id: str,
+        tier: str,
+        cost_tokens: int = 0,
     ) -> tuple[bool, dict[str, Any]]:
         limits = get_tier(tier)
         cost = max(0, int(cost_tokens))
@@ -247,11 +296,15 @@ class RateLimiter:
             try:
                 now = int(time.time())
                 res = await state.redis_client.evalsha(
-                    sha, 3,
+                    sha,
+                    3,
                     f"rl:{user_id}:rpm:{now // 60}",
                     f"rl:{user_id}:rpd:{now // 86400}",
                     f"rl:{user_id}:tpm:{now // 60}",
-                    limits.rpm, limits.rpd, limits.tpm, cost,
+                    limits.rpm,
+                    limits.rpd,
+                    limits.tpm,
+                    cost,
                 )
                 allowed = bool(res[0])
                 return allowed, {
@@ -282,9 +335,12 @@ class RateLimiter:
                 )
                 return {
                     "tier": tier,
-                    "rpm_used": int(vals[0] or 0), "rpm_limit": limits.rpm,
-                    "rpd_used": int(vals[1] or 0), "rpd_limit": limits.rpd,
-                    "tpm_used": int(vals[2] or 0), "tpm_limit": limits.tpm,
+                    "rpm_used": int(vals[0] or 0),
+                    "rpm_limit": limits.rpm,
+                    "rpd_used": int(vals[1] or 0),
+                    "rpd_limit": limits.rpd,
+                    "tpm_used": int(vals[2] or 0),
+                    "tpm_limit": limits.tpm,
                     "upload_limit_bytes": limits.upload_bytes,
                 }
             except Exception:
@@ -292,9 +348,12 @@ class RateLimiter:
         slot = _MEM.get(user_id) or {}
         return {
             "tier": tier,
-            "rpm_used": slot.get("minute", 0), "rpm_limit": limits.rpm,
-            "rpd_used": slot.get("day", 0), "rpd_limit": limits.rpd,
-            "tpm_used": slot.get("tokens", 0), "tpm_limit": limits.tpm,
+            "rpm_used": slot.get("minute", 0),
+            "rpm_limit": limits.rpm,
+            "rpd_used": slot.get("day", 0),
+            "rpd_limit": limits.rpd,
+            "tpm_used": slot.get("tokens", 0),
+            "tpm_limit": limits.tpm,
             "upload_limit_bytes": limits.upload_bytes,
         }
 
@@ -328,7 +387,9 @@ _MEM_QUOTA: dict[str, int] = {}
 
 
 async def check_and_update_quota(
-    user: dict | None, workspace: str, task_type: str,
+    user: dict | None,
+    workspace: str,
+    task_type: str,
 ) -> None:
     if not user:
         return
@@ -339,6 +400,7 @@ async def check_and_update_quota(
     current = int(user.get("dailyUsage", 0) or 0)
     if current >= limits.rpd:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=429, detail="Daily quota exceeded")
     uid = str(user.get("_id", ""))
     if uid:
@@ -348,7 +410,9 @@ async def check_and_update_quota(
 
 
 async def check_rate_limit(
-    user_id: str, tier: str, op: str = "",
+    user_id: str,
+    tier: str,
+    op: str = "",
 ) -> tuple[bool, int]:
     allowed, info = await get_rate_limiter().check(user_id, tier, cost_tokens=1)
     return allowed, int(info.get("retry_after_s", 0))
@@ -365,15 +429,34 @@ async def sync_redis_usage_to_mongo(*args: Any, **kwargs: Any) -> None:
 # ═══════════════════════════════════════════════════════════════════════
 # FastAPI middleware — reads identity from the JWT directly
 # ═══════════════════════════════════════════════════════════════════════
-_RATE_LIMIT_SKIP = frozenset({
-    "/", "/terms", "/privacy",
-    "/health", "/healthz", "/livez", "/ping", "/readyz",
-    "/api/health", "/api/health/ping", "/api/health/live", "/api/health/ready",
-    "/api/live", "/api/ping", "/api/ready", "/api/status",
-    "/metrics", "/docs", "/redoc", "/openapi.json",
-    "/api/contract", "/api/audit",
-    "/favicon.ico", "/robots.txt",
-})
+_RATE_LIMIT_SKIP = frozenset(
+    {
+        "/",
+        "/terms",
+        "/privacy",
+        "/health",
+        "/healthz",
+        "/livez",
+        "/ping",
+        "/readyz",
+        "/api/health",
+        "/api/health/ping",
+        "/api/health/live",
+        "/api/health/ready",
+        "/api/live",
+        "/api/ping",
+        "/api/ready",
+        "/api/status",
+        "/metrics",
+        "/docs",
+        "/redoc",
+        "/openapi.json",
+        "/api/contract",
+        "/api/audit",
+        "/favicon.ico",
+        "/robots.txt",
+    }
+)
 
 
 def _estimate_cost(request: Request) -> int:
@@ -393,6 +476,7 @@ def _identity_from_request(request: Request) -> tuple[str, str] | None:
     token = auth[7:]
     try:
         from .auth import decode_token
+
         payload = decode_token(token)
         if payload:
             uid = payload.get("uid") or payload.get("sub") or ""
@@ -406,6 +490,7 @@ def _identity_from_request(request: Request) -> tuple[str, str] | None:
         from google.oauth2 import id_token as _gid
 
         from .config import GOOGLE_CLIENT_ID
+
         info = _gid.verify_oauth2_token(token, _greq.Request(), GOOGLE_CLIENT_ID)
         return (f"g:{info['sub']}", "free")
     except Exception:
@@ -432,7 +517,8 @@ async def rate_limit_middleware(
         return JSONResponse(
             status_code=429,
             content={
-                "success": False, "code": "RATE_LIMIT_EXCEEDED",
+                "success": False,
+                "code": "RATE_LIMIT_EXCEEDED",
                 "message": "Rate limit exceeded.",
                 "retry_after_s": retry,
                 "limits": info,
@@ -448,8 +534,18 @@ async def rate_limit_middleware(
 
 
 __all__ = [
-    "RATE_LIMITS", "TIERS", "TIER_CONFIG", "TIER_LIMITS", "TierLimits",
-    "RateLimiter", "check_and_update_quota", "check_rate_limit",
-    "estimate_tokens", "get_rate_limiter", "get_tier",
-    "rate_limit_middleware", "reset_usage_counts", "sync_redis_usage_to_mongo",
+    "RATE_LIMITS",
+    "TIERS",
+    "TIER_CONFIG",
+    "TIER_LIMITS",
+    "TierLimits",
+    "RateLimiter",
+    "check_and_update_quota",
+    "check_rate_limit",
+    "estimate_tokens",
+    "get_rate_limiter",
+    "get_tier",
+    "rate_limit_middleware",
+    "reset_usage_counts",
+    "sync_redis_usage_to_mongo",
 ]

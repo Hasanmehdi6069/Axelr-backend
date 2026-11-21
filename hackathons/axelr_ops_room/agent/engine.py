@@ -11,6 +11,7 @@ Honest contract:
   * Every dashboard event has a `kind` (switch/appwrite/system/error/chaos)
     so the dashboard can render real state, real errors, real retries.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,6 +29,7 @@ from switch_client import SwitchAgentClient
 try:
     from axelr_insights_engine import get_engine as aw_get
     from axelr_insights_engine import init as aw_init
+
     _AW_AVAILABLE = True
 except ImportError:
     _AW_AVAILABLE = False
@@ -42,6 +44,7 @@ INSIGHTS_TABLE = "axelr_insights"
 
 
 # ── Helpers ──────────────────────────────────────────────────────────
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
@@ -61,6 +64,7 @@ def extract_incident_id(text: str) -> str | None:
 
 
 # ── Engine ───────────────────────────────────────────────────────────
+
 
 class OpsEngine:
     def __init__(self) -> None:
@@ -108,7 +112,9 @@ class OpsEngine:
     async def _simulate_chaos(self, mode: str) -> None:
         """Trigger a graceful error state on the dashboard (for the video)."""
         await self.emit(
-            "chaos", f"chaos triggered: {mode}", level="warn",
+            "chaos",
+            f"chaos triggered: {mode}",
+            level="warn",
             chaos={
                 "mode": mode,
                 "recover_in_ms": 3000,
@@ -129,7 +135,9 @@ class OpsEngine:
     async def _aw_upsert_incident(self, incident_id: str, status: str, text: str) -> bool:
         if not self._db or not self._db_available:
             await self.emit(
-                "appwrite", f"[skipped] appwrite unavailable — {incident_id}", level="warn",
+                "appwrite",
+                f"[skipped] appwrite unavailable — {incident_id}",
+                level="warn",
             )
             return False
         rid = sanitize_row_id(incident_id)
@@ -167,8 +175,11 @@ class OpsEngine:
                 },
             )
             await self.emit(
-                "appwrite", f"upserted {INSIGHTS_TABLE}/{rid}", level="ok",
-                row_id=rid, runbook={"incident_id": incident_id, "status": status},
+                "appwrite",
+                f"upserted {INSIGHTS_TABLE}/{rid}",
+                level="ok",
+                row_id=rid,
+                runbook={"incident_id": incident_id, "status": status},
             )
             return True
         except Exception as e:
@@ -258,8 +269,11 @@ class OpsEngine:
                 return
 
         await self.emit(
-            "system", f"listening on room {ROOM_ID} — ready", level="ok",
-            room=ROOM_ID, started_at=self._started_at,
+            "system",
+            f"listening on room {ROOM_ID} — ready",
+            level="ok",
+            room=ROOM_ID,
+            started_at=self._started_at,
         )
 
         # 4. Main event loop

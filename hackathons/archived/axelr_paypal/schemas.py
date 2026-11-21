@@ -7,6 +7,7 @@ Honest note: validation runs without credentials, so this file is
 unit-testable offline. It cannot validate that the *server* accepts
 the amount — only that the shape and arithmetic are sane.
 """
+
 from __future__ import annotations
 
 from decimal import Decimal, InvalidOperation
@@ -21,12 +22,16 @@ from pydantic import (
     model_validator,
 )
 
-SUPPORTED_CURRENCIES: frozenset[str] = frozenset(
-    {"USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY"}
-)
+SUPPORTED_CURRENCIES: frozenset[str] = frozenset({"USD", "EUR", "GBP", "JPY", "CAD", "AUD", "CHF", "CNY"})
 CURRENCY_PRECISION: Dict[str, int] = {
-    "JPY": 0, "USD": 2, "EUR": 2, "GBP": 2,
-    "CAD": 2, "AUD": 2, "CHF": 2, "CNY": 2,
+    "JPY": 0,
+    "USD": 2,
+    "EUR": 2,
+    "GBP": 2,
+    "CAD": 2,
+    "AUD": 2,
+    "CHF": 2,
+    "CNY": 2,
 }
 
 
@@ -40,12 +45,12 @@ class TransactionState(str, Enum):
 
 
 VALID_TRANSITIONS: Dict[TransactionState, set[TransactionState]] = {
-    TransactionState.INITIATED:      {TransactionState.VALIDATED},
-    TransactionState.VALIDATED:      {TransactionState.PAYPAL_CREATED},
+    TransactionState.INITIATED: {TransactionState.VALIDATED},
+    TransactionState.VALIDATED: {TransactionState.PAYPAL_CREATED},
     TransactionState.PAYPAL_CREATED: {TransactionState.APPROVED},
-    TransactionState.APPROVED:       {TransactionState.CAPTURED},
-    TransactionState.CAPTURED:       {TransactionState.REFUNDED},
-    TransactionState.REFUNDED:       set(),
+    TransactionState.APPROVED: {TransactionState.CAPTURED},
+    TransactionState.CAPTURED: {TransactionState.REFUNDED},
+    TransactionState.REFUNDED: set(),
 }
 
 
@@ -212,8 +217,15 @@ class WebhookEvent(BaseModel):
 
 
 __all__ = [
-    "SUPPORTED_CURRENCIES", "CURRENCY_PRECISION",
-    "TransactionState", "VALID_TRANSITIONS",
-    "OrderItem", "CreateOrderRequest", "CaptureOrderRequest", "RefundRequest",
-    "PaymentIntent", "AIExtractionRequest", "WebhookEvent",
+    "SUPPORTED_CURRENCIES",
+    "CURRENCY_PRECISION",
+    "TransactionState",
+    "VALID_TRANSITIONS",
+    "OrderItem",
+    "CreateOrderRequest",
+    "CaptureOrderRequest",
+    "RefundRequest",
+    "PaymentIntent",
+    "AIExtractionRequest",
+    "WebhookEvent",
 ]

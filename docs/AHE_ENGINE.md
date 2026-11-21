@@ -78,9 +78,15 @@ The ExtractorAgent extracts candidate claims from document chunks based on the r
 
 ```python
 class ExtractorAgent:
-    async def extract(self, query: str, target_fields: List[str],
-                     chunks: List[Chunk], workspace: str, tier: str,
-                     correction_hint: Optional[str] = None) -> List[Claim]:
+    async def extract(
+        self,
+        query: str,
+        target_fields: List[str],
+        chunks: List[Chunk],
+        workspace: str,
+        tier: str,
+        correction_hint: Optional[str] = None,
+    ) -> List[Claim]:
         # Extracts claims matching target fields from chunks
         # Retries up to budget.retries times on schema violation
         pass
@@ -102,8 +108,9 @@ The SkepticAgent performs cross-examination of each extracted claim against its 
 
 ```python
 class SkepticAgent:
-    def cross_examine(self, claim: Claim, chunk_map: Dict[str, Chunk],
-                     doc_stub: DocumentBuffer, query: str) -> Verification:
+    def cross_examine(
+        self, claim: Claim, chunk_map: Dict[str, Chunk], doc_stub: DocumentBuffer, query: str
+    ) -> Verification:
         # Performs:
         # 1. Coordinate bounds check
         # 2. Negation window analysis
@@ -136,9 +143,9 @@ The AdjudicatorAgent takes verified claims from the SkepticAgent and produces th
 
 ```python
 class AdjudicatorAgent:
-    def adjudicate(self, document_id: str, claims: List[Claim],
-                   chunks_by_id: Dict[str, Chunk],
-                   verdicts: List[Verification]) -> VerifiedPayload:
+    def adjudicate(
+        self, document_id: str, claims: List[Claim], chunks_by_id: Dict[str, Chunk], verdicts: List[Verification]
+    ) -> VerifiedPayload:
         # Builds lineage index
         # Computes conformance score
         # Constructs Merkle root for audit trail
@@ -206,8 +213,7 @@ Tracks the provenance of each verified claim:
 
 ```python
 class LineageIndex:
-    def record(self, field: str, value: str, document_id: str,
-               chunk_id: str, start: int, end: int) -> None:
+    def record(self, field: str, value: str, document_id: str, chunk_id: str, start: int, end: int) -> None:
         # Records exact coordinate where claim was found
         # Builds evidence chain for audit
         pass
@@ -294,8 +300,7 @@ Tracks monthly query and MB consumption per workspace:
 
 ```python
 class QuotaTracker:
-    def check_and_consume(self, workspace: str, tier: str, mb_used: float,
-                         max_queries: int, max_mb: int) -> None:
+    def check_and_consume(self, workspace: str, tier: str, mb_used: float, max_queries: int, max_mb: int) -> None:
         # Raises error if quota exceeded
         # Consumes quota on successful check
         pass
@@ -364,6 +369,7 @@ For Python/JavaScript documents, checks for undefined names and cross-language l
 def py_undefined_names(code: str) -> Set[str]:
     # Returns set of undefined names in Python code
     pass
+
 
 def cross_language_leak(code: str) -> bool:
     # Returns True if code contains cross-language injection

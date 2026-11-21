@@ -48,17 +48,17 @@ def detect_workspace(prompt, files=None, session_id="", use_anchors=False) -> st
     """Local shim — delegates to the working engine."""
     return detect_workspace_core(prompt, files or [], session_id, use_anchors)
 
+
 logger = structlog.get_logger("axelr.chat")
 
 router = APIRouter(tags=["AI"])
 mcp_router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
+
 @mcp_router.post("/gateway/stream", tags=["mcp"])
 @limiter.limit("60/minute")
 async def mcp_gateway_stream(
-    request: Request,
-    user: dict = Depends(get_current_user),
-    _: None = Depends(validate_mcp_scope)
+    request: Request, user: dict = Depends(get_current_user), _: None = Depends(validate_mcp_scope)
 ):
     """MCP gateway endpoint with authentication, session binding, and zero-copy forwarding"""
     session_id = request.headers.get("Mcp-Session-Id", None)
@@ -81,10 +81,7 @@ async def mcp_gateway_stream(
     # Spawn zero-copy forwarding task
     asyncio.create_task(
         GatewayRouter.mcp_zero_copy_forward(
-            src_reader=client_reader,
-            dst_writer=backend_writer,
-            session_id=session_id,
-            backend_id=backend_id
+            src_reader=client_reader, dst_writer=backend_writer, session_id=session_id, backend_id=backend_id
         )
     )
 
@@ -98,17 +95,16 @@ async def mcp_gateway_stream(
 
     return StreamingResponse(response_stream(), media_type="application/json-seq")
 
+
 @mcp_router.get("/tools/list/{workspace}", tags=["mcp"])
 @limiter.limit("120/minute")
 async def mcp_list_tools(
-    request: Request,
-    workspace: str,
-    user: dict = Depends(get_current_user),
-    _: None = Depends(validate_mcp_scope)
+    request: Request, workspace: str, user: dict = Depends(get_current_user), _: None = Depends(validate_mcp_scope)
 ):
     """Unified endpoint to list all MCP tools available for a workspace across all backends"""
     aggregated_tools = state.gateway.mcp_aggregate_tools(workspace)
     return {"tools": aggregated_tools, "count": len(aggregated_tools)}
+
 
 # Include MCP router in main router
 router.include_router(mcp_router)
@@ -118,25 +114,31 @@ router.include_router(mcp_router)
 # ═══════════════════════════════════════════════════════════════════════════
 from typing import List, Optional
 
+
 class WorkspaceDetectRequest(BaseModel):
     prompt: str
     files: Optional[List] = None
     session_id: str = ""
 
+
 async def get_optional_user(request: Request) -> dict | None:
     from .state import state
+
     if not state.db_available:
         return {"id": "degraded", "tier": "free"}
     try:
         from .auth import get_current_user
+
         return await get_current_user(request)
     except Exception:
         return {"id": "degraded", "tier": "free"}
 
+
 @router.post("/api/workspace/detect", tags=["AI"])
 @limiter.limit("120/minute")
 async def workspace_detect_endpoint(
-    body: WorkspaceDetectRequest, request: Request,
+    body: WorkspaceDetectRequest,
+    request: Request,
     user: dict | None = Depends(get_optional_user),
 ):
     """
@@ -144,20 +146,23 @@ async def workspace_detect_endpoint(
     Returns workspace classification with confidence scores and diagnostics.
     """
     from .workspace_detector import detect_workspace_full
+
     result = detect_workspace_full(
-        prompt=body.prompt,
-        files=body.files or [],
-        session_id=body.session_id,
-        use_anchors=True
+        prompt=body.prompt, files=body.files or [], session_id=body.session_id, use_anchors=True
     )
     return result
+
+
 # ── Internal twin endpoints (health, metrics, diagnose) ────────────────────
 try:
     from core.twin_engine import twin_health_router as _twin_health_router
+
     if _twin_health_router is not None:
         router.include_router(_twin_health_router)
 except Exception:  # pragma: no cover — twin is optional
     pass
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Ghost Telemetry & Pre-Warm endpoints (Axelr Hot Swap Engine contract)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -175,15 +180,18 @@ class TelemetryPayload(BaseModel):
     workspace: str = "core"
     prompt_hint: str = ""
 
+
 class PrewarmPayload(BaseModel):
     workspace: str = "core"
     task_type: str = "structuring"
     prompt_hint: str = ""
 
+
 @router.post("/api/twin/telemetry", tags=["AI"])
 @limiter.limit("120/minute")
 async def twin_telemetry(
-    body: TelemetryPayload, request: Request,
+    body: TelemetryPayload,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     """
@@ -196,6 +204,7 @@ async def twin_telemetry(
         accept_id · device_class · tier_honored · micro_volatile
     """
     from core.ghost_telemetry import accept_telemetry
+
     session_id = request.headers.get("x-session-id") or str(user.get("_id", ""))
     tier = (user.get("tier") if isinstance(user, dict) else None) or "free"
     # Optional scope hints from the client — task/workspace/prompt help
@@ -205,8 +214,10 @@ async def twin_telemetry(
     prompt_hint = request.headers.get("x-prompt-hint", "")
     decision = accept_telemetry(
         body.model_dump(),
-        session_id=session_id, tier=tier,
-        task_type=task_type, workspace=workspace,
+        session_id=session_id,
+        tier=tier,
+        task_type=task_type,
+        workspace=workspace,
         prompt=prompt_hint,
     )
     return {"success": True, **decision.to_dict()}
@@ -215,16 +226,19 @@ async def twin_telemetry(
 @router.post("/api/twin/prewarm", tags=["AI"])
 @limiter.limit("60/minute")
 async def twin_prewarm(
-    body: PrewarmPayload, request: Request,
+    body: PrewarmPayload,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     """Client signals an imminent task. Server fires a task-specific warm-up."""
     from core.prewarm import signal as prewarm_signal
-    workspace = body.workspace if body.workspace in (
-        "data", "design", "core") else "core"
+
+    workspace = body.workspace if body.workspace in ("data", "design", "core") else "core"
     task_type = body.task_type or "structuring"
     fired = prewarm_signal(workspace, task_type, body.prompt_hint)
     return {"success": True, "scheduled": fired}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Chat endpoint
 # ═══════════════════════════════════════════════════════════════════════════
@@ -236,10 +250,13 @@ class ChatRequestBody(BaseModel):
     provider: str = "gemini"
     max_tokens: int | None = None
     temperature: float | None = None
+
+
 @router.get("/api/chat/history/{session_id}", tags=["AI"])
 @limiter.limit("60/minute")
 async def get_chat_history(
-    session_id: str, request: Request,
+    session_id: str,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     """Fetch all chat messages for a given session"""
@@ -254,20 +271,24 @@ async def get_chat_history(
         frontend_messages = []
         for msg in messages:
             if msg.role == "user":
-                frontend_messages.append({
-                    "role": "user",
-                    "text": msg.content,
-                    "createdAt": datetime.fromtimestamp(msg.created_at, timezone.utc).isoformat()
-                })
+                frontend_messages.append(
+                    {
+                        "role": "user",
+                        "text": msg.content,
+                        "createdAt": datetime.fromtimestamp(msg.created_at, timezone.utc).isoformat(),
+                    }
+                )
             elif msg.role == "assistant":
-                frontend_messages.append({
-                    "role": "model",
-                    "text": msg.content,
-                    "createdAt": datetime.fromtimestamp(msg.created_at, timezone.utc).isoformat(),
-                    "variants": [msg.content],
-                    "activeVariant": 0,
-                    "canRegenerate": True
-                })
+                frontend_messages.append(
+                    {
+                        "role": "model",
+                        "text": msg.content,
+                        "createdAt": datetime.fromtimestamp(msg.created_at, timezone.utc).isoformat(),
+                        "variants": [msg.content],
+                        "activeVariant": 0,
+                        "canRegenerate": True,
+                    }
+                )
         return {"success": True, "sessionId": session_id, "messages": frontend_messages}
     except Exception as e:
         logger.error("failed_to_fetch_chat_history session_id=%s error=%s", session_id, e)
@@ -277,7 +298,8 @@ async def get_chat_history(
 @router.delete("/api/chat/session/{session_id}", tags=["AI"])
 @limiter.limit("30/minute")
 async def delete_chat_session(
-    session_id: str, request: Request,
+    session_id: str,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     """Delete a chat session (only works for guest sessions to comply with your requirement)"""
@@ -302,7 +324,8 @@ async def delete_chat_session(
 @router.post("/api/chat", tags=["AI"])
 @limiter.limit("30/minute")
 async def api_chat_main(
-    body: ChatRequestBody, request: Request,
+    body: ChatRequestBody,
+    request: Request,
     user: dict = Depends(get_current_user),
 ):
     # Pass the authenticated user and their REAL tier through the cascade.
@@ -316,7 +339,8 @@ async def api_chat_main(
         session_id=body.sessionId,
         task_type="structuring",
         prompt=body.command,
-        history=None, files=None,
+        history=None,
+        files=None,
         max_tokens=body.max_tokens or 2048,
         temp=body.temperature if body.temperature is not None else 0.4,
         tier=real_tier,
@@ -325,71 +349,251 @@ async def api_chat_main(
         request=request,
     )
 
+
 # ═══════════════════════════════════════════════════════════════════════════
 # File helpers
 # ═══════════════════════════════════════════════════════════════════════════
 def is_allowed_file(workspace: str, filename: str, content_type: str) -> bool:
     # Core workspace accepts all valid file types including code files
     if workspace == "core" or workspace is None:
-        allowed_types = ("image/", "text/", "application/javascript", "application/json",
-                         "application/xhtml+xml", "application/xml", "text/x-", "text/x-python", "application/x-python-code",
-                         "application/pdf", "text/csv", "text/plain",
-                         "application/vnd.ms-excel",
-                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                         "application/msword",
-                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        exts = (".csv", ".xls", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg",
-                ".gif", ".bmp", ".txt", ".doc", ".docx", ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
-                ".py", ".ipynb", ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs",
-                ".rb", ".php", ".swift", ".kt", ".scala", ".hs", ".lua", ".pl", ".r",
-                ".sh", ".bash", ".zsh", ".json", ".yaml", ".yml", ".toml", ".ini",
-                ".md", ".markdown", ".xml", ".svg", ".wasm", ".webp")
+        allowed_types = (
+            "image/",
+            "text/",
+            "application/javascript",
+            "application/json",
+            "application/xhtml+xml",
+            "application/xml",
+            "text/x-",
+            "text/x-python",
+            "application/x-python-code",
+            "application/pdf",
+            "text/csv",
+            "text/plain",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        exts = (
+            ".csv",
+            ".xls",
+            ".xlsx",
+            ".pdf",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".bmp",
+            ".txt",
+            ".doc",
+            ".docx",
+            ".html",
+            ".htm",
+            ".css",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".vue",
+            ".svelte",
+            ".py",
+            ".ipynb",
+            ".java",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
+            ".go",
+            ".rs",
+            ".rb",
+            ".php",
+            ".swift",
+            ".kt",
+            ".scala",
+            ".hs",
+            ".lua",
+            ".pl",
+            ".r",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".ini",
+            ".md",
+            ".markdown",
+            ".xml",
+            ".svg",
+            ".wasm",
+            ".webp",
+        )
         return content_type.startswith(allowed_types) or filename.lower().endswith(exts)
     if workspace == "data":
-        allowed_types = ("image/", "application/pdf", "text/csv", "text/plain",
-                         "application/vnd.ms-excel",
-                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                         "application/msword",
-                         "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        exts = (".csv", ".xls", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg",
-                ".gif", ".bmp", ".txt", ".doc", ".docx")
+        allowed_types = (
+            "image/",
+            "application/pdf",
+            "text/csv",
+            "text/plain",
+            "application/vnd.ms-excel",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        exts = (".csv", ".xls", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".txt", ".doc", ".docx")
         return content_type.startswith(allowed_types) or filename.lower().endswith(exts)
     if workspace == "design":
-        allowed_types = ("image/", "text/", "application/javascript", "application/json",
-                         "application/xhtml+xml", "application/xml", "text/x-", "text/x-python", "application/x-python-code")
-        exts = (".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
-                ".py", ".ipynb", ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs",
-                ".rb", ".php", ".swift", ".kt", ".scala", ".hs", ".lua", ".pl", ".r",
-                ".sh", ".bash", ".zsh", ".json", ".yaml", ".yml", ".toml", ".ini",
-                ".md", ".markdown", ".txt", ".xml", ".svg", ".wasm",
-                ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp")
+        allowed_types = (
+            "image/",
+            "text/",
+            "application/javascript",
+            "application/json",
+            "application/xhtml+xml",
+            "application/xml",
+            "text/x-",
+            "text/x-python",
+            "application/x-python-code",
+        )
+        exts = (
+            ".html",
+            ".htm",
+            ".css",
+            ".js",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".vue",
+            ".svelte",
+            ".py",
+            ".ipynb",
+            ".java",
+            ".c",
+            ".cpp",
+            ".h",
+            ".hpp",
+            ".go",
+            ".rs",
+            ".rb",
+            ".php",
+            ".swift",
+            ".kt",
+            ".scala",
+            ".hs",
+            ".lua",
+            ".pl",
+            ".r",
+            ".sh",
+            ".bash",
+            ".zsh",
+            ".json",
+            ".yaml",
+            ".yml",
+            ".toml",
+            ".ini",
+            ".md",
+            ".markdown",
+            ".txt",
+            ".xml",
+            ".svg",
+            ".wasm",
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".bmp",
+            ".webp",
+        )
         return content_type.startswith(allowed_types) or filename.lower().endswith(exts)
     # Fallback for any other workspace - still accept all common file types
-    allowed_types = ("image/", "text/", "application/javascript", "application/json",
-                     "application/xhtml+xml", "application/xml", "text/x-", "text/x-python", "application/x-python-code",
-                     "application/pdf", "text/csv", "text/plain")
-    exts = (".csv", ".xls", ".xlsx", ".pdf", ".png", ".jpg", ".jpeg",
-            ".gif", ".bmp", ".txt", ".doc", ".docx", ".html", ".htm", ".css", ".js", ".ts", ".jsx", ".tsx", ".vue", ".svelte",
-            ".py", ".ipynb", ".java", ".c", ".cpp", ".h", ".hpp", ".go", ".rs",
-            ".rb", ".php", ".swift", ".kt", ".scala", ".hs", ".lua", ".pl", ".r",
-            ".sh", ".bash", ".zsh", ".json", ".yaml", ".yml", ".toml", ".ini",
-            ".md", ".markdown", ".xml", ".svg", ".wasm", ".webp")
+    allowed_types = (
+        "image/",
+        "text/",
+        "application/javascript",
+        "application/json",
+        "application/xhtml+xml",
+        "application/xml",
+        "text/x-",
+        "text/x-python",
+        "application/x-python-code",
+        "application/pdf",
+        "text/csv",
+        "text/plain",
+    )
+    exts = (
+        ".csv",
+        ".xls",
+        ".xlsx",
+        ".pdf",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".txt",
+        ".doc",
+        ".docx",
+        ".html",
+        ".htm",
+        ".css",
+        ".js",
+        ".ts",
+        ".jsx",
+        ".tsx",
+        ".vue",
+        ".svelte",
+        ".py",
+        ".ipynb",
+        ".java",
+        ".c",
+        ".cpp",
+        ".h",
+        ".hpp",
+        ".go",
+        ".rs",
+        ".rb",
+        ".php",
+        ".swift",
+        ".kt",
+        ".scala",
+        ".hs",
+        ".lua",
+        ".pl",
+        ".r",
+        ".sh",
+        ".bash",
+        ".zsh",
+        ".json",
+        ".yaml",
+        ".yml",
+        ".toml",
+        ".ini",
+        ".md",
+        ".markdown",
+        ".xml",
+        ".svg",
+        ".wasm",
+        ".webp",
+    )
     return content_type.startswith(allowed_types) or filename.lower().endswith(exts)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Shared upload-limit enforcement (used by /api/extract and
 # /api/extract_stream so the two paths cannot drift).
 # ═══════════════════════════════════════════════════════════════════════════
-_MAX_FILES        = 5
-_MAX_FILE_BYTES   = 10 * 1024 * 1024
-_MAX_TOTAL_BYTES  = 50 * 1024 * 1024
+_MAX_FILES = 5
+_MAX_FILE_BYTES = 10 * 1024 * 1024
+_MAX_TOTAL_BYTES = 50 * 1024 * 1024
+
+
 def _validate_uploads(workspace: str, files: list[UploadFile]) -> list[UploadFile]:
     """
     Enforces: file count, per-file MIME/extension, per-file size, total size.
     Raises HTTPException(400) with a stable shape. Returns the validated list.
     """
     if len(files) > _MAX_FILES:
-        raise HTTPException(status_code=400,
-                            detail=f"Too many files (max {_MAX_FILES})")
+        raise HTTPException(status_code=400, detail=f"Too many files (max {_MAX_FILES})")
 
     valid: list[UploadFile] = []
     rejected: list[str] = []
@@ -410,13 +614,13 @@ def _validate_uploads(workspace: str, files: list[UploadFile]) -> list[UploadFil
         if size > _MAX_FILE_BYTES:
             raise HTTPException(
                 status_code=400,
-                detail=f"File {f.filename} exceeds "
-                       f"{_MAX_FILE_BYTES // (1024 * 1024)}MB",
+                detail=f"File {f.filename} exceeds {_MAX_FILE_BYTES // (1024 * 1024)}MB",
             )
         total += size
     if total > _MAX_TOTAL_BYTES:
         raise HTTPException(status_code=400, detail="Total upload size too large")
     return valid
+
 
 async def discover_schema(files: list[dict]) -> str | None:
     try:
@@ -468,11 +672,56 @@ def generate_dependencies(code: str, language: str) -> str | None:
 
 
 _STOP_WORDS = {
-    "the", "be", "to", "of", "and", "a", "in", "that", "have", "i", "it",
-    "for", "not", "on", "with", "he", "as", "you", "do", "at", "this",
-    "but", "his", "by", "from", "they", "we", "say", "her", "she", "or",
-    "an", "will", "my", "one", "all", "would", "there", "their", "what",
-    "so", "up", "out", "if", "about", "who", "get", "which", "go", "me",
+    "the",
+    "be",
+    "to",
+    "of",
+    "and",
+    "a",
+    "in",
+    "that",
+    "have",
+    "i",
+    "it",
+    "for",
+    "not",
+    "on",
+    "with",
+    "he",
+    "as",
+    "you",
+    "do",
+    "at",
+    "this",
+    "but",
+    "his",
+    "by",
+    "from",
+    "they",
+    "we",
+    "say",
+    "her",
+    "she",
+    "or",
+    "an",
+    "will",
+    "my",
+    "one",
+    "all",
+    "would",
+    "there",
+    "their",
+    "what",
+    "so",
+    "up",
+    "out",
+    "if",
+    "about",
+    "who",
+    "get",
+    "which",
+    "go",
+    "me",
 }
 
 
@@ -493,8 +742,12 @@ def generate_chat_name(command: str, files: list[UploadFile] | None) -> str:
 # Session persistence
 # ═══════════════════════════════════════════════════════════════════════════
 async def _persist_chat_session(
-    user: dict, session_id: str | None, workspace: str,
-    command: str, full_response: str, file_contents: list[dict],
+    user: dict,
+    session_id: str | None,
+    workspace: str,
+    command: str,
+    full_response: str,
+    file_contents: list[dict],
     project_id: str | None = None,
 ) -> None:
     if not state.db_available:
@@ -502,14 +755,18 @@ async def _persist_chat_session(
     ObjectId = get_object_id()
     try:
         new_user_msg = {
-            "role": "user", "text": command,
+            "role": "user",
+            "text": command,
             "attachedFiles": [f["filename"] for f in file_contents],
             "createdAt": datetime.now(timezone.utc),
         }
         new_model_msg = {
-            "role": "model", "text": full_response.strip(),
-            "variants": [full_response.strip()], "activeVariant": 0,
-            "canRegenerate": True, "createdAt": datetime.now(timezone.utc),
+            "role": "model",
+            "text": full_response.strip(),
+            "variants": [full_response.strip()],
+            "activeVariant": 0,
+            "canRegenerate": True,
+            "createdAt": datetime.now(timezone.utc),
         }
         if session_id and ObjectId and ObjectId.is_valid(session_id):
             await state.sessions_col.update_one(
@@ -519,8 +776,11 @@ async def _persist_chat_session(
             return
         filename = generate_chat_name(command, file_contents)
         new_session = {
-            "userId": user["_id"], "filename": filename,
-            "workspace": workspace, "status": "active", "isPinned": False,
+            "userId": user["_id"],
+            "filename": filename,
+            "workspace": workspace,
+            "status": "active",
+            "isPinned": False,
             "messages": [new_user_msg, new_model_msg],
             "createdAt": datetime.now(timezone.utc),
         }
@@ -529,6 +789,7 @@ async def _persist_chat_session(
         await state.sessions_col.insert_one(new_session)
     except Exception as e:
         logger.error("chat_session_persist_failed error=%s", e)
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Streaming extraction
@@ -541,6 +802,8 @@ async def set_default_persona(payload: dict, user: dict = Depends(get_current_us
         {"$set": {"default_persona_id": pid}},
     )
     return {"success": True, "default_persona_id": pid}
+
+
 @router.post("/api/extract_stream", response_model=None)
 @limiter.limit("5/minute")
 async def extract_stream(
@@ -555,13 +818,16 @@ async def extract_stream(
     files: list[UploadFile] = File(default=[]),
 ):
 
-    allowed, reset_sec = await check_rate_limit(
-        str(user["_id"]), user.get("tier", "free"), "extract_stream")
+    allowed, reset_sec = await check_rate_limit(str(user["_id"]), user.get("tier", "free"), "extract_stream")
     if not allowed:
-        raise HTTPException(status_code=429, detail={
-            "code": "QUOTA_EXCEEDED",
-            "message": f"Rate limit exceeded. Try again in {reset_sec} seconds.",
-            "reset": reset_sec})
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "message": f"Rate limit exceeded. Try again in {reset_sec} seconds.",
+                "reset": reset_sec,
+            },
+        )
     if not state.db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -574,11 +840,13 @@ async def extract_stream(
     file_contents = []
     for f in valid_files:
         content_bytes = await f.read()
-        file_contents.append({
-            "filename": f.filename,
-            "mimetype": f.content_type or "application/octet-stream",
-            "content_base64": base64.b64encode(content_bytes).decode("utf-8"),
-        })
+        file_contents.append(
+            {
+                "filename": f.filename,
+                "mimetype": f.content_type or "application/octet-stream",
+                "content_base64": base64.b64encode(content_bytes).decode("utf-8"),
+            }
+        )
 
     if task_type is None:
         task_type = {"data": "extraction", "design": "frontend"}.get(workspace, "structuring")
@@ -590,8 +858,7 @@ async def extract_stream(
         sessionId = None
     history = []
     if sessionId and ObjectId:
-        session = await state.sessions_col.find_one(
-            {"_id": ObjectId(sessionId), "userId": user["_id"]})
+        session = await state.sessions_col.find_one({"_id": ObjectId(sessionId), "userId": user["_id"]})
         if session:
             history = session.get("messages", [])
 
@@ -618,10 +885,16 @@ async def extract_stream(
         nonlocal full_response
         sanitized = sanitize_input(command)
         async for event in stream_ai_response(
-            workspace=workspace, task_type=task_type, prompt=sanitized,
-            history=history, files=file_contents,
-            max_tokens=max_tokens, temp=temp,
-            tier=user.get("tier", "free"), user=user, context=combined_context,
+            workspace=workspace,
+            task_type=task_type,
+            prompt=sanitized,
+            history=history,
+            files=file_contents,
+            max_tokens=max_tokens,
+            temp=temp,
+            tier=user.get("tier", "free"),
+            user=user,
+            context=combined_context,
         ):
             if "data: " in event and '"text":' in event:
                 with contextlib.suppress(Exception):
@@ -631,9 +904,13 @@ async def extract_stream(
             yield event
 
         await _persist_chat_session(
-            user=user, session_id=sessionId, workspace=workspace,
-            command=command, full_response=full_response,
-            file_contents=file_contents, project_id=projectId,
+            user=user,
+            session_id=sessionId,
+            workspace=workspace,
+            command=command,
+            full_response=full_response,
+            file_contents=file_contents,
+            project_id=projectId,
         )
         yield "event: close\ndata: {}\n\n"
 
@@ -646,15 +923,15 @@ async def extract_stream(
 @mcp_router.post("/gateway/stream", tags=["mcp"])
 @limiter.limit("60/minute")
 async def mcp_gateway_stream(
-    request: Request,
-    user: dict = Depends(get_current_user),
-    _: None = Depends(validate_mcp_scope)
+    request: Request, user: dict = Depends(get_current_user), _: None = Depends(validate_mcp_scope)
 ):
     """MCP SSE gateway endpoint with authentication validation"""
     gateway = GatewayRouter()
+
     async def event_generator():
         async for event in gateway.stream_events():
             yield event
+
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
@@ -662,7 +939,7 @@ async def mcp_gateway_stream(
 @limiter.limit("100/minute")
 async def extract(
     request: Request,
-    user: dict = Depends(get_current_user),      # FIX B5 — auth restored
+    user: dict = Depends(get_current_user),  # FIX B5 — auth restored
     command: str = Form(...),
     workspace: str | None = Form(None),
     task_type: str | None = Form(None),
@@ -678,13 +955,16 @@ async def extract(
     if not command and files:
         command = f"Analyze the uploaded file: {files[0].filename}"
 
-    allowed, reset_sec = await check_rate_limit(
-        str(user["_id"]), user.get("tier", "free"), "extract")
+    allowed, reset_sec = await check_rate_limit(str(user["_id"]), user.get("tier", "free"), "extract")
     if not allowed:
-        raise HTTPException(status_code=429, detail={
-            "code": "QUOTA_EXCEEDED",
-            "message": f"Rate limit exceeded. Try again in {reset_sec} seconds.",
-            "reset": reset_sec})
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "message": f"Rate limit exceeded. Try again in {reset_sec} seconds.",
+                "reset": reset_sec,
+            },
+        )
     if not state.db_available:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -702,17 +982,25 @@ async def extract(
     elif tier == "pro":
         has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
         has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
-        if has_data and has_design: data_limit, ui_limit = 20, 15
-        elif has_data: data_limit, ui_limit = 19, 0
-        elif has_design: data_limit, ui_limit = 0, 13
-        else: data_limit, ui_limit = 0, 0
+        if has_data and has_design:
+            data_limit, ui_limit = 20, 15
+        elif has_data:
+            data_limit, ui_limit = 19, 0
+        elif has_design:
+            data_limit, ui_limit = 0, 13
+        else:
+            data_limit, ui_limit = 0, 0
     elif tier == "business":
         has_data = user.get("subTierOptions", {}).get("hasDataAccess", False)
         has_design = user.get("subTierOptions", {}).get("hasDesignAccess", False)
-        if has_data and has_design: data_limit, ui_limit = 30, 25
-        elif has_data: data_limit, ui_limit = 28, 0
-        elif has_design: data_limit, ui_limit = 0, 20
-        else: data_limit, ui_limit = 0, 0
+        if has_data and has_design:
+            data_limit, ui_limit = 30, 25
+        elif has_data:
+            data_limit, ui_limit = 28, 0
+        elif has_design:
+            data_limit, ui_limit = 0, 20
+        else:
+            data_limit, ui_limit = 0, 0
     else:
         data_limit, ui_limit = 5, 0
 
@@ -724,17 +1012,18 @@ async def extract(
         await state.users_col.update_one({"_id": user["_id"]}, {"$set": {quota_field: limit}})
         current = limit
     if current >= limit:
-        raise HTTPException(status_code=403,
-                            detail={"code": "LIMIT_REACHED", "usage": current, "limit": limit})
+        raise HTTPException(status_code=403, detail={"code": "LIMIT_REACHED", "usage": current, "limit": limit})
 
     file_contents = []
     for f in files:
         content_bytes = await f.read()
-        file_contents.append({
-            "filename": f.filename,
-            "mimetype": f.content_type or "application/octet-stream",
-            "content_base64": base64.b64encode(content_bytes).decode("utf-8"),
-        })
+        file_contents.append(
+            {
+                "filename": f.filename,
+                "mimetype": f.content_type or "application/octet-stream",
+                "content_base64": base64.b64encode(content_bytes).decode("utf-8"),
+            }
+        )
 
     if task_type is None:
         task_type = {"data": "extraction", "design": "frontend"}.get(workspace, "structuring")
@@ -748,8 +1037,7 @@ async def extract(
     current_session = None
     history = []
     if sessionId and ObjectId:
-        current_session = await state.sessions_col.find_one(
-            {"_id": ObjectId(sessionId), "userId": user["_id"]})
+        current_session = await state.sessions_col.find_one({"_id": ObjectId(sessionId), "userId": user["_id"]})
         if current_session:
             history = current_session.get("messages", [])
             if isRetry == "true" and history and history[-1].get("role") == "model":
@@ -776,10 +1064,16 @@ async def extract(
     temp = llm_config["temperature"]
 
     ai_result = await generate_with_cascade(
-        workspace=workspace, task_type=task_type, prompt=command,
-        history=history, files=file_contents,
-        max_tokens=max_tokens, temp=temp, tier=tier,
-        user=user, context=context_str,
+        workspace=workspace,
+        task_type=task_type,
+        prompt=command,
+        history=history,
+        files=file_contents,
+        max_tokens=max_tokens,
+        temp=temp,
+        tier=tier,
+        user=user,
+        context=context_str,
     )
     if not ai_result.get("success"):
         raise HTTPException(status_code=503, detail="AI service unavailable")
@@ -797,7 +1091,10 @@ async def extract(
                 heal = await state.self_healer.heal(
                     ai_text,
                     error=(scan.findings[0].message if scan.findings else "unknown"),
-                    language=language, tier=tier, user=user)
+                    language=language,
+                    tier=tier,
+                    user=user,
+                )
                 if heal.success:
                     ai_text = heal.final_code
 
@@ -830,10 +1127,14 @@ async def extract(
             "$set": {"lastUsageDate": datetime.now(timezone.utc)},
         }
         provider_map = {
-            "gemini": "dailyGeminiQuota", "groq": "dailyGroqQuota",
-            "cloudflare": "dailyCloudflareQuota", "openrouter": "dailyOpenRouterQuota",
-            "mistral": "dailyMistralQuota", "huggingface": "dailyHuggingFaceQuota",
-            "github_models": "dailyGithubQuota", "nrouter": "dailyNrouterQuota",
+            "gemini": "dailyGeminiQuota",
+            "groq": "dailyGroqQuota",
+            "cloudflare": "dailyCloudflareQuota",
+            "openrouter": "dailyOpenRouterQuota",
+            "mistral": "dailyMistralQuota",
+            "huggingface": "dailyHuggingFaceQuota",
+            "github_models": "dailyGithubQuota",
+            "nrouter": "dailyNrouterQuota",
             "text_cortex": "dailyTextCortexQuota",
         }
         if provider in provider_map:
@@ -853,36 +1154,53 @@ async def extract(
                 last_msg["text"] = ai_text
                 await state.sessions_col.update_one(
                     {"_id": ObjectId(sessionId)},
-                    {"$set": {"messages": current_session["messages"],
-                              "structuredData": structured}})
+                    {"$set": {"messages": current_session["messages"], "structuredData": structured}},
+                )
             else:
                 raise HTTPException(status_code=400, detail="Cannot retry")
         else:
-            current_session["messages"].append({
-                "role": "user", "text": command,
-                "attachedFiles": [f.filename for f in files]})
-            current_session["messages"].append({
-                "role": "model", "text": ai_text,
-                "variants": [ai_text], "activeVariant": 0,
-                "canRegenerate": True, "createdAt": datetime.now(timezone.utc)})
+            current_session["messages"].append(
+                {"role": "user", "text": command, "attachedFiles": [f.filename for f in files]}
+            )
+            current_session["messages"].append(
+                {
+                    "role": "model",
+                    "text": ai_text,
+                    "variants": [ai_text],
+                    "activeVariant": 0,
+                    "canRegenerate": True,
+                    "createdAt": datetime.now(timezone.utc),
+                }
+            )
             await state.sessions_col.update_one(
                 {"_id": ObjectId(sessionId)},
-                {"$set": {"messages": current_session["messages"],
-                          "structuredData": structured}})
+                {"$set": {"messages": current_session["messages"], "structuredData": structured}},
+            )
         session_id_out = sessionId
         filename_out = current_session.get("filename", "Export")
     else:
         filename = generate_chat_name(command, files)
         new_session = {
-            "userId": user["_id"], "filename": filename,
-            "workspace": workspace, "status": "active", "isPinned": False,
+            "userId": user["_id"],
+            "filename": filename,
+            "workspace": workspace,
+            "status": "active",
+            "isPinned": False,
             "messages": [
-                {"role": "user", "text": command,
-                 "attachedFiles": [f.filename for f in files],
-                 "createdAt": datetime.now(timezone.utc)},
-                {"role": "model", "text": ai_text,
-                 "variants": [ai_text], "activeVariant": 0,
-                 "canRegenerate": True, "createdAt": datetime.now(timezone.utc)},
+                {
+                    "role": "user",
+                    "text": command,
+                    "attachedFiles": [f.filename for f in files],
+                    "createdAt": datetime.now(timezone.utc),
+                },
+                {
+                    "role": "model",
+                    "text": ai_text,
+                    "variants": [ai_text],
+                    "activeVariant": 0,
+                    "canRegenerate": True,
+                    "createdAt": datetime.now(timezone.utc),
+                },
             ],
             "structuredData": structured,
             "createdAt": datetime.now(timezone.utc),
@@ -894,10 +1212,13 @@ async def extract(
         filename_out = filename
 
     return {
-        "success": True, "text": ai_text,
-        "sessionId": session_id_out, "structuredData": structured,
+        "success": True,
+        "text": ai_text,
+        "sessionId": session_id_out,
+        "structuredData": structured,
         "filename": f"{filename_out}.csv",
-        "provider": provider, "model": model_used,
+        "provider": provider,
+        "model": model_used,
     }
 
 

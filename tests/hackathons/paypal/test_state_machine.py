@@ -1,11 +1,13 @@
 import json
+from unittest.mock import AsyncMock, patch
+
 import pytest
-from unittest.mock import patch, AsyncMock
-from src.adapters.paypal.transactions import get_transaction_store, TransactionState, Transaction
-from src.adapters.paypal.webhooks import process_webhook_event
+
+from src.adapters.paypal.core import get_core_module
 from src.adapters.paypal.routes import capture_order
 from src.adapters.paypal.schemas import CaptureOrderRequest
-from src.adapters.paypal.core import get_core_module
+from src.adapters.paypal.transactions import TransactionState, get_transaction_store
+from src.adapters.paypal.webhooks import process_webhook_event
 
 
 @pytest.fixture(autouse=True)
@@ -115,12 +117,15 @@ async def test_capture_persists_CAPTURED_state():
 async def test_multi_llm_failover():
     from src.adapters.paypal.axelr_ai import extract_payment_intent
 
-    with patch(
-        "src.adapters.paypal.axelr_ai._extract_with_openai",
-        side_effect=Exception("OpenAI down"),
-    ), patch(
-        "src.adapters.paypal.axelr_ai._extract_with_anthropic",
-        side_effect=Exception("Anthropic down"),
+    with (
+        patch(
+            "src.adapters.paypal.axelr_ai._extract_with_openai",
+            side_effect=Exception("OpenAI down"),
+        ),
+        patch(
+            "src.adapters.paypal.axelr_ai._extract_with_anthropic",
+            side_effect=Exception("Anthropic down"),
+        ),
     ):
         result = await extract_payment_intent("Order: 2x Apples @ $5 = $10")
         assert result is not None

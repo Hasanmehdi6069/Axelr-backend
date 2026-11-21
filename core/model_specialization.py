@@ -23,6 +23,7 @@ Routing policy (strict order):
 
 Never raises. Deterministic. Bounded state.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -44,16 +45,25 @@ try:
             return getattr(REGISTRY, "_names_to_collectors", {}).get(name)
 
     # GAP4 required metrics (BATCH 1)
-    _MODEL_QUALITY = _metric("axelr_model_quality_ewma", lambda: Counter(
-        "axelr_model_quality_ewma", "EWMA model quality score", ["task", "model"]))
-    _SPECIALIZATION_ROUTES = _metric("axelr_specialization_route_total", lambda: Counter(
-        "axelr_specialization_route_total", "Specialization route hits/misses", ["task", "tier"]))
-    _VERIFIER_PASS_RATE = _metric("axelr_verifier_pass_rate", lambda: Counter(
-        "axelr_verifier_pass_rate", "AHE verifier pass rate", ["task", "kind"]))
-    _HEDGE_LOCAL_WINS = _metric("axelr_hedge_local_wins_total", lambda: Counter(
-        "axelr_hedge_local_wins_total", "Local hedge wins count"))
-    _CONDUCTOR_PATHS = _metric("axelr_conductor_path_total", lambda: Counter(
-        "axelr_conductor_path_total", "Conductor path usage count", ["path"]))
+    _MODEL_QUALITY = _metric(
+        "axelr_model_quality_ewma",
+        lambda: Counter("axelr_model_quality_ewma", "EWMA model quality score", ["task", "model"]),
+    )
+    _SPECIALIZATION_ROUTES = _metric(
+        "axelr_specialization_route_total",
+        lambda: Counter("axelr_specialization_route_total", "Specialization route hits/misses", ["task", "tier"]),
+    )
+    _VERIFIER_PASS_RATE = _metric(
+        "axelr_verifier_pass_rate",
+        lambda: Counter("axelr_verifier_pass_rate", "AHE verifier pass rate", ["task", "kind"]),
+    )
+    _HEDGE_LOCAL_WINS = _metric(
+        "axelr_hedge_local_wins_total", lambda: Counter("axelr_hedge_local_wins_total", "Local hedge wins count")
+    )
+    _CONDUCTOR_PATHS = _metric(
+        "axelr_conductor_path_total",
+        lambda: Counter("axelr_conductor_path_total", "Conductor path usage count", ["path"]),
+    )
 except Exception as e:
     logger.warning("prometheus_unavailable error=%s", e)
     _MODEL_QUALITY = _SPECIALIZATION_ROUTES = _VERIFIER_PASS_RATE = _HEDGE_LOCAL_WINS = _CONDUCTOR_PATHS = None
@@ -77,16 +87,17 @@ SPECIALIZATION_VERSION = "1.0"
 # ═══════════════════════════════════════════════════════════════════════════
 # §1 — Capability taxonomy
 # ═══════════════════════════════════════════════════════════════════════════
-Capability = str   # "code" | "extraction" | "math" | "reasoning" | "classification" |
-                   # "summarization" | "ui" | "general"
+Capability = str  # "code" | "extraction" | "math" | "reasoning" | "classification" |
+# "summarization" | "ui" | "general"
 
 
 @dataclass(frozen=True, slots=True)
 class TaskSpecialist:
     """What model should serve this task, at each tier."""
+
     task: str
-    primary: str                    # fast-tier model_id (always preferred for free)
-    elite: str | None = None        # elite-tier model_id (preferred for paid)
+    primary: str  # fast-tier model_id (always preferred for free)
+    elite: str | None = None  # elite-tier model_id (preferred for paid)
     capability: Capability = "general"  # what kind of task this is
     fallback_capabilities: tuple[Capability, ...] = ()
 
@@ -96,76 +107,63 @@ class TaskSpecialist:
 TASK_SPECIALISTS: dict[tuple[str, str], TaskSpecialist] = {
     # ── Code ───────────────────────────────────────────────────────────
     ("code_generation", "design"): TaskSpecialist(
-        "code_generation", "qwen25-coder", "qwen25-coder-tuned",
-        "code", ("reasoning", "general")),
+        "code_generation", "qwen25-coder", "qwen25-coder-tuned", "code", ("reasoning", "general")
+    ),
     ("code_generation", "core"): TaskSpecialist(
-        "code_generation", "qwen25-coder", "qwen25-coder-tuned",
-        "code", ("reasoning", "general")),
-    ("code_fix", "design"): TaskSpecialist(
-        "code_fix", "qwen25-coder", "qwen25-coder-tuned",
-        "code", ("reasoning",)),
-    ("code_fix", "core"): TaskSpecialist(
-        "code_fix", "qwen25-coder", "qwen25-coder-tuned",
-        "code", ("reasoning",)),
-    ("touch_fix", "design"): TaskSpecialist(
-        "touch_fix", "qwen25-coder", "qwen25-coder-tuned", "code"),
-    ("touch_fix", "core"): TaskSpecialist(
-        "touch_fix", "qwen25-coder", "qwen25-coder-tuned", "code"),
-
+        "code_generation", "qwen25-coder", "qwen25-coder-tuned", "code", ("reasoning", "general")
+    ),
+    ("code_fix", "design"): TaskSpecialist("code_fix", "qwen25-coder", "qwen25-coder-tuned", "code", ("reasoning",)),
+    ("code_fix", "core"): TaskSpecialist("code_fix", "qwen25-coder", "qwen25-coder-tuned", "code", ("reasoning",)),
+    ("touch_fix", "design"): TaskSpecialist("touch_fix", "qwen25-coder", "qwen25-coder-tuned", "code"),
+    ("touch_fix", "core"): TaskSpecialist("touch_fix", "qwen25-coder", "qwen25-coder-tuned", "code"),
     # ── Data extraction ────────────────────────────────────────────────
     ("extraction", "data"): TaskSpecialist(
-        "extraction", "granite4-350m", "granite4-350m-q5",
-        "extraction", ("general",)),
+        "extraction", "granite4-350m", "granite4-350m-q5", "extraction", ("general",)
+    ),
     ("structuring", "data"): TaskSpecialist(
-        "structuring", "granite4-350m", "granite4-350m-q5",
-        "extraction", ("general",)),
-    ("extraction", "core"): TaskSpecialist(
-        "extraction", "granite4-350m", "granite4-350m-q5", "extraction"),
-    ("structuring", "core"): TaskSpecialist(
-        "structuring", "granite4-350m", "granite4-350m-q5", "extraction"),
-
+        "structuring", "granite4-350m", "granite4-350m-q5", "extraction", ("general",)
+    ),
+    ("extraction", "core"): TaskSpecialist("extraction", "granite4-350m", "granite4-350m-q5", "extraction"),
+    ("structuring", "core"): TaskSpecialist("structuring", "granite4-350m", "granite4-350m-q5", "extraction"),
     # ── Math ───────────────────────────────────────────────────────────
-    ("math", "core"): TaskSpecialist(
-        "math", "qwen25-math", "qwen25-math-full",
-        "math", ("reasoning",)),
-
+    ("math", "core"): TaskSpecialist("math", "qwen25-math", "qwen25-math-full", "math", ("reasoning",)),
     # ── Reasoning ──────────────────────────────────────────────────────
-    ("reasoning", "core"): TaskSpecialist(
-        "reasoning", "qwen25-05b", "llama32-1b-cap", "reasoning"),
-    ("strategy", "core"): TaskSpecialist(
-        "strategy", "qwen25-05b", "llama32-1b-cap", "reasoning"),
-
+    ("reasoning", "core"): TaskSpecialist("reasoning", "qwen25-05b", "llama32-1b-cap", "reasoning"),
+    ("strategy", "core"): TaskSpecialist("strategy", "qwen25-05b", "llama32-1b-cap", "reasoning"),
     # ── Classification / routing ──────────────────────────────────────
-    ("classification", "core"): TaskSpecialist(
-        "classification", "minimind-100m", None, "classification"),
-    ("intent", "core"): TaskSpecialist(
-        "intent", "minimind-100m", None, "classification"),
-
+    ("classification", "core"): TaskSpecialist("classification", "minimind-100m", None, "classification"),
+    ("intent", "core"): TaskSpecialist("intent", "minimind-100m", None, "classification"),
     # ── Summarization ─────────────────────────────────────────────────
     ("summarization", "core"): TaskSpecialist(
-        "summarization", "minicpm4-05b", "openelm-450m",
-        "summarization", ("general",)),
-
+        "summarization", "minicpm4-05b", "openelm-450m", "summarization", ("general",)
+    ),
     # ── UI / frontend ─────────────────────────────────────────────────
     ("frontend", "design"): TaskSpecialist(
-        "frontend", "qwen25-coder", "qwen25-coder-tuned",
-        "ui", ("code", "reasoning")),
-
+        "frontend", "qwen25-coder", "qwen25-coder-tuned", "ui", ("code", "reasoning")
+    ),
     # ── General fallback ──────────────────────────────────────────────
-    ("general", "core"): TaskSpecialist(
-        "general", "smollm2-360m", None, "general"),
-    ("general", "design"): TaskSpecialist(
-        "general", "smollm2-360m", None, "general"),
-    ("general", "data"): TaskSpecialist(
-        "general", "smollm2-360m", None, "general"),
+    ("general", "core"): TaskSpecialist("general", "smollm2-360m", None, "general"),
+    ("general", "design"): TaskSpecialist("general", "smollm2-360m", None, "general"),
+    ("general", "data"): TaskSpecialist("general", "smollm2-360m", None, "general"),
 }
 
 # Every capability that has a "reasoner" role family in the roster.
-_REASONER_CAPABLE: frozenset[str] = frozenset({
-    "qwen25-05b", "qwen25-math", "qwen25-coder", "qwen25-coder-tuned",
-    "llama32-1b-cap", "openelm-450m", "granite4-350m-q5", "qwen25-05b-elite",
-    "smollm2-360m", "granite4-350m", "gemma3-270m", "danube2-200m",
-})
+_REASONER_CAPABLE: frozenset[str] = frozenset(
+    {
+        "qwen25-05b",
+        "qwen25-math",
+        "qwen25-coder",
+        "qwen25-coder-tuned",
+        "llama32-1b-cap",
+        "openelm-450m",
+        "granite4-350m-q5",
+        "qwen25-05b-elite",
+        "smollm2-360m",
+        "granite4-350m",
+        "gemma3-270m",
+        "danube2-200m",
+    }
+)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -187,6 +185,7 @@ def _is_loaded(model_id: str) -> bool:
                 return val
     try:
         from .twin_engine import get_hot_swap_engine
+
         engine = get_hot_swap_engine()
         if engine is None:
             loaded = False
@@ -194,9 +193,8 @@ def _is_loaded(model_id: str) -> bool:
             snap = engine.snapshot()
             fast = snap.get("fast", {}) or {}
             elite = snap.get("elite", {}) or {}
-            loaded = (
-                (fast.get("spec") == model_id and fast.get("loaded"))
-                or (elite.get("spec") == model_id and elite.get("loaded"))
+            loaded = (fast.get("spec") == model_id and fast.get("loaded")) or (
+                elite.get("spec") == model_id and elite.get("loaded")
             )
     except Exception:
         loaded = False
@@ -252,8 +250,7 @@ class _RouteDecision:
     emergency: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {"model_id": self.model_id, "reason": self.reason,
-                "emergency": self.emergency}
+        return {"model_id": self.model_id, "reason": self.reason, "emergency": self.emergency}
 
 
 def _is_paid(tier: str) -> bool:
@@ -265,7 +262,8 @@ def _concurrency_allows_elite(concurrency: int) -> bool:
 
 
 def _pick_highest_quality_loaded(
-    candidates: list[str], task: str,
+    candidates: list[str],
+    task: str,
 ) -> str | None:
     loaded = [m for m in candidates if _is_loaded(m)]
     if not loaded:
@@ -314,8 +312,11 @@ def _fallback_loaded(task: str, capabilities: tuple[Capability, ...]) -> str | N
 # ═══════════════════════════════════════════════════════════════════════════
 def route(
     task: str,
-    *, workspace: str = "core", tier: str = "free",
-    concurrency: int = 1, thermal_budget: int | None = None,
+    *,
+    workspace: str = "core",
+    tier: str = "free",
+    concurrency: int = 1,
+    thermal_budget: int | None = None,
 ) -> str | None:
     """
     Return a model_id or ``None`` (caller should fall back to cloud).
@@ -339,8 +340,13 @@ def route(
         spec = TASK_SPECIALISTS.get(("general", "core"))
 
     # 1. Elite specialist
-    if spec is not None and spec.elite and _is_paid(tier) \
-       and _concurrency_allows_elite(concurrency) and _is_loaded(spec.elite):
+    if (
+        spec is not None
+        and spec.elite
+        and _is_paid(tier)
+        and _concurrency_allows_elite(concurrency)
+        and _is_loaded(spec.elite)
+    ):
         return spec.elite
 
     # 2. Primary specialist
@@ -357,12 +363,14 @@ def route(
     if thermal_budget is None:
         try:
             from .guards import budget as _tb
+
             thermal_budget = _tb()
         except Exception:
             thermal_budget = 4
     if thermal_budget > 0:
         try:
             from .twin_engine import get_hot_swap_engine
+
             engine = get_hot_swap_engine()
             snap = engine.snapshot() if engine else {}
             for slot in ("fast", "elite"):
@@ -370,8 +378,7 @@ def route(
                 if entry.get("loaded"):
                     mid = entry.get("spec")
                     if mid:
-                        logger.info(
-                            "specialization_emergency model=%s task=%s", mid, task)
+                        logger.info("specialization_emergency model=%s task=%s", mid, task)
                         return mid
         except Exception:
             pass
@@ -390,13 +397,8 @@ def best_for(task: str, *, workspace: str = "core") -> str | None:
 def snapshot() -> dict[str, Any]:
     """JSON-serialisable view for /health."""
     with _QUALITY_LOCK:
-        quality = {
-            f"{m}::{t}": round(v, 4)
-            for (m, t), v in _QUALITY_TABLE.items() if v != 0.5
-        }
-        samples = {
-            f"{m}::{t}": n for (m, t), n in _QUALITY_SAMPLES.items()
-        }
+        quality = {f"{m}::{t}": round(v, 4) for (m, t), v in _QUALITY_TABLE.items() if v != 0.5}
+        samples = {f"{m}::{t}": n for (m, t), n in _QUALITY_SAMPLES.items()}
     return {
         "version": SPECIALIZATION_VERSION,
         "task_specialists": {
@@ -420,7 +422,10 @@ def audit() -> dict[str, Any]:
 # Integration hook for pipeline / twin_engine
 # ═══════════════════════════════════════════════════════════════════════════
 def resolve_specialized_model(
-    task: str, workspace: str, tier: str, concurrency: int = 1,
+    task: str,
+    workspace: str,
+    tier: str,
+    concurrency: int = 1,
 ) -> str | None:
     """
     Convenience wrapper for twin_engine.pick_local_model paths.
@@ -428,5 +433,4 @@ def resolve_specialized_model(
     Prefer this over calling `route()` directly when you're inside the twin
     engine — it returns a model_id, matching `ModelSpec.id`.
     """
-    return route(task, workspace=workspace, tier=tier,
-                 concurrency=concurrency)
+    return route(task, workspace=workspace, tier=tier, concurrency=concurrency)

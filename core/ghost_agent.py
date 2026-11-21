@@ -15,6 +15,7 @@ v1.4 over v1.3:
   * explain_confidence() pass-through
   * Portable snapshot export for external verification
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -126,8 +127,7 @@ class AxelrGhostAgent:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
-    def __init__(self, workspace_root: str, user_goal: str,
-                 config: Optional[GhostAgentConfig] = None) -> None:
+    def __init__(self, workspace_root: str, user_goal: str, config: Optional[GhostAgentConfig] = None) -> None:
         if getattr(self, "_initialized", False):
             return
         try:
@@ -156,9 +156,12 @@ class AxelrGhostAgent:
             self._cycle_history: deque = deque(maxlen=self._CYCLE_HISTORY_MAX)
             self._load_state()
             self._initialized = True
-            _LOG.info("ghost_agent_initialized",
-                      workspace=self._redact(str(self.workspace_root)),
-                      using_fallback_core=USING_FALLBACK_CORE, version=__version__)
+            _LOG.info(
+                "ghost_agent_initialized",
+                workspace=self._redact(str(self.workspace_root)),
+                using_fallback_core=USING_FALLBACK_CORE,
+                version=__version__,
+            )
         except Exception:
             type(self)._instance = None
             raise
@@ -168,8 +171,7 @@ class AxelrGhostAgent:
         if not self.config.redact_paths_in_logs:
             return text
         try:
-            return text.replace(str(self.workspace_root), "<workspace>").replace(
-                self.user_goal, "<goal>")
+            return text.replace(str(self.workspace_root), "<workspace>").replace(self.user_goal, "<goal>")
         except Exception:
             return text
 
@@ -196,8 +198,7 @@ class AxelrGhostAgent:
             "version": __version__,
             "timestamp": _now().isoformat(),
             "last_run_hash": self._last_run_hash,
-            "last_status": (self._last_run_result.status.value
-                            if self._last_run_result else None),
+            "last_status": (self._last_run_result.status.value if self._last_run_result else None),
             "telemetry": self._telemetry.snapshot(),
         }
         body["hmac"] = sign_state(body, self._state_key)
@@ -231,17 +232,16 @@ class AxelrGhostAgent:
         if self._circuit_breaker.is_open():
             return
         try:
-            self._with_retry(
-                lambda: self.persistence.save("last_execution", self._state_payload()), "save")
+            self._with_retry(lambda: self.persistence.save("last_execution", self._state_payload()), "save")
             self._circuit_breaker.record_success()
         except Exception:
             self._circuit_breaker.record_failure()
             _LOG.error("failed_to_save_state")
 
     # ── Pillar 1 ───────────────────────────────────────────────────────
-    def scan_workspace(self, force: bool = False,
-                       metrics: Optional[_CycleMetrics] = None
-                       ) -> Tuple[List[str], Dict[str, datetime]]:
+    def scan_workspace(
+        self, force: bool = False, metrics: Optional[_CycleMetrics] = None
+    ) -> Tuple[List[str], Dict[str, datetime]]:
         if not self.workspace_root.exists():
             raise GhostAgentExecutionError(f"Workspace root does not exist: {self.workspace_root}")
         found: Dict[str, datetime] = {}
@@ -275,16 +275,15 @@ class AxelrGhostAgent:
             metrics.files_considered = len(found)
         return sorted(found.keys()), found
 
-    def extract_high_signal_updates(self, modified_files: List[str],
-                                    metrics: Optional[_CycleMetrics] = None
-                                    ) -> List[Dict[str, Any]]:
+    def extract_high_signal_updates(
+        self, modified_files: List[str], metrics: Optional[_CycleMetrics] = None
+    ) -> List[Dict[str, Any]]:
         high: List[Dict[str, Any]] = []
         for fp in modified_files:
             try:
                 high.extend(self.context_manager.extract_signals(fp) or [])
             except Exception as e:
-                _LOG.warning("failed_to_extract_signals",
-                             file=self._redact(fp), error=type(e).__name__)
+                _LOG.warning("failed_to_extract_signals", file=self._redact(fp), error=type(e).__name__)
         if metrics:
             metrics.signals_extracted = len(high)
         return high
@@ -302,8 +301,9 @@ class AxelrGhostAgent:
                     break
         return out
 
-    def check_goal_alignment(self, updates: List[Dict[str, Any]],
-                             metrics: Optional[_CycleMetrics] = None) -> Tuple[bool, float]:
+    def check_goal_alignment(
+        self, updates: List[Dict[str, Any]], metrics: Optional[_CycleMetrics] = None
+    ) -> Tuple[bool, float]:
         try:
             score = float(self.context_manager.calculate_goal_alignment(self.user_goal, updates))
         except Exception:
@@ -327,9 +327,9 @@ class AxelrGhostAgent:
         self.current_context["realigned"] = True
 
     # ── Pillar 2 ───────────────────────────────────────────────────────
-    def run_verification_pipeline(self, updates: List[Dict[str, Any]],
-                                  metrics: Optional[_CycleMetrics] = None
-                                  ) -> VerificationAuditTrail:
+    def run_verification_pipeline(
+        self, updates: List[Dict[str, Any]], metrics: Optional[_CycleMetrics] = None
+    ) -> VerificationAuditTrail:
         trail = VerificationAuditTrail()
         added = 0
         seen_content: Dict[str, str] = {}  # content_hash -> first assertion text
@@ -389,8 +389,7 @@ class AxelrGhostAgent:
                 # Honest verification — passes file content so no double-read
                 try:
                     try:
-                        vr = self.verification_engine.verify_source(
-                            a, fp, line, content=file_texts.get(fp, ""))
+                        vr = self.verification_engine.verify_source(a, fp, line, content=file_texts.get(fp, ""))
                     except TypeError:
                         # Real engine doesn't accept content kwarg
                         vr = self.verification_engine.verify_source(a, fp, line)
@@ -403,9 +402,7 @@ class AxelrGhostAgent:
                     except ValueError:
                         continue
                 if conf == ConfidenceRating.HIGH:
-                    if trail.add_assertion(a, fp, line, conf,
-                                           source_hash=file_hashes.get(fp, ""),
-                                           content_hash=a_hash):
+                    if trail.add_assertion(a, fp, line, conf, source_hash=file_hashes.get(fp, ""), content_hash=a_hash):
                         seen_content[a_hash] = a
                         added += 1
                         if metrics:
@@ -435,8 +432,7 @@ class AxelrGhostAgent:
         return trail
 
     # ── Pillar 3 ───────────────────────────────────────────────────────
-    def generate_output(self, trail: VerificationAuditTrail,
-                        output_format: str = "markdown") -> str:
+    def generate_output(self, trail: VerificationAuditTrail, output_format: str = "markdown") -> str:
         if output_format == "json":
             return self._generate_json(trail)
         if output_format in ("plain_text", "text", "plain"):
@@ -444,13 +440,10 @@ class AxelrGhostAgent:
         return self._generate_markdown(trail)
 
     def _sorted_assertions(self, trail: VerificationAuditTrail) -> List[DataPoint]:
-        return sorted(trail.assertions,
-                      key=lambda a: (a.source_path, a.line_number or 0, a.assertion))
+        return sorted(trail.assertions, key=lambda a: (a.source_path, a.line_number or 0, a.assertion))
 
     def _generate_markdown(self, trail: VerificationAuditTrail) -> str:
-        lines = ["# AXELR Ghost-Agent Update",
-                 f"Generated: {_now().isoformat()}", "",
-                 "## Verified Updates"]
+        lines = ["# AXELR Ghost-Agent Update", f"Generated: {_now().isoformat()}", "", "## Verified Updates"]
         for a in self._sorted_assertions(trail):
             lines.append(f"- {a.assertion}")
             lines.append(f"  - Source: `{a.source_path}`")
@@ -459,33 +452,46 @@ class AxelrGhostAgent:
             if a.source_hash:
                 lines.append(f"  - SHA-256: `{a.source_hash[:16]}…`")
             lines.append("")
-        lines.extend(["## Verification Summary",
-                      f"- Confidence Metric: {trail.confidence_metric}/10",
-                      f"- Contradictions Resolved: {trail.contradictions_resolved}",
-                      f"- Verified Sources: {len(trail.verified_sources)}"])
+        lines.extend(
+            [
+                "## Verification Summary",
+                f"- Confidence Metric: {trail.confidence_metric}/10",
+                f"- Contradictions Resolved: {trail.contradictions_resolved}",
+                f"- Verified Sources: {len(trail.verified_sources)}",
+            ]
+        )
         return "\n".join(lines)
 
     def _generate_json(self, trail: VerificationAuditTrail) -> str:
-        return json.dumps({
-            "timestamp": _now().isoformat(),
-            "assertions": [
-                {"assertion": a.assertion, "source": a.source_path,
-                 "line": a.line_number, "confidence": a.confidence.value,
-                 "source_hash": a.source_hash, "content_hash": a.content_hash,
-                 "timestamp": a.timestamp.isoformat()}
-                for a in self._sorted_assertions(trail)
-            ],
-            "audit_trail": {
-                "verified_sources": sorted(trail.verified_sources),
-                "confidence_metric": trail.confidence_metric,
-                "contradictions_resolved": trail.contradictions_resolved,
-                "explanation": trail.explain_confidence(),
+        return json.dumps(
+            {
+                "timestamp": _now().isoformat(),
+                "assertions": [
+                    {
+                        "assertion": a.assertion,
+                        "source": a.source_path,
+                        "line": a.line_number,
+                        "confidence": a.confidence.value,
+                        "source_hash": a.source_hash,
+                        "content_hash": a.content_hash,
+                        "timestamp": a.timestamp.isoformat(),
+                    }
+                    for a in self._sorted_assertions(trail)
+                ],
+                "audit_trail": {
+                    "verified_sources": sorted(trail.verified_sources),
+                    "confidence_metric": trail.confidence_metric,
+                    "contradictions_resolved": trail.contradictions_resolved,
+                    "explanation": trail.explain_confidence(),
+                },
             },
-        }, indent=2, sort_keys=True, default=str)
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
 
     def _generate_text(self, trail: VerificationAuditTrail) -> str:
-        lines = ["AXELR Ghost-Agent Update",
-                 f"Generated: {_now().isoformat()}", "", "Verified Updates:"]
+        lines = ["AXELR Ghost-Agent Update", f"Generated: {_now().isoformat()}", "", "Verified Updates:"]
         for a in self._sorted_assertions(trail):
             lines.append(f"* {a.assertion}")
             lines.append(f"  Source: {a.source_path}")
@@ -495,18 +501,22 @@ class AxelrGhostAgent:
         return "\n".join(lines)
 
     # ── Pillar 4 ───────────────────────────────────────────────────────
-    def stage_for_approval(self, content: str, format_type: str,
-                           goal_alignment: str, trail: VerificationAuditTrail
-                           ) -> StagedOutput:
+    def stage_for_approval(
+        self, content: str, format_type: str, goal_alignment: str, trail: VerificationAuditTrail
+    ) -> StagedOutput:
         chash = self._content_hash(content)
         for existing in self.staged_outputs:
-            if (not existing.rejected and not existing.executed
-                    and self._content_hash(existing.content) == chash
-                    and existing.format_type == format_type):
+            if (
+                not existing.rejected
+                and not existing.executed
+                and self._content_hash(existing.content) == chash
+                and existing.format_type == format_type
+            ):
                 _LOG.info("staged_content_deduplicated")
                 return existing
-        staged = StagedOutput(content=content, format_type=format_type,
-                              goal_alignment=goal_alignment, audit_trail=trail)
+        staged = StagedOutput(
+            content=content, format_type=format_type, goal_alignment=goal_alignment, audit_trail=trail
+        )
         self.staged_outputs.append(staged)
         while len(self.staged_outputs) > self.config.max_staged_outputs:
             for i, s in enumerate(self.staged_outputs):
@@ -534,11 +544,16 @@ class AxelrGhostAgent:
         fence = self._fence_for(staged.content)
         expl = staged.audit_trail.explain_confidence()
         lines = [
-            "---", "[AGENT OUTPUT FRAME]",
+            "---",
+            "[AGENT OUTPUT FRAME]",
             "### 🛠️ Ghost-Agent Status: Draft Staged",
-            f"**Goal Aligned:** {staged.goal_alignment}", "",
+            f"**Goal Aligned:** {staged.goal_alignment}",
+            "",
             "#### 📝 Staged Output:",
-            f"{fence}[{staged.format_type}]", staged.content, fence, "",
+            f"{fence}[{staged.format_type}]",
+            staged.content,
+            fence,
+            "",
             "#### 🛡️ Anti-Hallucination Audit Trail:",
             f"* **Verified Sources:** {', '.join(staged.audit_trail.verified_sources) or '(none)'}",
             f"* **Confidence Metric:** {staged.audit_trail.confidence_metric}/10",
@@ -559,8 +574,7 @@ class AxelrGhostAgent:
         print("\n".join(self._render_frame(staged)))
 
     def list_pending(self) -> List[StagedOutput]:
-        return [s for s in self.staged_outputs
-                if not s.approved and not s.executed and not s.rejected]
+        return [s for s in self.staged_outputs if not s.approved and not s.executed and not s.rejected]
 
     def iter_pending(self) -> Iterator[StagedOutput]:
         for s in list(self.staged_outputs):
@@ -593,9 +607,7 @@ class AxelrGhostAgent:
         now = _now()
         before = len(self.staged_outputs)
         self.staged_outputs = [
-            s for s in self.staged_outputs
-            if s.approved or s.executed or s.rejected
-            or (now - s.created_at) < ttl
+            s for s in self.staged_outputs if s.approved or s.executed or s.rejected or (now - s.created_at) < ttl
         ]
         purged = before - len(self.staged_outputs)
         if purged:
@@ -616,12 +628,15 @@ class AxelrGhostAgent:
             return True
         except Exception as e:
             staged.approved = False
-            corr = (self._last_run_result.correlation_id
-                    if self._last_run_result else "unknown")
-            self._dead_letter.push(_DeadLetterEntry(
-                correlation_id=corr, staged_output=staged,
-                error=str(e), failed_at=_now(),
-            ))
+            corr = self._last_run_result.correlation_id if self._last_run_result else "unknown"
+            self._dead_letter.push(
+                _DeadLetterEntry(
+                    correlation_id=corr,
+                    staged_output=staged,
+                    error=str(e),
+                    failed_at=_now(),
+                )
+            )
             _LOG.error("execution_failed", error=type(e).__name__)
             return False
 
@@ -652,32 +667,39 @@ class AxelrGhostAgent:
         return False
 
     # ── Cycle ──────────────────────────────────────────────────────────
-    def run_cycle(self, output_format: str = "markdown",
-                  dry_run: bool = False, force: bool = False) -> RunResult:
+    def run_cycle(self, output_format: str = "markdown", dry_run: bool = False, force: bool = False) -> RunResult:
         corr = str(uuid.uuid4())
         t0_wall = _now()
         t0 = time.monotonic()
         metrics = _CycleMetrics()
         staged_ref: List[Optional[StagedOutput]] = [None]
 
-        def _result(status: CycleStatus, staged: Optional[StagedOutput] = None,
-                    error: Optional[str] = None) -> RunResult:
+        def _result(
+            status: CycleStatus, staged: Optional[StagedOutput] = None, error: Optional[str] = None
+        ) -> RunResult:
             dur = time.monotonic() - t0
             self._telemetry.incr(f"cycle_{status.value}")
             self._telemetry.record_duration(dur)
             staged_ref[0] = staged
-            rr = RunResult(status=status, staged_output=staged, correlation_id=corr,
-                           duration_seconds=round(dur, 4),
-                           metrics=metrics.as_dict(), error=error)
-            self._last_run_result = rr
-            self._cycle_history.append(_CycleRecord(
-                status=status, correlation_id=corr,
+            rr = RunResult(
+                status=status,
+                staged_output=staged,
+                correlation_id=corr,
                 duration_seconds=round(dur, 4),
-                staged=staged is not None,
-                timestamp=t0_wall,
-                assertion_count=(len(staged.audit_trail.assertions)
-                                 if staged is not None else 0),
-            ))
+                metrics=metrics.as_dict(),
+                error=error,
+            )
+            self._last_run_result = rr
+            self._cycle_history.append(
+                _CycleRecord(
+                    status=status,
+                    correlation_id=corr,
+                    duration_seconds=round(dur, 4),
+                    staged=staged is not None,
+                    timestamp=t0_wall,
+                    assertion_count=(len(staged.audit_trail.assertions) if staged is not None else 0),
+                )
+            )
             return rr
 
         def _budget_exceeded() -> bool:
@@ -744,33 +766,28 @@ class AxelrGhostAgent:
             if dry_run:
                 return _result(CycleStatus.DRY_RUN)
 
-            goal_summary = (
-                f"Processed {len(trail.assertions)} verified updates aligned with: {self.user_goal}"
-            )
+            goal_summary = f"Processed {len(trail.assertions)} verified updates aligned with: {self.user_goal}"
             staged = self.stage_for_approval(content, output_format, goal_summary, trail)
             self.last_execution = t0_wall
             self._last_run_hash = run_hash
             self._save_state()
             return _result(CycleStatus.STAGED, staged=staged)
         except Exception as e:
-            _LOG.error("cycle_failed", corr=corr, error=type(e).__name__,
-                       tb=traceback.format_exc(limit=3))
+            _LOG.error("cycle_failed", corr=corr, error=type(e).__name__, tb=traceback.format_exc(limit=3))
             return _result(CycleStatus.ERROR, error=str(e))
         finally:
             self._cycle_lock.release()
 
     @staticmethod
     def _workspace_merkle(mtimes: Dict[str, datetime]) -> str:
-        leaves = [hashlib.sha256(f"{p}\x00{mtimes[p].isoformat()}".encode()).digest()
-                  for p in sorted(mtimes.keys())]
+        leaves = [hashlib.sha256(f"{p}\x00{mtimes[p].isoformat()}".encode()).digest() for p in sorted(mtimes.keys())]
         if not leaves:
             return hashlib.sha256(b"").hexdigest()
         level = leaves
         while len(level) > 1:
             if len(level) % 2:
                 level.append(level[-1])
-            level = [hashlib.sha256(level[i] + level[i + 1]).digest()
-                     for i in range(0, len(level), 2)]
+            level = [hashlib.sha256(level[i] + level[i + 1]).digest() for i in range(0, len(level), 2)]
         return level[0].hex()
 
     # ── Ops ────────────────────────────────────────────────────────────
@@ -785,24 +802,25 @@ class AxelrGhostAgent:
             "pending_outputs": len(self.list_pending()),
             "staged_total": len(self.staged_outputs),
             "dead_letter_count": len(self._dead_letter.list()),
-            "last_status": (self._last_run_result.status.value
-                            if self._last_run_result else None),
+            "last_status": (self._last_run_result.status.value if self._last_run_result else None),
             "recent_status_distribution": status_counts,
             "using_fallback_core": USING_FALLBACK_CORE,
             "version": __version__,
         }
 
     def describe(self) -> str:
-        return "\n".join([
-            f"AXELR Ghost-Agent v{__version__}",
-            f"Workspace: {self._redact(str(self.workspace_root))}",
-            f"Goal: {self._redact(self.user_goal)}",
-            f"Using fallback core: {USING_FALLBACK_CORE}",
-            f"Circuit breaker: {'OPEN' if self._circuit_breaker.is_open() else 'closed'}",
-            f"Pending outputs: {len(self.list_pending())}",
-            f"Dead-letter entries: {len(self._dead_letter.list())}",
-            f"Last status: {self._last_run_result.status.value if self._last_run_result else 'never'}",
-        ])
+        return "\n".join(
+            [
+                f"AXELR Ghost-Agent v{__version__}",
+                f"Workspace: {self._redact(str(self.workspace_root))}",
+                f"Goal: {self._redact(self.user_goal)}",
+                f"Using fallback core: {USING_FALLBACK_CORE}",
+                f"Circuit breaker: {'OPEN' if self._circuit_breaker.is_open() else 'closed'}",
+                f"Pending outputs: {len(self.list_pending())}",
+                f"Dead-letter entries: {len(self._dead_letter.list())}",
+                f"Last status: {self._last_run_result.status.value if self._last_run_result else 'never'}",
+            ]
+        )
 
     def export_metrics(self) -> str:
         snap = self._telemetry.snapshot()
@@ -856,34 +874,38 @@ class AxelrGhostAgent:
         """Portable JSON snapshot of a staged output for external verification."""
         pending = self.list_pending()
         if not pending:
-            return json.dumps({"status": "no_pending_output", "version": __version__},
-                              sort_keys=True, indent=2)
+            return json.dumps({"status": "no_pending_output", "version": __version__}, sort_keys=True, indent=2)
         staged = pending[-1]
         trail = staged.audit_trail
-        return json.dumps({
-            "version": __version__,
-            "correlation_id": (self._last_run_result.correlation_id
-                               if self._last_run_result else ""),
-            "goal_alignment": staged.goal_alignment,
-            "format": staged.format_type,
-            "content": staged.content,
-            "audit": {
-                "confidence_metric": trail.confidence_metric,
-                "explanation": trail.explain_confidence(),
-                "assertions": [
-                    {
-                        "assertion": a.assertion,
-                        "source": a.source_path,
-                        "line": a.line_number,
-                        "confidence": a.confidence.value,
-                        "source_hash": a.source_hash,
-                        "content_hash": a.content_hash,
-                    } for a in trail.assertions
-                ],
-                "verified_sources": sorted(trail.verified_sources),
-                "contradictions_resolved": trail.contradictions_resolved,
+        return json.dumps(
+            {
+                "version": __version__,
+                "correlation_id": (self._last_run_result.correlation_id if self._last_run_result else ""),
+                "goal_alignment": staged.goal_alignment,
+                "format": staged.format_type,
+                "content": staged.content,
+                "audit": {
+                    "confidence_metric": trail.confidence_metric,
+                    "explanation": trail.explain_confidence(),
+                    "assertions": [
+                        {
+                            "assertion": a.assertion,
+                            "source": a.source_path,
+                            "line": a.line_number,
+                            "confidence": a.confidence.value,
+                            "source_hash": a.source_hash,
+                            "content_hash": a.content_hash,
+                        }
+                        for a in trail.assertions
+                    ],
+                    "verified_sources": sorted(trail.verified_sources),
+                    "contradictions_resolved": trail.contradictions_resolved,
+                },
             },
-        }, indent=2, sort_keys=True, default=str)
+            indent=2,
+            sort_keys=True,
+            default=str,
+        )
 
     def self_test(self) -> Tuple[bool, Dict[str, Any]]:
         diag: Dict[str, Any] = {"steps": []}
@@ -895,8 +917,12 @@ class AxelrGhostAgent:
             try:
                 res = self.run_cycle(output_format="markdown", dry_run=True, force=True)
                 diag["steps"].append(f"dry_run:{res.status.value}")
-                return res.status in (CycleStatus.DRY_RUN, CycleStatus.NO_SIGNALS,
-                                      CycleStatus.NO_VERIFIED, CycleStatus.ERROR), diag
+                return res.status in (
+                    CycleStatus.DRY_RUN,
+                    CycleStatus.NO_SIGNALS,
+                    CycleStatus.NO_VERIFIED,
+                    CycleStatus.ERROR,
+                ), diag
             finally:
                 try:
                     probe.unlink()
@@ -908,13 +934,12 @@ class AxelrGhostAgent:
 
 
 # ── Public API ──────────────────────────────────────────────────────────
-def get_ghost_agent(workspace_root: Optional[str] = None,
-                    user_goal: Optional[str] = None,
-                    config: Optional[GhostAgentConfig] = None) -> AxelrGhostAgent:
+def get_ghost_agent(
+    workspace_root: Optional[str] = None, user_goal: Optional[str] = None, config: Optional[GhostAgentConfig] = None
+) -> AxelrGhostAgent:
     if AxelrGhostAgent._instance is None:
         if not workspace_root or not user_goal:
-            raise GhostAgentExecutionError(
-                "workspace_root and user_goal required for first initialization")
+            raise GhostAgentExecutionError("workspace_root and user_goal required for first initialization")
         return AxelrGhostAgent(workspace_root, user_goal, config=config)
     return AxelrGhostAgent._instance
 
@@ -945,17 +970,25 @@ def audit() -> Dict[str, Any]:
         "last_execution": inst.last_execution.isoformat() if inst.last_execution else None,
         "staged_outputs_count": len(inst.staged_outputs),
         "workspace_root": str(inst.workspace_root),
-        "last_status": (inst._last_run_result.status.value
-                        if inst._last_run_result else None),
+        "last_status": (inst._last_run_result.status.value if inst._last_run_result else None),
         "health": inst.health(),
         "telemetry": inst._telemetry.snapshot(),
     }
 
 
 __all__ = [
-    "__version__", "USING_FALLBACK_CORE",
-    "ConfidenceRating", "DataPoint", "VerificationAuditTrail", "StagedOutput",
-    "CycleStatus", "RunResult", "GhostAgentConfig", "GhostAgentExecutionError",
+    "__version__",
+    "USING_FALLBACK_CORE",
+    "ConfidenceRating",
+    "DataPoint",
+    "VerificationAuditTrail",
+    "StagedOutput",
+    "CycleStatus",
+    "RunResult",
+    "GhostAgentConfig",
+    "GhostAgentExecutionError",
     "AxelrGhostAgent",
-    "get_ghost_agent", "reset_singleton", "audit",
+    "get_ghost_agent",
+    "reset_singleton",
+    "audit",
 ]

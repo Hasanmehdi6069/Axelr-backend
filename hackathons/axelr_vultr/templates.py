@@ -1,4 +1,5 @@
 """Blueprint system — 15 elite Axelr deployment templates for HackGlobal Vultr Hackathon v3.0.0."""
+
 from __future__ import annotations
 
 import hashlib
@@ -42,7 +43,9 @@ mkdir -p /opt/axelr /var/log/axelr /etc/axelr
 chmod 755 /opt/axelr /var/log/axelr
 """
 
-_STARTUP_INFERENCE_WORKER = _STARTUP_ELITE_BASE + """
+_STARTUP_INFERENCE_WORKER = (
+    _STARTUP_ELITE_BASE
+    + """
 curl -fsSL https://ollama.com/install.sh | sh
 systemctl enable --now ollama
 sleep 10 && ollama pull tinyllama:latest || true
@@ -76,8 +79,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/health.log 2>&1 &
 """
+)
 
-_STARTUP_SANDBOX = _STARTUP_ELITE_BASE + """
+_STARTUP_SANDBOX = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends nodejs npm git build-essential
 pip3 install -q aiofiles
 cat > /opt/axelr/sandbox.py << 'PYEOF'
@@ -102,8 +108,11 @@ PYEOF
 cd /opt/axelr
 nohup uvicorn sandbox:app --host 0.0.0.0 --port 8080 --workers 2 > /var/log/axelr/sandbox.log 2>&1 &
 """
+)
 
-_STARTUP_BATCH_PROCESSOR = _STARTUP_ELITE_BASE + """
+_STARTUP_BATCH_PROCESSOR = (
+    _STARTUP_ELITE_BASE
+    + """
 pip3 install -q redis aiohttp
 cat > /opt/axelr/batch.py << 'PYEOF'
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -125,8 +134,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/batch.py > /var/log/axelr/batch.log 2>&1 &
 """
+)
 
-_STARTUP_WEB_NODE = _STARTUP_ELITE_BASE + """
+_STARTUP_WEB_NODE = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends nginx
 systemctl enable --now nginx
 cat > /var/www/html/index.html << 'HTML'
@@ -153,8 +165,11 @@ HTTPServer(("0.0.0.0", 8081), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/web.log 2>&1 &
 """
+)
 
-_STARTUP_DATABASE = _STARTUP_ELITE_BASE + """
+_STARTUP_DATABASE = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends postgresql postgresql-contrib openssl
 PGPW=$(openssl rand -hex 32)
 sudo -u postgres psql -c "ALTER USER postgres PASSWORD '$PGPW';"
@@ -189,8 +204,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/db.log 2>&1 &
 """
+)
 
-_STARTUP_REDIS = _STARTUP_ELITE_BASE + """
+_STARTUP_REDIS = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends redis-server
 sed -i "s/^bind .*/bind 0.0.0.0/" /etc/redis/redis.conf
 sed -i "s/# maxmemory-policy.*/maxmemory-policy allkeys-lru/" /etc/redis/redis.conf
@@ -223,8 +241,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/redis.log 2>&1 &
 """
+)
 
-_STARTUP_GPU_COMPUTE = _STARTUP_ELITE_BASE + """
+_STARTUP_GPU_COMPUTE = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends nvidia-driver-550 nvidia-cuda-toolkit
 pip3 install -q vllm torch transformers accelerate fastapi uvicorn
 cat > /opt/axelr/health.py << 'PYEOF'
@@ -256,8 +277,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/gpu.log 2>&1 &
 """
+)
 
-_STARTUP_HACKGLOBAL_ELITE = _STARTUP_ELITE_BASE + """
+_STARTUP_HACKGLOBAL_ELITE = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends docker.io docker-compose
 systemctl enable --now docker
 pip3 install -q kubernetes
@@ -281,8 +305,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/hackglobal.log 2>&1 &
 """
+)
 
-_STARTUP_LOAD_BALANCER = _STARTUP_ELITE_BASE + """
+_STARTUP_LOAD_BALANCER = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends haproxy
 cat > /etc/haproxy/haproxy.cfg << 'CFG'
 global
@@ -323,8 +350,11 @@ HTTPServer(("0.0.0.0", 8081), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/lb.log 2>&1 &
 """
+)
 
-_STARTUP_MONITORING = _STARTUP_ELITE_BASE + """
+_STARTUP_MONITORING = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends prometheus grafana
 systemctl enable --now prometheus grafana-server
 cat > /opt/axelr/health.py << 'PYEOF'
@@ -347,8 +377,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/monitoring.log 2>&1 &
 """
+)
 
-_STARTUP_OBJECT_STORAGE = _STARTUP_ELITE_BASE + """
+_STARTUP_OBJECT_STORAGE = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends minio
 systemctl enable --now minio
 MINIO_ROOT_PASSWORD=$(openssl rand -hex 32)
@@ -374,8 +407,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/storage.log 2>&1 &
 """
+)
 
-_STARTUP_SEARCH_ENGINE = _STARTUP_ELITE_BASE + """
+_STARTUP_SEARCH_ENGINE = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends opensearch
 systemctl enable --now opensearch
 cat > /opt/axelr/health.py << 'PYEOF'
@@ -398,8 +434,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/search.log 2>&1 &
 """
+)
 
-_STARTUP_MESSAGE_QUEUE = _STARTUP_ELITE_BASE + """
+_STARTUP_MESSAGE_QUEUE = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends rabbitmq-server
 systemctl enable --now rabbitmq-server
 RABBITMQ_PW=$(openssl rand -hex 32)
@@ -429,8 +468,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/queue.log 2>&1 &
 """
+)
 
-_STARTUP_SECURITY_HUB = _STARTUP_ELITE_BASE + """
+_STARTUP_SECURITY_HUB = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends fail2ban ufw
 ufw allow 22/tcp
 ufw allow 80/tcp
@@ -457,8 +499,11 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/security.log 2>&1 &
 """
+)
 
-_STARTUP_ANALYTICS = _STARTUP_ELITE_BASE + """
+_STARTUP_ANALYTICS = (
+    _STARTUP_ELITE_BASE
+    + """
 apt-get install -y -qq --no-install-recommends clickhouse-server
 systemctl enable --now clickhouse-server
 cat > /opt/axelr/health.py << 'PYEOF'
@@ -481,6 +526,7 @@ HTTPServer(("0.0.0.0", 8080), H).serve_forever()
 PYEOF
 nohup python3 /opt/axelr/health.py > /var/log/axelr/analytics.log 2>&1 &
 """
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -501,12 +547,18 @@ class Blueprint:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "name": self.name, "description": self.description,
-            "plan": self.plan, "region_default": self.region_default,
-            "os_id": self.os_id, "estimated_monthly_usd": self.estimated_monthly_usd,
-            "cost_tier": self.cost_tier.value, "performance_class": self.performance_class.value,
-            "tags": list(self.tags), "hardware_hint": self.hardware_hint,
-            "startup_script_hash": self.startup_script_hash, "version": self.version,
+            "name": self.name,
+            "description": self.description,
+            "plan": self.plan,
+            "region_default": self.region_default,
+            "os_id": self.os_id,
+            "estimated_monthly_usd": self.estimated_monthly_usd,
+            "cost_tier": self.cost_tier.value,
+            "performance_class": self.performance_class.value,
+            "tags": list(self.tags),
+            "hardware_hint": self.hardware_hint,
+            "startup_script_hash": self.startup_script_hash,
+            "version": self.version,
         }
 
     def with_region(self, region: str) -> "Blueprint":
@@ -524,9 +576,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "inference_worker": Blueprint(
         name="inference_worker",
         description="Elite CPU inference node with Ollama v0.3, Prometheus metrics, and health monitoring.",
-        plan="vc2-4c-8gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_INFERENCE_WORKER, estimated_monthly_usd=36.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.HIGH,
+        plan="vc2-4c-8gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_INFERENCE_WORKER,
+        estimated_monthly_usd=36.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-inference", "hackglobal-elite"),
         hardware_hint="4 vCPU / 8GB RAM / 160GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_INFERENCE_WORKER.encode()).hexdigest()[:16],
@@ -534,9 +590,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "sandbox": Blueprint(
         name="sandbox",
         description="Isolated code runner with async execution, Python + Node support, 60s max timeout.",
-        plan="vc2-2c-4gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_SANDBOX, estimated_monthly_usd=18.0,
-        cost_tier=CostTier.BUDGET, performance_class=PerformanceClass.BALANCED,
+        plan="vc2-2c-4gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_SANDBOX,
+        estimated_monthly_usd=18.0,
+        cost_tier=CostTier.BUDGET,
+        performance_class=PerformanceClass.BALANCED,
         tags=("axelr-managed", "axelr-role-sandbox", "hackglobal-elite"),
         hardware_hint="2 vCPU / 4GB RAM / 80GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_SANDBOX.encode()).hexdigest()[:16],
@@ -544,9 +604,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "batch_processor": Blueprint(
         name="batch_processor",
         description="Long-running batch worker with Redis integration, async task queue, and uptime tracking.",
-        plan="vc2-2c-4gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_BATCH_PROCESSOR, estimated_monthly_usd=18.0,
-        cost_tier=CostTier.BUDGET, performance_class=PerformanceClass.BALANCED,
+        plan="vc2-2c-4gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_BATCH_PROCESSOR,
+        estimated_monthly_usd=18.0,
+        cost_tier=CostTier.BUDGET,
+        performance_class=PerformanceClass.BALANCED,
         tags=("axelr-managed", "axelr-role-batch", "hackglobal-elite"),
         hardware_hint="2 vCPU / 4GB RAM / 80GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_BATCH_PROCESSOR.encode()).hexdigest()[:16],
@@ -554,9 +618,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "web_node": Blueprint(
         name="web_node",
         description="High-performance Nginx web node with static hosting, reverse proxy, and health endpoints.",
-        plan="vc2-1c-2gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_WEB_NODE, estimated_monthly_usd=12.0,
-        cost_tier=CostTier.BUDGET, performance_class=PerformanceClass.ECONOMY,
+        plan="vc2-1c-2gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_WEB_NODE,
+        estimated_monthly_usd=12.0,
+        cost_tier=CostTier.BUDGET,
+        performance_class=PerformanceClass.ECONOMY,
         tags=("axelr-managed", "axelr-role-web", "hackglobal-elite"),
         hardware_hint="1 vCPU / 2GB RAM / 55GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_WEB_NODE.encode()).hexdigest()[:16],
@@ -564,9 +632,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "database": Blueprint(
         name="database",
         description="PostgreSQL 16 with optimized configuration, remote access, auto-generated secure credentials.",
-        plan="vc2-4c-8gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_DATABASE, estimated_monthly_usd=36.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.HIGH,
+        plan="vc2-4c-8gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_DATABASE,
+        estimated_monthly_usd=36.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-database", "hackglobal-elite"),
         hardware_hint="4 vCPU / 8GB RAM / 160GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_DATABASE.encode()).hexdigest()[:16],
@@ -574,9 +646,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "redis": Blueprint(
         name="redis",
         description="Redis 7 with LRU eviction, password protection, remote access, and optimized memory settings.",
-        plan="vc2-2c-4gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_REDIS, estimated_monthly_usd=18.0,
-        cost_tier=CostTier.BUDGET, performance_class=PerformanceClass.HIGH,
+        plan="vc2-2c-4gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_REDIS,
+        estimated_monthly_usd=18.0,
+        cost_tier=CostTier.BUDGET,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-cache", "hackglobal-elite"),
         hardware_hint="2 vCPU / 4GB RAM / 80GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_REDIS.encode()).hexdigest()[:16],
@@ -584,9 +660,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "gpu_compute": Blueprint(
         name="gpu_compute",
         description="A100 GPU node with CUDA 12, vLLM, PyTorch, and real-time GPU utilization monitoring.",
-        plan="vcg-a100-1c-6g-80gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_GPU_COMPUTE, estimated_monthly_usd=195.0,
-        cost_tier=CostTier.ELITE, performance_class=PerformanceClass.ULTRA,
+        plan="vcg-a100-1c-6g-80gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_GPU_COMPUTE,
+        estimated_monthly_usd=195.0,
+        cost_tier=CostTier.ELITE,
+        performance_class=PerformanceClass.ULTRA,
         tags=("axelr-managed", "axelr-role-gpu", "hackglobal-elite"),
         hardware_hint="1× A100 80GB / 6 vCPU / 24GB RAM",
         startup_script_hash=hashlib.sha256(_STARTUP_GPU_COMPUTE.encode()).hexdigest()[:16],
@@ -594,9 +674,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "hackglobal_elite": Blueprint(
         name="hackglobal_elite",
         description="HackGlobal Vultr Hackathon elite configuration with Docker, Kubernetes, and full toolchain.",
-        plan="vc2-8c-16gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_HACKGLOBAL_ELITE, estimated_monthly_usd=72.0,
-        cost_tier=CostTier.PERFORMANCE, performance_class=PerformanceClass.ULTRA,
+        plan="vc2-8c-16gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_HACKGLOBAL_ELITE,
+        estimated_monthly_usd=72.0,
+        cost_tier=CostTier.PERFORMANCE,
+        performance_class=PerformanceClass.ULTRA,
         tags=("axelr-managed", "hackglobal-elite", "hackathon-entry"),
         hardware_hint="8 vCPU / 16GB RAM / 320GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_HACKGLOBAL_ELITE.encode()).hexdigest()[:16],
@@ -604,9 +688,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "load_balancer": Blueprint(
         name="load_balancer",
         description="HAProxy load balancer with 50k max connections, health checks, and round-robin routing.",
-        plan="vc2-2c-4gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_LOAD_BALANCER, estimated_monthly_usd=18.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.HIGH,
+        plan="vc2-2c-4gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_LOAD_BALANCER,
+        estimated_monthly_usd=18.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-lb", "hackglobal-elite"),
         hardware_hint="2 vCPU / 4GB RAM / 80GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_LOAD_BALANCER.encode()).hexdigest()[:16],
@@ -614,9 +702,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "monitoring": Blueprint(
         name="monitoring",
         description="Prometheus + Grafana monitoring stack for full observability of Axelr infrastructure.",
-        plan="vc2-2c-4gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_MONITORING, estimated_monthly_usd=18.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.BALANCED,
+        plan="vc2-2c-4gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_MONITORING,
+        estimated_monthly_usd=18.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.BALANCED,
         tags=("axelr-managed", "axelr-role-monitoring", "hackglobal-elite"),
         hardware_hint="2 vCPU / 4GB RAM / 80GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_MONITORING.encode()).hexdigest()[:16],
@@ -624,9 +716,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "object_storage": Blueprint(
         name="object_storage",
         description="MinIO S3-compatible object storage with secure credentials and health monitoring.",
-        plan="vc2-4c-8gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_OBJECT_STORAGE, estimated_monthly_usd=36.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.HIGH,
+        plan="vc2-4c-8gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_OBJECT_STORAGE,
+        estimated_monthly_usd=36.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-storage", "hackglobal-elite"),
         hardware_hint="4 vCPU / 8GB RAM / 160GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_OBJECT_STORAGE.encode()).hexdigest()[:16],
@@ -634,9 +730,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "search_engine": Blueprint(
         name="search_engine",
         description="OpenSearch full-text search engine with optimized configuration and health endpoints.",
-        plan="vc2-4c-8gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_SEARCH_ENGINE, estimated_monthly_usd=36.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.HIGH,
+        plan="vc2-4c-8gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_SEARCH_ENGINE,
+        estimated_monthly_usd=36.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-search", "hackglobal-elite"),
         hardware_hint="4 vCPU / 8GB RAM / 160GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_SEARCH_ENGINE.encode()).hexdigest()[:16],
@@ -644,9 +744,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "message_queue": Blueprint(
         name="message_queue",
         description="RabbitMQ message broker with secure credentials, virtual host, and management UI.",
-        plan="vc2-2c-4gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_MESSAGE_QUEUE, estimated_monthly_usd=18.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.HIGH,
+        plan="vc2-2c-4gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_MESSAGE_QUEUE,
+        estimated_monthly_usd=18.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-queue", "hackglobal-elite"),
         hardware_hint="2 vCPU / 4GB RAM / 80GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_MESSAGE_QUEUE.encode()).hexdigest()[:16],
@@ -654,9 +758,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "security_hub": Blueprint(
         name="security_hub",
         description="Security hub with UFW firewall, Fail2ban intrusion detection, and hardening rules.",
-        plan="vc2-1c-2gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_SECURITY_HUB, estimated_monthly_usd=12.0,
-        cost_tier=CostTier.BUDGET, performance_class=PerformanceClass.BALANCED,
+        plan="vc2-1c-2gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_SECURITY_HUB,
+        estimated_monthly_usd=12.0,
+        cost_tier=CostTier.BUDGET,
+        performance_class=PerformanceClass.BALANCED,
         tags=("axelr-managed", "axelr-role-security", "hackglobal-elite"),
         hardware_hint="1 vCPU / 2GB RAM / 55GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_SECURITY_HUB.encode()).hexdigest()[:16],
@@ -664,9 +772,13 @@ BLUEPRINTS: dict[str, Blueprint] = {
     "analytics": Blueprint(
         name="analytics",
         description="ClickHouse analytics database for high-performance time-series and event analytics.",
-        plan="vc2-4c-8gb", region_default="ewr", os_id=OS_UBUNTU_24_04,
-        startup_script=_STARTUP_ANALYTICS, estimated_monthly_usd=36.0,
-        cost_tier=CostTier.STANDARD, performance_class=PerformanceClass.HIGH,
+        plan="vc2-4c-8gb",
+        region_default="ewr",
+        os_id=OS_UBUNTU_24_04,
+        startup_script=_STARTUP_ANALYTICS,
+        estimated_monthly_usd=36.0,
+        cost_tier=CostTier.STANDARD,
+        performance_class=PerformanceClass.HIGH,
         tags=("axelr-managed", "axelr-role-analytics", "hackglobal-elite"),
         hardware_hint="4 vCPU / 8GB RAM / 160GB SSD",
         startup_script_hash=hashlib.sha256(_STARTUP_ANALYTICS.encode()).hexdigest()[:16],
@@ -679,8 +791,7 @@ def list_blueprints() -> list[dict[str, Any]]:
 
 
 def list_elite_blueprints() -> list[dict[str, Any]]:
-    return [bp.to_dict() for bp in BLUEPRINTS.values()
-            if bp.cost_tier in (CostTier.ELITE, CostTier.PERFORMANCE)]
+    return [bp.to_dict() for bp in BLUEPRINTS.values() if bp.cost_tier in (CostTier.ELITE, CostTier.PERFORMANCE)]
 
 
 def get_blueprint(name: str) -> Blueprint | None:
@@ -695,25 +806,34 @@ def list_blueprints_by_performance(cls: PerformanceClass) -> list[Blueprint]:
     return [bp for bp in BLUEPRINTS.values() if bp.performance_class == cls]
 
 
-def resolve_blueprint(name: str, *, region: str | None = None,
-                      plan: str | None = None, os_id: int | None = None,
-                      startup_script: str | None = None,
-                      tags: list[str] | None = None,
-                      default_region: str = "ewr") -> Blueprint:
+def resolve_blueprint(
+    name: str,
+    *,
+    region: str | None = None,
+    plan: str | None = None,
+    os_id: int | None = None,
+    startup_script: str | None = None,
+    tags: list[str] | None = None,
+    default_region: str = "ewr",
+) -> Blueprint:
     base = BLUEPRINTS.get(name)
     if base is None:
         logger.info("blueprint_unknown name=%s using_custom", name)
         base = Blueprint(
-            name="custom", description="User-defined configuration",
-            plan="vc2-1c-1gb", region_default=default_region,
-            os_id=OS_UBUNTU_24_04, startup_script="",
-            estimated_monthly_usd=6.0, cost_tier=CostTier.BUDGET,
+            name="custom",
+            description="User-defined configuration",
+            plan="vc2-1c-1gb",
+            region_default=default_region,
+            os_id=OS_UBUNTU_24_04,
+            startup_script="",
+            estimated_monthly_usd=6.0,
+            cost_tier=CostTier.BUDGET,
             performance_class=PerformanceClass.ECONOMY,
             tags=("axelr-managed", "hackglobal-elite"),
             hardware_hint="1 vCPU / 1GB RAM",
         )
     merged_tags = list(base.tags)
-    for t in (tags or []):
+    for t in tags or []:
         if t not in merged_tags:
             merged_tags.append(t)
     return replace(
@@ -721,8 +841,7 @@ def resolve_blueprint(name: str, *, region: str | None = None,
         region_default=region or base.region_default,
         plan=plan or base.plan,
         os_id=os_id or base.os_id,
-        startup_script=(startup_script if startup_script is not None
-                        else base.startup_script),
+        startup_script=(startup_script if startup_script is not None else base.startup_script),
         tags=tuple(merged_tags),
     )
 
@@ -737,10 +856,10 @@ def get_total_monthly_estimate(blueprint_names: list[str]) -> float:
     total = 0.0
     for name in blueprint_names:
         bp = get_blueprint(name)
-        if bp: total += bp.estimated_monthly_usd
+        if bp:
+            total += bp.estimated_monthly_usd
     return round(total, 2)
 
 
 def list_elite_blueprints() -> list[dict[str, Any]]:
-    return [bp.to_dict() for bp in BLUEPRINTS.values()
-            if bp.cost_tier in (CostTier.ELITE, CostTier.PERFORMANCE)]
+    return [bp.to_dict() for bp in BLUEPRINTS.values() if bp.cost_tier in (CostTier.ELITE, CostTier.PERFORMANCE)]

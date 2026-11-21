@@ -1,4 +1,5 @@
 """FastAPI routes for PayPal module with proper auth, idempotency, and state management"""
+
 from __future__ import annotations
 
 import json
@@ -19,6 +20,7 @@ from .webhooks import get_webhook_handler
 logger = logging.getLogger("axelr.paypal.routes")
 router = APIRouter(prefix="/paypal", tags=["paypal"])
 
+
 # Auth dependency (simplified - in production integrate with your auth system)
 async def require_auth(request: Request) -> None:
     """Enforce authentication on all money-moving routes"""
@@ -28,6 +30,7 @@ async def require_auth(request: Request) -> None:
         raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
     # Add full JWT validation in production
 
+
 # Public routes (no auth)
 @router.get("/health", response_model=HealthStatus)
 async def health_check() -> HealthStatus:
@@ -35,20 +38,26 @@ async def health_check() -> HealthStatus:
     core = get_core_module()
     return core.health_probe()
 
+
 @router.post("/webhook")
 async def paypal_webhook(request: Request):
     """Public webhook endpoint for PayPal events"""
     handler = get_webhook_handler()
     return await handler.process_webhook(request)
 
+
 # AI extraction endpoint (requires auth)
 class AIExtractionRequest(BaseModel):
-    unstructured_text: str = Field(..., min_length=10, max_length=10000, description="Raw text to extract payment intent from")
+    unstructured_text: str = Field(
+        ..., min_length=10, max_length=10000, description="Raw text to extract payment intent from"
+    )
+
 
 class AIExtractionResponse(BaseModel):
     payment_intent: Dict[str, Any]
     requires_approval: bool = True
     message: str = "Extraction complete - review and approve to create order"
+
 
 @router.post("/ai/from-text", response_model=AIExtractionResponse)
 async def extract_from_text(request: AIExtractionRequest, _=Depends(require_auth)):
@@ -57,19 +66,18 @@ async def extract_from_text(request: AIExtractionRequest, _=Depends(require_auth
     try:
         extracted = await extract_payment_intent(request.unstructured_text)
         audit.log_ai_extraction(
-            input_hash=extracted["_audit"]["input_hash"],
-            confidence=extracted["confidence"],
-            success=True
+            input_hash=extracted["_audit"]["input_hash"], confidence=extracted["confidence"], success=True
         )
         return {
             "payment_intent": extracted,
             "requires_approval": True,
-            "message": "Extraction complete - review and approve to create order"
+            "message": "Extraction complete - review and approve to create order",
         }
     except Exception as e:
         logger.error(f"AI extraction failed: {str(e)}")
         audit.log_ai_extraction(input_hash="", confidence=0, success=False, error=str(e))
         raise HTTPException(status_code=400, detail=f"Extraction failed: {str(e)}")
+
 
 # Order management routes (require auth)
 class CreateOrderResponse(BaseModel):
@@ -79,6 +87,7 @@ class CreateOrderResponse(BaseModel):
     state: str
     amount: str
     currency: str
+
 
 @router.post("/orders", response_model=CreateOrderResponse)
 async def create_order(request: CreateOrderRequest, _=Depends(require_auth)):
@@ -93,16 +102,14 @@ async def create_order(request: CreateOrderRequest, _=Depends(require_auth)):
             amount=request.amount,
             currency=request.currency,
             items=[item.model_dump() for item in request.items],
-            metadata={"description": request.description}
+            metadata={"description": request.description},
         )
         await store.transition_state(txn.id, TransactionState.VALIDATED, "Input validation passed")
 
         # Create PayPal order
         paypal_order = await client.create_order(request.model_dump())
         await store.transition_state(
-            txn.id,
-            TransactionState.PAYPAL_CREATED,
-            f"PayPal order created: {paypal_order['id']}"
+            txn.id, TransactionState.PAYPAL_CREATED, f"PayPal order created: {paypal_order['id']}"
         )
 
         # Update transaction with PayPal ID
@@ -112,10 +119,7 @@ async def create_order(request: CreateOrderRequest, _=Depends(require_auth)):
             await store._save(txn_data)
 
         audit.log_money_movement(
-            operation="order_created",
-            transaction_id=txn.id,
-            amount=request.amount,
-            currency=request.currency
+            operation="order_created", transaction_id=txn.id, amount=request.amount, currency=request.currency
         )
 
         return {
@@ -124,11 +128,12 @@ async def create_order(request: CreateOrderRequest, _=Depends(require_auth)):
             "approve_url": paypal_order.get("approve_url"),
             "state": TransactionState.PAYPAL_CREATED,
             "amount": request.amount,
-            "currency": request.currency
+            "currency": request.currency,
         }
     except Exception as e:
         logger.error(f"Create order failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Failed to create order: {str(e)}")
+
 
 @router.get("/orders/{txn_id}", response_model=Transaction)
 async def get_order(txn_id: str, _=Depends(require_auth)):
@@ -139,8 +144,10 @@ async def get_order(txn_id: str, _=Depends(require_auth)):
         raise HTTPException(status_code=404, detail="Transaction not found")
     return txn
 
+
 class CaptureOrderRequest(BaseModel):
     idempotency_key: Optional[str] = None
+
 
 @router.post("/orders/{txn_id}/capture")
 async def capture_order(txn_id: str, request: CaptureOrderRequest, _=Depends(require_auth)):
@@ -158,7 +165,9 @@ async def capture_order(txn_id: str, request: CaptureOrderRequest, _=Depends(req
             raise HTTPException(status_code=404, detail="Transaction not found")
 
     if txn.state != TransactionState.APPROVED:
-        raise HTTPException(status_code=400, detail=f"Cannot capture transaction in state {txn.state}, must be APPROVED")
+        raise HTTPException(
+            status_code=400, detail=f"Cannot capture transaction in state {txn.state}, must be APPROVED"
+        )
 
     try:
         capture = await client.capture_order(txn.paypal_order_id, request.idempotency_key)
@@ -171,15 +180,13 @@ async def capture_order(txn_id: str, request: CaptureOrderRequest, _=Depends(req
             await store._save(txn_data)
 
         audit.log_money_movement(
-            operation="order_captured",
-            transaction_id=txn.id,
-            amount=txn.amount,
-            currency=txn.currency
+            operation="order_captured", transaction_id=txn.id, amount=txn.amount, currency=txn.currency
         )
         return {"success": True, "capture_id": capture["id"], "state": TransactionState.CAPTURED}
     except Exception as e:
         logger.error(f"Capture failed: {str(e)}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Failed to capture order: {str(e)}")
+
 
 # Refund route (require auth)
 @router.post("/refunds")
@@ -220,10 +227,7 @@ async def create_refund(request: RefundRequest, _=Depends(require_auth)):
         await store.transition_state(txn.id, TransactionState.REFUNDED, f"PayPal refund created: {refund['id']}")
 
         audit.log_money_movement(
-            operation="refund_initiated",
-            transaction_id=txn.id,
-            amount=request.amount,
-            currency=request.currency
+            operation="refund_initiated", transaction_id=txn.id, amount=request.amount, currency=request.currency
         )
         return {"success": True, "refund_id": refund["id"], "state": TransactionState.REFUNDED}
     except Exception as e:

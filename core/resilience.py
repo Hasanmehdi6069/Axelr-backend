@@ -15,6 +15,7 @@ Design:
     * Every path has a bounded retry.
     * ``BREAKER`` is safe to access at import (created eagerly).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,10 +36,17 @@ logger = logging.getLogger("axelr.resilience")
 AXELR_COGNITION_LEVEL = os.getenv("AXELR_COGNITION_LEVEL", "standard")
 
 __all__ = [
-    "CircuitBreaker", "BREAKER", "get_breaker",
-    "FailoverTier", "TIERS", "ladder_run",
-    "HotSwapResult", "HotSwapDetector", "get_hot_swap_detector",
-    "WaveRacer", "RACER",
+    "CircuitBreaker",
+    "BREAKER",
+    "get_breaker",
+    "FailoverTier",
+    "TIERS",
+    "ladder_run",
+    "HotSwapResult",
+    "HotSwapDetector",
+    "get_hot_swap_detector",
+    "WaveRacer",
+    "RACER",
     "AXELR_COGNITION_LEVEL",
 ]
 
@@ -59,8 +67,8 @@ class CircuitBreaker:
     Never raises. States: closed (normal), open (blocking), half-open
     (testing recovery after cooldown).
     """
-    __slots__ = ("_redis", "_lock", "_states", "_threshold",
-                 "_cooldown_s", "_rl_cooldown_s", "_window_s", "_ns")
+
+    __slots__ = ("_redis", "_lock", "_states", "_threshold", "_cooldown_s", "_rl_cooldown_s", "_window_s", "_ns")
 
     def __init__(self, *, redis: Any = None, namespace: str = "axelr:cb") -> None:
         cfg = _cfg()
@@ -121,8 +129,7 @@ class CircuitBreaker:
         async with self._lock:
             self._record_mem(scope, cooldown, is_rate_limit)
 
-    async def _record_redis(self, scope: str, cooldown: float,
-                            is_rate_limit: bool) -> None:
+    async def _record_redis(self, scope: str, cooldown: float, is_rate_limit: bool) -> None:
         fk, ok = self._key_fail(scope), self._key_open(scope)
         async with self._redis.pipeline(transaction=True) as pipe:
             pipe.incr(fk)
@@ -143,17 +150,17 @@ class CircuitBreaker:
         if is_rate_limit or len(st.failures) >= self._threshold:
             st.opened_until = now + cooldown
             st.failures.clear()
-            logger.warning("circuit_open scope=%s cooldown_s=%.1f rate_limited=%s",
-                           scope, cooldown, is_rate_limit)
+            logger.warning("circuit_open scope=%s cooldown_s=%.1f rate_limited=%s", scope, cooldown, is_rate_limit)
 
     async def snapshot(self) -> dict[str, dict[str, Any]]:
         now = time.monotonic()
         async with self._lock:
             return {
-                scope: {"open": st.opened_until > now,
-                        "cooldown_remaining_s": max(0.0, st.opened_until - now),
-                        "recent_failures": len([t for t in st.failures
-                                                if now - t < self._window_s])}
+                scope: {
+                    "open": st.opened_until > now,
+                    "cooldown_remaining_s": max(0.0, st.opened_until - now),
+                    "recent_failures": len([t for t in st.failures if now - t < self._window_s]),
+                }
                 for scope, st in self._states.items()
             }
 
@@ -176,12 +183,12 @@ class Tier:
 
 
 TIERS: dict[str, Tier] = {
-    "full":           Tier(0, "full", False),
-    "reduced_ctx":    Tier(1, "reduced_ctx", True),
+    "full": Tier(0, "full", False),
+    "reduced_ctx": Tier(1, "reduced_ctx", True),
     "reduced_tokens": Tier(2, "reduced_tokens", True),
     "cached_similar": Tier(3, "cached_similar", True),
-    "local":          Tier(4, "local", True),
-    "stub":           Tier(5, "stub", True),
+    "local": Tier(4, "local", True),
+    "stub": Tier(5, "stub", True),
 }
 
 
@@ -195,11 +202,17 @@ async def ladder_run(
     stub: Callable[[], Awaitable[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Walk the ladder, first success wins. Never raises."""
-    steps = [(n, f) for n, f in (
-        ("full", full), ("reduced_ctx", reduced_ctx),
-        ("reduced_tokens", reduced_tokens), ("cached_similar", cached_similar),
-        ("local", local),
-    ) if f is not None]
+    steps = [
+        (n, f)
+        for n, f in (
+            ("full", full),
+            ("reduced_ctx", reduced_ctx),
+            ("reduced_tokens", reduced_tokens),
+            ("cached_similar", cached_similar),
+            ("local", local),
+        )
+        if f is not None
+    ]
 
     for name, fn in steps:
         t0 = time.monotonic()
@@ -227,9 +240,16 @@ async def ladder_run(
         except Exception as e:
             logger.warning("ladder_stub_failed error=%s", e)
 
-    return {"success": False, "text": "⚠️ All AI services are temporarily busy.",
-            "provider": "none", "model_used": "none", "tokens_used": 0,
-            "latency_ms": 0.0, "tier": TIERS["stub"].name, "degraded": True}
+    return {
+        "success": False,
+        "text": "⚠️ All AI services are temporarily busy.",
+        "provider": "none",
+        "model_used": "none",
+        "tokens_used": 0,
+        "latency_ms": 0.0,
+        "tier": TIERS["stub"].name,
+        "degraded": True,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -251,8 +271,7 @@ class _Health:
         total = self.successes + self.failures
         if total == 0:
             return 0.5
-        return 0.7 * (self.successes / total) + \
-               0.3 * (1.0 / (1.0 + max(0.0, self.ttft_ms) / 800.0))
+        return 0.7 * (self.successes / total) + 0.3 * (1.0 / (1.0 + max(0.0, self.ttft_ms) / 800.0))
 
 
 @dataclass(slots=True)
@@ -266,10 +285,14 @@ class HotSwapResult:
     swapped_from: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {"provider": self.provider, "model": self.model,
-                "first_token_ms": round(self.first_token_ms, 2),
-                "total_ms": round(self.total_ms, 2),
-                "attempts": self.attempts, "swapped_from": self.swapped_from}
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "first_token_ms": round(self.first_token_ms, 2),
+            "total_ms": round(self.total_ms, 2),
+            "attempts": self.attempts,
+            "swapped_from": self.swapped_from,
+        }
 
 
 _MAX_WAVE_DEPTH = 6
@@ -277,12 +300,18 @@ _MAX_WAVE_DEPTH = 6
 
 class HotSwapDetector:
     """Race top-K providers; first valid response wins. Mid-flight failover."""
-    __slots__ = ("_alpha", "_health", "_lock", "_providers", "_race_width",
-                 "_recent", "_stall_s", "_timeout_s")
 
-    def __init__(self, providers: dict[str, ProviderFunc], *,
-                 race_width: int = 3, stall_ms: int = 2500,
-                 attempt_timeout_s: float = 25.0, ewma_alpha: float = 0.3) -> None:
+    __slots__ = ("_alpha", "_health", "_lock", "_providers", "_race_width", "_recent", "_stall_s", "_timeout_s")
+
+    def __init__(
+        self,
+        providers: dict[str, ProviderFunc],
+        *,
+        race_width: int = 3,
+        stall_ms: int = 2500,
+        attempt_timeout_s: float = 25.0,
+        ewma_alpha: float = 0.3,
+    ) -> None:
         self._providers = dict(providers)
         self._race_width = max(1, int(race_width))
         self._stall_s = max(0.3, stall_ms / 1000.0)
@@ -292,11 +321,16 @@ class HotSwapDetector:
         self._recent: deque[dict[str, Any]] = deque(maxlen=64)
         self._lock = asyncio.Lock()
 
-    async def race(self, prompt: str, *, max_tokens: int = 2048,
-                   temp: float = 0.4,
-                   candidate_providers: list[str] | None = None,
-                   model_map: dict[str, list[str]] | None = None,
-                   exclude: set[str] | None = None) -> HotSwapResult | None:
+    async def race(
+        self,
+        prompt: str,
+        *,
+        max_tokens: int = 2048,
+        temp: float = 0.4,
+        candidate_providers: list[str] | None = None,
+        model_map: dict[str, list[str]] | None = None,
+        exclude: set[str] | None = None,
+    ) -> HotSwapResult | None:
         exclude = exclude or set()
         candidates = candidate_providers or list(self._providers.keys())
         ranked = await self._rank(candidates, exclude)
@@ -314,27 +348,31 @@ class HotSwapDetector:
             scored.sort(key=lambda t: (-t[0], t[1]))
             return [p for _, p in scored]
 
-    async def _race_waves(self, ranked: list[str], model_map: dict[str, list[str]],
-                          prompt: str, max_tokens: int,
-                          temp: float) -> HotSwapResult | None:
+    async def _race_waves(
+        self, ranked: list[str], model_map: dict[str, list[str]], prompt: str, max_tokens: int, temp: float
+    ) -> HotSwapResult | None:
         width = self._race_width
         for wave_index in range(_MAX_WAVE_DEPTH):
             start = wave_index * width
             if start >= len(ranked):
                 return None
-            wave = ranked[start:start + width]
+            wave = ranked[start : start + width]
             if not wave:
                 return None
             result = await self._race_wave(wave, model_map, prompt, max_tokens, temp)
             if result is not None:
                 return result
-            logger.info("wave_failed_trying_next wave_idx=%d wave=%s remaining=%d",
-                        wave_index, wave, len(ranked) - (start + width))
+            logger.info(
+                "wave_failed_trying_next wave_idx=%d wave=%s remaining=%d",
+                wave_index,
+                wave,
+                len(ranked) - (start + width),
+            )
         return None
 
-    async def _race_wave(self, wave: list[str], model_map: dict[str, list[str]],
-                         prompt: str, max_tokens: int,
-                         temp: float) -> HotSwapResult | None:
+    async def _race_wave(
+        self, wave: list[str], model_map: dict[str, list[str]], prompt: str, max_tokens: int, temp: float
+    ) -> HotSwapResult | None:
         if not wave:
             return None
 
@@ -350,8 +388,7 @@ class HotSwapDetector:
                 continue
             models = model_map.get(p) or []
             model = models[0] if models else "default-model"
-            tasks.append(asyncio.create_task(
-                wrapped_attempt(p, model, func), name=f"hotswap::{p}"))
+            tasks.append(asyncio.create_task(wrapped_attempt(p, model, func), name=f"hotswap::{p}"))
 
         if not tasks:
             return None
@@ -368,7 +405,9 @@ class HotSwapDetector:
                     continue
                 await self._record(p, success=True, ttft_ms=outcome["ttft_ms"])
                 winner = HotSwapResult(
-                    provider=p, model=model, text=outcome["text"],
+                    provider=p,
+                    model=model,
+                    text=outcome["text"],
                     first_token_ms=outcome["ttft_ms"],
                     total_ms=(time.monotonic() - t0) * 1000.0,
                     attempts=len(tasks),
@@ -391,26 +430,25 @@ class HotSwapDetector:
                         pass
         return winner
 
-    async def _attempt(self, provider: str, model: str, func: ProviderFunc,
-                       prompt: str, max_tokens: int,
-                       temp: float) -> dict[str, Any] | None:
+    async def _attempt(
+        self, provider: str, model: str, func: ProviderFunc, prompt: str, max_tokens: int, temp: float
+    ) -> dict[str, Any] | None:
         t0 = time.monotonic()
         try:
-            resp = await asyncio.wait_for(
-                func(prompt, max_tokens, temp, model), timeout=self._timeout_s)
+            resp = await asyncio.wait_for(func(prompt, max_tokens, temp, model), timeout=self._timeout_s)
             if not resp or len(resp.strip()) <= 3:
                 return None
             ttft = (time.monotonic() - t0) * 1000.0
-            self._recent.append({"provider": provider, "model": model,
-                                 "ttft_ms": round(ttft, 1), "ok": True,
-                                 "t": time.time()})
+            self._recent.append(
+                {"provider": provider, "model": model, "ttft_ms": round(ttft, 1), "ok": True, "t": time.time()}
+            )
             return {"text": resp, "ttft_ms": ttft}
         except (asyncio.TimeoutError, asyncio.CancelledError):
             raise
         except Exception as e:
-            self._recent.append({"provider": provider, "model": model,
-                                 "error": str(e)[:80], "ok": False,
-                                 "t": time.time()})
+            self._recent.append(
+                {"provider": provider, "model": model, "error": str(e)[:80], "ok": False, "t": time.time()}
+            )
             return None
 
     async def _record(self, provider: str, *, success: bool, ttft_ms: float) -> None:
@@ -419,18 +457,22 @@ class HotSwapDetector:
             h.last_ts = time.time()
             if success:
                 h.successes += 1
-                h.ttft_ms = ttft_ms if h.ttft_ms <= 0 else \
-                    self._alpha * ttft_ms + (1 - self._alpha) * h.ttft_ms
+                h.ttft_ms = ttft_ms if h.ttft_ms <= 0 else self._alpha * ttft_ms + (1 - self._alpha) * h.ttft_ms
             else:
                 h.failures += 1
 
     def snapshot(self) -> dict[str, Any]:
         return {
             "providers": [
-                {"provider": h.provider, "score": round(h.score, 3),
-                 "ttft_ms": round(h.ttft_ms, 1),
-                 "successes": h.successes, "failures": h.failures}
-                for h in sorted(self._health.values(), key=lambda h: -h.score)],
+                {
+                    "provider": h.provider,
+                    "score": round(h.score, 3),
+                    "ttft_ms": round(h.ttft_ms, 1),
+                    "successes": h.successes,
+                    "failures": h.failures,
+                }
+                for h in sorted(self._health.values(), key=lambda h: -h.score)
+            ],
             "recent": list(self._recent),
             "race_width": self._race_width,
             "stall_ms": int(self._stall_s * 1000),
@@ -440,14 +482,14 @@ class HotSwapDetector:
 _DETECTOR: HotSwapDetector | None = None
 
 
-def get_hot_swap_detector(providers: dict[str, ProviderFunc] | None = None,
-                          **kwargs: Any) -> HotSwapDetector | None:
+def get_hot_swap_detector(providers: dict[str, ProviderFunc] | None = None, **kwargs: Any) -> HotSwapDetector | None:
     global _DETECTOR
     if _DETECTOR is not None:
         return _DETECTOR
     if providers is None:
         try:
             from api.providers import PROVIDER_FUNC_MAP  # type: ignore
+
             providers = {k: v for k, v in PROVIDER_FUNC_MAP.items() if k != "local"}
         except Exception as e:
             logger.warning("hot_swap_provider_map_unavailable error=%s", e)
@@ -467,6 +509,7 @@ _SAFETY_MARGIN_MS = 15.0
 
 class WaveRacer:
     """Tracks live p90 RTT per provider. Used for hedge timing."""
+
     __slots__ = ("_lock", "_rtt", "_last_fire_ts")
 
     def __init__(self) -> None:
@@ -512,8 +555,7 @@ class WaveRacer:
             samples = list(d) if d else []
         return statistics.fmean(samples) if samples else 800.0
 
-    def next_wave_offset(self, timeout_ms: float,
-                         backup_candidates: list[str]) -> float:
+    def next_wave_offset(self, timeout_ms: float, backup_candidates: list[str]) -> float:
         if not backup_candidates:
             return max(0.0, timeout_ms - _SAFETY_MARGIN_MS)
         rtts = [self.rtt_p90(p) for p in backup_candidates]
@@ -523,9 +565,10 @@ class WaveRacer:
 
     def snapshot(self) -> dict[str, dict[str, float]]:
         with self._lock:
-            return {p: {"p90_ms": self.rtt_p90(p), "mean_ms": self.rtt_mean(p),
-                        "samples": len(self._rtt.get(p, ()))}
-                    for p in self._rtt}
+            return {
+                p: {"p90_ms": self.rtt_p90(p), "mean_ms": self.rtt_mean(p), "samples": len(self._rtt.get(p, ()))}
+                for p in self._rtt
+            }
 
 
 RACER = WaveRacer()
@@ -533,6 +576,7 @@ RACER = WaveRacer()
 
 def audit() -> dict[str, Any]:
     import asyncio
+
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -557,13 +601,21 @@ def audit() -> dict[str, Any]:
 
 __all__ = [
     # Circuit breaker
-    "CircuitBreaker", "BREAKER", "get_breaker",
+    "CircuitBreaker",
+    "BREAKER",
+    "get_breaker",
     # Failover
-    "Tier", "TIERS", "ladder_run",
+    "Tier",
+    "TIERS",
+    "ladder_run",
     # Hot-swap
-    "ProviderFunc", "HotSwapResult", "HotSwapDetector", "get_hot_swap_detector",
+    "ProviderFunc",
+    "HotSwapResult",
+    "HotSwapDetector",
+    "get_hot_swap_detector",
     # Wave racer
-    "WaveRacer", "RACER",
+    "WaveRacer",
+    "RACER",
     # Audit
     "audit",
 ]

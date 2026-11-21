@@ -5,6 +5,7 @@ Honest note: this file has zero external I/O at import time. It can be
 imported and unit-tested with no env vars. `init()` is idempotent; calling
 `get_core_module()` before `init()` returns safe defaults.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -32,6 +33,7 @@ logger = logging.getLogger("axelr.paypal.core")
 # ── Settings ────────────────────────────────────────────────────────────────
 class ModuleSettings(BaseModel):
     """All fields optional with safe defaults — import must never crash."""
+
     model_config = ConfigDict(extra="ignore")
     client_id: str = ""
     client_secret: str = ""
@@ -64,9 +66,7 @@ class PayPalCoreModule:
     _http_client: Optional[httpx.AsyncClient] = None
     _initialized: bool = False
     _shutdown_time: Optional[datetime] = None
-    _transaction_counts: Dict[str, int] = {
-        s.value: 0 for s in TransactionState
-    }
+    _transaction_counts: Dict[str, int] = {s.value: 0 for s in TransactionState}
 
     def __new__(cls):
         if cls._instance is None:
@@ -105,8 +105,9 @@ class PayPalCoreModule:
                 limits=httpx.Limits(max_connections=100, max_keepalive_connections=20),
             )
         self._initialized = True
-        logger.info("core v%s initialized env=%s configured=%s",
-                    MODULE_VERSION, settings.environment, self.is_configured)
+        logger.info(
+            "core v%s initialized env=%s configured=%s", MODULE_VERSION, settings.environment, self.is_configured
+        )
 
     async def shutdown(self) -> None:
         if not self._initialized:
@@ -138,13 +139,8 @@ class PayPalCoreModule:
             version=MODULE_VERSION,
             timestamp=_utcnow_iso(),
             transaction_counts=self._transaction_counts.copy(),
-            http_client_connected=bool(
-                self._http_client and not self._http_client.is_closed
-            ),
-            last_shutdown=(
-                self._shutdown_time.isoformat()
-                if self._shutdown_time else None
-            ),
+            http_client_connected=bool(self._http_client and not self._http_client.is_closed),
+            last_shutdown=(self._shutdown_time.isoformat() if self._shutdown_time else None),
         )
 
     def increment_transaction_state(self, state: TransactionState | str) -> None:
@@ -266,18 +262,25 @@ class TransactionStore:
 
     # ── CRUD ─────────────────────────────────────────────────────────────
     async def create_transaction(
-        self, *, amount: str, currency: str,
-        items: List[Dict[str, Any]], metadata: Optional[Dict[str, Any]] = None,
+        self,
+        *,
+        amount: str,
+        currency: str,
+        items: List[Dict[str, Any]],
+        metadata: Optional[Dict[str, Any]] = None,
     ) -> Transaction:
         self._initialize_storage()
         tid = str(uuid.uuid4())
         now = _utcnow_iso()
         txn = Transaction(
-            id=tid, state=TransactionState.INITIATED,
-            amount=amount, currency=currency, items=items,
-            created_at=now, updated_at=now,
-            history=[{"state": TransactionState.INITIATED.value,
-                      "timestamp": now, "reason": "created"}],
+            id=tid,
+            state=TransactionState.INITIATED,
+            amount=amount,
+            currency=currency,
+            items=items,
+            created_at=now,
+            updated_at=now,
+            history=[{"state": TransactionState.INITIATED.value, "timestamp": now, "reason": "created"}],
             metadata=metadata or {},
         )
         await self._save(txn)
@@ -320,7 +323,9 @@ class TransactionStore:
 
     # ── Transitions ──────────────────────────────────────────────────────
     async def transition_state(
-        self, txn_id: str, new_state: TransactionState,
+        self,
+        txn_id: str,
+        new_state: TransactionState,
         reason: str = "state update",
     ) -> Transaction:
         txn = await self.get_transaction(txn_id)
@@ -328,17 +333,20 @@ class TransactionStore:
             raise ValueError(f"transaction {txn_id} not found")
         if not txn.can_transition_to(new_state):
             raise ValueError(
-                f"invalid state transition from {txn.state.value} to "
-                f"{new_state.value} for transaction {txn_id}"
+                f"invalid state transition from {txn.state.value} to {new_state.value} for transaction {txn_id}"
             )
         old = txn.state
         now = _utcnow_iso()
         txn.state = new_state
         txn.updated_at = now
-        txn.history.append({
-            "state": new_state.value, "timestamp": now,
-            "reason": reason, "previous_state": old.value,
-        })
+        txn.history.append(
+            {
+                "state": new_state.value,
+                "timestamp": now,
+                "reason": reason,
+                "previous_state": old.value,
+            }
+        )
         await self._save(txn)
         core = get_core_module()
         core.decrement_transaction_state(old)
@@ -409,6 +417,7 @@ class AuditEntry:
 
 class AuditEvent(BaseModel):
     """Caller-facing audit event model (used by routes)."""
+
     model_config = ConfigDict(extra="forbid")
     event_type: str
     user_id: str
@@ -443,19 +452,20 @@ async def log_audit(event: AuditEvent) -> None:
     )
     async with _audit_lock:
         _audit_log.append(entry)
-    logger.info("audit %s user=%s meta=%s",
-                entry.event_type, entry.user_id, entry.metadata)
+    logger.info("audit %s user=%s meta=%s", entry.event_type, entry.user_id, entry.metadata)
 
 
 async def log_audit_event(event: Dict[str, Any]) -> None:
     """Backward-compat dict form used by webhooks.py."""
-    await log_audit(AuditEvent(
-        event_type=event.get("event_type", "unknown"),
-        user_id=event.get("user_id", "anon"),
-        timestamp=event.get("timestamp", _utcnow_iso()),
-        session_id=event.get("session_id"),
-        metadata=event.get("metadata", {}),
-    ))
+    await log_audit(
+        AuditEvent(
+            event_type=event.get("event_type", "unknown"),
+            user_id=event.get("user_id", "anon"),
+            timestamp=event.get("timestamp", _utcnow_iso()),
+            session_id=event.get("session_id"),
+            metadata=event.get("metadata", {}),
+        )
+    )
 
 
 def get_audit_logs(
@@ -488,11 +498,23 @@ def get_audit_stats() -> Dict[str, Any]:
 
 __all__ = [
     "MODULE_VERSION",
-    "ModuleSettings", "HealthStatus",
-    "PayPalCoreModule", "get_core_module",
-    "init", "shutdown", "close_http", "is_healthy", "health_probe",
+    "ModuleSettings",
+    "HealthStatus",
+    "PayPalCoreModule",
+    "get_core_module",
+    "init",
+    "shutdown",
+    "close_http",
+    "is_healthy",
+    "health_probe",
     "increment_transaction_state",
-    "Transaction", "TransactionStore", "get_transaction_store",
-    "AuditEvent", "AuditEntry",
-    "log_audit", "log_audit_event", "get_audit_logs", "get_audit_stats",
+    "Transaction",
+    "TransactionStore",
+    "get_transaction_store",
+    "AuditEvent",
+    "AuditEntry",
+    "log_audit",
+    "log_audit_event",
+    "get_audit_logs",
+    "get_audit_stats",
 ]

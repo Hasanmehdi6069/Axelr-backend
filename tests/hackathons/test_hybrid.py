@@ -5,6 +5,7 @@ End-to-end test harness that combines PayPal payment simulation with
 Vultr infrastructure provisioning. Tests the complete customer journey
 from payment to server deployment.
 """
+
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -14,27 +15,28 @@ from typing import Any, Dict, List
 import httpx
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("hybrid.simulation")
 
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
 
+
 @dataclass
 class SimulationConfig:
     """Configuration for hybrid simulation."""
+
     axelr_backend_url: str = "http://localhost:8000"
     paypal_mock_url: str = "http://localhost:9000"
     vultr_mock_url: str = "http://localhost:9001"
     test_timeout: int = 120  # 2 minutes max for full test suite
 
+
 # -----------------------------------------------------------------------------
 # Hybrid Test Orchestrator
 # -----------------------------------------------------------------------------
+
 
 class HybridTestOrchestrator:
     """
@@ -44,15 +46,14 @@ class HybridTestOrchestrator:
     3. Vultr resources are provisioned based on the plan
     4. Resources are properly managed throughout the subscription lifecycle
     """
+
     def __init__(self, config: SimulationConfig = None):
         self.config = config or SimulationConfig()
         self.http_client: httpx.AsyncClient | None = None
         self.test_results: List[Dict[str, Any]] = []
 
     async def __aenter__(self):
-        self.http_client = httpx.AsyncClient(
-            timeout=httpx.Timeout(self.config.test_timeout)
-        )
+        self.http_client = httpx.AsyncClient(timeout=httpx.Timeout(self.config.test_timeout))
         return self
 
     async def __aexit__(self, exc_type, exc, tb):
@@ -87,15 +88,13 @@ class HybridTestOrchestrator:
             # Step 5: Verify infrastructure provisioning was triggered
             instances = await self._get_provisioned_instances(user_data)
             assert len(instances) >= 1, "No instances were provisioned"
-            self._record_test_step("infrastructure_provisioned", True,
-                                  instance_count=len(instances))
+            self._record_test_step("infrastructure_provisioned", True, instance_count=len(instances))
 
             # Step 6: Verify instance reaches active state
             await asyncio.sleep(10)  # Wait for mock activation
             active_instances = await self._verify_instances_active(instances)
             assert all(inst["status"] == "active" for inst in active_instances), "Instances not activated"
-            self._record_test_step("instances_activated", True,
-                                  active_count=len(active_instances))
+            self._record_test_step("instances_activated", True, active_count=len(active_instances))
 
             # Step 7: Simulate subscription cancellation and resource cleanup
             await self._simulate_subscription_cancellation(user_data, instances)
@@ -119,12 +118,9 @@ class HybridTestOrchestrator:
 
     def _record_test_step(self, step_name: str, success: bool, **kwargs):
         """Record a test step result."""
-        self.test_results.append({
-            "step": step_name,
-            "success": success,
-            "timestamp": datetime.utcnow().isoformat(),
-            **kwargs
-        })
+        self.test_results.append(
+            {"step": step_name, "success": success, "timestamp": datetime.utcnow().isoformat(), **kwargs}
+        )
 
     async def _reset_all_mocks(self):
         """Reset all mock servers."""
@@ -145,12 +141,7 @@ class HybridTestOrchestrator:
         try:
             response = await self.http_client.post(
                 f"{self.config.axelr_backend_url}/api/auth/register",
-                json={
-                    "email": email,
-                    "password": "test_password_123",
-                    "name": "Test Customer",
-                    "tier": tier
-                }
+                json={"email": email, "password": "test_password_123", "name": "Test Customer", "tier": tier},
             )
 
             if response.status_code != 200:
@@ -166,11 +157,7 @@ class HybridTestOrchestrator:
 
     async def _create_paypal_order(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a PayPal order for the user's subscription."""
-        tier_pricing = {
-            "free": 0,
-            "pro": 29.99,
-            "enterprise": 99.99
-        }
+        tier_pricing = {"free": 0, "pro": 29.99, "enterprise": 99.99}
 
         amount = tier_pricing.get(user_data["tier"], 29.99)
         if amount == 0:
@@ -180,20 +167,16 @@ class HybridTestOrchestrator:
 
         create_payload = {
             "intent": "CAPTURE",
-            "purchase_units": [{
-                "amount": {
-                    "currency_code": "USD",
-                    "value": f"{amount:.2f}"
-                },
-                "description": f"Axelr {user_data['tier'].title()} Subscription - Monthly",
-                "custom_id": user_data["user_id"]
-            }]
+            "purchase_units": [
+                {
+                    "amount": {"currency_code": "USD", "value": f"{amount:.2f}"},
+                    "description": f"Axelr {user_data['tier'].title()} Subscription - Monthly",
+                    "custom_id": user_data["user_id"],
+                }
+            ],
         }
 
-        response = await self.http_client.post(
-            f"{self.config.paypal_mock_url}/v2/checkout/orders",
-            json=create_payload
-        )
+        response = await self.http_client.post(f"{self.config.paypal_mock_url}/v2/checkout/orders", json=create_payload)
         assert response.status_code == 201, "Failed to create PayPal order"
         return response.json()
 
@@ -201,9 +184,7 @@ class HybridTestOrchestrator:
         """Capture a PayPal order."""
         logger.info(f"capturing_order order_id={order_id}")
 
-        response = await self.http_client.post(
-            f"{self.config.paypal_mock_url}/v2/checkout/orders/{order_id}/capture"
-        )
+        response = await self.http_client.post(f"{self.config.paypal_mock_url}/v2/checkout/orders/{order_id}/capture")
         assert response.status_code == 200, "Failed to capture PayPal order"
         return response.json()
 
@@ -214,10 +195,7 @@ class HybridTestOrchestrator:
 
         instances = response.json()["instances"]
         # Filter instances with user's tag
-        user_instances = [
-            inst for inst in instances
-            if user_data["user_id"] in inst.get("tags", [])
-        ]
+        user_instances = [inst for inst in instances if user_data["user_id"] in inst.get("tags", [])]
 
         return user_instances
 
@@ -225,9 +203,7 @@ class HybridTestOrchestrator:
         """Verify all instances are in active state."""
         active_instances = []
         for inst in instances:
-            response = await self.http_client.get(
-                f"{self.config.vultr_mock_url}/v2/instances/{inst['id']}"
-            )
+            response = await self.http_client.get(f"{self.config.vultr_mock_url}/v2/instances/{inst['id']}")
             current = response.json()["instance"]
             active_instances.append(current)
 
@@ -244,14 +220,11 @@ class HybridTestOrchestrator:
                 "id": instances[0]["id"] if instances else "mock-capture-id",
                 "status": "REFUNDED",
                 "amount": {"value": "29.99", "currency_code": "USD"},
-                "custom_id": user_data["user_id"]
-            }
+                "custom_id": user_data["user_id"],
+            },
         }
 
-        await self.http_client.post(
-            f"{self.config.paypal_mock_url}/mock/send-webhook",
-            json=refund_event
-        )
+        await self.http_client.post(f"{self.config.paypal_mock_url}/mock/send-webhook", json=refund_event)
 
         # Axelr should receive the webhook and terminate instances
         for inst in instances:
@@ -269,13 +242,15 @@ class HybridTestOrchestrator:
             "total_test_steps": total_steps,
             "passed_steps": passed_steps,
             "failed_steps": total_steps - passed_steps,
-            "success_rate": f"{(passed_steps/total_steps*100):.1f}%" if total_steps > 0 else "0%",
-            "detailed_results": self.test_results
+            "success_rate": f"{(passed_steps / total_steps * 100):.1f}%" if total_steps > 0 else "0%",
+            "detailed_results": self.test_results,
         }
+
 
 # -----------------------------------------------------------------------------
 # Test Runner
 # -----------------------------------------------------------------------------
+
 
 async def run_hybrid_test_suite():
     """Run the complete hybrid simulation test suite."""
@@ -298,8 +273,8 @@ async def run_hybrid_test_suite():
         logger.info(f"Success rate: {report['success_rate']}")
         logger.info("-" * 60)
 
-        for step in report['detailed_results']:
-            status = "✅ PASS" if step['success'] else "❌ FAIL"
+        for step in report["detailed_results"]:
+            status = "✅ PASS" if step["success"] else "❌ FAIL"
             logger.info(f"{status} | {step['step']}")
 
         logger.info("=" * 60)
@@ -308,6 +283,7 @@ async def run_hybrid_test_suite():
             raise Exception("Hybrid test suite failed")
 
         logger.info("all_hybrid_tests_passed")
+
 
 if __name__ == "__main__":
     asyncio.run(run_hybrid_test_suite())

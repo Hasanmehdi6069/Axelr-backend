@@ -13,6 +13,7 @@ The line that matters most in the entire codebase:
 
 Grep for `R-16` and you land here. That is the Kiroween traceability.
 """
+
 from __future__ import annotations
 
 import io
@@ -44,8 +45,8 @@ logger = logging.getLogger("founder_ops.pipeline")
 _ALLOWED_EXT = {".pdf", ".docx", ".txt", ".md", ".png"}
 
 _SINKS = {
-    "task":     "data/executed_tasks.jsonl",
-    "expense":  "data/expenses.jsonl",
+    "task": "data/executed_tasks.jsonl",
+    "expense": "data/expenses.jsonl",
     "reminder": "data/reminders.jsonl",
 }
 
@@ -57,21 +58,18 @@ _CLOSED_STATES = ("executed", "rejected")
 # T3.1 — Ingest (R-1..R-4)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 async def ingest_file(filename: str, raw: bytes) -> dict[str, Any]:
     ext = os.path.splitext(filename or "")[1].lower()
     if ext not in _ALLOWED_EXT:
         raise Unsupported(f"extension {ext!r} not allowed (R-3)")
 
     if len(raw) > settings.max_upload_bytes:
-        raise PayloadTooLarge(
-            f"file {len(raw)}B exceeds {settings.max_upload_bytes}B (R-2)"
-        )
+        raise PayloadTooLarge(f"file {len(raw)}B exceeds {settings.max_upload_bytes}B (R-2)")
 
     digest = sha256_hex(raw)
     async with connect() as db:
-        cur = await db.execute(
-            "SELECT id FROM documents WHERE content_hash = ?", (digest,)
-        )
+        cur = await db.execute("SELECT id FROM documents WHERE content_hash = ?", (digest,))
         existing = await cur.fetchone()
     if existing:
         # R-4: dedup by hash. Return existing id; no re-store.
@@ -85,28 +83,25 @@ async def ingest_file(filename: str, raw: bytes) -> dict[str, Any]:
             "INSERT INTO documents (id, filename, ext, content_hash,"
             " raw_text, size_bytes, uploaded_at, status)"
             " VALUES (?,?,?,?,?,?,?, 'ingested')",
-            (doc_id, filename or "unnamed", ext, digest, text,
-             len(raw), now_ms()),
+            (doc_id, filename or "unnamed", ext, digest, text, len(raw), now_ms()),
         )
         await db.commit()
 
-    await record_audit("founder", "ingest.created", doc_id,
-                       {"filename": filename, "bytes": len(raw),
-                        "chars": len(text)})
-    return {"document_id": doc_id, "dedup": False,
-            "chars": len(text), "bytes": len(raw)}
+    await record_audit(
+        "founder", "ingest.created", doc_id, {"filename": filename, "bytes": len(raw), "chars": len(text)}
+    )
+    return {"document_id": doc_id, "dedup": False, "chars": len(text), "bytes": len(raw)}
 
 
 def _extract_text(ext: str, raw: bytes, filename: str) -> str:
     try:
         if ext == ".pdf":
             from pypdf import PdfReader
-            return "\n".join(
-                (p.extract_text() or "")
-                for p in PdfReader(io.BytesIO(raw)).pages
-            )
+
+            return "\n".join((p.extract_text() or "") for p in PdfReader(io.BytesIO(raw)).pages)
         if ext == ".docx":
             import docx
+
             return "\n".join(p.text for p in docx.Document(io.BytesIO(raw)).paragraphs)
         if ext in (".txt", ".md"):
             return raw.decode("utf-8", errors="replace")
@@ -122,6 +117,7 @@ def _extract_text(ext: str, raw: bytes, filename: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 # T3.2 — Extract (R-5..R-10)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 async def extract_document(document_id: str) -> dict[str, Any]:
     async with connect() as db:
@@ -146,8 +142,7 @@ async def extract_document(document_id: str) -> dict[str, Any]:
                 (str(e), document_id),
             )
             await db.commit()
-        await record_audit("founder", "extract.failed", document_id,
-                           {"error": str(e)})
+        await record_audit("founder", "extract.failed", document_id, {"error": str(e)})
         raise
 
     ts = now_ms()
@@ -160,8 +155,7 @@ async def extract_document(document_id: str) -> dict[str, Any]:
                 "INSERT INTO proposals (id, document_id, kind, payload,"
                 " confidence, reasoning, status, created_at, updated_at)"
                 " VALUES (?,?,?,?,?,?, 'pending', ?, ?)",
-                (pid, document_id, env.kind, json.dumps(body),
-                 env.confidence, env.reasoning, ts, ts),
+                (pid, document_id, env.kind, json.dumps(body), env.confidence, env.reasoning, ts, ts),
             )
             created_ids.append(pid)
         await db.execute(
@@ -170,8 +164,7 @@ async def extract_document(document_id: str) -> dict[str, Any]:
         )
         await db.commit()
 
-    await record_audit("founder", "extract.ok", document_id,
-                       {"proposals": len(created_ids), "dropped": dropped})
+    await record_audit("founder", "extract.ok", document_id, {"proposals": len(created_ids), "dropped": dropped})
     return {
         "document_id": document_id,
         "proposals_created": len(created_ids),
@@ -183,14 +176,18 @@ async def extract_document(document_id: str) -> dict[str, Any]:
 # T3.3–T3.5 — Review (R-11..R-15, design §5)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 async def list_proposals(
-    status: str | None = None, document_id: str | None = None,
+    status: str | None = None,
+    document_id: str | None = None,
 ) -> list[dict[str, Any]]:
     clauses, args = [], []
     if status:
-        clauses.append("status = ?"); args.append(status)
+        clauses.append("status = ?")
+        args.append(status)
     if document_id:
-        clauses.append("document_id = ?"); args.append(document_id)
+        clauses.append("document_id = ?")
+        args.append(document_id)
     sql = "SELECT * FROM proposals"
     if clauses:
         sql += " WHERE " + " AND ".join(clauses)
@@ -203,9 +200,7 @@ async def list_proposals(
 
 async def get_proposal(proposal_id: str) -> dict[str, Any]:
     async with connect() as db:
-        cur = await db.execute(
-            "SELECT * FROM proposals WHERE id = ?", (proposal_id,)
-        )
+        cur = await db.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,))
         row = await cur.fetchone()
     if row is None:
         raise NotFound("proposal_not_found")
@@ -213,7 +208,9 @@ async def get_proposal(proposal_id: str) -> dict[str, Any]:
 
 
 async def edit_proposal(
-    proposal_id: str, envelope: Any, actor: str = "founder",
+    proposal_id: str,
+    envelope: Any,
+    actor: str = "founder",
 ) -> dict[str, Any]:
     current = await get_proposal(proposal_id)
     if current["status"] not in ("pending", "edited"):
@@ -225,17 +222,16 @@ async def edit_proposal(
         await db.execute(
             "UPDATE proposals SET kind=?, payload=?, confidence=?,"
             " reasoning=?, status='edited', updated_at=? WHERE id=?",
-            (envelope.kind, json.dumps(body), envelope.confidence,
-             envelope.reasoning, ts, proposal_id),
+            (envelope.kind, json.dumps(body), envelope.confidence, envelope.reasoning, ts, proposal_id),
         )
         await db.commit()
-    await record_audit(actor, "proposal.edited", proposal_id,
-                       {"kind": envelope.kind})
+    await record_audit(actor, "proposal.edited", proposal_id, {"kind": envelope.kind})
     return await get_proposal(proposal_id)
 
 
 async def approve_proposal(
-    proposal_id: str, actor: str = "founder",
+    proposal_id: str,
+    actor: str = "founder",
 ) -> dict[str, Any]:
     current = await get_proposal(proposal_id)
     if current["status"] not in ("pending", "edited"):
@@ -243,8 +239,7 @@ async def approve_proposal(
     ts = now_ms()
     async with connect() as db:
         await db.execute(
-            "UPDATE proposals SET status='approved', decided_at=?,"
-            " updated_at=? WHERE id=?",
+            "UPDATE proposals SET status='approved', decided_at=?, updated_at=? WHERE id=?",
             (ts, ts, proposal_id),
         )
         await db.commit()
@@ -253,7 +248,8 @@ async def approve_proposal(
 
 
 async def reject_proposal(
-    proposal_id: str, actor: str = "founder",
+    proposal_id: str,
+    actor: str = "founder",
 ) -> dict[str, Any]:
     current = await get_proposal(proposal_id)
     if current["status"] in _CLOSED_STATES:
@@ -261,8 +257,7 @@ async def reject_proposal(
     ts = now_ms()
     async with connect() as db:
         await db.execute(
-            "UPDATE proposals SET status='rejected', decided_at=?,"
-            " updated_at=? WHERE id=?",
+            "UPDATE proposals SET status='rejected', decided_at=?, updated_at=? WHERE id=?",
             (ts, ts, proposal_id),
         )
         await db.commit()
@@ -274,8 +269,10 @@ async def reject_proposal(
 # T3.6 — Execute (R-16..R-18)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 async def execute_proposal(
-    proposal_id: str, actor: str = "founder",
+    proposal_id: str,
+    actor: str = "founder",
 ) -> dict[str, Any]:
     """Run one proposal through its sink, but ONLY if approved.
 
@@ -287,11 +284,8 @@ async def execute_proposal(
 
     # ═══════════════ R-16 / R-17 — THE GUARD ═══════════════
     if proposal["status"] != "approved":
-        await record_audit(actor, "execute.refused", proposal_id,
-                           {"status": proposal["status"]})
-        raise ExecutionRefused(
-            f"status_{proposal['status']}_not_approved (R-16)"
-        )
+        await record_audit(actor, "execute.refused", proposal_id, {"status": proposal["status"]})
+        raise ExecutionRefused(f"status_{proposal['status']}_not_approved (R-16)")
     # ═══════════════════════════════════════════════════════
 
     kind = proposal["kind"]
@@ -310,13 +304,11 @@ async def execute_proposal(
     result = {"sink": sink, "line": line}
     async with connect() as db:
         await db.execute(
-            "UPDATE proposals SET status='executed', executed_at=?,"
-            " execution_result=?, updated_at=? WHERE id=?",
+            "UPDATE proposals SET status='executed', executed_at=?, execution_result=?, updated_at=? WHERE id=?",
             (ts, json.dumps(result), ts, proposal_id),
         )
         await db.commit()
-    await record_audit(actor, "proposal.executed", proposal_id,
-                       {"sink": sink})
+    await record_audit(actor, "proposal.executed", proposal_id, {"sink": sink})
     return {"executed": True, "result": result}
 
 
@@ -324,24 +316,30 @@ async def execute_proposal(
 # T3.7 — Daily brief (R-19, R-20)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 async def generate_brief() -> dict[str, Any]:
     rows = await list_proposals()
     actionable = [r for r in rows if r["status"] in _OPEN_STATES]
     today = date.today()
 
     groups: dict[str, list[dict[str, Any]]] = {
-        "today": [], "this_week": [], "later": [], "no_date": [],
+        "today": [],
+        "this_week": [],
+        "later": [],
+        "no_date": [],
     }
     for r in actionable:
         bucket = _bucket(r, today)
-        groups[bucket].append({
-            "id": r["id"],
-            "kind": r["kind"],
-            "status": r["status"],
-            "title": _title(r),
-            "confidence": r["confidence"],
-            "reasoning": r["reasoning"][:140],
-        })
+        groups[bucket].append(
+            {
+                "id": r["id"],
+                "kind": r["kind"],
+                "status": r["status"],
+                "title": _title(r),
+                "confidence": r["confidence"],
+                "reasoning": r["reasoning"][:140],
+            }
+        )
 
     return {
         "generated_at": now_ms(),
@@ -381,9 +379,9 @@ def _title(r: dict[str, Any]) -> str:
 # Row helper
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def _row_to_dict(row: Any) -> dict[str, Any]:
-    (pid, did, kind, payload, conf, reason, status,
-     created, updated, decided, executed, result) = row
+    (pid, did, kind, payload, conf, reason, status, created, updated, decided, executed, result) = row
     return {
         "id": pid,
         "document_id": did,
@@ -402,9 +400,14 @@ def _row_to_dict(row: Any) -> dict[str, Any]:
 
 # Re-export audit helper so main.py imports from one place (routes).
 __all__ = [
-    "ingest_file", "extract_document",
-    "list_proposals", "get_proposal",
-    "edit_proposal", "approve_proposal", "reject_proposal",
-    "execute_proposal", "generate_brief",
+    "ingest_file",
+    "extract_document",
+    "list_proposals",
+    "get_proposal",
+    "edit_proposal",
+    "approve_proposal",
+    "reject_proposal",
+    "execute_proposal",
+    "generate_brief",
     "list_audit",
 ]

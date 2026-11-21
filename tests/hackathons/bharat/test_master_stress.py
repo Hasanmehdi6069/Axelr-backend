@@ -4,6 +4,7 @@ Rules for this file:
   * every test is marked `slow` — excluded from fast PR runs
   * thresholds are conservative (CI-friendly); tighten after a week of data
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,13 +20,15 @@ pytestmark = [pytest.mark.slow, pytest.mark.stress]
 # A. Concurrency
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_a1_400_parallel_intent_classifications(bharat_agent):
     """400 parallel intent classifications must complete without errors."""
+
     async def one(i):
         return await bharat_agent.classify_intent(f"user query {i} about product {i % 50}")
-    results = await asyncio.gather(*[one(i) for i in range(400)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[one(i) for i in range(400)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/400 intent classifications failed: {failures[:2]}"
 
@@ -33,10 +36,11 @@ async def test_a1_400_parallel_intent_classifications(bharat_agent):
 @pytest.mark.asyncio
 async def test_a2_concurrent_context_updates(bharat_agent):
     """150 concurrent context updates must not corrupt conversation state."""
+
     async def update(i):
         return await bharat_agent.update_context(f"session-{i % 30}", {"message": f"msg-{i}", "timestamp": time.time()})
-    results = await asyncio.gather(*[update(i) for i in range(150)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[update(i) for i in range(150)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/150 context updates failed"
 
@@ -44,10 +48,11 @@ async def test_a2_concurrent_context_updates(bharat_agent):
 @pytest.mark.asyncio
 async def test_a3_parallel_response_generation_no_deadlock(bharat_agent):
     """250 parallel response generations must complete without deadlock."""
+
     async def generate(i):
         return await bharat_agent.generate_response(f"query-{i}", f"session-{i % 50}")
-    results = await asyncio.gather(*[generate(i) for i in range(250)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[generate(i) for i in range(250)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/250 response generations failed"
 
@@ -56,10 +61,7 @@ async def test_a3_parallel_response_generation_no_deadlock(bharat_agent):
 async def test_a4_intent_throughput_under_contention(bharat_agent):
     """800 intent classification throughput must be > 600 ops/sec under contention."""
     start = time.perf_counter()
-    results = await asyncio.gather(*[
-        bharat_agent.classify_intent("test query")
-        for _ in range(800)
-    ])
+    results = await asyncio.gather(*[bharat_agent.classify_intent("test query") for _ in range(800)])
     elapsed = time.perf_counter() - start
     throughput = 800 / elapsed
     assert throughput > 600, f"Intent throughput too slow: {throughput:.0f} ops/sec"
@@ -70,11 +72,14 @@ async def test_a4_intent_throughput_under_contention(bharat_agent):
 # B. Chaos
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_b1_model_timeout_mid_generation(bharat_agent, monkeypatch):
     """Model timeout mid-generation must return clean error, not hang."""
+
     def mock_timeout(*args, **kwargs):
         raise TimeoutError("Model generation timed out")
+
     monkeypatch.setattr(bharat_agent, "generate_response", mock_timeout)
     with pytest.raises(TimeoutError):
         await bharat_agent.generate_response("test query", "session-1")
@@ -83,8 +88,10 @@ async def test_b1_model_timeout_mid_generation(bharat_agent, monkeypatch):
 @pytest.mark.asyncio
 async def test_b2_corrupt_context_handled(bharat_agent, monkeypatch):
     """Corrupt context must be handled gracefully."""
+
     def mock_corrupt(*args, **kwargs):
         return {"error": "invalid context state", "session": None}
+
     monkeypatch.setattr(bharat_agent, "get_context", mock_corrupt)
     context = await bharat_agent.get_context("session-1")
     assert isinstance(context, dict) or context is not None
@@ -93,10 +100,7 @@ async def test_b2_corrupt_context_handled(bharat_agent, monkeypatch):
 @pytest.mark.asyncio
 async def test_b3_model_overload_handled_gracefully(bharat_agent):
     """Model overload must return backpressure, not crash."""
-    results = await asyncio.gather(*[
-        bharat_agent.generate_response(f"overload-{i}", "session-1")
-        for i in range(200)
-    ])
+    results = await asyncio.gather(*[bharat_agent.generate_response(f"overload-{i}", "session-1") for i in range(200)])
     success = [r for r in results if r.get("success", False)]
     backpressure = [r for r in results if r.get("backpressure", False)]
     assert len(success) + len(backpressure) == 200, "All requests must be either success or backpressure"
@@ -105,6 +109,7 @@ async def test_b3_model_overload_handled_gracefully(bharat_agent):
 # ══════════════════════════════════════════════════════════════════════════
 # C. Performance envelope
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_c1_intent_latency_p50_p99(bharat_agent):
@@ -136,6 +141,7 @@ async def test_c2_response_generation_latency_p95(bharat_agent):
 # ══════════════════════════════════════════════════════════════════════════
 # D. Soak test
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_d1_soak_8000_queries_no_leak(bharat_agent):

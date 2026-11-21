@@ -1,4 +1,5 @@
 """Standalone entrypoint — `python -m axelr_nebius_nvidia.main`."""
+
 from __future__ import annotations
 
 import logging
@@ -21,6 +22,7 @@ def create_app() -> web.Application:
 
 if __name__ == "__main__":
     from dotenv import load_dotenv
+
     load_dotenv()
     logging.basicConfig(
         level=logging.INFO,

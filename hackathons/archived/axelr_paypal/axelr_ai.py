@@ -2,6 +2,7 @@
 
 Implements LLM-based extraction with regex fallback, per Goal 3 requirements.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -16,30 +17,30 @@ from .schemas import OrderItem, PaymentIntent
 
 # Regex patterns for fallback extraction
 AMOUNT_PATTERNS = [
-    r'\$(\d{1,3}(?:,\d{3})*\.\d{2})',  # $100.00
-    r'€(\d{1,3}(?:,\d{3})*\.\d{2})',   # €100.00
-    r'£(\d{1,3}(?:,\d{3})*\.\d{2})',   # £100.00
-    r'(\d{1,3}(?:,\d{3})*\.\d{2})\s*(USD|EUR|GBP)',  # 100.00 USD
-    r'(\d+)\s*(JPY|CNY)',  # 1000 JPY
+    r"\$(\d{1,3}(?:,\d{3})*\.\d{2})",  # $100.00
+    r"€(\d{1,3}(?:,\d{3})*\.\d{2})",  # €100.00
+    r"£(\d{1,3}(?:,\d{3})*\.\d{2})",  # £100.00
+    r"(\d{1,3}(?:,\d{3})*\.\d{2})\s*(USD|EUR|GBP)",  # 100.00 USD
+    r"(\d+)\s*(JPY|CNY)",  # 1000 JPY
 ]
 
 NAME_PATTERNS = [
-    r'from\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',  # from John Doe
-    r'bill to\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',  # bill to Jane Smith
-    r'to\s+([A-Z][a-z]+\s+[A-Z][a-z]+)',  # to Alex Johnson
+    r"from\s+([A-Z][a-z]+\s+[A-Z][a-z]+)",  # from John Doe
+    r"bill to\s+([A-Z][a-z]+\s+[A-Z][a-z]+)",  # bill to Jane Smith
+    r"to\s+([A-Z][a-z]+\s+[A-Z][a-z]+)",  # to Alex Johnson
 ]
 
-EMAIL_PATTERN = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+EMAIL_PATTERN = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
 DATE_PATTERNS = [
-    r'due by\s+(\d{4}-\d{2}-\d{2})',  # due by 2024-12-31
-    r'pay by\s+(\d{4}-\d{2}-\d{2})',  # pay by 2024-11-15
-    r'due\s+(\d{1,2}/\d{1,2}/\d{4})',  # due 12/31/2024
+    r"due by\s+(\d{4}-\d{2}-\d{2})",  # due by 2024-12-31
+    r"pay by\s+(\d{4}-\d{2}-\d{2})",  # pay by 2024-11-15
+    r"due\s+(\d{1,2}/\d{1,2}/\d{4})",  # due 12/31/2024
 ]
 
 TYPE_PATTERNS = {
     "invoice": [r"invoice\s*#\d+", r"invoice"],
     "subscription": [r"monthly subscription", r"recurring", r"subscription"],
-    "payout": [r"payout", r"pay out", r"payment to contractor"]
+    "payout": [r"payout", r"pay out", r"payment to contractor"],
 }
 
 
@@ -50,9 +51,11 @@ async def _extract_with_openai(text: str) -> Dict[str, Any]:
         raise ValueError("OpenAI API key not configured")
 
     import openai
+
     client = openai.AsyncOpenAI(api_key=core.settings.openai_api_key)
 
-    prompt = """Extract payment intent from the following text. Return ONLY valid JSON with these exact fields:
+    prompt = (
+        """Extract payment intent from the following text. Return ONLY valid JSON with these exact fields:
     {
         "payer_name": "full name of payer",
         "payer_email": "email if present, null otherwise",
@@ -64,12 +67,14 @@ async def _extract_with_openai(text: str) -> Dict[str, Any]:
         "confidence": 0.95  # float between 0 and 1
     }
     
-    Text to process: """ + text
+    Text to process: """
+        + text
+    )
 
     response = await client.chat.completions.create(
         model="gpt-3.5-turbo-1106",
         response_format={"type": "json_object"},
-        messages=[{"role": "user", "content": prompt}]
+        messages=[{"role": "user", "content": prompt}],
     )
 
     return json.loads(response.choices[0].message.content)
@@ -82,6 +87,7 @@ async def _extract_with_anthropic(text: str) -> Dict[str, Any]:
         raise ValueError("Anthropic API key not configured")
 
     import anthropic
+
     client = anthropic.Anthropic(api_key=core.settings.anthropic_api_key)
 
     prompt = f"""Extract payment intent from the following text. Return ONLY valid JSON with these exact fields:
@@ -99,9 +105,7 @@ async def _extract_with_anthropic(text: str) -> Dict[str, Any]:
     Text to process: {text}"""
 
     response = await client.messages.create(
-        model="claude-3-sonnet-20240229",
-        max_tokens=1000,
-        messages=[{"role": "user", "content": prompt}]
+        model="claude-3-sonnet-20240229", max_tokens=1000, messages=[{"role": "user", "content": prompt}]
     )
 
     return json.loads(response.content[0].text)
@@ -172,11 +176,7 @@ def _regex_fallback_extraction(text: str, raw_input_hash: str) -> PaymentIntent:
         break
 
     # Create single item for the total amount
-    items.append(OrderItem(
-        name="Payment for services",
-        quantity=1,
-        unit_amount=amount
-    ))
+    items.append(OrderItem(name="Payment for services", quantity=1, unit_amount=amount))
 
     return PaymentIntent(
         payer_name=payer_name,
@@ -187,7 +187,7 @@ def _regex_fallback_extraction(text: str, raw_input_hash: str) -> PaymentIntent:
         due_date=due_date,
         type=payment_type,
         confidence=confidence,
-        raw_input_hash=raw_input_hash
+        raw_input_hash=raw_input_hash,
     )
 
 
@@ -221,15 +221,19 @@ async def extract_payment_intent(unstructured_text: str) -> PaymentIntent:
         extracted = _regex_fallback_extraction(unstructured_text, raw_input_hash)
 
     # Log extraction for audit
-    await log_audit(AuditEvent(
-        event_type="ai.payment_intent.extracted",
-        user_id="system",
-        timestamp=datetime.now().isoformat(),
-        metadata={
-            "confidence": extracted.confidence,
-            "raw_input_hash": raw_input_hash,
-            "extraction_method": "llm" if core.settings.openai_api_key or core.settings.anthropic_api_key else "regex"
-        }
-    ))
+    await log_audit(
+        AuditEvent(
+            event_type="ai.payment_intent.extracted",
+            user_id="system",
+            timestamp=datetime.now().isoformat(),
+            metadata={
+                "confidence": extracted.confidence,
+                "raw_input_hash": raw_input_hash,
+                "extraction_method": "llm"
+                if core.settings.openai_api_key or core.settings.anthropic_api_key
+                else "regex",
+            },
+        )
+    )
 
     return extracted

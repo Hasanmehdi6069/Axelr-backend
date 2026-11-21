@@ -9,6 +9,7 @@ Static mount:
     frontend/dist/ if present — single-binary demo. Otherwise the Vite
     dev server (localhost:5173) proxies /api here.
 """
+
 from __future__ import annotations
 
 import logging
@@ -50,6 +51,7 @@ logger = logging.getLogger("founder_ops.main")
 # Lifespan (T4.1)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     await init_db()
@@ -82,6 +84,7 @@ app.add_middleware(
 # Central error handler (T4.3)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @app.exception_handler(AppError)
 async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
     return JSONResponse(
@@ -94,9 +97,11 @@ async def app_error_handler(_request: Request, exc: AppError) -> JSONResponse:
 # Health (T4.2)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @app.get("/api/health")
 async def health() -> dict[str, Any]:
     from .llm import PROMPT_VERSION
+
     return {
         "ok": True,
         "service": "founder-ops-copilot",
@@ -107,6 +112,7 @@ async def health() -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 # Ingest (T4.2, R-1..R-4)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @app.post("/api/ingest", status_code=201)
 async def api_ingest(file: UploadFile = File(...)) -> dict[str, Any]:
@@ -123,6 +129,7 @@ async def api_extract(document_id: str) -> dict[str, Any]:
 # Proposals (T4.2, R-11..R-15)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @app.get("/api/proposals")
 async def api_list_proposals(
     status: str | None = None,
@@ -138,7 +145,8 @@ async def api_get_proposal(proposal_id: str) -> dict[str, Any]:
 
 @app.patch("/api/proposals/{proposal_id}")
 async def api_edit_proposal(
-    proposal_id: str, body: ProposalEditRequest,
+    proposal_id: str,
+    body: ProposalEditRequest,
 ) -> dict[str, Any]:
     return await edit_proposal(proposal_id, body.envelope)
 
@@ -157,6 +165,7 @@ async def api_reject(proposal_id: str) -> dict[str, Any]:
 # Execute (T4.2, R-16..R-18)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @app.post("/api/proposals/{proposal_id}/execute")
 async def api_execute(proposal_id: str) -> dict[str, Any]:
     return await execute_proposal(proposal_id)
@@ -165,6 +174,7 @@ async def api_execute(proposal_id: str) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 # Brief + Audit (T4.2, R-19..R-22)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @app.get("/api/brief")
 async def api_brief() -> dict[str, Any]:
@@ -180,9 +190,7 @@ async def api_audit(limit: int = 100) -> dict[str, Any]:
 # Static mount (T4.4)
 # ═══════════════════════════════════════════════════════════════════════
 
-_DIST = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
-)
+_DIST = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "dist"))
 if os.path.isdir(_DIST):
     app.mount("/", StaticFiles(directory=_DIST, html=True), name="spa")
     logger.info("static_mount dir=%s", _DIST)
@@ -194,11 +202,13 @@ else:
 # Dev convenience — /api/health is the only route dev needs to verify.
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @app.get("/api/ready")
 async def ready() -> dict[str, Any]:
     """Lightweight readiness probe — separate from /health so a demo can
     distinguish 'process up' from 'DB reachable'."""
     from .core import connect
+
     try:
         async with connect() as db:
             await db.execute("SELECT 1")

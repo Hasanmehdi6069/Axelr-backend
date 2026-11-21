@@ -8,6 +8,7 @@ Covers: singleton, scanning, drift, honest verifier (rejects non-verbatim),
 structured facts, near-dup, corroboration, HMAC state, TTL, DLQ retry,
 cycle history, bulk ops, adversarial inputs, concurrency.
 """
+
 import io
 import json
 import os
@@ -63,6 +64,7 @@ def test_ops_no_backedge():
     from pathlib import Path
 
     import core
+
     ops_path = Path(core.__file__).parent / "ghost_agent_ops.py"
     src = ops_path.read_text()
     assert "import ghost_agent\n" not in src
@@ -102,16 +104,13 @@ def test_honest_verifier_rejects_non_verbatim():
         f = Path(td) / "src.txt"
         f.write_text("This is a verified fact that exists in the file.")
         # Verbatim → HIGH
-        vr = engine.verify_source("This is a verified fact that exists in the file.",
-                                   str(f))
+        vr = engine.verify_source("This is a verified fact that exists in the file.", str(f))
         assert vr.confidence == "High"
         # NOT verbatim (paraphrased) → Low
-        vr2 = engine.verify_source("This fact is verified and exists in the file here.",
-                                    str(f))
+        vr2 = engine.verify_source("This fact is verified and exists in the file here.", str(f))
         assert vr2.confidence == "Low"
         # Hallucinated → Low
-        vr3 = engine.verify_source("Completely fabricated statement not present.",
-                                    str(f))
+        vr3 = engine.verify_source("Completely fabricated statement not present.", str(f))
         assert vr3.confidence == "Low"
 
 
@@ -232,11 +231,13 @@ def test_near_duplicate_jaccard():
     """Paraphrased claims should be caught by Jaccard."""
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td)
-        write(ws, "a.md",
-              "# A\n- Updated project documentation for release 2.3.1 today\n"
-              "- Updated project documentation for release 2.3.1 now")
-        with fresh_agent(ws, goal="Maintain project documentation",
-                        near_dup_threshold=0.85) as agent:
+        write(
+            ws,
+            "a.md",
+            "# A\n- Updated project documentation for release 2.3.1 today\n"
+            "- Updated project documentation for release 2.3.1 now",
+        )
+        with fresh_agent(ws, goal="Maintain project documentation", near_dup_threshold=0.85) as agent:
             files, _ = agent.scan_workspace(force=True)
             updates = agent.extract_high_signal_updates(files)
             m = ops._CycleMetrics()
@@ -249,11 +250,13 @@ def test_near_duplicate_doesnt_over_dedup():
     """Distinct facts must survive."""
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td)
-        write(ws, "a.md",
-              "# A\n- Updated project documentation for release 2.3.1\n"
-              "- Deployed feature authentication module to production")
-        with fresh_agent(ws, goal="Track all updates",
-                        near_dup_threshold=0.9) as agent:
+        write(
+            ws,
+            "a.md",
+            "# A\n- Updated project documentation for release 2.3.1\n"
+            "- Deployed feature authentication module to production",
+        )
+        with fresh_agent(ws, goal="Track all updates", near_dup_threshold=0.9) as agent:
             files, _ = agent.scan_workspace(force=True)
             updates = agent.extract_high_signal_updates(files)
             trail = agent.run_verification_pipeline(updates)
@@ -308,8 +311,7 @@ def test_rate_limit():
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td)
         write(ws, "a.md", "# Docs\n- Updated project documentation")
-        with fresh_agent(ws, goal="Maintain project documentation",
-                        min_cycle_interval_seconds=3600) as agent:
+        with fresh_agent(ws, goal="Maintain project documentation", min_cycle_interval_seconds=3600) as agent:
             agent.run_cycle()
             agent.last_execution = datetime.now(timezone.utc)
             assert agent.run_cycle().status == ops.CycleStatus.RATE_LIMITED
@@ -360,10 +362,13 @@ def test_circuit_opens():
     with tempfile.TemporaryDirectory() as td:
         ws = Path(td)
         write(ws, "a.md", "# Docs\n- Updated project documentation")
-        with fresh_agent(ws, goal="Maintain project documentation",
-                        persistence_retries=1, circuit_breaker_threshold=2) as agent:
+        with fresh_agent(
+            ws, goal="Maintain project documentation", persistence_retries=1, circuit_breaker_threshold=2
+        ) as agent:
+
             def broken(*a, **k):
                 raise IOError("sim")
+
             agent.persistence.save = broken
             agent.run_cycle()
             agent.run_cycle()
@@ -372,8 +377,7 @@ def test_circuit_opens():
 
 def test_circuit_resets():
     with tempfile.TemporaryDirectory() as td:
-        with fresh_agent(Path(td), circuit_breaker_threshold=1,
-                        circuit_breaker_reset_seconds=0.1) as agent:
+        with fresh_agent(Path(td), circuit_breaker_threshold=1, circuit_breaker_reset_seconds=0.1) as agent:
             agent._circuit_breaker.record_failure()
             assert agent._circuit_breaker.is_open()
             time.sleep(0.15)
@@ -384,8 +388,7 @@ def test_circuit_resets():
 def test_purge_expired():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td), staged_output_ttl_seconds=0.1) as agent:
-            agent.stage_for_approval("body", "markdown", "g",
-                                     ops.VerificationAuditTrail())
+            agent.stage_for_approval("body", "markdown", "g", ops.VerificationAuditTrail())
             assert len(agent.list_pending()) == 1
             time.sleep(0.15)
             purged = agent.purge_expired()
@@ -396,10 +399,8 @@ def test_purge_expired():
 def test_purge_keeps_terminal():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td), staged_output_ttl_seconds=0.01) as agent:
-            s1 = agent.stage_for_approval("b1", "markdown", "g",
-                                           ops.VerificationAuditTrail())
-            s2 = agent.stage_for_approval("b2", "markdown", "g",
-                                           ops.VerificationAuditTrail())
+            s1 = agent.stage_for_approval("b1", "markdown", "g", ops.VerificationAuditTrail())
+            s2 = agent.stage_for_approval("b2", "markdown", "g", ops.VerificationAuditTrail())
             agent.approve_and_execute(s1)
             time.sleep(0.05)
             agent.purge_expired()
@@ -413,17 +414,23 @@ def test_purge_keeps_terminal():
 def test_retry_dead_letter():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
-            s = agent.stage_for_approval("body", "markdown", "g",
-                                         ops.VerificationAuditTrail())
+            s = agent.stage_for_approval("body", "markdown", "g", ops.VerificationAuditTrail())
+
             # Simulate failure by temporarily breaking execute
             def broken(*a, **k):
                 raise RuntimeError("sim execute failure")
+
             # Force a dead-letter entry directly
             from ghost_agent_ops import _DeadLetterEntry
-            agent._dead_letter.push(_DeadLetterEntry(
-                correlation_id="corr-1", staged_output=s,
-                error="sim", failed_at=datetime.now(timezone.utc),
-            ))
+
+            agent._dead_letter.push(
+                _DeadLetterEntry(
+                    correlation_id="corr-1",
+                    staged_output=s,
+                    error="sim",
+                    failed_at=datetime.now(timezone.utc),
+                )
+            )
             assert agent.retry_dead_letter("corr-1") is True
             assert agent.retry_dead_letter("corr-1") is False  # already gone
 
@@ -432,12 +439,16 @@ def test_drain_dead_letter():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
             from ghost_agent_ops import _DeadLetterEntry
+
             for i in range(3):
-                agent._dead_letter.push(_DeadLetterEntry(
-                    correlation_id=f"c{i}",
-                    staged_output=ops.StagedOutput("b", "markdown"),
-                    error="e", failed_at=datetime.now(timezone.utc),
-                ))
+                agent._dead_letter.push(
+                    _DeadLetterEntry(
+                        correlation_id=f"c{i}",
+                        staged_output=ops.StagedOutput("b", "markdown"),
+                        error="e",
+                        failed_at=datetime.now(timezone.utc),
+                    )
+                )
             items = agent.drain_dead_letter()
             assert len(items) == 3
             assert len(agent.drain_dead_letter()) == 0
@@ -470,8 +481,7 @@ def test_iter_pending():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
             for i in range(3):
-                agent.stage_for_approval(f"b{i}", "markdown", "g",
-                                         ops.VerificationAuditTrail())
+                agent.stage_for_approval(f"b{i}", "markdown", "g", ops.VerificationAuditTrail())
             assert len(list(agent.iter_pending())) == 3
 
 
@@ -479,8 +489,7 @@ def test_approve_all():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
             for i in range(3):
-                agent.stage_for_approval(f"b{i}", "markdown", "g",
-                                         ops.VerificationAuditTrail())
+                agent.stage_for_approval(f"b{i}", "markdown", "g", ops.VerificationAuditTrail())
             count = agent.approve_all()
             assert count == 3
 
@@ -557,8 +566,10 @@ def test_concurrent_scan_no_corruption():
             write(ws, f"file{i}.md", f"# File {i}\n- Update {i}")
         with fresh_agent(ws, goal="Maintain project documentation") as agent:
             results = []
+
             def scan():
                 return agent.scan_workspace(force=True)
+
             threads = [threading.Thread(target=lambda r=results: r.append(scan())) for _ in range(5)]
             for t in threads:
                 t.start()
@@ -572,8 +583,10 @@ def test_concurrent_stage_no_race():
     # WHY: concurrent stage operations must not have race conditions.
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
+
             def stage(i):
                 return agent.stage_for_approval(f"body{i}", "markdown", "g", ops.VerificationAuditTrail())
+
             threads = [threading.Thread(target=lambda i: stage(i), args=(i,)) for i in range(10)]
             for t in threads:
                 t.start()
@@ -588,14 +601,20 @@ def test_concurrent_retry_dlq_no_double_retry():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
             from ghost_agent_ops import _DeadLetterEntry
-            agent._dead_letter.push(_DeadLetterEntry(
-                correlation_id="test-corr",
-                staged_output=ops.StagedOutput("b", "markdown"),
-                error="e", failed_at=datetime.now(timezone.utc),
-            ))
+
+            agent._dead_letter.push(
+                _DeadLetterEntry(
+                    correlation_id="test-corr",
+                    staged_output=ops.StagedOutput("b", "markdown"),
+                    error="e",
+                    failed_at=datetime.now(timezone.utc),
+                )
+            )
             results = []
+
             def retry():
                 results.append(agent.retry_dead_letter("test-corr"))
+
             threads = [threading.Thread(target=retry) for _ in range(5)]
             for t in threads:
                 t.start()
@@ -621,16 +640,14 @@ def test_reject_all():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
             for i in range(2):
-                agent.stage_for_approval(f"b{i}", "markdown", "g",
-                                         ops.VerificationAuditTrail())
+                agent.stage_for_approval(f"b{i}", "markdown", "g", ops.VerificationAuditTrail())
             assert agent.reject_all() == 2
 
 
 def test_approve_once():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
-            s = agent.stage_for_approval("b", "markdown", "g",
-                                         ops.VerificationAuditTrail())
+            s = agent.stage_for_approval("b", "markdown", "g", ops.VerificationAuditTrail())
             assert agent.approve_and_execute(s)
             assert not agent.approve_and_execute(s)
 
@@ -638,8 +655,7 @@ def test_approve_once():
 def test_reject_blocks_approve():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
-            s = agent.stage_for_approval("b", "markdown", "g",
-                                         ops.VerificationAuditTrail())
+            s = agent.stage_for_approval("b", "markdown", "g", ops.VerificationAuditTrail())
             assert agent.reject_staged(s)
             raised = False
             try:
@@ -654,9 +670,15 @@ def test_health():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
             h = agent.health()
-            for k in ("initialized", "circuit_open", "pending_outputs",
-                     "staged_total", "using_fallback_core", "version",
-                     "recent_status_distribution"):
+            for k in (
+                "initialized",
+                "circuit_open",
+                "pending_outputs",
+                "staged_total",
+                "using_fallback_core",
+                "version",
+                "recent_status_distribution",
+            ):
                 assert k in h
 
 
@@ -673,8 +695,7 @@ def test_export_metrics():
         with fresh_agent(ws, goal="Maintain project documentation") as agent:
             agent.run_cycle()
             m = agent.export_metrics()
-            for key in ("ghost_agent_runs_total", "ghost_agent_pending_outputs",
-                        "ghost_agent_circuit_open"):
+            for key in ("ghost_agent_runs_total", "ghost_agent_pending_outputs", "ghost_agent_circuit_open"):
                 assert key in m
 
 
@@ -708,11 +729,15 @@ def test_concurrent_serialized():
         write(ws, "a.md", "# Docs\n- Updated project documentation")
         with fresh_agent(ws, goal="Maintain project documentation") as agent:
             results = []
+
             def worker():
                 results.append(agent.run_cycle())
+
             ts = [threading.Thread(target=worker) for _ in range(4)]
-            for t in ts: t.start()
-            for t in ts: t.join()
+            for t in ts:
+                t.start()
+            for t in ts:
+                t.join()
             statuses = [r.status for r in results]
             assert ops.CycleStatus.BUSY in statuses or ops.CycleStatus.STAGED in statuses
 
@@ -745,8 +770,7 @@ def test_max_assertions_cap():
         ws = Path(td)
         body = "\n".join(f"- Completed project documentation item {i}" for i in range(200))
         write(ws, "big.md", "# Docs\n" + body)
-        with fresh_agent(ws, goal="Maintain project documentation",
-                        max_assertions_per_cycle=5) as agent:
+        with fresh_agent(ws, goal="Maintain project documentation", max_assertions_per_cycle=5) as agent:
             files, _ = agent.scan_workspace(force=True)
             updates = agent.extract_high_signal_updates(files)
             trail = agent.run_verification_pipeline(updates)
@@ -766,8 +790,7 @@ def test_unicode_safe():
 def test_backtick_fence():
     with tempfile.TemporaryDirectory() as td:
         with fresh_agent(Path(td)) as agent:
-            s = ops.StagedOutput(content="has ```code``` inside",
-                                 format_type="markdown", goal_alignment="t")
+            s = ops.StagedOutput(content="has ```code``` inside", format_type="markdown", goal_alignment="t")
             frame = "\n".join(agent._render_frame(s))
             assert "````" in frame
 
@@ -796,8 +819,7 @@ def test_frame_captured():
         with fresh_agent(Path(td)) as agent:
             buf = io.StringIO()
             with redirect_stdout(buf):
-                agent.stage_for_approval("body", "markdown", "g",
-                                          ops.VerificationAuditTrail())
+                agent.stage_for_approval("body", "markdown", "g", ops.VerificationAuditTrail())
             out = buf.getvalue()
             assert "[AGENT OUTPUT FRAME]" in out
             assert "Anti-Hallucination Audit Trail" in out
@@ -925,8 +947,7 @@ def test_staged_content_dedup():
 
 # ── Runner ─────────────────────────────────────────────────────────────
 def _run_all() -> int:
-    tests = [(n, f) for n, f in sorted(globals().items())
-             if n.startswith("test_") and callable(f)]
+    tests = [(n, f) for n, f in sorted(globals().items()) if n.startswith("test_") and callable(f)]
     passed = failed = 0
     failures = []
     for name, fn in tests:
@@ -938,7 +959,7 @@ def _run_all() -> int:
             failed += 1
             failures.append((name, traceback.format_exc()))
             print(f"  ✗ {name}: {type(e).__name__}: {e}")
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"RESULT: {passed} passed, {failed} failed, {len(tests)} total")
     for name, tb in failures:
         print(f"\n--- {name} ---\n{tb}")

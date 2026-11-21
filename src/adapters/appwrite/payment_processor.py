@@ -2,6 +2,7 @@
 Processes incoming payment confirmation emails, extracts transaction details,
 validates them, and updates user subscriptions/credits in Appwrite.
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,18 +32,21 @@ REQUIRED_ENV_VARS = {
     "SUBSCRIPTIONS_COLLECTION_ID",
     "USERS_COLLECTION_ID",
     "PAYTM_ALLOWED_SENDERS",  # Comma-separated: noreply@paytm.com,alerts@paytm.com
-    "UPI_ALLOWED_SENDERS",    # Comma-separated: alerts@icicibank.com,notify@sbi.co.in
-    "MERCHANT_VPA",          # Our registered UPI VPA to verify payments are to us
+    "UPI_ALLOWED_SENDERS",  # Comma-separated: alerts@icicibank.com,notify@sbi.co.in
+    "MERCHANT_VPA",  # Our registered UPI VPA to verify payments are to us
 }
 
 # Regex patterns for extracting data from Paytm/UPI emails
-UTR_PATTERN = re.compile(r'UTR\s*[:-]?\s*([A-Z0-9]{10,20})', re.IGNORECASE)
-AMOUNT_PATTERN = re.compile(r'₹\s*([\d,]+\.?\d{0,2})', re.IGNORECASE)
-PAYER_VPA_PATTERN = re.compile(r'from\s*(\w+@\w+)', re.IGNORECASE)
+UTR_PATTERN = re.compile(r"UTR\s*[:-]?\s*([A-Z0-9]{10,20})", re.IGNORECASE)
+AMOUNT_PATTERN = re.compile(r"₹\s*([\d,]+\.?\d{0,2})", re.IGNORECASE)
+PAYER_VPA_PATTERN = re.compile(r"from\s*(\w+@\w+)", re.IGNORECASE)
 TIMESTAMP_PATTERNS = [
-    re.compile(r'(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{1,2}:\d{2})', re.IGNORECASE),
-    re.compile(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})'),
+    re.compile(
+        r"(\d{1,2}\s+(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{4}\s+\d{1,2}:\d{2})", re.IGNORECASE
+    ),
+    re.compile(r"(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})"),
 ]
+
 
 def init_appwrite_client() -> Tuple[Client, Databases]:
     """Initialize and return Appwrite client and databases service"""
@@ -57,13 +61,10 @@ def init_appwrite_client() -> Tuple[Client, Databases]:
 
     return client, Databases(client)
 
+
 def parse_email_content(subject: str, body: str, from_email: str) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
     """Extract transaction details from email content. Returns (transaction_data, error)"""
-    transaction_data = {
-        "email_source": from_email,
-        "email_subject": subject,
-        "metadata": {}
-    }
+    transaction_data = {"email_source": from_email, "email_subject": subject, "metadata": {}}
 
     # Determine gateway from sender email
     paytm_senders = set(os.getenv("PAYTM_ALLOWED_SENDERS", "").split(","))
@@ -115,7 +116,9 @@ def parse_email_content(subject: str, body: str, from_email: str) -> Tuple[Optio
                 break
             except ValueError:
                 try:
-                    transaction_time = datetime.strptime(ts_match.group(1), "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc)
+                    transaction_time = datetime.strptime(ts_match.group(1), "%Y-%m-%d %H:%M:%S").replace(
+                        tzinfo=timezone.utc
+                    )
                     break
                 except ValueError:
                     continue
@@ -131,6 +134,7 @@ def parse_email_content(subject: str, body: str, from_email: str) -> Tuple[Optio
 
     return transaction_data, None
 
+
 @with_exponential_backoff(max_retries=3)
 async def check_duplicate_transaction(databases: Databases, utr: str) -> bool:
     """Check if transaction with this UTR already exists to prevent duplicates"""
@@ -138,12 +142,13 @@ async def check_duplicate_transaction(databases: Databases, utr: str) -> bool:
         result = databases.list_documents(
             database_id=os.getenv("APPWRITE_DATABASE_ID"),
             collection_id=os.getenv("TRANSACTIONS_COLLECTION_ID"),
-            queries=[f"utr={utr}", "limit=1"]
+            queries=[f"utr={utr}", "limit=1"],
         )
         return len(result.get("documents", [])) > 0
     except Exception as e:
         logger.error(f"Error checking for duplicate transaction: {e}")
         raise  # Let retry handle it
+
 
 @with_exponential_backoff(max_retries=3)
 async def create_transaction(databases: Databases, transaction_data: Dict[str, Any]) -> str:
@@ -157,7 +162,7 @@ async def create_transaction(databases: Databases, transaction_data: Dict[str, A
             database_id=os.getenv("APPWRITE_DATABASE_ID"),
             collection_id=os.getenv("TRANSACTIONS_COLLECTION_ID"),
             document_id=ID.unique(),
-            data=transaction.model_dump()
+            data=transaction.model_dump(),
         )
         return result["$id"]
     except ValidationError as e:
@@ -167,6 +172,7 @@ async def create_transaction(databases: Databases, transaction_data: Dict[str, A
         logger.error(f"Error creating transaction: {e}")
         raise
 
+
 @with_exponential_backoff(max_retries=3)
 async def mark_transaction_verified(databases: Databases, document_id: str) -> None:
     """Mark transaction as verified and set verified_at timestamp"""
@@ -175,15 +181,13 @@ async def mark_transaction_verified(databases: Databases, document_id: str) -> N
             database_id=os.getenv("APPWRITE_DATABASE_ID"),
             collection_id=os.getenv("TRANSACTIONS_COLLECTION_ID"),
             document_id=document_id,
-            data={
-                "status": TransactionStatus.VERIFIED,
-                "verified_at": datetime.now(timezone.utc).isoformat()
-            }
+            data={"status": TransactionStatus.VERIFIED, "verified_at": datetime.now(timezone.utc).isoformat()},
         )
         logger.info(f"Transaction {document_id} marked as verified")
     except Exception as e:
         logger.error(f"Error updating transaction status: {e}")
         raise
+
 
 @with_exponential_backoff(max_retries=3)
 async def update_user_subscription(databases: Databases, user_id: str, transaction: Transaction) -> None:
@@ -197,7 +201,7 @@ async def update_user_subscription(databases: Databases, user_id: str, transacti
         result = databases.list_documents(
             database_id=os.getenv("APPWRITE_DATABASE_ID"),
             collection_id=os.getenv("SUBSCRIPTIONS_COLLECTION_ID"),
-            queries=[f"user_id={user_id}", "limit=1"]
+            queries=[f"user_id={user_id}", "limit=1"],
         )
 
         if result.get("documents"):
@@ -218,8 +222,8 @@ async def update_user_subscription(databases: Databases, user_id: str, transacti
                 data={
                     "credits_remaining": updated_credits,
                     "last_payment_transaction_id": transaction.transaction_id,
-                    "updated_at": datetime.now(timezone.utc).isoformat()
-                }
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                },
             )
             logger.info(f"Updated credits for user {user_id}: +{credits_to_add}, new balance: {updated_credits}")
         else:
@@ -229,20 +233,21 @@ async def update_user_subscription(databases: Databases, user_id: str, transacti
                 plan="payg",  # Pay-as-you-go
                 credits_remaining=transaction.amount / 100,
                 last_payment_transaction_id=transaction.transaction_id,
-                end_date=datetime.now(timezone.utc).isoformat()  # No expiration for paygo
+                end_date=datetime.now(timezone.utc).isoformat(),  # No expiration for paygo
             )
 
             databases.create_document(
                 database_id=os.getenv("APPWRITE_DATABASE_ID"),
                 collection_id=os.getenv("SUBSCRIPTIONS_COLLECTION_ID"),
                 document_id=ID.unique(),
-                data=new_subscription.model_dump()
+                data=new_subscription.model_dump(),
             )
             logger.info(f"Created new subscription for user {user_id}")
 
     except Exception as e:
         logger.error(f"Error updating user subscription: {e}")
         raise
+
 
 # Main Appwrite Function entry point
 async def main(context: Any, email_payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -290,7 +295,7 @@ async def main(context: Any, email_payload: Dict[str, Any]) -> Dict[str, Any]:
         transaction_doc = databases.get_document(
             database_id=os.getenv("APPWRITE_DATABASE_ID"),
             collection_id=os.getenv("TRANSACTIONS_COLLECTION_ID"),
-            document_id=transaction_id
+            document_id=transaction_id,
         )
         transaction = Transaction(**transaction_doc)
 
@@ -298,12 +303,7 @@ async def main(context: Any, email_payload: Dict[str, Any]) -> Dict[str, Any]:
         await update_user_subscription(databases, transaction.user_id, transaction)
 
         logger.info(f"Successfully processed payment: {transaction.utr}, amount: ₹{transaction.amount}")
-        return {
-            "success": True,
-            "transaction_id": transaction_id,
-            "utr": transaction.utr,
-            "amount": transaction.amount
-        }
+        return {"success": True, "transaction_id": transaction_id, "utr": transaction.utr, "amount": transaction.amount}
 
     except Exception as e:
         logger.error(f"Fatal error processing payment: {str(e)}", exc_info=True)

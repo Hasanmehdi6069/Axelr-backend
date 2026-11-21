@@ -5,6 +5,7 @@ Rules:
   * Thresholds are conservative, CI-friendly
   * Tests verify system survives sustained load and edge cases
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -20,6 +21,7 @@ pytestmark = [pytest.mark.slow]
 # A. Concurrency
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_a1_100_concurrent_safe_segment_calls():
     """100 concurrent safe_segment calls must all return valid results."""
@@ -27,9 +29,7 @@ async def test_a1_100_concurrent_safe_segment_calls():
 
     test_strings = [f"test string {i} with .. / \\ ` $ characters" for i in range(100)]
 
-    results = await asyncio.gather(*[
-        asyncio.to_thread(_safe_segment, s) for s in test_strings
-    ], return_exceptions=True)
+    results = await asyncio.gather(*[asyncio.to_thread(_safe_segment, s) for s in test_strings], return_exceptions=True)
 
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/100 concurrent calls failed: {failures[:5]}"
@@ -48,11 +48,17 @@ async def test_a2_concurrent_undo_log_writes(inbox_root: pathlib.Path):
     log = UndoLog(log_path, max_entries=1000)
 
     async def write_one(i):
-        await log.record(UndoEntry(
-            op_id=f"op-{i}", timestamp=float(i), src=f"/a/{i}",
-            dst=f"/b/{i}", filename=f"f{i}", category="Invoices",
-            content_hash=f"h{i}",
-        ))
+        await log.record(
+            UndoEntry(
+                op_id=f"op-{i}",
+                timestamp=float(i),
+                src=f"/a/{i}",
+                dst=f"/b/{i}",
+                filename=f"f{i}",
+                category="Invoices",
+                content_hash=f"h{i}",
+            )
+        )
 
     start = time.perf_counter()
     await asyncio.gather(*[write_one(i) for i in range(500)])
@@ -73,8 +79,11 @@ async def test_a3_concurrent_target_path_generation(inbox_root: pathlib.Path):
 
     async def generate_one(i):
         meta = DocumentMetadata(
-            document_type="invoice", date=f"2026-{11:02d}-{(i % 28) + 1:02d}",
-            sender=f"Sender {i}", category="Invoices", confidence=0.9,
+            document_type="invoice",
+            date=f"2026-{11:02d}-{(i % 28) + 1:02d}",
+            sender=f"Sender {i}",
+            category="Invoices",
+            confidence=0.9,
         )
         return _target_path(inbox_root, meta, pathlib.Path(f"file-{i}.pdf"))
 
@@ -90,6 +99,7 @@ async def test_a3_concurrent_target_path_generation(inbox_root: pathlib.Path):
 # ══════════════════════════════════════════════════════════════════════════
 # B. Throughput
 # ══════════════════════════════════════════════════════════════════════════
+
 
 def test_b1_safe_segment_throughput():
     """safe_segment must process >10,000 inputs per second."""
@@ -119,9 +129,30 @@ def test_b2_metadata_normalization_throughput():
     from axelr.core import normalize_metadata
 
     test_metadata = [
-        {"document_type": "invoice", "date": "2026-11-03", "sender": "Test", "total_amount": 100.0, "currency": "usd", "confidence": 0.9},
-        {"document_type": "receipt", "date": "2026-11-04", "sender": "Store", "total_amount": 50.0, "currency": "eur", "confidence": 0.85},
-        {"document_type": "other", "date": "2026-11-05", "sender": "Unknown", "total_amount": 0.0, "currency": "", "confidence": 0.5},
+        {
+            "document_type": "invoice",
+            "date": "2026-11-03",
+            "sender": "Test",
+            "total_amount": 100.0,
+            "currency": "usd",
+            "confidence": 0.9,
+        },
+        {
+            "document_type": "receipt",
+            "date": "2026-11-04",
+            "sender": "Store",
+            "total_amount": 50.0,
+            "currency": "eur",
+            "confidence": 0.85,
+        },
+        {
+            "document_type": "other",
+            "date": "2026-11-05",
+            "sender": "Unknown",
+            "total_amount": 0.0,
+            "currency": "",
+            "confidence": 0.5,
+        },
     ] * 1000
 
     t0 = time.perf_counter()
@@ -137,6 +168,7 @@ def test_b2_metadata_normalization_throughput():
 # ══════════════════════════════════════════════════════════════════════════
 # C. Stability & Edge Cases
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_c1_1000_iterations_safe_segment():
@@ -171,11 +203,17 @@ async def test_c2_undo_log_soak(inbox_root: pathlib.Path):
 
     t0 = time.perf_counter()
     for i in range(10000):
-        await log.record(UndoEntry(
-            op_id=f"op-{i}", timestamp=float(i), src=f"/a/{i}",
-            dst=f"/b/{i}", filename=f"f{i}", category="Invoices",
-            content_hash=f"h{i}",
-        ))
+        await log.record(
+            UndoEntry(
+                op_id=f"op-{i}",
+                timestamp=float(i),
+                src=f"/a/{i}",
+                dst=f"/b/{i}",
+                filename=f"f{i}",
+                category="Invoices",
+                content_hash=f"h{i}",
+            )
+        )
     elapsed = time.perf_counter() - t0
 
     snap = await log.snapshot()
@@ -189,6 +227,7 @@ async def test_c2_undo_log_soak(inbox_root: pathlib.Path):
 # ══════════════════════════════════════════════════════════════════════════
 # D. Resource Usage
 # ══════════════════════════════════════════════════════════════════════════
+
 
 def test_d1_memory_efficiency():
     """Core functions must not have excessive memory usage."""

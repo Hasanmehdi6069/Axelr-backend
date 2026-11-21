@@ -13,27 +13,34 @@ APPWRITE_MCP_ENDPOINT = os.getenv("APPWRITE_MCP_ENDPOINT", "http://localhost:808
 VULTR_MCP_ENDPOINT = os.getenv("VULTR_MCP_ENDPOINT", "http://localhost:8081/mcp/vultr")
 MCP_API_KEY = os.getenv("MCP_API_KEY", "")
 
+
 class MCPSchemaInspectionRequest(BaseModel):
     """Pydantic model for schema inspection requests"""
+
     database_id: str
     collection_ids: Optional[List[str]] = None
     include_permissions: bool = Field(default=True)
     include_indexes: bool = Field(default=True)
 
+
 class MCPDatabaseMigration(BaseModel):
     """Pydantic model for database migration requests"""
+
     migration_name: str
     environment: str = Field(..., regex="^(staging|production)$")
     collections_to_create: List[Dict[str, Any]] = Field(default_factory=list)
     collections_to_update: List[Dict[str, Any]] = Field(default_factory=list)
     dry_run: bool = Field(default=True)
 
+
 class MCPHealthAuditRequest(BaseModel):
     """Pydantic model for server health audit requests"""
+
     check_appwrite: bool = True
     check_vultr: bool = True
     check_resources: List[str] = Field(default_factory=lambda: ["instances", "databases", "storage"])
     generate_report: bool = True
+
 
 class MCPIntegrationManager:
     """
@@ -43,11 +50,9 @@ class MCPIntegrationManager:
     3. Unified server health auditing across Appwrite and Vultr infrastructure
     4. Real-time resource monitoring and alerting
     """
+
     def __init__(self):
-        self.mcp_headers = {
-            "Authorization": f"Bearer {MCP_API_KEY}",
-            "Content-Type": "application/json"
-        }
+        self.mcp_headers = {"Authorization": f"Bearer {MCP_API_KEY}", "Content-Type": "application/json"}
 
         # Initialize Appwrite client for local operations
         self.appwrite_client = Client()
@@ -66,9 +71,7 @@ class MCPIntegrationManager:
         try:
             # Forward request to Appwrite MCP server
             response = requests.post(
-                f"{APPWRITE_MCP_ENDPOINT}/inspect-schema",
-                headers=self.mcp_headers,
-                json=request.dict()
+                f"{APPWRITE_MCP_ENDPOINT}/inspect-schema", headers=self.mcp_headers, json=request.dict()
             )
             response.raise_for_status()
             schema_data = response.json()
@@ -76,14 +79,10 @@ class MCPIntegrationManager:
             # Log inspection event for auditing
             self._log_mcp_event(
                 event_type="schema_inspection",
-                details={"database_id": request.database_id, "collections": request.collection_ids}
+                details={"database_id": request.database_id, "collections": request.collection_ids},
             )
 
-            return {
-                "schema": schema_data,
-                "inspected_at": datetime.utcnow().isoformat(),
-                "status": "success"
-            }
+            return {"schema": schema_data, "inspected_at": datetime.utcnow().isoformat(), "status": "success"}
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Schema inspection failed: {str(e)}")
 
@@ -98,26 +97,18 @@ class MCPIntegrationManager:
         try:
             # First validate migration through MCP
             validate_response = requests.post(
-                f"{APPWRITE_MCP_ENDPOINT}/validate-migration",
-                headers=self.mcp_headers,
-                json=migration.dict()
+                f"{APPWRITE_MCP_ENDPOINT}/validate-migration", headers=self.mcp_headers, json=migration.dict()
             )
             validate_response.raise_for_status()
             validation = validate_response.json()
 
             if not validation["valid"]:
-                return {
-                    "status": "invalid",
-                    "errors": validation["errors"],
-                    "migration_generated": False
-                }
+                return {"status": "invalid", "errors": validation["errors"], "migration_generated": False}
 
             # If not dry run, execute the migration
             if not migration.dry_run:
                 execute_response = requests.post(
-                    f"{APPWRITE_MCP_ENDPOINT}/execute-migration",
-                    headers=self.mcp_headers,
-                    json=migration.dict()
+                    f"{APPWRITE_MCP_ENDPOINT}/execute-migration", headers=self.mcp_headers, json=migration.dict()
                 )
                 execute_response.raise_for_status()
                 execution_result = execute_response.json()
@@ -128,29 +119,25 @@ class MCPIntegrationManager:
                     details={
                         "migration_name": migration.migration_name,
                         "environment": migration.environment,
-                        "success": execution_result["success"]
-                    }
+                        "success": execution_result["success"],
+                    },
                 )
 
                 return {
                     "status": "executed",
                     "migration_id": execution_result["migration_id"],
                     "changes_applied": execution_result["changes"],
-                    "rolled_back": execution_result.get("rolled_back", False)
+                    "rolled_back": execution_result.get("rolled_back", False),
                 }
 
             # For dry run, return the generated migration plan
             migration_plan = validation["migration_plan"]
             self._log_mcp_event(
                 event_type="migration_generated",
-                details={"migration_name": migration.migration_name, "environment": migration.environment}
+                details={"migration_name": migration.migration_name, "environment": migration.environment},
             )
 
-            return {
-                "status": "generated",
-                "migration_plan": migration_plan,
-                "dry_run": True
-            }
+            return {"status": "generated", "migration_plan": migration_plan, "dry_run": True}
 
         except requests.exceptions.RequestException as e:
             raise RuntimeError(f"Migration generation failed: {str(e)}")
@@ -171,7 +158,7 @@ class MCPIntegrationManager:
                 appwrite_response = requests.post(
                     f"{APPWRITE_MCP_ENDPOINT}/health-audit",
                     headers=self.mcp_headers,
-                    json={"resources": request.check_resources}
+                    json={"resources": request.check_resources},
                 )
                 appwrite_response.raise_for_status()
                 audit_results["appwrite"] = appwrite_response.json()
@@ -184,7 +171,7 @@ class MCPIntegrationManager:
                 vultr_response = requests.post(
                     f"{VULTR_MCP_ENDPOINT}/health-audit",
                     headers=self.mcp_headers,
-                    json={"resources": request.check_resources}
+                    json={"resources": request.check_resources},
                 )
                 vultr_response.raise_for_status()
                 audit_results["vultr"] = vultr_response.json()
@@ -199,14 +186,10 @@ class MCPIntegrationManager:
         # Log audit event
         self._log_mcp_event(
             event_type="health_audit",
-            details={"checked_appwrite": request.check_appwrite, "checked_vultr": request.check_vultr}
+            details={"checked_appwrite": request.check_appwrite, "checked_vultr": request.check_vultr},
         )
 
-        return {
-            "audit_results": audit_results,
-            "audited_at": datetime.utcnow().isoformat(),
-            "status": "completed"
-        }
+        return {"audit_results": audit_results, "audited_at": datetime.utcnow().isoformat(), "status": "completed"}
 
     def _generate_audit_report(self, raw_results: Dict[str, Any]) -> Dict[str, Any]:
         """Generate human-readable audit report with issue prioritization"""
@@ -241,12 +224,12 @@ class MCPIntegrationManager:
                 "critical_issues_count": len(critical_issues),
                 "warnings_count": len(warnings),
                 "healthy_resources_count": len(healthy_resources),
-                "overall_health": "healthy" if len(critical_issues) == 0 else "degraded"
+                "overall_health": "healthy" if len(critical_issues) == 0 else "degraded",
             },
             "critical_issues": critical_issues,
             "warnings": warnings,
             "healthy_resources": healthy_resources,
-            "generated_at": datetime.utcnow().isoformat()
+            "generated_at": datetime.utcnow().isoformat(),
         }
 
     def list_vultr_resources(self, resource_type: str) -> Dict[str, Any]:
@@ -256,10 +239,7 @@ class MCPIntegrationManager:
             raise ValueError(f"Invalid resource type. Must be one of: {valid_types}")
 
         try:
-            response = requests.get(
-                f"{VULTR_MCP_ENDPOINT}/resources/{resource_type}",
-                headers=self.mcp_headers
-            )
+            response = requests.get(f"{VULTR_MCP_ENDPOINT}/resources/{resource_type}", headers=self.mcp_headers)
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
@@ -272,16 +252,13 @@ class MCPIntegrationManager:
                 database_id="audit-logs",
                 collection_id="mcp-audit-events",
                 document_id="unique()",
-                data={
-                    "event_type": event_type,
-                    "details": details,
-                    "timestamp": datetime.utcnow().isoformat()
-                },
+                data={"event_type": event_type, "details": details, "timestamp": datetime.utcnow().isoformat()},
                 read=["role:system", "role:admin"],
-                write=["role:system"]
+                write=["role:system"],
             )
         except AppwriteException:
             pass  # Fail silently to not block primary operations
+
 
 # IDE command handlers (these are called directly by the AI IDE when executing MCP commands)
 def handle_mcp_command(command: str, params: Dict[str, Any]) -> Dict[str, Any]:
@@ -305,6 +282,7 @@ def handle_mcp_command(command: str, params: Dict[str, Any]) -> Dict[str, Any]:
             return {"status": "error", "message": f"Unknown MCP command: {command}"}
     except Exception as e:
         return {"status": "error", "message": str(e)}
+
 
 # Appwrite function entry point for scheduled MCP health audits
 def main(context: Any, payload: Dict[str, Any]) -> Dict[str, Any]:

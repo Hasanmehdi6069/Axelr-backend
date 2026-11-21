@@ -22,6 +22,7 @@ USAGE
     python run_single_model_live_test.py --model all-blitz
     python run_single_model_live_test.py --model smollm2-135m --artifacts ./out
 """
+
 from __future__ import annotations
 
 import argparse
@@ -64,14 +65,14 @@ _rss_mb = twin_engine._rss_mb
 # ── Golden set: honest, curated, verifiable ─────────────────────────────
 # Format: (task_tag, prompt, expected_keywords_any, max_chars)
 GOLDEN = [
-    ("math",     "What is 2 + 2? Reply with just the digit.",          ("4",), 10),
-    ("fact",     "What is the capital of France?",                     ("paris",), 40),
-    ("fact",     "How many days in a week?",                           ("7", "seven"), 20),
-    ("fact",     "What color is the sky on a clear day?",              ("blue",), 40),
-    ("fact",     "What is H2O commonly known as?",                     ("water",), 40),
-    ("creative", "Write a haiku about the moon.",                      ("moon", "night", "sky", "light", "silver", "glow", "white"), 250),
-    ("reason",   "If I have 3 apples and eat 1, how many remain?",     ("2", "two"), 30),
-    ("instruct", "Reply with the word OK and nothing else.",           ("ok",), 10),
+    ("math", "What is 2 + 2? Reply with just the digit.", ("4",), 10),
+    ("fact", "What is the capital of France?", ("paris",), 40),
+    ("fact", "How many days in a week?", ("7", "seven"), 20),
+    ("fact", "What color is the sky on a clear day?", ("blue",), 40),
+    ("fact", "What is H2O commonly known as?", ("water",), 40),
+    ("creative", "Write a haiku about the moon.", ("moon", "night", "sky", "light", "silver", "glow", "white"), 250),
+    ("reason", "If I have 3 apples and eat 1, how many remain?", ("2", "two"), 30),
+    ("instruct", "Reply with the word OK and nothing else.", ("ok",), 10),
 ]
 
 
@@ -126,9 +127,7 @@ class ModelResult:
 def _is_stub(text: str) -> bool:
     if not text:
         return True
-    return (text.startswith("[stub]")
-            or "multi-agent system" in text
-            or "temporarily busy" in text)
+    return text.startswith("[stub]") or "multi-agent system" in text or "temporarily busy" in text
 
 
 async def _measure_ttft(engine: TwinEngine, prompt: str) -> tuple[float, str]:
@@ -183,7 +182,10 @@ async def _measure_ttft(engine: TwinEngine, prompt: str) -> tuple[float, str]:
 
 async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> ModelResult:
     r = ModelResult(
-        model_id=spec.id, model_name=spec.name, tier=spec.category, file=spec.file,
+        model_id=spec.id,
+        model_name=spec.name,
+        tier=spec.category,
+        file=spec.file,
     )
     print("\n══════════════════════════════════════════════════════════════")
     print(f"MODEL: {spec.name}  ({spec.id})")
@@ -241,15 +243,20 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
                 len_ok = len(out) <= max_chars if max_chars else True
                 passed = kw_ok and len_ok
                 reason = "" if passed else f"kw={kw_ok} len={len_ok}"
-            r.golden_results.append({
-                "tag": tag, "prompt": prompt, "output": out,
-                "latency_ms": round(lat, 1), "stub": stub, "passed": passed,
-                "reason": reason,
-            })
+            r.golden_results.append(
+                {
+                    "tag": tag,
+                    "prompt": prompt,
+                    "output": out,
+                    "latency_ms": round(lat, 1),
+                    "stub": stub,
+                    "passed": passed,
+                    "reason": reason,
+                }
+            )
             r.outputs.append({"tag": tag, "prompt": prompt, "output": out})
             mark = "✓" if passed else "✗"
-            print(f"    {mark} [{tag:9s}] {prompt[:45]:45s} → "
-                  f"{out[:50]!r}" + (f"  ({reason})" if reason else ""))
+            print(f"    {mark} [{tag:9s}] {prompt[:45]:45s} → {out[:50]!r}" + (f"  ({reason})" if reason else ""))
 
         # ── TTFT
         print("\n  Measuring time-to-first-token (streaming)…")
@@ -259,8 +266,7 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
                 if ttft > 0 and not _is_stub(text):
                     r.ttft_ms.append(ttft)
             if r.ttft_ms:
-                print(f"    TTFT p50 = {r.ttft_p50:.0f}ms  "
-                      f"(samples: {[round(x) for x in r.ttft_ms]})")
+                print(f"    TTFT p50 = {r.ttft_p50:.0f}ms  (samples: {[round(x) for x in r.ttft_ms]})")
         except Exception as e:
             print(f"    TTFT measurement skipped: {e}")
 
@@ -281,10 +287,10 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
 
         # ── Verdict (honest thresholds)
         checks = [
-            ("stubs=0",        r.stub_count == 0),
-            ("determinism",    r.determinism_ok),
-            ("golden>=50%",    r.golden_pass >= len(GOLDEN) // 2),
-            ("p95<4s",         r.p95 < 4000),
+            ("stubs=0", r.stub_count == 0),
+            ("determinism", r.determinism_ok),
+            ("golden>=50%", r.golden_pass >= len(GOLDEN) // 2),
+            ("p95<4s", r.p95 < 4000),
         ]
         failed = [name for name, ok in checks if not ok]
         if failed:
@@ -294,12 +300,15 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
             r.status = "PASS"
 
         print(f"\n  → {r.status}  " + (f"({r.reason})" if r.reason else ""))
-        print(f"    p50={r.p50:.0f}ms p95={r.p95:.0f}ms p99={r.p99:.0f}ms  "
-              f"stubs={r.stub_count}  golden={r.golden_pass}/{len(GOLDEN)}")
+        print(
+            f"    p50={r.p50:.0f}ms p95={r.p95:.0f}ms p99={r.p99:.0f}ms  "
+            f"stubs={r.stub_count}  golden={r.golden_pass}/{len(GOLDEN)}"
+        )
         print(f"    RSS: {r.rss_before_mb} → peak {r.rss_peak_mb} → after {r.rss_after_mb}MB")
 
     except Exception as e:
         import traceback
+
         r.status = "FAIL"
         r.reason = f"{type(e).__name__}: {e}"
         r.exception = traceback.format_exc()
@@ -315,12 +324,12 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
     if artifacts:
         artifacts.mkdir(parents=True, exist_ok=True)
         (artifacts / f"{spec.id}.json").write_text(
-            json.dumps(asdict(r), indent=2, default=str), encoding="utf-8",
+            json.dumps(asdict(r), indent=2, default=str),
+            encoding="utf-8",
         )
         (artifacts / f"{spec.id}.transcript.txt").write_text(
-            "\n\n".join(
-                f"PROMPT: {o['prompt']}\nOUTPUT: {o['output']}" for o in r.outputs
-            ), encoding="utf-8",
+            "\n\n".join(f"PROMPT: {o['prompt']}\nOUTPUT: {o['output']}" for o in r.outputs),
+            encoding="utf-8",
         )
         print(f"  artifacts → {artifacts / (spec.id + '.json')}")
 
@@ -329,10 +338,8 @@ async def test_model(spec, engine: TwinEngine, artifacts: Optional[Path]) -> Mod
 
 async def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", required=True,
-                    help="Model id, or 'all', 'all-fast', 'all-blitz'")
-    ap.add_argument("--artifacts", type=Path, default=None,
-                    help="Directory to save transcripts")
+    ap.add_argument("--model", required=True, help="Model id, or 'all', 'all-fast', 'all-blitz'")
+    ap.add_argument("--artifacts", type=Path, default=None, help="Directory to save transcripts")
     args = ap.parse_args()
 
     # Resolve targets
@@ -388,8 +395,7 @@ async def main() -> int:
     if passed:
         print("\n  Passed:")
         for r in passed:
-            print(f"    ✓ {r.model_id:25s} p50={r.p50:.0f}ms p95={r.p95:.0f}ms "
-                  f"RSS peak={r.rss_peak_mb}MB")
+            print(f"    ✓ {r.model_id:25s} p50={r.p50:.0f}ms p95={r.p95:.0f}ms RSS peak={r.rss_peak_mb}MB")
 
     if failed:
         return 1

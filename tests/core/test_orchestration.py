@@ -10,6 +10,7 @@ Consolidates: test_orchestration.py + test_latency_budget.py.
 Converts pure-function 1000x loops to parametrize. Fixes 8 missing
 @pytest.mark.asyncio decorators. Marks wall-clock tests @perf.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -23,25 +24,33 @@ from core import condenser, consensus, goat_layer, hardening, orchestration, pip
 # §1 Path selection
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("workload,length,critical,expected", [
-    ("trivial", 100, False, "single"),
-    ("deep", 10000, False, "goat"),
-    ("standard", 500, True, "consensus"),
-    ("standard", 5000, True, "cognitive"),
-    ("extraction", 10000, True, "single"),  # extraction always single
-])
+
+@pytest.mark.parametrize(
+    "workload,length,critical,expected",
+    [
+        ("trivial", 100, False, "single"),
+        ("deep", 10000, False, "goat"),
+        ("standard", 500, True, "consensus"),
+        ("standard", 5000, True, "cognitive"),
+        ("extraction", 10000, True, "single"),  # extraction always single
+    ],
+)
 def test_conductor_path_selection(workload, length, critical, expected):
-    assert orchestration.select_path(workload, length=length,
-                                     critical=critical) == expected
+    assert orchestration.select_path(workload, length=length, critical=critical) == expected
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # §2 Budget
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("workload,expected", [
-    ("trivial", 0), ("critical", 3),
-])
+
+@pytest.mark.parametrize(
+    "workload,expected",
+    [
+        ("trivial", 0),
+        ("critical", 3),
+    ],
+)
 def test_conductor_budget(workload, expected):
     assert orchestration.get_budget(workload) == expected
 
@@ -52,13 +61,13 @@ def test_conductor_budget_calls_override():
 
 def test_conductor_budget_exhaustion_falls_back_single(monkeypatch):
     monkeypatch.setattr(orchestration, "get_budget", lambda *a, **kw: 0)
-    assert orchestration.select_path("critical", length=1000,
-                                     critical=True) == "single"
+    assert orchestration.select_path("critical", length=1000, critical=True) == "single"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # §3 Memo
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_conductor_memo_identical_request_hits():
     c = orchestration.Conductor()
@@ -70,8 +79,7 @@ def test_conductor_memo_identical_request_hits():
 def test_conductor_memo_excludes_history():
     c = orchestration.Conductor()
     req1 = orchestration.Request(prompt="test", history=[])
-    req2 = orchestration.Request(prompt="test",
-                                 history=[{"role": "user", "content": "old"}])
+    req2 = orchestration.Request(prompt="test", history=[{"role": "user", "content": "old"}])
     c.memoize(req1, "result1")
     assert c.check_memo(req2) == "result1"
 
@@ -79,14 +87,14 @@ def test_conductor_memo_excludes_history():
 def test_conductor_memo_bounded_lru():
     c = orchestration.Conductor(memo_size=3)
     for i in range(10):
-        c.memoize(orchestration.Request(prompt=f"test{i}", history=[]),
-                  f"result{i}")
+        c.memoize(orchestration.Request(prompt=f"test{i}", history=[]), f"result{i}")
     assert len(c._memo) == 3
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # §4 Circuit breaker
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_conductor_breaker_2_failures_opens():
     c = orchestration.Conductor()
@@ -108,6 +116,7 @@ def test_conductor_breaker_cooldown_recloses():
 # §5 Deadline
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_conductor_exceed_deadline_truncates_single():
     c = orchestration.Conductor()
     assert c.select_path_with_deadline("critical", 1000, deadline=0.001) == "single"
@@ -122,10 +131,17 @@ def test_conductor_respects_deadline_s_override():
 # §6 Latency budgets (parametrize replaces 1000x loops)
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("tier,expected", [
-    ("free", 3.5), ("pro", 5.5), ("business", 7.0),
-    ("enterprise", 10.0), ("elite", 15.0),
-])
+
+@pytest.mark.parametrize(
+    "tier,expected",
+    [
+        ("free", 3.5),
+        ("pro", 5.5),
+        ("business", 7.0),
+        ("enterprise", 10.0),
+        ("elite", 15.0),
+    ],
+)
 def test_tier_deadline_enforcement(tier, expected):
     c = orchestration.Conductor()
     assert c.get_tier_deadline(tier) == expected
@@ -139,41 +155,51 @@ def test_none_tier_deadline_default():
     assert orchestration.Conductor().get_tier_deadline(None) == 3.5
 
 
-@pytest.mark.parametrize("workload,expected", [
-    ("trivial", 0), ("lite", 1), ("standard", 2), ("deep", 3),
-])
+@pytest.mark.parametrize(
+    "workload,expected",
+    [
+        ("trivial", 0),
+        ("lite", 1),
+        ("standard", 2),
+        ("deep", 3),
+    ],
+)
 def test_single_path_budget(workload, expected):
     assert orchestration.get_budget(workload, path="single") == expected
 
 
-@pytest.mark.parametrize("workload,expected", [
-    ("trivial", 1), ("lite", 2), ("standard", 4), ("deep", 6),
-])
+@pytest.mark.parametrize(
+    "workload,expected",
+    [
+        ("trivial", 1),
+        ("lite", 2),
+        ("standard", 4),
+        ("deep", 6),
+    ],
+)
 def test_goat_path_budget(workload, expected):
     assert orchestration.get_budget(workload, path="goat") == expected
 
 
 def test_deadline_exceeded_falls_back_single():
     c = orchestration.Conductor()
-    assert c.select_path_with_deadline("deep", length=10000,
-                                       deadline=0.001) == "single"
+    assert c.select_path_with_deadline("deep", length=10000, deadline=0.001) == "single"
 
 
 def test_deadline_sufficient_allows_goat():
     c = orchestration.Conductor()
-    assert c.select_path_with_deadline("deep", length=10000,
-                                       deadline=30.0) == "goat"
+    assert c.select_path_with_deadline("deep", length=10000, deadline=30.0) == "goat"
 
 
 def test_extraction_always_single():
     c = orchestration.Conductor()
-    assert c.select_path_with_deadline("extraction", length=10000,
-                                       critical=True, deadline=0.001) == "single"
+    assert c.select_path_with_deadline("extraction", length=10000, critical=True, deadline=0.001) == "single"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # §7 Percentile & SLO
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_latency_percentile_calculation():
     c = orchestration.Conductor()
@@ -187,18 +213,23 @@ def test_latency_percentile_empty():
     assert orchestration.Conductor().calculate_percentile([], 50) == 0.0
 
 
-@pytest.mark.parametrize("tier,latency,expected", [
-    ("free", 3000.0, True), ("free", 4000.0, False),
-    ("pro", 5000.0, True), ("pro", 6000.0, False),
-])
+@pytest.mark.parametrize(
+    "tier,latency,expected",
+    [
+        ("free", 3000.0, True),
+        ("free", 4000.0, False),
+        ("pro", 5000.0, True),
+        ("pro", 6000.0, False),
+    ],
+)
 def test_slo_compliance(tier, latency, expected):
-    assert orchestration.Conductor().check_slo_compliance(
-        tier=tier, latency_ms=latency) is expected
+    assert orchestration.Conductor().check_slo_compliance(tier=tier, latency_ms=latency) is expected
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # §8 Routing DAG
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_routing_valid_plan_executes():
     plan = routing.Plan(tasks=[routing.Task(id=1, depends_on=[])])
@@ -210,16 +241,17 @@ def test_routing_empty_plan_falls_back_single():
 
 
 def test_routing_caps_at_5_subtasks():
-    plan = routing.Plan(tasks=[routing.Task(id=i, depends_on=[])
-                               for i in range(20)])
+    plan = routing.Plan(tasks=[routing.Task(id=i, depends_on=[]) for i in range(20)])
     assert len(routing.DAGExecutor().execute(plan)) <= 5
 
 
 def test_routing_circular_no_hang():
-    plan = routing.Plan(tasks=[
-        routing.Task(id=1, depends_on=[2]),
-        routing.Task(id=2, depends_on=[1]),
-    ])
+    plan = routing.Plan(
+        tasks=[
+            routing.Task(id=1, depends_on=[2]),
+            routing.Task(id=2, depends_on=[1]),
+        ]
+    )
     assert len(routing.DAGExecutor(timeout=1).execute(plan)) >= 1
 
 
@@ -231,10 +263,14 @@ def test_routing_invalid_role_coerced_core():
 # §9 Consensus
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("a,b,expected", [
-    ("hello", "hello", 1.0),
-    ("abc", "xyz", 0.0),
-])
+
+@pytest.mark.parametrize(
+    "a,b,expected",
+    [
+        ("hello", "hello", 1.0),
+        ("abc", "xyz", 0.0),
+    ],
+)
 def test_consensus_similarity(a, b, expected):
     assert consensus.similarity(a, b) == pytest.approx(expected, abs=0.01)
 
@@ -245,16 +281,19 @@ def test_consensus_symmetric():
     assert s1 == pytest.approx(s2)
 
 
-@pytest.mark.parametrize("a,b", [("hello", "world"), ("a", "b"),
-                                 ("test", "test123")])
+@pytest.mark.parametrize("a,b", [("hello", "world"), ("a", "b"), ("test", "test123")])
 def test_consensus_bounded_0_1(a, b):
     assert 0 <= consensus.similarity(a, b) <= 1
 
 
 @pytest.mark.asyncio
 async def test_consensus_race_picks_winner():
-    async def c1(): return "answer1"
-    async def c2(): return "answer2"
+    async def c1():
+        return "answer1"
+
+    async def c2():
+        return "answer2"
+
     winner = await consensus.race([c1(), c2()])
     assert winner is not None
 
@@ -275,8 +314,12 @@ async def test_consensus_race_cancels_stragglers():
 
 @pytest.mark.asyncio
 async def test_consensus_race_errors_dont_crash():
-    async def error(): raise RuntimeError("fail")
-    async def ok(): return "ok"
+    async def error():
+        raise RuntimeError("fail")
+
+    async def ok():
+        return "ok"
+
     assert await consensus.race([error(), ok()]) == "ok"
 
 
@@ -284,12 +327,16 @@ async def test_consensus_race_errors_dont_crash():
 # §10 Goat layer
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("text,expected", [
-    ("hello world", "trivial"),
-    ("a" * 500, "lite"),
-    ("a" * 2000, "standard"),
-    ("a" * 20000, "deep"),
-])
+
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("hello world", "trivial"),
+        ("a" * 500, "lite"),
+        ("a" * 2000, "standard"),
+        ("a" * 20000, "deep"),
+    ],
+)
 def test_goat_classify_workload(text, expected):
     assert goat_layer.classify_workload(text) == expected
 
@@ -309,11 +356,15 @@ def test_goat_local_repair_closes_fences():
 # §11 Reflection
 # ═══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("text,defect", [
-    ("hallucination", "hallucination"),
-    ("contradiction", "contradiction"),
-    ("incomplete", "incomplete"),
-])
+
+@pytest.mark.parametrize(
+    "text,defect",
+    [
+        ("hallucination", "hallucination"),
+        ("contradiction", "contradiction"),
+        ("incomplete", "incomplete"),
+    ],
+)
 def test_reflection_detects_defects(text, defect):
     assert reflection.detect_defects(text)[defect] > 0
 
@@ -325,6 +376,7 @@ def test_reflection_clean_text_passes():
 # ═══════════════════════════════════════════════════════════════════════════
 # §12 Hardening
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_hardening_prune_system_idempotent():
     text = "system prompt\nuser: hello"
@@ -352,6 +404,7 @@ def test_hardening_short_text_not_decomposable():
 # §13 Condenser
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_condenser_short_unchanged():
     text = "short text"
     assert condenser.condense(text, max_tokens=100) == text
@@ -370,6 +423,7 @@ def test_condenser_anchors_extracts_identifiers():
 # §14 Pipeline
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_pipeline_stream_yields_chunks():
     p = pipeline.ResilientPipeline()
@@ -381,6 +435,7 @@ async def test_pipeline_stream_yields_chunks():
 async def test_pipeline_stub_on_total_failure(monkeypatch):
     async def boom(*a, **kw):
         raise RuntimeError("fail")
+
     monkeypatch.setattr(pipeline.ResilientPipeline, "execute", boom)
     result = await pipeline.ResilientPipeline().run("test")
     assert result["stub"] is True

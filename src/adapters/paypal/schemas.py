@@ -1,15 +1,26 @@
 """Pydantic v2 schemas for all PayPal module entry points. Strict, forbid extra."""
+
 from __future__ import annotations
 
-from enum import Enum
 from decimal import Decimal
+from enum import Enum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 Currency = Literal[
-    "USD", "EUR", "GBP", "CAD", "AUD", "JPY",
-    "INR", "BRL", "MXN", "SGD", "HKD", "NZD",
+    "USD",
+    "EUR",
+    "GBP",
+    "CAD",
+    "AUD",
+    "JPY",
+    "INR",
+    "BRL",
+    "MXN",
+    "SGD",
+    "HKD",
+    "NZD",
 ]
 
 IntentType = Literal["CAPTURE", "AUTHORIZE"]
@@ -24,8 +35,10 @@ class TransactionState(str, Enum):
     CAPTURED = "CAPTURED"
     REFUNDED = "REFUNDED"
 
+
 class PaymentIntent(BaseModel):
     """Model representing a parsed payment intent from natural language"""
+
     amount: str
     currency: Currency
     confidence: float
@@ -58,7 +71,8 @@ class CreateOrderRequest(BaseModel):
     description: str = Field(default="Axelr order", max_length=127)
     reference_id: str = Field(
         default="default",
-        min_length=1, max_length=255,
+        min_length=1,
+        max_length=255,
         pattern=r"^[A-Za-z0-9_\-\.]+$",
     )
     return_url: str | None = Field(default=None, max_length=2048)
@@ -97,12 +111,8 @@ class CreateOrderRequest(BaseModel):
 
         # Allow for 0.01 currency precision difference
         if abs(items_total - order_amount) > Decimal("0.01"):
-            raise ValueError(
-                f"Items total {items_total} does not match order total {order_amount}"
-            )
+            raise ValueError(f"Items total {items_total} does not match order total {order_amount}")
         return self
-
-
 
 
 class CaptureOrderRequest(BaseModel):
@@ -149,6 +159,7 @@ class RefundRequest(BaseModel):
 
 class WebhookEvent(BaseModel):
     """Strict PayPal webhook payload validation for all entry webhooks"""
+
     model_config = ConfigDict(extra="forbid")
     id: str = Field(..., min_length=1, max_length=128)
     event_type: str = Field(..., min_length=1, max_length=128)
@@ -160,6 +171,7 @@ class WebhookEvent(BaseModel):
 
 class PayPalWebhookPayload(BaseModel):
     """Top-level webhook payload validation that enforces strict schema"""
+
     model_config = ConfigDict(extra="forbid")
     event_type: str = Field(..., min_length=1, max_length=128)
     webhook_event: WebhookEvent
@@ -179,9 +191,9 @@ def validate_paypal_webhook(payload: dict[str, Any]) -> PayPalWebhookPayload:
                 "resource_type": payload.get("resource_type"),
                 "resource": payload.get("resource", {}),
                 "create_time": payload.get("create_time"),
-                "summary": payload.get("summary")
+                "summary": payload.get("summary"),
             },
-            "verify_signature": True
+            "verify_signature": True,
         }
         return PayPalWebhookPayload(**normalized_payload)
     # Handle existing nested format

@@ -4,15 +4,30 @@ Merged from models.py + setup.py schema constants. Every table shape
 the engine ships with is declared here — no duplicate definitions
 across files.
 """
+
 from __future__ import annotations
 
 from typing import Any, Iterator, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-FilterOp = Literal["eq", "ne", "gt", "gte", "lt", "lte", "in", "not_in",
-                   "starts_with", "ends_with", "contains", "search",
-                   "is_null", "is_not_null", "between"]
+FilterOp = Literal[
+    "eq",
+    "ne",
+    "gt",
+    "gte",
+    "lt",
+    "lte",
+    "in",
+    "not_in",
+    "starts_with",
+    "ends_with",
+    "contains",
+    "search",
+    "is_null",
+    "is_not_null",
+    "between",
+]
 AttributeType = Literal["string", "integer", "double", "boolean", "datetime"]
 IndexType = Literal["key", "unique", "fulltext"]
 
@@ -20,6 +35,7 @@ IndexType = Literal["key", "unique", "fulltext"]
 # ═══════════════════════════════════════════════════════════════════════
 # Query models
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class QueryFilter(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -31,31 +47,52 @@ class QueryFilter(BaseModel):
     @classmethod
     def _field_clean(cls, v: str) -> str:
         v = v.strip()
-        if not v: raise ValueError("field cannot be blank")
+        if not v:
+            raise ValueError("field cannot be blank")
         return v
 
-    def to_tuple(self) -> tuple[str, str, Any]: return (self.field, self.op, self.value)
+    def to_tuple(self) -> tuple[str, str, Any]:
+        return (self.field, self.op, self.value)
 
     @classmethod
-    def eq(cls, f: str, v: Any) -> "QueryFilter": return cls(field=f, op="eq", value=v)
+    def eq(cls, f: str, v: Any) -> "QueryFilter":
+        return cls(field=f, op="eq", value=v)
+
     @classmethod
-    def ne(cls, f: str, v: Any) -> "QueryFilter": return cls(field=f, op="ne", value=v)
+    def ne(cls, f: str, v: Any) -> "QueryFilter":
+        return cls(field=f, op="ne", value=v)
+
     @classmethod
-    def gt(cls, f: str, v: Any) -> "QueryFilter": return cls(field=f, op="gt", value=v)
+    def gt(cls, f: str, v: Any) -> "QueryFilter":
+        return cls(field=f, op="gt", value=v)
+
     @classmethod
-    def gte(cls, f: str, v: Any) -> "QueryFilter": return cls(field=f, op="gte", value=v)
+    def gte(cls, f: str, v: Any) -> "QueryFilter":
+        return cls(field=f, op="gte", value=v)
+
     @classmethod
-    def lt(cls, f: str, v: Any) -> "QueryFilter": return cls(field=f, op="lt", value=v)
+    def lt(cls, f: str, v: Any) -> "QueryFilter":
+        return cls(field=f, op="lt", value=v)
+
     @classmethod
-    def lte(cls, f: str, v: Any) -> "QueryFilter": return cls(field=f, op="lte", value=v)
+    def lte(cls, f: str, v: Any) -> "QueryFilter":
+        return cls(field=f, op="lte", value=v)
+
     @classmethod
-    def in_(cls, f: str, vs: list[Any]) -> "QueryFilter": return cls(field=f, op="in", value=vs)
+    def in_(cls, f: str, vs: list[Any]) -> "QueryFilter":
+        return cls(field=f, op="in", value=vs)
+
     @classmethod
-    def contains(cls, f: str, v: Any) -> "QueryFilter": return cls(field=f, op="contains", value=v)
+    def contains(cls, f: str, v: Any) -> "QueryFilter":
+        return cls(field=f, op="contains", value=v)
+
     @classmethod
-    def starts_with(cls, f: str, v: str) -> "QueryFilter": return cls(field=f, op="starts_with", value=v)
+    def starts_with(cls, f: str, v: str) -> "QueryFilter":
+        return cls(field=f, op="starts_with", value=v)
+
     @classmethod
-    def between(cls, f: str, lo: Any, hi: Any) -> "QueryFilter": return cls(field=f, op="between", value=[lo, hi])
+    def between(cls, f: str, lo: Any, hi: Any) -> "QueryFilter":
+        return cls(field=f, op="between", value=[lo, hi])
 
 
 class QueryOptions(BaseModel):
@@ -79,9 +116,11 @@ class QueryOptions(BaseModel):
 
     def with_user(self, user_id: str) -> "QueryOptions":
         """Return a copy scoped to a specific user."""
-        return self.model_copy(update={
-            "filters": [QueryFilter.eq("user_id", user_id), *self.filters],
-        })
+        return self.model_copy(
+            update={
+                "filters": [QueryFilter.eq("user_id", user_id), *self.filters],
+            }
+        )
 
 
 class QueryBuilder:
@@ -125,14 +164,18 @@ class QueryBuilder:
 
     def build(self) -> QueryOptions:
         return QueryOptions(
-            filters=self._filters, order_by=self._order, order_desc=self._desc,
-            limit=self._limit, offset=self._offset,
+            filters=self._filters,
+            order_by=self._order,
+            order_desc=self._desc,
+            limit=self._limit,
+            offset=self._offset,
         )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Schema models
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class AttributeSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -146,7 +189,8 @@ class AttributeSpec(BaseModel):
     @field_validator("size")
     @classmethod
     def _size(cls, v: int | None, info: Any) -> int | None:
-        if info.data.get("type") == "string" and v is None: return 255
+        if info.data.get("type") == "string" and v is None:
+            return 255
         return v
 
 
@@ -163,14 +207,14 @@ class IndexSpec(BaseModel):
 
 class SchemaDefinition(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    table_id: str = Field(..., min_length=1, max_length=64,
-                          pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")
+    table_id: str = Field(..., min_length=1, max_length=64, pattern=r"^[a-zA-Z_][a-zA-Z0-9_]*$")
     name: str | None = None
     attributes: list[AttributeSpec] = Field(default_factory=list)
     indexes: list[IndexSpec] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
 
-    def resolved_name(self) -> str: return self.name or self.table_id
+    def resolved_name(self) -> str:
+        return self.name or self.table_id
 
     def attribute_keys(self) -> list[str]:
         return [a.key for a in self.attributes]
@@ -195,26 +239,32 @@ def merge_schemas(*schemas: SchemaDefinition) -> SchemaDefinition:
     attrs_by_key: dict[str, AttributeSpec] = {a.key: a for a in base.attributes}
     idxs_by_key: dict[str, IndexSpec] = {i.key: i for i in base.indexes}
     for s in schemas[1:]:
-        for a in s.attributes: attrs_by_key[a.key] = a
-        for i in s.indexes: idxs_by_key[i.key] = i
+        for a in s.attributes:
+            attrs_by_key[a.key] = a
+        for i in s.indexes:
+            idxs_by_key[i.key] = i
     return SchemaDefinition(
-        table_id=base.table_id, name=base.name,
+        table_id=base.table_id,
+        name=base.name,
         attributes=list(attrs_by_key.values()),
         indexes=list(idxs_by_key.values()),
         permissions=base.permissions,
     )
 
 
-def extend_schema(base: SchemaDefinition, *,
-                  attributes: list[AttributeSpec] | None = None,
-                  indexes: list[IndexSpec] | None = None) -> SchemaDefinition:
+def extend_schema(
+    base: SchemaDefinition, *, attributes: list[AttributeSpec] | None = None, indexes: list[IndexSpec] | None = None
+) -> SchemaDefinition:
     """Add attributes/indexes to an existing schema definition."""
     existing_attrs = {a.key: a for a in base.attributes}
-    for a in attributes or []: existing_attrs[a.key] = a
+    for a in attributes or []:
+        existing_attrs[a.key] = a
     existing_idx = {i.key: i for i in base.indexes}
-    for i in indexes or []: existing_idx[i.key] = i
+    for i in indexes or []:
+        existing_idx[i.key] = i
     return SchemaDefinition(
-        table_id=base.table_id, name=base.name,
+        table_id=base.table_id,
+        name=base.name,
         attributes=list(existing_attrs.values()),
         indexes=list(existing_idx.values()),
         permissions=base.permissions,
@@ -226,7 +276,8 @@ def extend_schema(base: SchemaDefinition, *,
 # ═══════════════════════════════════════════════════════════════════════
 
 SCHEMA_AUDIT_EVENTS = SchemaDefinition(
-    table_id="audit_events", name="audit_events",
+    table_id="audit_events",
+    name="audit_events",
     attributes=[
         AttributeSpec(key="kind", type="string", size=64, required=True),
         AttributeSpec(key="payload", type="string", size=65535),
@@ -244,10 +295,12 @@ SCHEMA_AUDIT_EVENTS = SchemaDefinition(
         IndexSpec(key="ts_desc", type="key", attributes=["ts"], orders=["DESC"]),
         IndexSpec(key="pipeline_ts", type="key", attributes=["pipeline_id", "ts"], orders=["ASC", "DESC"]),
         IndexSpec(key="day_kind", type="key", attributes=["day", "kind"]),
-    ])
+    ],
+)
 
 SCHEMA_INDEXED_DOCUMENTS = SchemaDefinition(
-    table_id="indexed_documents", name="indexed_documents",
+    table_id="indexed_documents",
+    name="indexed_documents",
     attributes=[
         AttributeSpec(key="doc_id", type="string", size=255, required=True),
         AttributeSpec(key="content", type="string", size=1_048_576, required=True),
@@ -259,10 +312,12 @@ SCHEMA_INDEXED_DOCUMENTS = SchemaDefinition(
     indexes=[
         IndexSpec(key="doc_id_unique", type="unique", attributes=["doc_id"]),
         IndexSpec(key="ts_desc", type="key", attributes=["ts"], orders=["DESC"]),
-    ])
+    ],
+)
 
 SCHEMA_AXELR_INSIGHTS = SchemaDefinition(
-    table_id="axelr_insights", name="axelr_insights",
+    table_id="axelr_insights",
+    name="axelr_insights",
     attributes=[
         AttributeSpec(key="user_id", type="string", size=255, required=True),
         AttributeSpec(key="insight_type", type="string", size=100, required=True),
@@ -278,10 +333,10 @@ SCHEMA_AXELR_INSIGHTS = SchemaDefinition(
         IndexSpec(key="user_origin", type="key", attributes=["user_id", "system_origin"]),
         IndexSpec(key="type_origin", type="key", attributes=["insight_type", "system_origin"]),
         IndexSpec(key="ts_desc", type="key", attributes=["timestamp"], orders=["DESC"]),
-    ])
+    ],
+)
 
-ALL_SCHEMAS: list[SchemaDefinition] = [
-    SCHEMA_AUDIT_EVENTS, SCHEMA_INDEXED_DOCUMENTS, SCHEMA_AXELR_INSIGHTS]
+ALL_SCHEMAS: list[SchemaDefinition] = [SCHEMA_AUDIT_EVENTS, SCHEMA_INDEXED_DOCUMENTS, SCHEMA_AXELR_INSIGHTS]
 
 SCHEMAS_BY_ID: dict[str, SchemaDefinition] = {s.table_id: s for s in ALL_SCHEMAS}
 
@@ -290,17 +345,25 @@ SCHEMAS_BY_ID: dict[str, SchemaDefinition] = {s.table_id: s for s in ALL_SCHEMAS
 # Row shapes
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class BaseRow(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
     @property
-    def id(self) -> str: return getattr(self, "$id", "") or ""
+    def id(self) -> str:
+        return getattr(self, "$id", "") or ""
+
     @property
-    def created_at(self) -> str: return getattr(self, "$createdAt", "") or ""
+    def created_at(self) -> str:
+        return getattr(self, "$createdAt", "") or ""
+
     @property
-    def updated_at(self) -> str: return getattr(self, "$updatedAt", "") or ""
+    def updated_at(self) -> str:
+        return getattr(self, "$updatedAt", "") or ""
+
     @property
-    def is_deleted(self) -> bool: return bool(getattr(self, "_deleted", False))
+    def is_deleted(self) -> bool:
+        return bool(getattr(self, "_deleted", False))
 
 
 class AuditEventRow(BaseRow):
@@ -337,6 +400,7 @@ class DocumentRow(BaseRow):
 
 class NotificationRow(BaseRow):
     """A notification delivered to a user."""
+
     user_id: str = Field(..., max_length=255)
     title: str = Field(..., max_length=255)
     body: str = Field(..., max_length=65535)
@@ -348,6 +412,7 @@ class NotificationRow(BaseRow):
 
 class MetricRow(BaseRow):
     """A named metric data point."""
+
     name: str = Field(..., max_length=100)
     value: float
     dimensions: str | None = Field(default=None, max_length=65535)
@@ -356,6 +421,7 @@ class MetricRow(BaseRow):
 
 class PipelineStateRow(BaseRow):
     """Snapshot of a pipeline's state at a point in time."""
+
     pipeline_id: str = Field(..., max_length=255)
     state: str = Field(..., max_length=1_048_576)
     ts: str
@@ -363,6 +429,7 @@ class PipelineStateRow(BaseRow):
 
 class PaymentRow(BaseRow):
     """A payment record (used by the PayPal agent)."""
+
     order_id: str = Field(..., max_length=255)
     user_id: str = Field(..., max_length=255)
     amount_cents: int = Field(..., ge=0)
@@ -387,15 +454,18 @@ ROW_MODELS: dict[str, type[BaseRow]] = {
 def coerce_row(table: str, data: dict[str, Any]) -> BaseRow:
     """Parse a raw row dict into its typed model (falls back to BaseRow)."""
     model = ROW_MODELS.get(table)
-    if model is None: return BaseRow(**data)
+    if model is None:
+        return BaseRow(**data)
     return model(**data)
 
 
 def validate_row(table: str, data: dict[str, Any]) -> dict[str, Any]:
     """Validate a row against its schema before write. Raises ValidationFailed."""
     from .errors import ValidationFailed
+
     model = ROW_MODELS.get(table)
-    if model is None: return data
+    if model is None:
+        return data
     try:
         model(**data)
     except Exception as e:
@@ -406,6 +476,7 @@ def validate_row(table: str, data: dict[str, Any]) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════════
 # Report models
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class SchemaReport(BaseModel):
     table_id: str

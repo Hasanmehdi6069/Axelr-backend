@@ -10,6 +10,7 @@ Endpoints:
 Start:  python -m apex.server
         # or: uvicorn apex.server:create_app --factory --port 8080
 """
+
 from __future__ import annotations
 
 import os
@@ -28,6 +29,7 @@ from .telemetry import stop as stop_telemetry
 
 class _AppState:
     router: Optional[ApexRouter] = None
+
 
 state = _AppState()
 
@@ -54,14 +56,12 @@ class RouteResponse(BaseModel):
 
 
 # ─── App factory ──────────────────────────────────────────────────────────
-def create_app(policy: Optional[str] = None,
-               config_path: Optional[str] = None) -> FastAPI:
+def create_app(policy: Optional[str] = None, config_path: Optional[str] = None) -> FastAPI:
     app = FastAPI(title="Apex Router", version="1.0.0")
 
     @app.on_event("startup")
     async def _startup() -> None:
-        state.router = await ApexRouter.create(
-            config_path=config_path, policy=policy)
+        state.router = await ApexRouter.create(config_path=config_path, policy=policy)
 
     @app.on_event("shutdown")
     async def _shutdown() -> None:
@@ -71,22 +71,22 @@ def create_app(policy: Optional[str] = None,
 
     @app.get("/health")
     async def health() -> JSONResponse:
-        return JSONResponse({
-            "ok": True,
-            "policy": state.router.policy if state.router else None,
-            "tiers": {
-                name: tier.is_available()
-                for name, tier in (state.router._tiers.items() if state.router else [])
-            },
-            "nebius_module_loaded": _tiers._NEBIUS_AVAILABLE,
-        })
+        return JSONResponse(
+            {
+                "ok": True,
+                "policy": state.router.policy if state.router else None,
+                "tiers": {
+                    name: tier.is_available() for name, tier in (state.router._tiers.items() if state.router else [])
+                },
+                "nebius_module_loaded": _tiers._NEBIUS_AVAILABLE,
+            }
+        )
 
     @app.post("/route", response_model=RouteResponse)
     async def route(req: RouteRequest) -> RouteResponse:
         if state.router is None:
             raise HTTPException(503, "router not initialized")
-        result = await state.router.route(
-            req.prompt, taskType=req.taskType, maxTokens=req.maxTokens)
+        result = await state.router.route(req.prompt, taskType=req.taskType, maxTokens=req.maxTokens)
         return RouteResponse(**result.to_dict())
 
     @app.get("/telemetry")
@@ -255,5 +255,6 @@ setInterval(tick, 1500);
 
 if __name__ == "__main__":
     import uvicorn
+
     port = int(os.environ.get("PORT", "8080"))
     uvicorn.run(create_app(), host="0.0.0.0", port=port)

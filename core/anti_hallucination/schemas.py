@@ -4,6 +4,7 @@ Consolidated v1.5 audit fields + v1.6 tier registry + v1.7 defect errors
 + safe helpers. The duplicate v1.0 block that shadowed the v1.5 classes
 has been removed.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -102,10 +103,7 @@ class ExtractionRequest(BaseModel):
     def _shape_fields_valid(self) -> "ExtractionRequest":
         unknown = set(self.value_shapes) - set(self.target_fields)
         if unknown:
-            raise ValueError(
-                f"value_shapes keys must be subset of target_fields; "
-                f"unknown: {sorted(unknown)}"
-            )
+            raise ValueError(f"value_shapes keys must be subset of target_fields; unknown: {sorted(unknown)}")
         return self
 
 
@@ -183,8 +181,7 @@ class AxelrError(Exception):
     error_code: str = "internal_error"
     default_message: str = "An internal error occurred"
 
-    def __init__(self, message: Optional[str] = None,
-                 details: Optional[Dict[str, Any]] = None):
+    def __init__(self, message: Optional[str] = None, details: Optional[Dict[str, Any]] = None):
         super().__init__(message or self.default_message)
         self.message = message or self.default_message
         self.details = details or {}
@@ -294,12 +291,16 @@ class TierRegistry:
     def inventory(self) -> List[Dict[str, Any]]:
         with self._lock:
             return [
-                {"name": t.name, "max_claims": t.max_claims,
-                 "max_chunk_chars": t.max_chunk_chars,
-                 "retries": t.retries, "allow_llm": t.allow_llm,
-                 "monthly_queries": t.monthly_queries,
-                 "monthly_mb": t.monthly_mb,
-                 "confidence_floor": t.confidence_floor.value}
+                {
+                    "name": t.name,
+                    "max_claims": t.max_claims,
+                    "max_chunk_chars": t.max_chunk_chars,
+                    "retries": t.retries,
+                    "allow_llm": t.allow_llm,
+                    "monthly_queries": t.monthly_queries,
+                    "monthly_mb": t.monthly_mb,
+                    "confidence_floor": t.confidence_floor.value,
+                }
                 for t in self._tiers.values()
             ]
 
@@ -315,17 +316,25 @@ REGISTRY = TierRegistry()
 # ═══════════════════════════════════════════════════════════════════════════
 def compute_audit_hash(payload: VerifiedPayload) -> str:
     h = hashlib.sha256()
-    h.update(payload.engine_version.encode("utf-8")); h.update(b"\x1f")
-    h.update(payload.canon_version.encode("utf-8"));   h.update(b"\x1f")
-    h.update(payload.document_id.encode("utf-8"));     h.update(b"\x1f")
-    for c in sorted(payload.claims,
-                    key=lambda x: (x.field_name, x.coordinate.char_start,
-                                   x.coordinate.char_end, x.value)):
-        h.update(c.field_name.encode("utf-8")); h.update(b"\x00")
-        h.update(c.value.encode("utf-8"));      h.update(b"\x00")
-        h.update(c.coordinate.chunk_id.encode("utf-8")); h.update(b"\x00")
-        h.update(str(c.coordinate.char_start).encode("ascii")); h.update(b"-")
-        h.update(str(c.coordinate.char_end).encode("ascii"));   h.update(b"\x1e")
+    h.update(payload.engine_version.encode("utf-8"))
+    h.update(b"\x1f")
+    h.update(payload.canon_version.encode("utf-8"))
+    h.update(b"\x1f")
+    h.update(payload.document_id.encode("utf-8"))
+    h.update(b"\x1f")
+    for c in sorted(
+        payload.claims, key=lambda x: (x.field_name, x.coordinate.char_start, x.coordinate.char_end, x.value)
+    ):
+        h.update(c.field_name.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(c.value.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(c.coordinate.chunk_id.encode("utf-8"))
+        h.update(b"\x00")
+        h.update(str(c.coordinate.char_start).encode("ascii"))
+        h.update(b"-")
+        h.update(str(c.coordinate.char_end).encode("ascii"))
+        h.update(b"\x1e")
     return h.hexdigest()
 
 
@@ -375,13 +384,33 @@ def payload_summary(payload: VerifiedPayload) -> Dict[str, Any]:
 
 
 __all__ = [
-    "BoundingBox", "SourceCoordinate", "DocumentType", "CodeDialect",
-    "ExtractionRequest", "ExtractedClaim", "VerificationResult",
-    "VerifiedClaim", "VerifiedPayload", "UnverifiablePayload",
-    "AxelrError", "UnverifiableDataError", "SchemaViolationError",
-    "DocumentParseError", "NoProviderAvailableError", "JobNotFoundError",
-    "QuotaExceededError", "ResearchDefectError", "DesignDefectError",
-    "Confidence", "VerifyTier", "TierSpec", "TierRegistry", "REGISTRY",
-    "compute_audit_hash", "verify_audit_hash", "safe_sha256_hex",
-    "tier_limits", "payload_summary",
+    "BoundingBox",
+    "SourceCoordinate",
+    "DocumentType",
+    "CodeDialect",
+    "ExtractionRequest",
+    "ExtractedClaim",
+    "VerificationResult",
+    "VerifiedClaim",
+    "VerifiedPayload",
+    "UnverifiablePayload",
+    "AxelrError",
+    "UnverifiableDataError",
+    "SchemaViolationError",
+    "DocumentParseError",
+    "NoProviderAvailableError",
+    "JobNotFoundError",
+    "QuotaExceededError",
+    "ResearchDefectError",
+    "DesignDefectError",
+    "Confidence",
+    "VerifyTier",
+    "TierSpec",
+    "TierRegistry",
+    "REGISTRY",
+    "compute_audit_hash",
+    "verify_audit_hash",
+    "safe_sha256_hex",
+    "tier_limits",
+    "payload_summary",
 ]

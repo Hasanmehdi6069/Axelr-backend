@@ -1,4 +1,5 @@
 """Apex Router — policy-driven hybrid inference router."""
+
 from __future__ import annotations
 
 import asyncio
@@ -18,19 +19,25 @@ DEFAULT_CONFIG = {
         "latency-first": {
             "order": ["firebase", "local", "nebius"],
             "confidence_thresholds": {
-                "firebase": 0.85, "local": 0.75, "nebius": 0.0,
+                "firebase": 0.85,
+                "local": 0.75,
+                "nebius": 0.0,
             },
         },
         "cost-first": {
             "order": ["firebase", "local", "nebius"],
             "confidence_thresholds": {
-                "firebase": 0.80, "local": 0.70, "nebius": 0.0,
+                "firebase": 0.80,
+                "local": 0.70,
+                "nebius": 0.0,
             },
         },
         "quality-first": {
             "order": ["nebius", "local", "firebase"],
             "confidence_thresholds": {
-                "nebius": 0.90, "local": 0.75, "firebase": 0.0,
+                "nebius": 0.90,
+                "local": 0.75,
+                "firebase": 0.0,
             },
         },
     },
@@ -40,16 +47,11 @@ DEFAULT_CONFIG = {
 
 # ─── Heuristic pre-classifier (task arrives untyped) ──────────────────────
 _TASK_PATTERNS = [
-    ("receipt", re.compile(
-        r"receipt|invoice|subtotal|total\b|\$\d", re.I)),
-    ("clause", re.compile(
-        r"clause|section\s+\d|lessee|lessor|indemnif|shall\b|herein", re.I)),
-    ("extraction", re.compile(
-        r"extract|pull out|list the|find all|return all", re.I)),
-    ("summarization", re.compile(
-        r"summari[sz]e|summary|tl;?dr|abstract", re.I)),
-    ("classification", re.compile(
-        r"classify|label|categori[sz]e|is this a", re.I)),
+    ("receipt", re.compile(r"receipt|invoice|subtotal|total\b|\$\d", re.I)),
+    ("clause", re.compile(r"clause|section\s+\d|lessee|lessor|indemnif|shall\b|herein", re.I)),
+    ("extraction", re.compile(r"extract|pull out|list the|find all|return all", re.I)),
+    ("summarization", re.compile(r"summari[sz]e|summary|tl;?dr|abstract", re.I)),
+    ("classification", re.compile(r"classify|label|categori[sz]e|is this a", re.I)),
 ]
 
 
@@ -104,18 +106,19 @@ class ApexRouter:
         await router.close()
     """
 
-    def __init__(self, config: dict, tiers: list[BaseTier],
-                 policy: Optional[str] = None):
+    def __init__(self, config: dict, tiers: list[BaseTier], policy: Optional[str] = None):
         self.config = config
         self.policy = policy or config.get("policy", "latency-first")
         self._tiers: dict[str, BaseTier] = {t.name: t for t in tiers}
         self._lock = asyncio.Lock()
 
     @classmethod
-    async def create(cls, config_path: Optional[str | Path] = None,
-                     policy: Optional[str] = None,
-                     tiers_override: Optional[dict[str, BaseTier]] = None,
-                     ) -> "ApexRouter":
+    async def create(
+        cls,
+        config_path: Optional[str | Path] = None,
+        policy: Optional[str] = None,
+        tiers_override: Optional[dict[str, BaseTier]] = None,
+    ) -> "ApexRouter":
         config = _load_config(config_path)
         if policy:
             config["policy"] = policy
@@ -124,25 +127,20 @@ class ApexRouter:
 
         costs = config.get("costs", {})
         tiers = tiers_override or {
-            "firebase": FirebaseTier(
-                cost_usd=float(costs.get("firebase", 0.0))),
-            "local": LocalTier(
-                cost_usd=float(costs.get("local", 0.00002))),
-            "nebius": NebiusTier(
-                cost_usd=float(costs.get("nebius", 0.0007))),
+            "firebase": FirebaseTier(cost_usd=float(costs.get("firebase", 0.0))),
+            "local": LocalTier(cost_usd=float(costs.get("local", 0.00002))),
+            "nebius": NebiusTier(cost_usd=float(costs.get("nebius", 0.0007))),
         }
         return cls(config, list(tiers.values()), policy=config["policy"])
 
-    async def route(self, prompt: str, taskType: Optional[str] = None,
-                    maxTokens: int = 512) -> RouteResult:
+    async def route(self, prompt: str, taskType: Optional[str] = None, maxTokens: int = 512) -> RouteResult:
         if not prompt or not prompt.strip():
             raise ValueError("prompt is required")
 
         task = taskType or classify_task(prompt)
         policy_def = self.config["policies"][self.policy]
         order: list[str] = policy_def["order"]
-        thresholds: dict[str, float] = policy_def.get(
-            "confidence_thresholds", {})
+        thresholds: dict[str, float] = policy_def.get("confidence_thresholds", {})
 
         cascade: list[dict] = []
         last_result: Optional[TierResult] = None
@@ -151,16 +149,17 @@ class ApexRouter:
             tier = self._tiers.get(tier_name)
             if tier is None:
                 continue
-            result = await tier.infer(prompt, taskType=task,
-                                      maxTokens=maxTokens)
-            cascade.append({
-                "tier": tier_name,
-                "confidence": round(result.confidence, 2),
-                "latencyMs": result.latencyMs,
-                "costUsd": result.costUsd,
-                "simulated": result.simulated,
-                **({"error": result.error} if result.error else {}),
-            })
+            result = await tier.infer(prompt, taskType=task, maxTokens=maxTokens)
+            cascade.append(
+                {
+                    "tier": tier_name,
+                    "confidence": round(result.confidence, 2),
+                    "latencyMs": result.latencyMs,
+                    "costUsd": result.costUsd,
+                    "simulated": result.simulated,
+                    **({"error": result.error} if result.error else {}),
+                }
+            )
 
             if result.error:
                 last_result = result
@@ -169,16 +168,13 @@ class ApexRouter:
             last_result = result
             threshold = thresholds.get(tier_name, 0.0)
             if result.confidence >= threshold:
-                return await self._finalize(
-                    result, task, cascade, exhausted=False)
+                return await self._finalize(result, task, cascade, exhausted=False)
 
         if last_result is None:
             raise RuntimeError("no tiers available in policy order")
-        return await self._finalize(
-            last_result, task, cascade, exhausted=True)
+        return await self._finalize(last_result, task, cascade, exhausted=True)
 
-    async def _finalize(self, result: TierResult, task: str,
-                        cascade: list[dict], exhausted: bool) -> RouteResult:
+    async def _finalize(self, result: TierResult, task: str, cascade: list[dict], exhausted: bool) -> RouteResult:
         route = RouteResult(
             text=result.text,
             taskType=result.taskType or task,
@@ -192,20 +188,19 @@ class ApexRouter:
             simulated=result.simulated,
             exhausted=exhausted,
         )
-        await log_route({
-            "taskType": route.taskType,
-            "tier": route.tier,
-            "latencyMs": route.latencyMs,
-            "costUsd": route.costUsd,
-            "confidence": route.confidence,
-            "policy": route.policy,
-            "escalated": route.escalated,
-            "cascade": [
-                {"tier": c["tier"], "confidence": c["confidence"]}
-                for c in cascade
-            ],
-            "simulated": route.simulated,
-        })
+        await log_route(
+            {
+                "taskType": route.taskType,
+                "tier": route.tier,
+                "latencyMs": route.latencyMs,
+                "costUsd": route.costUsd,
+                "confidence": route.confidence,
+                "policy": route.policy,
+                "escalated": route.escalated,
+                "cascade": [{"tier": c["tier"], "confidence": c["confidence"]} for c in cascade],
+                "simulated": route.simulated,
+            }
+        )
         return route
 
     async def close(self) -> None:

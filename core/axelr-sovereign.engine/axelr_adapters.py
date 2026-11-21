@@ -14,6 +14,7 @@ The honest contract:
 
 Memory: model file is mmap'd; hot set is bounded by `preload_fraction`.
 """
+
 from __future__ import annotations
 
 import os
@@ -30,6 +31,7 @@ logger = get_logger(__name__)
 
 class ASRAdapter(Protocol):
     name: str
+
     def transcribe(self, log_mel: np.ndarray) -> List[Token]: ...
     def dispose(self) -> None: ...
 
@@ -40,18 +42,18 @@ class ASRConfig:
     language: str = "en"
     beam_size: int = 1
     temperature: float = 0.0
-    preload_fraction: float = 1.0     # 0.5 = half resident, half mmap
+    preload_fraction: float = 1.0  # 0.5 = half resident, half mmap
     model_size: str = "tiny"
 
 
 # ── MockAdapter — deterministic, loud about being mock ───────────────────
 class MockAdapter:
     """Deterministic adapter for tests and CI. NEVER silent in production."""
+
     name = "mock"
 
     def __init__(self, config: ASRConfig) -> None:
-        logger.warning("asr_adapter=mock — no real model. "
-                       "Set AXELR_ASR=whispercpp or install faster-whisper.")
+        logger.warning("asr_adapter=mock — no real model. Set AXELR_ASR=whispercpp or install faster-whisper.")
 
     def transcribe(self, log_mel: np.ndarray) -> List[Token]:
         if log_mel.size == 0:
@@ -68,15 +70,17 @@ class FasterWhisperAdapter:
     Uses faster-whisper (CTranslate2). Model file is mmap'd; hot set
     controlled by `preload_fraction`. Weights are not held in Python heap.
     """
+
     name = "faster-whisper"
 
     def __init__(self, config: ASRConfig) -> None:
         from faster_whisper import WhisperModel  # hard fail if missing
+
         model_dir = config.model_path or ensure_model_present(config.model_size).parent
         self._model = WhisperModel(
             str(model_dir),
             device="cpu",
-            compute_type="int8",       # int8 for STANDARD/HIGH
+            compute_type="int8",  # int8 for STANDARD/HIGH
             cpu_threads=max(2, (os.cpu_count() or 2) // 2),
             num_workers=1,
         )
@@ -89,15 +93,16 @@ class FasterWhisperAdapter:
         # faster-whisper expects raw audio; we adapt from log-mel by
         # reconstructing (documented below — real integration uses raw path
         # via `transcribe_raw`).
-        raise NotImplementedError(
-            "faster-whisper wants raw 16kHz audio; call transcribe_raw()"
-        )
+        raise NotImplementedError("faster-whisper wants raw 16kHz audio; call transcribe_raw()")
 
     def transcribe_raw(self, pcm16k: np.ndarray) -> List[Token]:
         pcm = pcm16k.astype(np.float32) / 32768.0
         segments, _info = self._model.transcribe(
-            pcm, language=self._lang, beam_size=self._beam,
-            temperature=self._temp, vad_filter=False,
+            pcm,
+            language=self._lang,
+            beam_size=self._beam,
+            temperature=self._temp,
+            vad_filter=False,
         )
         out: List[Token] = []
         tid = 1
@@ -118,6 +123,7 @@ class WhisperCppAdapter:
 
     def __init__(self, config: ASRConfig) -> None:
         from pywhispercpp.model import Model  # hard fail if missing
+
         model_path = config.model_path or ensure_model_present(config.model_size)
         self._model = Model(
             str(model_path),
@@ -129,7 +135,7 @@ class WhisperCppAdapter:
         logger.info("asr_adapter=whispercpp model=%s", model_path.name)
 
     def transcribe_raw(self, pcm16k: np.ndarray) -> List[Token]:
-        pcm = (pcm16k.astype(np.float32) / 32768.0)
+        pcm = pcm16k.astype(np.float32) / 32768.0
         segments = self._model.transcribe(pcm, language=self._lang)
         out: List[Token] = []
         tid = 1
@@ -150,8 +156,7 @@ def _default_model_dir(size: str) -> Path:
     return home / "models" / f"whisper-{size}"
 
 
-def select_adapter(config: ASRConfig,
-                   force: Optional[str] = None) -> ASRAdapter:
+def select_adapter(config: ASRConfig, force: Optional[str] = None) -> ASRAdapter:
     """
     Probe order: whispercpp → faster-whisper → mock.
     AXELR_ASR env overrides. AXELR_ALLOW_MOCK=1 permits mock in production.
@@ -188,6 +193,7 @@ def select_adapter(config: ASRConfig,
 
 def make_local_fn(adapter: ASRAdapter):
     """Wrap an adapter into a LocalInferenceFn: log_mel (+ optional pcm) → List[Token]."""
+
     def _local(log_mel: np.ndarray, pcm: Optional[np.ndarray] = None) -> List[Token]:
         # Prefer raw path if available and pcm given
         if pcm is not None and hasattr(adapter, "transcribe_raw"):
@@ -202,7 +208,9 @@ def make_local_fn(adapter: ASRAdapter):
                 logger.warning("transcribe not implemented; pcm required")
                 return []
             raise
+
     return _local
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Adapter introspection — capabilities + health check
@@ -210,6 +218,7 @@ def make_local_fn(adapter: ASRAdapter):
 @dataclass(frozen=True, slots=True)
 class AdapterCapabilities:
     """Introspected capabilities of an adapter."""
+
     name: str
     has_transcribe: bool
     has_transcribe_raw: bool
@@ -241,8 +250,10 @@ def probe_adapter(cls: type, config: ASRConfig) -> Tuple[bool, Optional[str]]:
     try:
         adapter = cls(config)
         if hasattr(adapter, "dispose"):
-            try: adapter.dispose()
-            except Exception: pass
+            try:
+                adapter.dispose()
+            except Exception:
+                pass
         return True, None
     except FileNotFoundError as e:
         return False, f"model_not_found: {e}"
@@ -289,9 +300,10 @@ _DEFAULT_MODELS = {
     },
 }
 
-def ensure_model_present(size: str = "tiny",
-                          target: Optional[Path] = None,
-                          on_progress: Optional[Callable[[int, int], None]] = None) -> Path:
+
+def ensure_model_present(
+    size: str = "tiny", target: Optional[Path] = None, on_progress: Optional[Callable[[int, int], None]] = None
+) -> Path:
     """Auto-download model on first run. Verifies SHA256. Returns local path."""
     info = _DEFAULT_MODELS.get(size)
     if not info:
@@ -305,6 +317,7 @@ def ensure_model_present(size: str = "tiny",
 
     import hashlib
     import urllib.request
+
     sha = hashlib.sha256()
     tmp = target.with_suffix(".tmp")
     try:
@@ -313,23 +326,37 @@ def ensure_model_present(size: str = "tiny",
             downloaded = 0
             while True:
                 chunk = r.read(1024 * 256)
-                if not chunk: break
-                f.write(chunk); sha.update(chunk)
+                if not chunk:
+                    break
+                f.write(chunk)
+                sha.update(chunk)
                 downloaded += len(chunk)
-                if on_progress: on_progress(downloaded, total)
+                if on_progress:
+                    on_progress(downloaded, total)
         if sha.hexdigest() != info["sha256"]:
             raise RuntimeError(f"sha256 mismatch (expected {info['sha256']})")
         tmp.replace(target)
         logger.info("model_downloaded size=%s mb=%.1f", size, target.stat().st_size / 1048576)
         return target
     except Exception:
-        if tmp.exists(): tmp.unlink()
+        if tmp.exists():
+            tmp.unlink()
         raise
+
 
 # Update __all__ to include new symbols
 __all__ = [
-    "ASRAdapter", "ASRConfig", "MockAdapter", "FasterWhisperAdapter",
-    "WhisperCppAdapter", "select_adapter", "make_local_fn",
-    "AdapterCapabilities", "get_adapter_info", "probe_adapter",
-    "check_all_adapters", "recommend_adapter", "ensure_model_present",
+    "ASRAdapter",
+    "ASRConfig",
+    "MockAdapter",
+    "FasterWhisperAdapter",
+    "WhisperCppAdapter",
+    "select_adapter",
+    "make_local_fn",
+    "AdapterCapabilities",
+    "get_adapter_info",
+    "probe_adapter",
+    "check_all_adapters",
+    "recommend_adapter",
+    "ensure_model_present",
 ]

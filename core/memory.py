@@ -38,6 +38,7 @@ Companion modules:
       from here. Their canonical home is this module.
     * ``core.infra`` — supplies ``cf_embed_batch`` and ``get_redis_client``.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -55,19 +56,20 @@ import httpx
 
 logger = logging.getLogger("axelr.memory")
 
+
 # Add placeholder for RepoIndexer if it's not implemented yet
 class RepoIndexer:
     """Placeholder for RepoIndexer to prevent import errors"""
+
     pass
+
 
 _CF_BASE = "https://api.cloudflare.com/client/v4/accounts/{acct}"
 _VECTOR_URL = _CF_BASE + "/vectorize/v2/indexes/{index}{suffix}"
 
 _EMBED_MODEL = os.getenv("MEMORY_EMBED_MODEL", "@cf/baai/bge-small-en-v1.5")
-_CHAT_INDEX = (os.getenv("CONV_MEMORY_INDEX")
-               or "axelr-conversation-memory").strip()
-_FACT_INDEX = (os.getenv("MEMORY_BUS_INDEX")
-               or "axelr-memory-bus").strip()
+_CHAT_INDEX = (os.getenv("CONV_MEMORY_INDEX") or "axelr-conversation-memory").strip()
+_FACT_INDEX = (os.getenv("MEMORY_BUS_INDEX") or "axelr-memory-bus").strip()
 
 _MAX_TEXT_CHARS = 4000
 _DEFAULT_TOP_K = 6
@@ -80,8 +82,7 @@ _HTTP_TIMEOUT = httpx.Timeout(15.0, connect=5.0)
 
 def _sha(text: str) -> str:
     """SHA-256 of ``text`` as lowercase hex. Used as stable memory id seed."""
-    return hashlib.sha256(
-        text.encode("utf-8", errors="ignore")).hexdigest()
+    return hashlib.sha256(text.encode("utf-8", errors="ignore")).hexdigest()
 
 
 def _make_id(user_id: str, session_id: str, text: str) -> str:
@@ -99,10 +100,10 @@ class _VectorizeClient:
     upsert / query / delete-by-ids. Never raises — every method returns
     an empty value or ``False`` on error.
     """
+
     __slots__ = ("_acct", "_key", "_http", "_index")
 
-    def __init__(self, acct: str, key: str, index: str,
-                 http: httpx.AsyncClient) -> None:
+    def __init__(self, acct: str, key: str, index: str, http: httpx.AsyncClient) -> None:
         self._acct = acct
         self._key = key
         self._index = index
@@ -114,22 +115,19 @@ class _VectorizeClient:
         return bool(self._acct and self._key and self._index)
 
     def _url(self, suffix: str) -> str:
-        return _VECTOR_URL.format(
-            acct=self._acct, index=self._index, suffix=suffix)
+        return _VECTOR_URL.format(acct=self._acct, index=self._index, suffix=suffix)
 
     def _headers(self) -> dict[str, str]:
-        return {"Authorization": f"Bearer {self._key}",
-                "Content-Type": "application/json"}
+        return {"Authorization": f"Bearer {self._key}", "Content-Type": "application/json"}
 
-    async def upsert(self, vectors: list[dict[str, Any]],
-                     timeout: float = 30.0) -> bool:
+    async def upsert(self, vectors: list[dict[str, Any]], timeout: float = 30.0) -> bool:
         """Insert or update vectors. Returns ``False`` on any failure."""
         if not self.enabled or not vectors:
             return False
         try:
             r = await self._http.post(
-                self._url("/upsert"), headers=self._headers(),
-                json={"vectors": vectors}, timeout=timeout)
+                self._url("/upsert"), headers=self._headers(), json={"vectors": vectors}, timeout=timeout
+            )
             r.raise_for_status()
             return True
         except Exception as e:
@@ -137,7 +135,10 @@ class _VectorizeClient:
             return False
 
     async def query(
-        self, vector: Sequence[float], *, top_k: int = 10,
+        self,
+        vector: Sequence[float],
+        *,
+        top_k: int = 10,
         filters: dict[str, Any] | None = None,
         timeout: float = 15.0,
     ) -> list[dict[str, Any]]:
@@ -145,31 +146,29 @@ class _VectorizeClient:
         if not self.enabled:
             return []
         body: dict[str, Any] = {
-            "vector": list(vector), "topK": int(top_k),
-            "returnValues": False, "returnMetadata": "all",
+            "vector": list(vector),
+            "topK": int(top_k),
+            "returnValues": False,
+            "returnMetadata": "all",
         }
         if filters:
             body["filter"] = filters
         try:
-            r = await self._http.post(
-                self._url("/query"), headers=self._headers(),
-                json=body, timeout=timeout)
+            r = await self._http.post(self._url("/query"), headers=self._headers(), json=body, timeout=timeout)
             r.raise_for_status()
-            return list(
-                ((r.json().get("result") or {}).get("matches")) or [])
+            return list(((r.json().get("result") or {}).get("matches")) or [])
         except Exception as e:
             logger.warning("vectorize_query_failed error=%s", e)
             return []
 
-    async def delete_by_ids(self, ids: list[str],
-                            timeout: float = 30.0) -> bool:
+    async def delete_by_ids(self, ids: list[str], timeout: float = 30.0) -> bool:
         """Delete vectors by id list. Returns ``False`` on failure."""
         if not self.enabled or not ids:
             return False
         try:
             r = await self._http.post(
-                self._url("/delete_by_ids"), headers=self._headers(),
-                json={"ids": ids}, timeout=timeout)
+                self._url("/delete_by_ids"), headers=self._headers(), json={"ids": ids}, timeout=timeout
+            )
             r.raise_for_status()
             return True
         except Exception as e:
@@ -187,6 +186,7 @@ class MemoryItem:
     Returned by ``Memory.recall`` / ``Memory.recent``. ``render()`` gives
     the ``[role] text`` form used inside a prompt.
     """
+
     id: str
     text: str
     role: str
@@ -199,7 +199,9 @@ class MemoryItem:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id, "text": self.text, "role": self.role,
+            "id": self.id,
+            "text": self.text,
+            "role": self.role,
             "session_id": self.session_id,
             "score": round(self.score, 4),
             "created_at": self.created_at,
@@ -219,15 +221,27 @@ class Memory:
         * ``close()`` releases the HTTP client only if this instance
           created it.
     """
+
     __slots__ = (
-        "_chat_vec", "_fact_vec", "_acct", "_key", "_http",
-        "_owns_http", "_redis", "_supabase", "_recent_limit",
-        "_embed_prefix", "_recent_prefix", "_ids_prefix",
-        "_chat_index", "_fact_index",
+        "_chat_vec",
+        "_fact_vec",
+        "_acct",
+        "_key",
+        "_http",
+        "_owns_http",
+        "_redis",
+        "_supabase",
+        "_recent_limit",
+        "_embed_prefix",
+        "_recent_prefix",
+        "_ids_prefix",
+        "_chat_index",
+        "_fact_index",
     )
 
     def __init__(
-        self, *,
+        self,
+        *,
         account_id: str | None = None,
         api_key: str | None = None,
         chat_index: str | None = None,
@@ -236,25 +250,20 @@ class Memory:
         http_client: httpx.AsyncClient | None = None,
         recent_limit: int = _DEFAULT_RECENT_LIMIT,
     ) -> None:
-        self._acct = (account_id
-                      or os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
-        self._key = (api_key
-                     or os.getenv("CLOUDFLARE_API_KEY") or "").strip()
+        self._acct = (account_id or os.getenv("CLOUDFLARE_ACCOUNT_ID") or "").strip()
+        self._key = (api_key or os.getenv("CLOUDFLARE_API_KEY") or "").strip()
         self._chat_index = (chat_index or _CHAT_INDEX).strip()
         self._fact_index = (fact_index or _FACT_INDEX).strip()
         if http_client is None:
             self._http = httpx.AsyncClient(
-                timeout=_HTTP_TIMEOUT,
-                limits=httpx.Limits(
-                    max_connections=10, max_keepalive_connections=5))
+                timeout=_HTTP_TIMEOUT, limits=httpx.Limits(max_connections=10, max_keepalive_connections=5)
+            )
             self._owns_http = True
         else:
             self._http = http_client
             self._owns_http = False
-        self._chat_vec = _VectorizeClient(
-            self._acct, self._key, self._chat_index, self._http)
-        self._fact_vec = _VectorizeClient(
-            self._acct, self._key, self._fact_index, self._http)
+        self._chat_vec = _VectorizeClient(self._acct, self._key, self._chat_index, self._http)
+        self._fact_vec = _VectorizeClient(self._acct, self._key, self._fact_index, self._http)
         self._redis = redis_client
         self._supabase: Any = None
         self._recent_limit = max(1, int(recent_limit))
@@ -272,7 +281,12 @@ class Memory:
 
     # ── remember ────────────────────────────────────────────────────
     async def remember(
-        self, *, user_id: str, session_id: str, role: str, text: str,
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        role: str,
+        text: str,
         metadata: dict[str, Any] | None = None,
     ) -> str | None:
         """Persist one message across all enabled layers.
@@ -287,9 +301,11 @@ class Memory:
             vid = _make_id(user_id, session_id, text)
             now = time.time()
 
-            await self._recent_push(user_id, session_id, MemoryItem(
-                id=vid, text=text, role=role, session_id=session_id,
-                score=1.0, created_at=now))
+            await self._recent_push(
+                user_id,
+                session_id,
+                MemoryItem(id=vid, text=text, role=role, session_id=session_id, score=1.0, created_at=now),
+            )
 
             if self._chat_vec.enabled:
                 vec = await self._embed(text)
@@ -303,11 +319,9 @@ class Memory:
                     }
                     if metadata:
                         for k, v in metadata.items():
-                            if (isinstance(v, (str, int, float, bool))
-                                    and len(str(v)) < 256):
+                            if isinstance(v, (str, int, float, bool)) and len(str(v)) < 256:
                                 md[str(k)[:32]] = v
-                    if await self._chat_vec.upsert(
-                            [{"id": vid, "values": vec, "metadata": md}]):
+                    if await self._chat_vec.upsert([{"id": vid, "values": vec, "metadata": md}]):
                         await self._track_id(user_id, session_id, vid)
 
             if self._supabase is not None:
@@ -316,7 +330,12 @@ class Memory:
                         "insert into memory "
                         "(user_id, session_id, role, text, created_at) "
                         "values ($1,$2,$3,$4,to_timestamp($5))",
-                        user_id, session_id, role, text, now)
+                        user_id,
+                        session_id,
+                        role,
+                        text,
+                        now,
+                    )
             return vid
         except Exception as e:
             logger.warning("memory_remember_failed error=%s", e)
@@ -324,7 +343,10 @@ class Memory:
 
     # ── recall ──────────────────────────────────────────────────────
     async def recall(
-        self, *, user_id: str, query: str,
+        self,
+        *,
+        user_id: str,
+        query: str,
         top_k: int = _DEFAULT_TOP_K,
         session_id: str | None = None,
         min_score: float = _DEFAULT_MIN_SCORE,
@@ -333,36 +355,38 @@ class Memory:
         if not query or not query.strip():
             return []
         if not self._chat_vec.enabled:
-            return await self.recent(
-                user_id, session_id or "", limit=top_k)
+            return await self.recent(user_id, session_id or "", limit=top_k)
         try:
             vec = await self._embed(query)
             if not vec:
-                return await self.recent(
-                    user_id, session_id or "", limit=top_k)
+                return await self.recent(user_id, session_id or "", limit=top_k)
             filters: dict[str, Any]
             if session_id:
-                filters = {"$and": [
-                    {"user_id": {"$eq": user_id}},
-                    {"session_id": {"$eq": session_id}},
-                ]}
+                filters = {
+                    "$and": [
+                        {"user_id": {"$eq": user_id}},
+                        {"session_id": {"$eq": session_id}},
+                    ]
+                }
             else:
                 filters = {"user_id": {"$eq": user_id}}
-            matches = await self._chat_vec.query(
-                vec, top_k=top_k, filters=filters)
+            matches = await self._chat_vec.query(vec, top_k=top_k, filters=filters)
             out: list[MemoryItem] = []
             for m in matches:
                 score = float(m.get("score", 0.0))
                 if score < min_score:
                     continue
                 md = m.get("metadata") or {}
-                out.append(MemoryItem(
-                    id=str(m.get("id", "")),
-                    text=str(md.get("text", "")),
-                    role=str(md.get("role", "user")),
-                    session_id=str(md.get("session_id", "")),
-                    score=score,
-                    created_at=float(md.get("created_at", 0.0))))
+                out.append(
+                    MemoryItem(
+                        id=str(m.get("id", "")),
+                        text=str(md.get("text", "")),
+                        role=str(md.get("role", "user")),
+                        session_id=str(md.get("session_id", "")),
+                        score=score,
+                        created_at=float(md.get("created_at", 0.0)),
+                    )
+                )
             return out
         except Exception as e:
             logger.warning("memory_recall_failed error=%s", e)
@@ -370,7 +394,11 @@ class Memory:
 
     # ── recent ──────────────────────────────────────────────────────
     async def recent(
-        self, user_id: str, session_id: str, *, limit: int = 10,
+        self,
+        user_id: str,
+        session_id: str,
+        *,
+        limit: int = 10,
     ) -> list[MemoryItem]:
         """Most-recent messages from Redis. Empty list if Redis is absent."""
         if self._redis is None:
@@ -385,13 +413,16 @@ class Memory:
         for entry in raw:
             try:
                 d = json.loads(entry)
-                out.append(MemoryItem(
-                    id=str(d.get("id", "")),
-                    text=str(d.get("text", "")),
-                    role=str(d.get("role", "user")),
-                    session_id=str(d.get("session_id", session_id)),
-                    score=float(d.get("score", 1.0)),
-                    created_at=float(d.get("created_at", 0.0))))
+                out.append(
+                    MemoryItem(
+                        id=str(d.get("id", "")),
+                        text=str(d.get("text", "")),
+                        role=str(d.get("role", "user")),
+                        session_id=str(d.get("session_id", session_id)),
+                        score=float(d.get("score", 1.0)),
+                        created_at=float(d.get("created_at", 0.0)),
+                    )
+                )
             except Exception:
                 continue
         return out
@@ -426,27 +457,35 @@ class Memory:
 
     # ── backward-compat aliases ────────────────────────────────────
     async def add_message(
-        self, user_id: str, session_id: str, role: str, text: str, *,
+        self,
+        user_id: str,
+        session_id: str,
+        role: str,
+        text: str,
+        *,
         metadata: dict[str, Any] | None = None,
     ) -> str | None:
         """Alias for ``remember()``."""
-        return await self.remember(
-            user_id=user_id, session_id=session_id,
-            role=role, text=text, metadata=metadata)
+        return await self.remember(user_id=user_id, session_id=session_id, role=role, text=text, metadata=metadata)
 
     async def retrieve(
-        self, user_id: str, query: str, *,
+        self,
+        user_id: str,
+        query: str,
+        *,
         top_k: int = _DEFAULT_TOP_K,
         session_id: str | None = None,
         min_score: float = _DEFAULT_MIN_SCORE,
     ) -> list[MemoryItem]:
         """Alias for ``recall()``."""
-        return await self.recall(
-            user_id=user_id, query=query, top_k=top_k,
-            session_id=session_id, min_score=min_score)
+        return await self.recall(user_id=user_id, query=query, top_k=top_k, session_id=session_id, min_score=min_score)
 
     async def retrieve_recent(
-        self, user_id: str, session_id: str, *, limit: int = 10,
+        self,
+        user_id: str,
+        session_id: str,
+        *,
+        limit: int = 10,
     ) -> list[MemoryItem]:
         """Alias for ``recent()``."""
         return await self.recent(user_id, session_id, limit=limit)
@@ -466,20 +505,23 @@ class Memory:
         vec = await self._embed_remote(text)
         if vec and self._redis is not None:
             with contextlib.suppress(Exception):
-                await self._redis.setex(
-                    cache_key, _EMBED_CACHE_TTL, json.dumps(vec))
+                await self._redis.setex(cache_key, _EMBED_CACHE_TTL, json.dumps(vec))
         return vec
 
     async def _embed_remote(self, text: str) -> list[float] | None:
         """Delegate to the canonical ``cf_embed_batch``. Never raises."""
         from .infra import cf_embed_batch
+
         vecs = await cf_embed_batch([text])
         if not vecs:
             return None
         return vecs[0]
 
     async def _recent_push(
-        self, user_id: str, session_id: str, item: MemoryItem,
+        self,
+        user_id: str,
+        session_id: str,
+        item: MemoryItem,
     ) -> None:
         if self._redis is None:
             return
@@ -490,7 +532,10 @@ class Memory:
             await self._redis.expire(key, _RECENT_TTL)
 
     async def _track_id(
-        self, user_id: str, session_id: str, vid: str,
+        self,
+        user_id: str,
+        session_id: str,
+        vid: str,
     ) -> None:
         if self._redis is None:
             return
@@ -525,6 +570,7 @@ async def get_memory() -> Memory:
         if _MEMORY is None:
             try:
                 from .infra import get_redis_client
+
                 redis = get_redis_client()
             except Exception:
                 redis = None
@@ -540,8 +586,13 @@ ConversationMemoryItem = MemoryItem
 
 
 __all__ = [
-    "Memory", "MemoryItem", "get_memory",
-    "ConversationMemory", "MemoryBus",
-    "MemoryHit", "ConversationMemoryItem",
-    "_VectorizeClient", "_sha",
+    "Memory",
+    "MemoryItem",
+    "get_memory",
+    "ConversationMemory",
+    "MemoryBus",
+    "MemoryHit",
+    "ConversationMemoryItem",
+    "_VectorizeClient",
+    "_sha",
 ]

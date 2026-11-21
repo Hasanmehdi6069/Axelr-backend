@@ -14,6 +14,7 @@ Usage:
 
 Detection order: bwrap > firejail > none. Override with SENTINEL_ISOLATION.
 """
+
 from __future__ import annotations
 
 import os
@@ -36,21 +37,41 @@ def _bwrap_cmd(cmd: list[str], scratch: Path) -> list[str]:
     """Minimal bwrap: namespaces, read-only root, writable /scratch only."""
     return [
         "bwrap",
-        "--ro-bind", "/usr", "/usr",
-        "--ro-bind", "/lib", "/lib",
-        "--ro-bind", "/lib64", "/lib64",
-        "--ro-bind", "/bin", "/bin",
-        "--ro-bind-try", "/etc/alternatives", "/etc/alternatives",
-        "--ro-bind", "/etc/ssl", "/etc/ssl",
-        "--proc", "/proc",
-        "--dev", "/dev",
-        "--tmpfs", "/tmp",
-        "--bind", str(scratch), str(scratch),
+        "--ro-bind",
+        "/usr",
+        "/usr",
+        "--ro-bind",
+        "/lib",
+        "/lib",
+        "--ro-bind",
+        "/lib64",
+        "/lib64",
+        "--ro-bind",
+        "/bin",
+        "/bin",
+        "--ro-bind-try",
+        "/etc/alternatives",
+        "/etc/alternatives",
+        "--ro-bind",
+        "/etc/ssl",
+        "/etc/ssl",
+        "--proc",
+        "/proc",
+        "--dev",
+        "/dev",
+        "--tmpfs",
+        "/tmp",
+        "--bind",
+        str(scratch),
+        str(scratch),
         "--unshare-all",
         "--die-with-parent",
         "--new-session",
-        "--chdir", str(scratch),
-        "--setenv", "SENTINEL_ISOLATED", "bwrap",
+        "--chdir",
+        str(scratch),
+        "--setenv",
+        "SENTINEL_ISOLATED",
+        "bwrap",
         "--",
         *cmd,
     ]
@@ -76,8 +97,9 @@ def _firejail_cmd(cmd: list[str], scratch: Path) -> list[str]:
     ]
 
 
-def wrap_command(cmd: list[str], scratch: Path | str = "/tmp/sentinel-scratch",
-                 force: str | None = None) -> tuple[list[str], str]:
+def wrap_command(
+    cmd: list[str], scratch: Path | str = "/tmp/sentinel-scratch", force: str | None = None
+) -> tuple[list[str], str]:
     """Return (wrapped_cmd, isolation_mode). Never raises."""
     mode = force or detect_isolation()
     scratch = Path(scratch)
@@ -98,6 +120,6 @@ def audit_isolation() -> dict:
             "bwrap/firejail confirmed present — OS-level isolation in effect"
             if mode in ("bwrap", "firejail")
             else "Python-level guards only. For production, install bubblewrap "
-                 "(apt install bubblewrap) and set SENTINEL_ISOLATION=bwrap"
+            "(apt install bubblewrap) and set SENTINEL_ISOLATION=bwrap"
         ),
     }

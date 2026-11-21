@@ -4,6 +4,7 @@ permissions (ZTPS #4), hotkeys (SHIS #5), capture pipeline with endpointing.
 
 Memory: ~2.4 MB (log-mel 960 KB + frame scratch 800 KB + filterbank 130 KB + misc).
 """
+
 from __future__ import annotations
 
 import threading
@@ -22,6 +23,7 @@ logger = get_logger(__name__)
 try:
     import ctypes
     import ctypes.wintypes
+
     _IS_WINDOWS = True
 except Exception:
     ctypes = None  # type: ignore[assignment]
@@ -30,6 +32,7 @@ except Exception:
 
 
 # ---------- VAD State Machine (#17) -------------------------------------
+
 
 class VadState(Enum):
     SILENCE = "silence"
@@ -51,8 +54,13 @@ class VadStateMachine:
     """
 
     __slots__ = (
-        "config", "_state", "_noise_floor", "_speech_run", "_silence_run",
-        "_last_change_t", "_endpoint_emitted",
+        "config",
+        "_state",
+        "_noise_floor",
+        "_speech_run",
+        "_silence_run",
+        "_last_change_t",
+        "_endpoint_emitted",
     )
 
     def __init__(self, config: VadConfig) -> None:
@@ -117,6 +125,7 @@ class VadStateMachine:
 
 # ---------- DSP config / pipeline ---------------------------------------
 
+
 @dataclass(frozen=True, slots=True)
 class DSPConfig:
     sample_rate: int = 16000
@@ -170,8 +179,17 @@ class DSPPipeline:
     """
 
     __slots__ = (
-        "config", "vad", "_frame_size", "_frame_shift", "_afs", "_dafc",
-        "_window", "_filterbank", "_log_mel", "_speech_frames", "_total_frames",
+        "config",
+        "vad",
+        "_frame_size",
+        "_frame_shift",
+        "_afs",
+        "_dafc",
+        "_window",
+        "_filterbank",
+        "_log_mel",
+        "_speech_frames",
+        "_total_frames",
     )
 
     def __init__(self, config: DSPConfig, vad: VadStateMachine) -> None:
@@ -208,8 +226,7 @@ class DSPPipeline:
         if n < self._frame_size:
             return np.empty((0, self._frame_size), dtype=np.float32)
         n_frames = 1 + (n - self._frame_size) // self._frame_shift
-        idx = (np.arange(self._frame_size)[None, :]
-               + np.arange(n_frames)[:, None] * self._frame_shift)
+        idx = np.arange(self._frame_size)[None, :] + np.arange(n_frames)[:, None] * self._frame_shift
         frames = samples[idx].astype(np.float32)
         frames *= self._window
         return frames
@@ -248,6 +265,7 @@ class DSPPipeline:
 
 # ---------- ZTPS #4 ------------------------------------------------------
 
+
 class PermissionState(Enum):
     UNREQUESTED = "unrequested"
     GRANTED = "granted"
@@ -278,7 +296,8 @@ class ZeroTrustPermissionManager:
 
     def __init__(self) -> None:
         self._perms: Dict[PermissionType, Permission] = {
-            p: Permission(p) for p in (
+            p: Permission(p)
+            for p in (
                 PermissionType.MICROPHONE,
                 PermissionType.ACCESSIBILITY,
                 PermissionType.CLIPBOARD,
@@ -316,35 +335,42 @@ class ZeroTrustPermissionManager:
     def _request_os(self, p: PermissionType) -> bool:
         try:
             import sys
+
             if sys.platform == "win32":
                 if p == PermissionType.MICROPHONE:
                     try:
                         import winrt.windows.media.devices as media
+
                         return media.MediaDevice.GetAudioCaptureSelector() is not None
                     except Exception:
                         return False
                 elif p == PermissionType.ACCESSIBILITY:
                     try:
                         import winrt.windows.ui.viewmanagement as ui
+
                         return ui.UIViewSettings.AreScreenReadersEnabled
                     except Exception:
                         return False
                 elif p == PermissionType.CLIPBOARD:
                     try:
                         import winrt.windows.applicationmodel as app
+
                         return app.DataTransfer.Clipboard.IsClipboardHistoryEnabled()
                     except Exception:
                         return False
             elif sys.platform == "darwin":
                 if p == PermissionType.MICROPHONE:
                     import AVFoundation
+
                     return AVFoundation.AVCaptureDevice.authorizationStatusForMediaType_("AVMediaTypeAudio") == 3
                 elif p == PermissionType.ACCESSIBILITY:
                     import ApplicationServices
+
                     return ApplicationServices.AXIsProcessTrusted()
             elif sys.platform.startswith("linux"):
                 if p == PermissionType.MICROPHONE:
                     import pyaudio
+
                     pa = pyaudio.PyAudio()
                     return pa.get_device_count() > 0
             return False
@@ -358,6 +384,7 @@ class ZeroTrustPermissionManager:
 # ---------- SHIS #5 ------------------------------------------------------
 
 if _IS_WINDOWS:
+
     class _KBDLLHOOKSTRUCT(ctypes.Structure):  # type: ignore[name-defined]
         _fields_ = [
             ("vkCode", ctypes.wintypes.DWORD),
@@ -366,6 +393,7 @@ if _IS_WINDOWS:
             ("time", ctypes.wintypes.DWORD),
             ("dwExtraInfo", ctypes.c_void_p),
         ]
+
     _WH_KEYBOARD_LL = 13
     _WM_KEYDOWN = 0x0100
     _WM_SYSKEYDOWN = 0x0104
@@ -385,8 +413,17 @@ class Hotkey:
 class HotkeyInterceptor:
     """#5 SHIS: Windows low-level keyboard hook in a daemon thread. Re-armable."""
 
-    __slots__ = ("_hotkeys", "_pressed", "_running", "_thread", "_hook",
-                 "_proc_ref", "_user32", "_last_trigger", "_debounce_s")
+    __slots__ = (
+        "_hotkeys",
+        "_pressed",
+        "_running",
+        "_thread",
+        "_hook",
+        "_proc_ref",
+        "_user32",
+        "_last_trigger",
+        "_debounce_s",
+    )
 
     def __init__(self) -> None:
         self._hotkeys: Dict[int, Callable[[], None]] = {}
@@ -428,8 +465,8 @@ class HotkeyInterceptor:
             return
         self._user32 = ctypes.WinDLL("user32", use_last_error=True)  # type: ignore[union-attr]
         HOOKPROC = ctypes.WINFUNCTYPE(  # type: ignore[attr-defined]
-            ctypes.wintypes.LRESULT, ctypes.c_int,
-            ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM)
+            ctypes.wintypes.LRESULT, ctypes.c_int, ctypes.wintypes.WPARAM, ctypes.wintypes.LPARAM
+        )
 
         def _handler(n_code: int, w_param: int, l_param: int) -> int:
             if n_code >= 0 and w_param in (_WM_KEYDOWN, _WM_SYSKEYDOWN):
@@ -440,8 +477,8 @@ class HotkeyInterceptor:
 
         self._proc_ref = HOOKPROC(_handler)
         self._hook = self._user32.SetWindowsHookExW(
-            _WH_KEYBOARD_LL, self._proc_ref,
-            ctypes.windll.kernel32.GetModuleHandleW(None), 0)
+            _WH_KEYBOARD_LL, self._proc_ref, ctypes.windll.kernel32.GetModuleHandleW(None), 0
+        )
         if not self._hook:
             logger.error("SetWindowsHookExW failed; hotkey thread exiting")
             self._running = False
@@ -477,13 +514,13 @@ class HotkeyInterceptor:
 
 # ---------- Capture pipeline -------------------------------------------
 
+
 class AudioCapturePipeline:
     """Ring → DSP → log-mel, with VAD endpoint signal + backpressure marker."""
 
     __slots__ = ("ring", "dsp", "vad", "_read_chunk", "_last_watermark")
 
-    def __init__(self, profile: HardwareProfile, ring: ZeroCopyRingBuffer,
-                 dsp_config: DSPConfig) -> None:
+    def __init__(self, profile: HardwareProfile, ring: ZeroCopyRingBuffer, dsp_config: DSPConfig) -> None:
         self.ring = ring
         self.vad = VadStateMachine(profile.vad)
         self.dsp = DSPPipeline(dsp_config, self.vad)
@@ -503,16 +540,25 @@ class AudioCapturePipeline:
     def backpressure(self) -> WatermarkState:
         return self._last_watermark
 
+
 # ── Elite: MicrophoneSource ──────────────────────────────────────────
 class MicrophoneSource:
     """Elite: real microphone capture via sounddevice + ZTPS."""
+
     __slots__ = (
-        "_perm_mgr", "_stream", "_ring", "_running", "_thread",
-        "_device_id", "_sample_rate", "_chunk_size",
+        "_perm_mgr",
+        "_stream",
+        "_ring",
+        "_running",
+        "_thread",
+        "_device_id",
+        "_sample_rate",
+        "_chunk_size",
     )
 
-    def __init__(self, ring: ZeroCopyRingBuffer, device_id: int = -1,
-                 sample_rate: int = 16000, chunk_size: int = 1024) -> None:
+    def __init__(
+        self, ring: ZeroCopyRingBuffer, device_id: int = -1, sample_rate: int = 16000, chunk_size: int = 1024
+    ) -> None:
         self._perm_mgr = ZeroTrustPermissionManager()
         self._stream = None
         self._ring = ring
@@ -539,6 +585,7 @@ class MicrophoneSource:
 
     def _run(self) -> None:
         import sounddevice as sd
+
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
 
@@ -551,10 +598,10 @@ class MicrophoneSource:
             with sd.InputStream(
                 samplerate=self._sample_rate,
                 channels=1,
-                dtype='float32',
+                dtype="float32",
                 blocksize=self._chunk_size,
                 device=self._device_id if self._device_id != -1 else None,
-                callback=callback
+                callback=callback,
             ):
                 while self._running:
                     time.sleep(0.1)

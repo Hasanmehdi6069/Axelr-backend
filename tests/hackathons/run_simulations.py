@@ -4,6 +4,7 @@ Axelr Hackathon Simulation Runner
 One-click script to start all local simulation servers and run the complete
 end-to-end test suite for PayPal, Vultr, and hybrid execution workflows.
 """
+
 import asyncio
 import logging
 import subprocess
@@ -16,10 +17,7 @@ from typing import List
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler("axelr_simulations.log")
-    ]
+    handlers=[logging.StreamHandler(sys.stdout), logging.FileHandler("axelr_simulations.log")],
 )
 logger = logging.getLogger("simulation.runner")
 
@@ -29,15 +27,16 @@ SIMULATION_SERVERS = [
         "name": "paypal-mock",
         "script": "test_paypal_simulation.py",
         "port": 9000,
-        "cmd": [sys.executable, "test_paypal_simulation.py"]
+        "cmd": [sys.executable, "test_paypal_simulation.py"],
     },
     {
         "name": "vultr-mock",
         "script": "test_vultr_simulation.py",
         "port": 9001,
-        "cmd": [sys.executable, "test_vultr_simulation.py"]
-    }
+        "cmd": [sys.executable, "test_vultr_simulation.py"],
+    },
 ]
+
 
 async def wait_for_service(url: str, timeout: int = 30) -> bool:
     """Wait for a service to become available."""
@@ -53,6 +52,7 @@ async def wait_for_service(url: str, timeout: int = 30) -> bool:
         except Exception:
             await asyncio.sleep(1)
     return False
+
 
 async def main():
     """Run the complete simulation suite."""
@@ -73,11 +73,7 @@ async def main():
             logger.info(f"  Starting {server['name']} on port {server['port']}...")
 
             proc = subprocess.Popen(
-                server["cmd"],
-                cwd=str(script_dir),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True
+                server["cmd"], cwd=str(script_dir), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True
             )
             processes.append(proc)
 
@@ -102,10 +98,7 @@ async def main():
         # Step 3: Run PayPal test suite
         logger.info("\n[3/4] Running PayPal integration tests...")
         paypal_test_proc = subprocess.run(
-            [sys.executable, "test_paypal_simulation.py", "test"],
-            cwd=str(script_dir),
-            capture_output=True,
-            text=True
+            [sys.executable, "test_paypal_simulation.py", "test"], cwd=str(script_dir), capture_output=True, text=True
         )
 
         if paypal_test_proc.returncode != 0:
@@ -118,10 +111,7 @@ async def main():
         # Run Vultr test suite
         logger.info("\nRunning Vultr integration tests...")
         vultr_test_proc = subprocess.run(
-            [sys.executable, "test_vultr_simulation.py", "test"],
-            cwd=str(script_dir),
-            capture_output=True,
-            text=True
+            [sys.executable, "test_vultr_simulation.py", "test"], cwd=str(script_dir), capture_output=True, text=True
         )
 
         if vultr_test_proc.returncode != 0:
@@ -134,10 +124,7 @@ async def main():
         # Step 4: Run hybrid end-to-end tests
         logger.info("\n[4/4] Running hybrid end-to-end simulation...")
         hybrid_test_proc = subprocess.run(
-            [sys.executable, "test_hybrid_simulation.py"],
-            cwd=str(script_dir),
-            capture_output=True,
-            text=True
+            [sys.executable, "test_hybrid_simulation.py"], cwd=str(script_dir), capture_output=True, text=True
         )
 
         if hybrid_test_proc.returncode != 0:
@@ -149,9 +136,7 @@ async def main():
 
         # Summary
         all_passed = (
-            paypal_test_proc.returncode == 0 and
-            vultr_test_proc.returncode == 0 and
-            hybrid_test_proc.returncode == 0
+            paypal_test_proc.returncode == 0 and vultr_test_proc.returncode == 0 and hybrid_test_proc.returncode == 0
         )
 
         logger.info("\n" + "=" * 70)
@@ -179,6 +164,7 @@ async def main():
             except Exception:
                 proc.kill()
         logger.info("All servers terminated.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -135,11 +135,15 @@ class VultrClient:
                     ) as response:
                         latency = (datetime.utcnow() - start_time).total_seconds()
 
-                        self._metrics.observe("request.latency", latency, {
-                            "method": method,
-                            "endpoint": path,
-                            "status": str(response.status),
-                        })
+                        self._metrics.observe(
+                            "request.latency",
+                            latency,
+                            {
+                                "method": method,
+                                "endpoint": path,
+                                "status": str(response.status),
+                            },
+                        )
 
                         response_text = await response.text()
 
@@ -148,7 +152,9 @@ class VultrClient:
 
                         if response.status == 429:
                             retry_after = int(response.headers.get("Retry-After", "60"))
-                            raise VultrRateLimitError(f"Rate limited, retry after {retry_after}s", retry_after=retry_after)
+                            raise VultrRateLimitError(
+                                f"Rate limited, retry after {retry_after}s", retry_after=retry_after
+                            )
 
                         if response.status == 404:
                             raise VultrNotFoundError(f"Resource not found: {path}")
@@ -160,7 +166,9 @@ class VultrClient:
                             raise VultrServerError(f"Server error: {response.status}", status_code=response.status)
 
                         if response.status >= 400:
-                            raise VultrAPIError(f"API error: {response.status} - {response_text[:200]}", status_code=response.status)
+                            raise VultrAPIError(
+                                f"API error: {response.status} - {response_text[:200]}", status_code=response.status
+                            )
 
                         try:
                             result = json.loads(response_text)
@@ -170,10 +178,14 @@ class VultrClient:
                         if cache_key and method.upper() == "GET":
                             cache.set(cache_key, result, ttl=cache_ttl)
 
-                        self._metrics.increment("request.success", 1, {
-                            "method": method,
-                            "endpoint": path,
-                        })
+                        self._metrics.increment(
+                            "request.success",
+                            1,
+                            {
+                                "method": method,
+                                "endpoint": path,
+                            },
+                        )
 
                         return result
 
@@ -189,11 +201,15 @@ class VultrClient:
         try:
             return await _execute()
         except Exception as e:
-            self._metrics.increment("request.failure", 1, {
-                "method": method,
-                "endpoint": path,
-                "error": type(e).__name__,
-            })
+            self._metrics.increment(
+                "request.failure",
+                1,
+                {
+                    "method": method,
+                    "endpoint": path,
+                    "error": type(e).__name__,
+                },
+            )
             logger.error(f"Vultr request failed: {method} {path} - {e}", request_id=request_id)
             raise
 
@@ -296,10 +312,14 @@ class VultrClient:
         logger.info(f"Created instance {instance.get('id')} in {region} with plan {plan}")
 
         if self._feature_flags.cost_optimization_enabled:
-            self._metrics.increment("provisioning.cost", 1, {
-                "region": region,
-                "plan": plan,
-            })
+            self._metrics.increment(
+                "provisioning.cost",
+                1,
+                {
+                    "region": region,
+                    "plan": plan,
+                },
+            )
 
         return instance
 
@@ -704,19 +724,23 @@ class VultrClientPool:
 
 _client: VultrClient | None = None
 
+
 def get_client() -> VultrClient:
     global _client
     if _client is None:
         from .core import settings
+
         _client = VultrClient(settings.vultr_api_key)
     return _client
 
 
 _pool: VultrClientPool | None = None
 
+
 def get_client_pool() -> VultrClientPool:
     global _pool
     if _pool is None:
         from .core import settings
+
         _pool = VultrClientPool(settings.vultr_api_key)
     return _pool

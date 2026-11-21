@@ -1,4 +1,5 @@
 """The Rise of AI Agents Deadlock Monitoring System — v1.1.0"""
+
 from .core import (
     AgentInfo,
     DeadlockEvent,
@@ -13,6 +14,14 @@ from .core import (
 )
 
 __all__ = [
-    "__version__", "init", "shutdown", "health", "get_monitor",
-    "DeadlockMonitor", "AgentInfo", "DeadlockEvent", "Resource", "WaitForGraph",
+    "__version__",
+    "init",
+    "shutdown",
+    "health",
+    "get_monitor",
+    "DeadlockMonitor",
+    "AgentInfo",
+    "DeadlockEvent",
+    "Resource",
+    "WaitForGraph",
 ]

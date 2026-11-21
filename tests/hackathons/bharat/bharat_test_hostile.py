@@ -9,6 +9,7 @@ Attacks:
     provider send failures.
   - Logic: TOCTOU, date ambiguity, idempotency, chain tamper-detection.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,6 +31,7 @@ from bharat_agentic import (
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def db_path(tmp_path):
@@ -75,9 +77,9 @@ NOTICE = (
 # Adversarial inputs
 # ---------------------------------------------------------------------------
 
+
 class TestAdversarialInputs:
-    async def test_sql_injection_in_text_is_stored_verbatim_not_executed(
-            self, engine):
+    async def test_sql_injection_in_text_is_stored_verbatim_not_executed(self, engine):
         evil = (
             "IN THE COURT OF THE CHIEF JUDICIAL MAGISTRATE, PATNA\n"
             "Case No. 412/2024\n"
@@ -91,8 +93,7 @@ class TestAdversarialInputs:
         assert again.case_id == record.case_id
         # Injection payload preserved as data, not interpreted.
         with sqlite3.connect(engine.db_path) as conn:
-            tables = {r[0] for r in conn.execute(
-                "SELECT name FROM sqlite_master WHERE type='table'")}
+            tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         assert "cases" in tables
 
     async def test_empty_text_rejected(self, engine):
@@ -134,45 +135,32 @@ class TestAdversarialInputs:
 # Multi-language detection
 # ---------------------------------------------------------------------------
 
+
 class TestMultilingualDetection:
     async def test_hindi_devanagari_action(self, engine):
-        text = (
-            "माननीय न्यायालय, पटना\n"
-            "वाद संख्या 412/2024\n"
-            "राज्य बनाम रमेश कुमार\n"
-            "कृपया 15/11/2026 को व्यक्तिगत रूप से उपस्थित हों।"
-        )
+        text = "माननीय न्यायालय, पटना\nवाद संख्या 412/2024\nराज्य बनाम रमेश कुमार\nकृपया 15/11/2026 को व्यक्तिगत रूप से उपस्थित हों।"
         record = await engine.ingest_text("hi.txt", text)
         assert record.required_action.value == "appear in person"
         assert record.next_hearing.value == "2026-11-15"
 
     async def test_hinglish_action(self, engine):
-        text = (
-            "District Court, Delhi\n"
-            "Case No. 45/2023\n"
-            "State vs. Sunita\n"
-            "Aapko 22/12/2026 ko document leke aana hai."
-        )
+        text = "District Court, Delhi\nCase No. 45/2023\nState vs. Sunita\nAapko 22/12/2026 ko document leke aana hai."
         record = await engine.ingest_text("hinglish.txt", text)
         assert record.required_action.value == "produce documents"
 
     async def test_unknown_language_flags_review(self, engine):
         # Tamil notice — no action keyword in our dictionary yet.
-        text = (
-            "சென்னை உயர் நீதிமன்றம்\n"
-            "வழக்கு எண் 890/2024\n"
-            "22/12/2026 அன்று ஆஜராக வேண்டும்."
-        )
+        text = "சென்னை உயர் நீதிமன்றம்\nவழக்கு எண் 890/2024\n22/12/2026 அன்று ஆஜராக வேண்டும்."
         record = await engine.ingest_text("ta.txt", text)
         # No action detected → warning emitted, review triggered.
-        assert any("required_action" in w
-                   for w in record.extraction_warnings)
+        assert any("required_action" in w for w in record.extraction_warnings)
         assert record.status.value == "needs_review"
 
 
 # ---------------------------------------------------------------------------
 # Date disambiguation
 # ---------------------------------------------------------------------------
+
 
 class TestDateDisambiguation:
     async def test_fir_date_does_not_beat_hearing_date(self, engine):
@@ -201,27 +189,23 @@ class TestDateDisambiguation:
 # Approval concurrency — the killer test
 # ---------------------------------------------------------------------------
 
+
 class TestApprovalConcurrency:
-    async def test_parallel_approves_on_one_ticket_exactly_one_wins(
-            self, engine):
+    async def test_parallel_approves_on_one_ticket_exactly_one_wins(self, engine):
         record = await engine.ingest_text("n.txt", NOTICE)
-        req = await engine.queue_reminder(
-            record.case_id, "whatsapp", "+919876543210")
+        req = await engine.queue_reminder(record.case_id, "whatsapp", "+919876543210")
         fresh = await engine.get_case(record.case_id)
         ticket_id = fresh.reminder_ids[-1]
 
         async def approve(i: int) -> Any:
             try:
-                return await engine.approve(
-                    ticket_id, by=f"op-{i}", reason="race")
+                return await engine.approve(ticket_id, by=f"op-{i}", reason="race")
             except ApprovalConflictError as exc:
                 return exc
 
-        results = await asyncio.gather(
-            *[approve(i) for i in range(20)])
+        results = await asyncio.gather(*[approve(i) for i in range(20)])
         wins = [r for r in results if not isinstance(r, ApprovalConflictError)]
-        conflicts = [r for r in results
-                     if isinstance(r, ApprovalConflictError)]
+        conflicts = [r for r in results if isinstance(r, ApprovalConflictError)]
         assert len(wins) == 1, f"expected exactly 1 winner, got {len(wins)}"
         assert len(conflicts) == 19
         # Exactly one receipt recorded.
@@ -230,8 +214,7 @@ class TestApprovalConcurrency:
 
     async def test_reject_and_approve_race(self, engine):
         record = await engine.ingest_text("n.txt", NOTICE)
-        await engine.queue_reminder(
-            record.case_id, "sms", "+919876543210")
+        await engine.queue_reminder(record.case_id, "sms", "+919876543210")
         fresh = await engine.get_case(record.case_id)
         ticket_id = fresh.reminder_ids[-1]
 
@@ -256,11 +239,12 @@ class TestApprovalConcurrency:
 # Audit chain integrity
 # ---------------------------------------------------------------------------
 
+
 class TestAuditChainIntegrity:
     async def test_concurrent_append_does_not_fork_chain(self, engine):
         async def append_many(n: int):
-            await engine.sentinel.audit.append(
-                "test_event", {"n": n})
+            await engine.sentinel.audit.append("test_event", {"n": n})
+
         await asyncio.gather(*[append_many(i) for i in range(50)])
         ok = await engine.verify_chain()
         assert ok is True
@@ -268,13 +252,9 @@ class TestAuditChainIntegrity:
     async def test_tampering_detected(self, engine):
         await engine.ingest_text("n.txt", NOTICE)
         with sqlite3.connect(engine.db_path) as conn:
-            row = conn.execute(
-                "SELECT sequence, entry_hash FROM audit_log LIMIT 1"
-            ).fetchone()
+            row = conn.execute("SELECT sequence, entry_hash FROM audit_log LIMIT 1").fetchone()
             assert row is not None
-            conn.execute(
-                "UPDATE audit_log SET entry_hash='deadbeef' "
-                "WHERE sequence=?", (row[0],))
+            conn.execute("UPDATE audit_log SET entry_hash='deadbeef' WHERE sequence=?", (row[0],))
             conn.commit()
         # Cache was set during ingest; force fresh verify.
         engine.sentinel.audit._last_verify = None
@@ -286,9 +266,9 @@ class TestAuditChainIntegrity:
 # Backend sync resilience
 # ---------------------------------------------------------------------------
 
+
 class TestBackendSyncResilience:
-    async def test_sync_timeout_marks_failed_and_does_not_hang(
-            self, engine):
+    async def test_sync_timeout_marks_failed_and_does_not_hang(self, engine):
         async def slow_sync(record):
             await asyncio.sleep(30)  # 30s — engine timeout is 1s
             return True
@@ -299,13 +279,10 @@ class TestBackendSyncResilience:
         # Let the sync task complete its retry cycle.
         await asyncio.gather(*engine._sync_tasks, return_exceptions=True)
         elapsed = time.monotonic() - t0
-        assert elapsed < 15.0, (
-            f"sync task hung: elapsed={elapsed:.1f}s")
+        assert elapsed < 15.0, f"sync task hung: elapsed={elapsed:.1f}s"
         # Case should be marked unsynced.
         with sqlite3.connect(engine.db_path) as conn:
-            synced = conn.execute(
-                "SELECT synced FROM cases WHERE case_id=?",
-                (record.case_id,)).fetchone()[0]
+            synced = conn.execute("SELECT synced FROM cases WHERE case_id=?", (record.case_id,)).fetchone()[0]
         assert synced == 0
 
     async def test_sync_retries_and_succeeds(self, engine):
@@ -324,9 +301,7 @@ class TestBackendSyncResilience:
             await asyncio.sleep(0.01)
         assert len(attempts) == 3
         with sqlite3.connect(engine.db_path) as conn:
-            synced = conn.execute(
-                "SELECT synced FROM cases WHERE case_id=?",
-                (record.case_id,)).fetchone()[0]
+            synced = conn.execute("SELECT synced FROM cases WHERE case_id=?", (record.case_id,)).fetchone()[0]
         assert synced == 1
 
     async def test_health_backend_timeout_returns_not_ok(self, engine):
@@ -347,11 +322,11 @@ class TestBackendSyncResilience:
 # Provider failure
 # ---------------------------------------------------------------------------
 
+
 class TestProviderFailure:
     async def test_invalid_phone_rejected_before_send(self, engine):
         record = await engine.ingest_text("n.txt", NOTICE)
-        await engine.queue_reminder(
-            record.case_id, "sms", "not-a-phone")
+        await engine.queue_reminder(record.case_id, "sms", "not-a-phone")
         fresh = await engine.get_case(record.case_id)
         ticket_id = fresh.reminder_ids[-1]
         # Approval should transition to FAILED, not EXECUTED.
@@ -365,34 +340,25 @@ class TestProviderFailure:
 # Idempotency
 # ---------------------------------------------------------------------------
 
+
 class TestIdempotency:
     async def test_same_key_returns_same_reminder(self, engine):
         record = await engine.ingest_text("n.txt", NOTICE)
-        r1 = await engine.queue_reminder(
-            record.case_id, "sms", "+919876543210",
-            idempotency_key="op-123")
-        r2 = await engine.queue_reminder(
-            record.case_id, "sms", "+919876543210",
-            idempotency_key="op-123")
+        r1 = await engine.queue_reminder(record.case_id, "sms", "+919876543210", idempotency_key="op-123")
+        r2 = await engine.queue_reminder(record.case_id, "sms", "+919876543210", idempotency_key="op-123")
         assert r1.reminder_id == r2.reminder_id
 
     async def test_different_payload_same_key_raises(self, engine):
         record = await engine.ingest_text("n.txt", NOTICE)
-        await engine.queue_reminder(
-            record.case_id, "sms", "+919876543210",
-            idempotency_key="op-123")
+        await engine.queue_reminder(record.case_id, "sms", "+919876543210", idempotency_key="op-123")
         with pytest.raises(BharatAgentError):
-            await engine.queue_reminder(
-                record.case_id, "whatsapp", "+919876543210",
-                idempotency_key="op-123")
+            await engine.queue_reminder(record.case_id, "whatsapp", "+919876543210", idempotency_key="op-123")
 
     async def test_concurrent_same_key_produces_one_ticket(self, engine):
         record = await engine.ingest_text("n.txt", NOTICE)
 
         async def queue():
-            return await engine.queue_reminder(
-                record.case_id, "sms", "+919876543210",
-                idempotency_key="op-race")
+            return await engine.queue_reminder(record.case_id, "sms", "+919876543210", idempotency_key="op-race")
 
         results = await asyncio.gather(*[queue() for _ in range(10)])
         reminder_ids = {r.reminder_id for r in results}
@@ -402,6 +368,7 @@ class TestIdempotency:
 # ---------------------------------------------------------------------------
 # Rate limit
 # ---------------------------------------------------------------------------
+
 
 class TestRateLimit:
     async def test_burst_bounded_by_configured_rate(self, tmp_path):
@@ -427,6 +394,7 @@ class TestRateLimit:
 # RPC handler
 # ---------------------------------------------------------------------------
 
+
 class TestRpcHandler:
     async def test_missing_field_clear_error(self, engine):
         with pytest.raises(ValueError, match="case_id"):
@@ -437,19 +405,14 @@ class TestRpcHandler:
             await engine.handle("nuke_from_orbit", {})
 
     async def test_full_rpc_cycle(self, engine):
-        r = await engine.handle(
-            "ingest", {"filename": "x.txt", "text": NOTICE})
+        r = await engine.handle("ingest", {"filename": "x.txt", "text": NOTICE})
         case_id = r["case"]["case_id"]
-        rem = await engine.handle(
-            "queue_reminder",
-            {"case_id": case_id, "phone": "+919876543210",
-             "channel": "sms"})
+        rem = await engine.handle("queue_reminder", {"case_id": case_id, "phone": "+919876543210", "channel": "sms"})
         assert "reminder" in rem
         pending = await engine.handle("list_pending", {})
         assert len(pending["pending"]) == 1
         aid = pending["pending"][0]["approval_id"]
-        res = await engine.handle(
-            "approve", {"approval_id": aid, "by": "op"})
+        res = await engine.handle("approve", {"approval_id": aid, "by": "op"})
         assert res["approval"]["state"] == "executed"
 
 
@@ -457,9 +420,11 @@ class TestRpcHandler:
 # Metrics harness smoke test
 # ---------------------------------------------------------------------------
 
+
 class TestMetricsHarness:
     async def test_seed_cases_all_succeed(self, tmp_path):
         from bharat_agentic import run_metrics
+
         report = await run_metrics("cases.json")
         assert report.total_cases == 20
         assert report.extraction_accuracy >= 0.95

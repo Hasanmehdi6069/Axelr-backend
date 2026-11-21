@@ -23,6 +23,7 @@ Memory ceilings (per component):
     HomophoneCorrector  ≤ 1 MB
     UXComponents        ≤ 2 MB
 """
+
 from __future__ import annotations
 
 import re
@@ -32,8 +33,13 @@ from collections import defaultdict, deque
 from typing import Optional
 
 __all__ = [
-    "TextRingBuffer", "LexicalTrie", "ContextualTrie",
-    "PolyfillCore", "IntentParser", "HomophoneCorrector", "UXComponents",
+    "TextRingBuffer",
+    "LexicalTrie",
+    "ContextualTrie",
+    "PolyfillCore",
+    "IntentParser",
+    "HomophoneCorrector",
+    "UXComponents",
 ]
 
 
@@ -42,6 +48,7 @@ __all__ = [
 # ═══════════════════════════════════════════════════════════════════════════
 class TextRingBuffer:
     """Bounded UTF-8 ring buffer preserving streaming text across context switches."""
+
     __slots__ = ("_buffer", "_current_size_bytes", "max_size_bytes")
 
     def __init__(self, max_size_bytes: int = 1 * 1024 * 1024) -> None:
@@ -78,6 +85,7 @@ class TextRingBuffer:
 # ═══════════════════════════════════════════════════════════════════════════
 class LexicalTrie:
     """Immutable, pre-built trie mapping command phrases → endpoints."""
+
     __slots__ = ("_trie",)
 
     def __init__(self, commands: dict | None = None) -> None:
@@ -106,6 +114,7 @@ class LexicalTrie:
 # ═══════════════════════════════════════════════════════════════════════════
 class ContextualTrie:
     """Mutable bounded trie for viewport-scraped tokens."""
+
     __slots__ = ("_trie", "_current_size_bytes", "max_size_bytes", "_word_count")
 
     _NODE_OVERHEAD = sys.getsizeof({}) + sys.getsizeof("a") + sys.getsizeof(True)
@@ -167,9 +176,16 @@ class ContextualTrie:
 # ═══════════════════════════════════════════════════════════════════════════
 class PolyfillCore:
     """Fallback n-gram predictor for connection jitter / OS lag."""
-    __slots__ = ("max_total_memory_bytes", "_recent_words", "_model",
-                 "_is_active", "_last_input_time", "_lag_threshold_ms",
-                 "_current_memory_usage_bytes")
+
+    __slots__ = (
+        "max_total_memory_bytes",
+        "_recent_words",
+        "_model",
+        "_is_active",
+        "_last_input_time",
+        "_lag_threshold_ms",
+        "_current_memory_usage_bytes",
+    )
 
     _RECENT_BUFFER_SIZE = 20
     _MODEL_MAX_BYTES = 100 * 1024
@@ -218,6 +234,7 @@ class PolyfillCore:
 # ═══════════════════════════════════════════════════════════════════════════
 class IntentParser:
     """Streaming parser for verbal corrections with stack rollback."""
+
     __slots__ = ("_token_buffer", "_current_size_bytes", "max_buffer_size_bytes")
 
     _PATTERNS = {
@@ -236,8 +253,7 @@ class IntentParser:
     def _add(self, chunk: str) -> None:
         for tok in self._TOKENIZER.findall(chunk):
             size = sys.getsizeof(tok.encode("utf-8"))
-            while (self._current_size_bytes + size > self.max_buffer_size_bytes
-                   and self._token_buffer):
+            while self._current_size_bytes + size > self.max_buffer_size_bytes and self._token_buffer:
                 _, removed = self._token_buffer.popleft()
                 self._current_size_bytes -= removed
             if self._current_size_bytes + size <= self.max_buffer_size_bytes:
@@ -266,7 +282,7 @@ class IntentParser:
             m = list(rx.finditer(text))
             if not m:
                 continue
-            prefix = text[:m[-1].start()]
+            prefix = text[: m[-1].start()]
             self.clear()
             self._add(prefix)
             if name == "scratch_that":
@@ -296,6 +312,7 @@ class IntentParser:
 # ═══════════════════════════════════════════════════════════════════════════
 class HomophoneCorrector:
     """Context-keyed homophone resolver. Pure dict lookup, no LLM."""
+
     __slots__ = ()
 
     _HOMOPHONES = {
@@ -338,9 +355,15 @@ class HomophoneCorrector:
 # ═══════════════════════════════════════════════════════════════════════════
 class UXComponents:
     """Predictive shadow typing + dynamic velocity adaptation."""
-    __slots__ = ("max_total_memory_bytes", "_command_history",
-                 "_keystroke_timestamps", "_word_count_in_window",
-                 "_current_wpm", "_current_memory_usage_bytes")
+
+    __slots__ = (
+        "max_total_memory_bytes",
+        "_command_history",
+        "_keystroke_timestamps",
+        "_word_count_in_window",
+        "_current_wpm",
+        "_current_memory_usage_bytes",
+    )
 
     _MAX_COMMAND_HISTORY = 50
     _WPM_WINDOW_S = 5
@@ -352,9 +375,8 @@ class UXComponents:
         self._keystroke_timestamps: deque[float] = deque()
         self._word_count_in_window = 0
         self._current_wpm = 0.0
-        self._current_memory_usage_bytes = (
-            sys.getsizeof(self._command_history)
-            + sys.getsizeof(self._keystroke_timestamps)
+        self._current_memory_usage_bytes = sys.getsizeof(self._command_history) + sys.getsizeof(
+            self._keystroke_timestamps
         )
 
     def record_command_action(self, command: str) -> None:
@@ -371,8 +393,7 @@ class UXComponents:
         self._keystroke_timestamps.append(now)
         if is_word_boundary:
             self._word_count_in_window += 1
-        while (self._keystroke_timestamps
-               and self._keystroke_timestamps[0] < now - self._WPM_WINDOW_S):
+        while self._keystroke_timestamps and self._keystroke_timestamps[0] < now - self._WPM_WINDOW_S:
             self._keystroke_timestamps.popleft()
         if len(self._keystroke_timestamps) > 1:
             elapsed = self._keystroke_timestamps[-1] - self._keystroke_timestamps[0]

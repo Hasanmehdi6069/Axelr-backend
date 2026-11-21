@@ -1,4 +1,5 @@
 """Appwrite Storage Adapter for AXELR AI Unified Monorepo"""
+
 from .database_migrations import DatabaseMigrator
 
 # New processing modules
@@ -61,5 +62,5 @@ __all__ = [
     "support_processor_main",
     "DatabaseMigrator",
     "ZeroTrustOnboardingManager",
-    "onboarding_main"
+    "onboarding_main",
 ]

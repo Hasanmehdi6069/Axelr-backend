@@ -18,6 +18,7 @@ Utilities:
     jittered_sleep()     — sleep with ±jitter
     generate_corr_id()   — correlation id
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,6 +35,7 @@ from typing import Any, Awaitable, Callable
 # ═══════════════════════════════════════════════════════════════════════
 # Token bucket
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TokenBucket:
     """Async token bucket. Thread-safe under asyncio.
@@ -80,6 +82,7 @@ class TokenBucket:
 # ═══════════════════════════════════════════════════════════════════════
 # Circuit breaker
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class CBState:
     CLOSED = "closed"
@@ -170,6 +173,7 @@ class CircuitBreaker:
 # Semaphore
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class Semaphore:
     """Async semaphore — caps in-flight SDK calls."""
 
@@ -200,6 +204,7 @@ class Semaphore:
 # ═══════════════════════════════════════════════════════════════════════
 # Local cache (LRU + TTL)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @dataclass(slots=True)
 class _CacheEntry:
@@ -252,6 +257,7 @@ class LocalCache:
 # Request deduplicator
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class RequestDeduplicator:
     """Coalesce identical in-flight async calls."""
 
@@ -280,6 +286,7 @@ class RequestDeduplicator:
 # ═══════════════════════════════════════════════════════════════════════
 # Metrics collector
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class MetricsCollector:
     """Counters, histograms, gauges — thread-safe within asyncio."""
@@ -394,6 +401,7 @@ class StructuredLogger:
 # Retry policy
 # ═══════════════════════════════════════════════════════════════════════
 
+
 @dataclass(frozen=True, slots=True)
 class RetryPolicy:
     """Frozen retry recipe."""
@@ -423,9 +431,10 @@ class RetryPolicy:
 # Utilities
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def backoff_delay(attempt: int, base_ms: float, max_ms: float) -> float:
     """Milliseconds of backoff for `attempt` (0-indexed)."""
-    return min(max_ms, base_ms * (2 ** attempt))
+    return min(max_ms, base_ms * (2**attempt))
 
 
 async def jittered_sleep(base_s: float, jitter: float = 0.15) -> None:
@@ -438,9 +447,11 @@ def generate_corr_id() -> str:
     """Short correlation ID — 16 chars, collision-resistant."""
     return uuid.uuid4().hex[:16]
 
+
 # ═══════════════════════════════════════════════════════════════════════
 # Idempotency store (merged from idempotency.py)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @dataclass(slots=True)
 class _IdemRecord:
@@ -452,8 +463,7 @@ class _IdemRecord:
 class IdempotencyStore:
     """LRU store with hard TTL. Never evicts live records under pressure."""
 
-    def __init__(self, *, max_entries: int = 10_000,
-                 ttl_s: float = 86_400.0) -> None:
+    def __init__(self, *, max_entries: int = 10_000, ttl_s: float = 86_400.0) -> None:
         self._max = max(1, max_entries)
         self._ttl = max(0.0, ttl_s)
         self._store: OrderedDict[str, _IdemRecord] = OrderedDict()
@@ -464,12 +474,13 @@ class IdempotencyStore:
     @staticmethod
     def hash_payload(payload: Any) -> str:
         import hashlib
-        raw = json.dumps(payload, default=str, sort_keys=True,
-                         separators=(",", ":")).encode()
+
+        raw = json.dumps(payload, default=str, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(raw).hexdigest()
 
     def _expire(self) -> None:
-        if self._ttl <= 0: return
+        if self._ttl <= 0:
+            return
         now = time.monotonic()
         for k in list(self._store.keys()):
             if now - self._store[k].stored_at > self._ttl:
@@ -481,34 +492,36 @@ class IdempotencyStore:
         self._expire()
         k = self._key(table, key)
         entry = self._store.get(k)
-        if entry is None: return None
+        if entry is None:
+            return None
         if entry.payload_hash != self.hash_payload(payload):
             raise IdempotencyConflictError(
-                f"idempotency key {key!r} reused for table {table!r} "
-                f"with a different payload")
+                f"idempotency key {key!r} reused for table {table!r} with a different payload"
+            )
         self._store.move_to_end(k)
         return entry.result
 
-    def store(self, table: str, key: str, payload: Any,
-              result: dict[str, Any]) -> None:
+    def store(self, table: str, key: str, payload: Any, result: dict[str, Any]) -> None:
         k = self._key(table, key)
         if k in self._store:
             self._store.move_to_end(k)
         elif len(self._store) >= self._max:
             oldest = next(iter(self._store))
             del self._store[oldest]
-        self._store[k] = _IdemRecord(
-            payload_hash=self.hash_payload(payload),
-            result=result, stored_at=time.monotonic())
+        self._store[k] = _IdemRecord(payload_hash=self.hash_payload(payload), result=result, stored_at=time.monotonic())
 
-    def clear(self) -> None: self._store.clear()
+    def clear(self) -> None:
+        self._store.clear()
+
     @property
-    def size(self) -> int: return len(self._store)
+    def size(self) -> int:
+        return len(self._store)
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Observability hooks (merged from hooks.py)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 @dataclass
 class CallInfo:
@@ -536,29 +549,36 @@ class HookRegistry:
 
     def unregister(self, name: str, fn: Hook) -> None:
         lst = self._hooks.get(name)
-        if lst and fn in lst: lst.remove(fn)
+        if lst and fn in lst:
+            lst.remove(fn)
 
-    def clear(self) -> None: self._hooks.clear()
+    def clear(self) -> None:
+        self._hooks.clear()
 
     async def emit(self, name: str, info: CallInfo) -> None:
         import inspect
+
         for fn in list(self._hooks.get(name, [])):
             try:
                 r = fn(info)
-                if inspect.isawaitable(r): await r
+                if inspect.isawaitable(r):
+                    await r
             except Exception as e:
                 import logging
+
                 logging.getLogger("axelr_insights_engine.hooks").warning(
-                    "hook_error name=%s err=%s", name, str(e)[:160])
+                    "hook_error name=%s err=%s", name, str(e)[:160]
+                )
 
 
 # ═══════════════════════════════════════════════════════════════════════
 # Utility: stable hash for dedup keys
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def stable_hash(obj: Any) -> int:
     """Stable cross-process hash for dedup keys. Uses sha256, NOT hash()."""
     import hashlib
-    raw = json.dumps(obj, default=str, sort_keys=True,
-                     separators=(",", ":")).encode()
+
+    raw = json.dumps(obj, default=str, sort_keys=True, separators=(",", ":")).encode()
     return int.from_bytes(hashlib.sha256(raw).digest()[:8], "big")

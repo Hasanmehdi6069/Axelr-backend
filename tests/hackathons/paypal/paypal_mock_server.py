@@ -4,6 +4,7 @@ PayPal Local Simulation Test Harness
 Local test suite for PayPal webhook and payment flow testing.
 Runs a mock PayPal server that simulates webhook events and API responses.
 """
+
 import asyncio
 import logging
 from datetime import datetime
@@ -28,6 +29,7 @@ app = FastAPI(title="PayPal Mock Server", version="1.0")
 mock_orders: Dict[str, Dict[str, Any]] = {}
 webhook_received = []
 
+
 @app.post("/v2/checkout/orders")
 async def create_order(request: Request):
     """Mock PayPal create order endpoint."""
@@ -39,17 +41,13 @@ async def create_order(request: Request):
         "status": "CREATED",
         "create_time": datetime.utcnow().isoformat(),
         "body": body,
-        "links": [
-            {
-                "href": f"https://mock-paypal.local/checkout/now?orderId={order_id}",
-                "rel": "approve"
-            }
-        ]
+        "links": [{"href": f"https://mock-paypal.local/checkout/now?orderId={order_id}", "rel": "approve"}],
     }
 
     mock_orders[order_id] = order
     logger.info(f"mock_order_created order_id={order_id}")
     return JSONResponse(order)
+
 
 @app.post("/v2/checkout/orders/{order_id}/capture")
 async def capture_order(order_id: str, request: Request):
@@ -61,18 +59,18 @@ async def capture_order(order_id: str, request: Request):
     capture_id = f"CAPTURE_{order_id}"
 
     # Simulate webhook event sent to Axelr backend
-    await send_webhook_event("PAYMENT.CAPTURE.COMPLETED", {
-        "id": capture_id,
-        "status": "COMPLETED",
-        "amount": mock_orders[order_id]["body"].get("purchase_units", [{}])[0].get("amount", {})
-    })
+    await send_webhook_event(
+        "PAYMENT.CAPTURE.COMPLETED",
+        {
+            "id": capture_id,
+            "status": "COMPLETED",
+            "amount": mock_orders[order_id]["body"].get("purchase_units", [{}])[0].get("amount", {}),
+        },
+    )
 
     logger.info(f"mock_order_captured order_id={order_id} capture_id={capture_id}")
-    return JSONResponse({
-        "id": capture_id,
-        "status": "COMPLETED",
-        "create_time": datetime.utcnow().isoformat()
-    })
+    return JSONResponse({"id": capture_id, "status": "COMPLETED", "create_time": datetime.utcnow().isoformat()})
+
 
 @app.post("/mock/send-webhook")
 async def trigger_webhook(request: Request):
@@ -87,22 +85,20 @@ async def trigger_webhook(request: Request):
     result = await send_webhook_event(event_type, resource)
     return JSONResponse({"success": True, "webhook_sent": result})
 
+
 @app.get("/mock/orders")
 async def list_orders():
     """List all mock orders created."""
-    return JSONResponse({
-        "total_orders": len(mock_orders),
-        "orders": mock_orders,
-        "webhooks_received": len(webhook_received)
-    })
+    return JSONResponse(
+        {"total_orders": len(mock_orders), "orders": mock_orders, "webhooks_received": len(webhook_received)}
+    )
+
 
 @app.get("/mock/webhooks")
 async def list_webhooks():
     """List all webhooks sent to Axelr."""
-    return JSONResponse({
-        "total_webhooks": len(webhook_received),
-        "webhooks": webhook_received
-    })
+    return JSONResponse({"total_webhooks": len(webhook_received), "webhooks": webhook_received})
+
 
 async def send_webhook_event(event_type: str, resource: Dict[str, Any]) -> bool:
     """Send mock webhook event to Axelr backend."""
@@ -113,7 +109,7 @@ async def send_webhook_event(event_type: str, resource: Dict[str, Any]) -> bool:
         "event_type": event_type,
         "resource_type": "capture",
         "create_time": datetime.utcnow().isoformat(),
-        "resource": resource
+        "resource": resource,
     }
 
     webhook_received.append(event)
@@ -127,15 +123,10 @@ async def send_webhook_event(event_type: str, resource: Dict[str, Any]) -> bool:
                 "PAYPAL-TRANSMISSION-TIME": datetime.utcnow().isoformat(),
                 "PAYPAL-AUTH-ALGO": "SHA256withRSA",
                 "PAYPAL-CERT-URL": "https://mock.paypal.com/cert",
-                "PAYPAL-TRANSMISSION-SIG": "mock-signature"
+                "PAYPAL-TRANSMISSION-SIG": "mock-signature",
             }
 
-            response = await client.post(
-                axelr_webhook_url,
-                json=event,
-                headers=headers,
-                timeout=10.0
-            )
+            response = await client.post(axelr_webhook_url, json=event, headers=headers, timeout=10.0)
 
             logger.info(f"webhook_sent event_type={event_type} status={response.status_code}")
             return response.status_code == 200
@@ -144,9 +135,11 @@ async def send_webhook_event(event_type: str, resource: Dict[str, Any]) -> bool:
         logger.error(f"webhook_send_failed event_type={event_type} error={str(e)}")
         return False
 
+
 # -----------------------------------------------------------------------------
 # Test Scenarios Runner
 # -----------------------------------------------------------------------------
+
 
 async def run_paypal_test_suite():
     """Execute comprehensive PayPal integration test suite."""
@@ -160,13 +153,12 @@ async def run_paypal_test_suite():
         logger.info("test1_create_order")
         create_payload = {
             "intent": "CAPTURE",
-            "purchase_units": [{
-                "amount": {
-                    "currency_code": "USD",
-                    "value": "29.99"
-                },
-                "description": "Axelr Pro Subscription - Monthly"
-            }]
+            "purchase_units": [
+                {
+                    "amount": {"currency_code": "USD", "value": "29.99"},
+                    "description": "Axelr Pro Subscription - Monthly",
+                }
+            ],
         }
 
         response = await client.post(f"{base_url}/v2/checkout/orders", json=create_payload)
@@ -190,7 +182,9 @@ async def run_paypal_test_suite():
         response = await client.get(f"{base_url}/mock/webhooks")
         webhooks = response.json()["webhooks"]
         assert len(webhooks) >= 1, "No webhooks were sent"
-        assert any(w["event_type"] == "PAYMENT.CAPTURE.COMPLETED" for w in webhooks), "Capture completed webhook missing"
+        assert any(w["event_type"] == "PAYMENT.CAPTURE.COMPLETED" for w in webhooks), (
+            "Capture completed webhook missing"
+        )
         logger.info("test3_passed webhook_processing_verified")
 
         # Test 4: Test refund scenario
@@ -200,8 +194,8 @@ async def run_paypal_test_suite():
             "resource": {
                 "id": capture_data["id"],
                 "status": "REFUNDED",
-                "amount": {"value": "29.99", "currency_code": "USD"}
-            }
+                "amount": {"value": "29.99", "currency_code": "USD"},
+            },
         }
         response = await client.post(f"{base_url}/mock/send-webhook", json=refund_event)
         assert response.status_code == 200, "Failed to send refund webhook"
@@ -226,6 +220,7 @@ async def run_paypal_test_suite():
         logger.info("test5_passed invalid_payload_handled_gracefully")
 
         logger.info("all_paypal_tests_passed")
+
 
 if __name__ == "__main__":
     import sys

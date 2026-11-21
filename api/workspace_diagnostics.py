@@ -14,6 +14,7 @@ Public API:
     run_conformance_checks() list of warning strings (empty == OK)
     get_telemetry / reset_telemetry / set_log_sink / record_telemetry
 """
+
 from __future__ import annotations
 
 import os
@@ -50,10 +51,15 @@ _TELEMETRY: "deque[Dict[str, Any]]" = deque(maxlen=128)
 
 def record_telemetry(ws: str, method: str, conf: float, plen: int) -> None:
     if _TELEMETRY_ON:
-        _TELEMETRY.append({
-            "ts": time.perf_counter(), "ws": ws, "method": method,
-            "conf": round(conf, 3), "prompt_len": plen,
-        })
+        _TELEMETRY.append(
+            {
+                "ts": time.perf_counter(),
+                "ws": ws,
+                "method": method,
+                "conf": round(conf, 3),
+                "prompt_len": plen,
+            }
+        )
 
 
 def get_telemetry() -> List[Dict[str, Any]]:
@@ -84,9 +90,7 @@ def _log(event: str, **fields: Any) -> None:
 def warmup() -> int:
     for p in ("hello", "analyze csv", "build react component", ""):
         detect_workspace_core(p, [])
-    tokens = (
-        len(_VOCAB_DATA_TOKS) + len(_VOCAB_DESIGN_TOKS) + len(_VOCAB_CORE_TOKS)
-    )
+    tokens = len(_VOCAB_DATA_TOKS) + len(_VOCAB_DESIGN_TOKS) + len(_VOCAB_CORE_TOKS)
     _log("warmup", tokens=tokens)
     return tokens
 
@@ -129,9 +133,7 @@ def evaluate(items: List[Dict[str, Any]]) -> Dict[str, Any]:
     Returns {"n", "accuracy", "confusion", "mismatches"}. Trust this
     number — it is the only honest accuracy figure.
     """
-    confusion: Dict[str, Dict[str, int]] = {
-        exp: {p: 0 for p in WORKSPACES} for exp in WORKSPACES
-    }
+    confusion: Dict[str, Dict[str, int]] = {exp: {p: 0 for p in WORKSPACES} for exp in WORKSPACES}
     mismatches: List[Dict[str, Any]] = []
     for it in items or []:
         exp = it.get("expected")
@@ -147,12 +149,15 @@ def evaluate(items: List[Dict[str, Any]]) -> Dict[str, Any]:
         pred = res["workspace"]
         confusion[exp][pred] += 1
         if pred != exp:
-            mismatches.append({
-                "prompt": it.get("prompt", ""),
-                "expected": exp, "predicted": pred,
-                "confidence": res["confidence"],
-                "method": res["method"],
-            })
+            mismatches.append(
+                {
+                    "prompt": it.get("prompt", ""),
+                    "expected": exp,
+                    "predicted": pred,
+                    "confidence": res["confidence"],
+                    "method": res["method"],
+                }
+            )
     total = sum(sum(r.values()) for r in confusion.values())
     correct = sum(confusion[w][w] for w in WORKSPACES)
     return {
@@ -169,26 +174,33 @@ def evaluate_by_method(items: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]
     reliable and which need vocabulary expansion. Use this to guide
     where to invest next — not guesswork.
     """
-    stats: Dict[str, Dict[str, int]] = defaultdict(
-        lambda: {"total": 0, "correct": 0}
-    )
+    stats: Dict[str, Dict[str, int]] = defaultdict(lambda: {"total": 0, "correct": 0})
     for it in items or []:
         exp = it.get("expected")
         if exp not in WORKSPACES:
             continue
         res = compute_full_detection(
-            it.get("prompt", ""), it.get("files", []),
-            it.get("file_contents"), session_id="", use_anchors=True,
+            it.get("prompt", ""),
+            it.get("files", []),
+            it.get("file_contents"),
+            session_id="",
+            use_anchors=True,
         )
         method = res["method"]
         # Normalize method to top-level signal family
         family = (
-            "code_fence" if method == "code_fence"
-            else "anchor" if method == "anchor"
-            else "file_evidence" if method == "file_evidence"
-            else "content_evidence" if method == "content_evidence"
-            else "fallback" if method == "fallback_ambiguous"
-            else method.rsplit("_", 1)[0] if "_" in method
+            "code_fence"
+            if method == "code_fence"
+            else "anchor"
+            if method == "anchor"
+            else "file_evidence"
+            if method == "file_evidence"
+            else "content_evidence"
+            if method == "content_evidence"
+            else "fallback"
+            if method == "fallback_ambiguous"
+            else method.rsplit("_", 1)[0]
+            if "_" in method
             else method
         )
         stats[family]["total"] += 1
@@ -245,14 +257,19 @@ def run_conformance_checks() -> List[str]:
     for prompt, files, expected in smoke:
         pred = detect_workspace_core(prompt, files)
         if pred != expected:
-            warnings.append(
-                f"smoke: {prompt!r} → {pred!r} (expected {expected!r})"
-            )
+            warnings.append(f"smoke: {prompt!r} → {pred!r} (expected {expected!r})")
     return warnings
 
 
 __all__ = [
-    "describe", "evaluate", "evaluate_by_method", "get_telemetry",
-    "reset_all_state", "reset_telemetry", "run_conformance_checks",
-    "set_log_sink", "warmup", "record_telemetry",
+    "describe",
+    "evaluate",
+    "evaluate_by_method",
+    "get_telemetry",
+    "reset_all_state",
+    "reset_telemetry",
+    "run_conformance_checks",
+    "set_log_sink",
+    "warmup",
+    "record_telemetry",
 ]

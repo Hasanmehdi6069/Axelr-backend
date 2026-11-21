@@ -4,6 +4,7 @@ Multi-language action detection (English, Hindi/Devanagari, Hinglish),
 context-aware date selection that avoids picking the FIR-date, and hard
 size caps so a 5 MB notice cannot OOM the process.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +21,7 @@ logger = logging.getLogger("bharat_agentic.extraction")
 # ---------------------------------------------------------------------------
 # Document loading
 # ---------------------------------------------------------------------------
+
 
 class DocumentLoadError(RuntimeError):
     pass
@@ -42,12 +44,9 @@ class DocumentLoader:
 
                 from pypdf import PdfReader  # type: ignore
             except ImportError as exc:
-                raise DocumentLoadError(
-                    "pypdf not installed; `pip install pypdf` for PDF support"
-                ) from exc
+                raise DocumentLoadError("pypdf not installed; `pip install pypdf` for PDF support") from exc
             reader = PdfReader(io.BytesIO(content))
-            return "\n".join(
-                p.extract_text() or "" for p in reader.pages).strip()
+            return "\n".join(p.extract_text() or "" for p in reader.pages).strip()
         if name.endswith((".png", ".jpg", ".jpeg")):
             try:
                 import io
@@ -55,12 +54,8 @@ class DocumentLoader:
                 import pytesseract  # type: ignore
                 from PIL import Image  # type: ignore
             except ImportError as exc:
-                raise DocumentLoadError(
-                    "pillow + pytesseract not installed; "
-                    "`pip install pillow pytesseract`"
-                ) from exc
-            return pytesseract.image_to_string(
-                Image.open(io.BytesIO(content)))
+                raise DocumentLoadError("pillow + pytesseract not installed; `pip install pillow pytesseract`") from exc
+            return pytesseract.image_to_string(Image.open(io.BytesIO(content)))
         try:
             return content.decode("utf-8")
         except UnicodeDecodeError:
@@ -70,6 +65,7 @@ class DocumentLoader:
 # ---------------------------------------------------------------------------
 # Extraction protocol
 # ---------------------------------------------------------------------------
+
 
 class ExtractionBackend(Protocol):
     async def extract(self, text: str) -> CaseRecord: ...
@@ -105,53 +101,78 @@ _DATE_TEXT = re.compile(
     r"October|November|December)\s+(\d{4})\b",
     re.IGNORECASE,
 )
-_HEARING_KEYWORD = re.compile(
-    r"(?i)\b(hearing|listed|appear|next\s+date|date\s+of\s+hearing)\b")
+_HEARING_KEYWORD = re.compile(r"(?i)\b(hearing|listed|appear|next\s+date|date\s+of\s+hearing)\b")
 # Anti-keywords: dates immediately after these are almost certainly NOT the
 # next hearing — they are the FIR date, order date, registration date.
 _NON_HEARING_DATE = re.compile(
     r"(?i)\b(fir\s+dated|filed\s+on|dated\s+this|registered\s+on|"
-    r"issue\s+date|order\s+dated|complaint\s+dated)\b")
+    r"issue\s+date|order\s+dated|complaint\s+dated)\b"
+)
 _MONTHS = {
-    "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
-    "july": 7, "august": 8, "september": 9, "october": 10, "november": 11,
+    "january": 1,
+    "february": 2,
+    "march": 3,
+    "april": 4,
+    "may": 5,
+    "june": 6,
+    "july": 7,
+    "august": 8,
+    "september": 9,
+    "october": 10,
+    "november": 11,
     "december": 12,
 }
 
 _ACTIONS: List[Tuple[re.Pattern, str]] = [
     # --- English ---
     (re.compile(r"(?i)\bappear\s+in\s+person\b"), "appear in person"),
-    (re.compile(r"(?i)\bproduce\s+(?:the\s+)?(?:original\s+)?"
-                r"(?:following\s+)?documents?\b"), "produce documents"),
-    (re.compile(r"(?i)\bfile\s+(?:your\s+)?(?:written\s+)?"
-                r"(?:reply|statement|objection)\b"), "file reply"),
-    (re.compile(r"(?i)\bpay\s+(?:the\s+)?(?:fine|costs?|compensation)\b"),
-     "pay fine"),
-    (re.compile(r"(?i)\bsettle\s+(?:the\s+)?(?:matter|dispute)\b"),
-     "settle matter"),
-    (re.compile(r"(?i)\b(?:serve|send)\s+(?:the\s+)?notice\b"),
-     "serve notice"),
-    (re.compile(r"(?i)\bfurnish\s+(?:the\s+)?(?:bail\s+)?bond\b"),
-     "furnish bond"),
+    (
+        re.compile(
+            r"(?i)\bproduce\s+(?:the\s+)?(?:original\s+)?"
+            r"(?:following\s+)?documents?\b"
+        ),
+        "produce documents",
+    ),
+    (
+        re.compile(
+            r"(?i)\bfile\s+(?:your\s+)?(?:written\s+)?"
+            r"(?:reply|statement|objection)\b"
+        ),
+        "file reply",
+    ),
+    (re.compile(r"(?i)\bpay\s+(?:the\s+)?(?:fine|costs?|compensation)\b"), "pay fine"),
+    (re.compile(r"(?i)\bsettle\s+(?:the\s+)?(?:matter|dispute)\b"), "settle matter"),
+    (re.compile(r"(?i)\b(?:serve|send)\s+(?:the\s+)?notice\b"), "serve notice"),
+    (re.compile(r"(?i)\bfurnish\s+(?:the\s+)?(?:bail\s+)?bond\b"), "furnish bond"),
     # --- Hinglish / code-mixed ---
-    (re.compile(r"(?i)\b(?:document[s]?|kagaz|papers?)\s+"
-                r"(?:leke\s+aana|lekar\s+aana)\b"), "produce documents"),
-    (re.compile(r"(?i)\b(?:khud\s+)?(?:aana\s+hai|hazir\s+hona|"
-                r"hazir\s+raho)\b"), "appear in person"),
-    (re.compile(r"(?i)\b(?:reply|jawab)\s+(?:file\s+karna|dena)\b"),
-     "file reply"),
-    (re.compile(r"(?i)\b(?:fine|jurmana|paise)\s+"
-                r"(?:bharna|jama|bharo|jama\s+karo)\b"), "pay fine"),
-    (re.compile(r"(?i)\b(?:mamla|matter)\s+(?:suljhana|settle\s+karna)\b"),
-     "settle matter"),
-    (re.compile(r"(?i)\bnotice\s+(?:bhejo|serve\s+karo|dena)\b"),
-     "serve notice"),
+    (
+        re.compile(
+            r"(?i)\b(?:document[s]?|kagaz|papers?)\s+"
+            r"(?:leke\s+aana|lekar\s+aana)\b"
+        ),
+        "produce documents",
+    ),
+    (
+        re.compile(
+            r"(?i)\b(?:khud\s+)?(?:aana\s+hai|hazir\s+hona|"
+            r"hazir\s+raho)\b"
+        ),
+        "appear in person",
+    ),
+    (re.compile(r"(?i)\b(?:reply|jawab)\s+(?:file\s+karna|dena)\b"), "file reply"),
+    (
+        re.compile(
+            r"(?i)\b(?:fine|jurmana|paise)\s+"
+            r"(?:bharna|jama|bharo|jama\s+karo)\b"
+        ),
+        "pay fine",
+    ),
+    (re.compile(r"(?i)\b(?:mamla|matter)\s+(?:suljhana|settle\s+karna)\b"), "settle matter"),
+    (re.compile(r"(?i)\bnotice\s+(?:bhejo|serve\s+karo|dena)\b"), "serve notice"),
     (re.compile(r"(?i)\b(?:bail\s+)?bond\s+dena\b"), "furnish bond"),
     # --- Hindi / Devanagari ---
-    (re.compile(r"व्यक्तिगत\s+रूप\s+से\s+उपस्थित|स्वयं\s+उपस्थित"),
-     "appear in person"),
-    (re.compile(r"दस्तावेज़\s+(?:प्रस्तुत|पेश)|कागज़ात\s+प्रस्तुत"),
-     "produce documents"),
+    (re.compile(r"व्यक्तिगत\s+रूप\s+से\s+उपस्थित|स्वयं\s+उपस्थित"), "appear in person"),
+    (re.compile(r"दस्तावेज़\s+(?:प्रस्तुत|पेश)|कागज़ात\s+प्रस्तुत"), "produce documents"),
     (re.compile(r"(?:उत्तर|जवाब)\s+दाखिल"), "file reply"),
     (re.compile(r"जुर्माना\s+(?:भरें|दें|अदा)"), "pay fine"),
     (re.compile(r"मामला\s+सुलझा|मामले\s+का\s+समझौता"), "settle matter"),
@@ -199,7 +220,7 @@ def _smart_title(text: str) -> str:
     out: List[str] = []
     for i, word in enumerate(text.split()):
         core = word.rstrip(",.;:")
-        suffix = word[len(core):]
+        suffix = word[len(core) :]
         if core in _PRESERVE_CASE:
             out.append(word)
         elif core.upper() in _PRESERVE_CASE:
@@ -238,8 +259,7 @@ def _extract_date(text: str) -> ExtractedField:
         if iso:
             candidates.append(_DateCandidate(iso, m.start(), m.end()))
     for m in _DATE_TEXT.finditer(text):
-        iso = _iso(int(m.group(3)), _MONTHS[m.group(2).lower()],
-                   int(m.group(1)))
+        iso = _iso(int(m.group(3)), _MONTHS[m.group(2).lower()], int(m.group(1)))
         if iso:
             candidates.append(_DateCandidate(iso, m.start(), m.end()))
 
@@ -275,9 +295,7 @@ def _extract_date(text: str) -> ExtractedField:
     # MEDIUM-confidence hearing date and bypass needs_review.
     if len(candidates) == 1 and anti_distance > 100:
         conf = max(conf, 0.7)
-    return ExtractedField(
-        value=best.iso, confidence=conf,
-        source_span=text[best.start:best.end].strip())
+    return ExtractedField(value=best.iso, confidence=conf, source_span=text[best.start : best.end].strip())
 
 
 def _extract_case_number(text: str) -> ExtractedField:
@@ -295,19 +313,16 @@ def _extract_court(text: str) -> ExtractedField:
     if not m:
         return ExtractedField(notes="no court pattern matched")
     raw_value = m.group(1)
-    cleaned_value = re.sub(r'\s*Case\s*No\.?\s*$', '', raw_value, flags=re.IGNORECASE)
+    cleaned_value = re.sub(r"\s*Case\s*No\.?\s*$", "", raw_value, flags=re.IGNORECASE)
     value = _smart_title(_normalise(cleaned_value))
-    return ExtractedField(
-        value=value, confidence=0.9, source_span=m.group(0).strip())
+    return ExtractedField(value=value, confidence=0.9, source_span=m.group(0).strip())
 
 
 def _extract_action(text: str) -> ExtractedField:
     for pattern, canonical in _ACTIONS:
         m = pattern.search(text)
         if m:
-            return ExtractedField(
-                value=canonical, confidence=0.85,
-                source_span=m.group(0).strip())
+            return ExtractedField(value=canonical, confidence=0.85, source_span=m.group(0).strip())
     return ExtractedField(notes="no known required-action phrase found")
 
 
@@ -346,17 +361,16 @@ class RegexExtractionBackend:
         record.required_action = _extract_action(text)
         record.petitioner, record.respondent = _extract_parties(text)
         if not record.next_hearing.value:
-            record.extraction_warnings.append(
-                "next_hearing missing — manual review required")
+            record.extraction_warnings.append("next_hearing missing — manual review required")
         if not record.required_action.value:
-            record.extraction_warnings.append(
-                "required_action missing — manual review required")
+            record.extraction_warnings.append("required_action missing — manual review required")
         return record
 
 
 # ---------------------------------------------------------------------------
 # Public facade
 # ---------------------------------------------------------------------------
+
 
 class CaseExtractor:
     def __init__(self, backend: Optional[ExtractionBackend] = None) -> None:
@@ -375,6 +389,5 @@ class CaseExtractor:
 
     def describe(self) -> Dict[str, Any]:
         return {
-            "backend": getattr(self.backend, "name",
-                              type(self.backend).__name__),
+            "backend": getattr(self.backend, "name", type(self.backend).__name__),
         }

@@ -11,6 +11,7 @@ Single home for the DAG orchestrator used by ``api.routes_agents``:
 Workspace classification lives in ``api.workspace_detector``.
 Intent classification lives in ``core.context.classify``.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -24,9 +25,15 @@ from dataclasses import dataclass, field
 logger = logging.getLogger("axelr.routing")
 
 
-__all__ = ["Orchestrator", "Subtask",
-           "PLANNER_PROMPT", "CRITIC_PROMPT", "REVISION_PROMPT",
-           "SYNTH_PROMPT", "ROLE_SYSTEMS"]
+__all__ = [
+    "Orchestrator",
+    "Subtask",
+    "PLANNER_PROMPT",
+    "CRITIC_PROMPT",
+    "REVISION_PROMPT",
+    "SYNTH_PROMPT",
+    "ROLE_SYSTEMS",
+]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -95,12 +102,12 @@ outputs into ONE coherent deliverable. Resolve contradictions explicitly.
 Do not introduce new facts. Output the final answer only."""
 
 ROLE_SYSTEMS = {
-    "code":     "You are a senior engineer. Produce working, production-ready code only.",
+    "code": "You are a senior engineer. Produce working, production-ready code only.",
     "research": "You are a researcher. Cite reasoning; flag uncertainty explicitly.",
-    "review":   "You are a reviewer. Find concrete bugs, perf, and security issues.",
-    "data":     "You are an analyst. Return structured, typed, verifiable output.",
-    "design":   "You are a UI engineer. Return complete, self-contained artifacts.",
-    "core":     "You are a generalist. Be concise and direct.",
+    "review": "You are a reviewer. Find concrete bugs, perf, and security issues.",
+    "data": "You are an analyst. Return structured, typed, verifiable output.",
+    "design": "You are a UI engineer. Return complete, self-contained artifacts.",
+    "core": "You are a generalist. Be concise and direct.",
 }
 
 _VALID_ROLES = set(ROLE_SYSTEMS.keys())
@@ -176,7 +183,7 @@ class Orchestrator:
         out: list[Subtask] = []
         seen_ids: set[str] = set()
         for idx, s in enumerate(data.get("subtasks", [])[:5]):
-            sid = str(s.get("id") or f"s{idx+1}")
+            sid = str(s.get("id") or f"s{idx + 1}")
             if sid in seen_ids:
                 sid = f"{sid}_{idx}"
             seen_ids.add(sid)
@@ -215,9 +222,7 @@ class Orchestrator:
         critique_issues: list[str] | None = None,
     ) -> None:
         t0 = time.time()
-        dep_output = "\n\n".join(
-            f"[{d}] {ctx.get(d, '')}" for d in st.depends_on if ctx.get(d)
-        )
+        dep_output = "\n\n".join(f"[{d}] {ctx.get(d, '')}" for d in st.depends_on if ctx.get(d))
 
         if st.revision > 0 and critique_issues:
             user_msg = REVISION_PROMPT.format(
@@ -235,7 +240,7 @@ class Orchestrator:
         try:
             st.output = await self._call("core", system_prompt, user_msg, tier, user)
             st.error = None
-        except Exception as e:                                    # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             st.error = str(e)[:200]
             st.output = ""
         st.latency_ms = (time.time() - t0) * 1000
@@ -288,17 +293,26 @@ class Orchestrator:
 
     # ── phase 3: critique ───────────────────────────────────────────────
     async def _critique(
-        self, task: str, subtasks: list[Subtask], tier: str, user: dict | None,
+        self,
+        task: str,
+        subtasks: list[Subtask],
+        tier: str,
+        user: dict | None,
     ) -> dict:
         bundle = json.dumps(
-            [{"id": s.id, "role": s.role, "instruction": s.instruction,
-              "output": (s.output or "")[:4000]} for s in subtasks],
+            [
+                {"id": s.id, "role": s.role, "instruction": s.instruction, "output": (s.output or "")[:4000]}
+                for s in subtasks
+            ],
             indent=2,
         )
         raw = await self._call(
-            "core", CRITIC_PROMPT,
+            "core",
+            CRITIC_PROMPT,
             f"TASK: {task}\n\nSUBTASK OUTPUTS:\n{bundle}",
-            tier, user, temp=0.0,
+            tier,
+            user,
+            temp=0.0,
         )
         m = re.search(r"\{.*\}", raw, re.DOTALL)
         if not m:
@@ -310,23 +324,30 @@ class Orchestrator:
 
     # ── phase 4: synthesize ─────────────────────────────────────────────
     async def _synthesize(
-        self, task: str, subtasks: list[Subtask], critique: dict,
-        tier: str, user: dict | None,
+        self,
+        task: str,
+        subtasks: list[Subtask],
+        critique: dict,
+        tier: str,
+        user: dict | None,
     ) -> str:
         bundle = "\n\n".join(f"### [{s.id} · {s.role}]\n{s.output}" for s in subtasks)
         return await self._call(
-            "core", SYNTH_PROMPT,
-            (
-                f"ORIGINAL TASK:\n{task}\n\n"
-                f"VERIFIED SUBTASK OUTPUTS:\n{bundle}\n\n"
-                f"CRITIC NOTES:\n{json.dumps(critique)}"
-            ),
-            tier, user, temp=0.3,
+            "core",
+            SYNTH_PROMPT,
+            (f"ORIGINAL TASK:\n{task}\n\nVERIFIED SUBTASK OUTPUTS:\n{bundle}\n\nCRITIC NOTES:\n{json.dumps(critique)}"),
+            tier,
+            user,
+            temp=0.3,
         )
 
     # ── public: stream ──────────────────────────────────────────────────
     async def stream(
-        self, task: str, tier: str, user: dict | None, max_revisions: int = 2,
+        self,
+        task: str,
+        tier: str,
+        user: dict | None,
+        max_revisions: int = 2,
     ) -> AsyncGenerator[dict, None]:
         t_start = time.time()
         revision_iteration = 0
@@ -376,7 +397,11 @@ class Orchestrator:
 
                 revision_subtasks = [subtask_by_id[sid] for sid in to_revise]
                 async for evt in self._execute_dag_stream(
-                    revision_subtasks, tier, user, subtask_issues, full_ctx,
+                    revision_subtasks,
+                    tier,
+                    user,
+                    subtask_issues,
+                    full_ctx,
                 ):
                     if evt.get("type") == "subtask_done" and evt.get("output"):
                         full_ctx[evt["id"]] = evt["output"]
@@ -392,12 +417,16 @@ class Orchestrator:
             }
         except asyncio.CancelledError:
             raise
-        except Exception as e:                                    # noqa: BLE001
+        except Exception as e:  # noqa: BLE001
             yield {"type": "error", "message": str(e)[:300]}
 
     # ── public: aggregate ───────────────────────────────────────────────
     async def run(
-        self, task: str, tier: str, user: dict | None, max_revisions: int = 2,
+        self,
+        task: str,
+        tier: str,
+        user: dict | None,
+        max_revisions: int = 2,
     ) -> dict:
         plan: list[dict] = []
         crit: dict = {}
@@ -427,8 +456,7 @@ class Orchestrator:
             "final": final,
             "revision_iterations": revision_iterations,
             "agent_responses": [
-                {"id": s["id"], "role": s["role"], "response": s["output"],
-                 "revision": s.get("revision", 0)}
+                {"id": s["id"], "role": s["role"], "response": s["output"], "revision": s.get("revision", 0)}
                 for s in plan
             ],
             "total_latency_ms": total_ms,

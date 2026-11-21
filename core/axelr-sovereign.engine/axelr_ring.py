@@ -10,6 +10,7 @@ Adds selftest(), integrity_check(), stats() over previous version.
 
 Memory: 16 B + capacity_samples * 2 B. LOW: 64 KB.
 """
+
 from __future__ import annotations
 
 import mmap
@@ -62,6 +63,7 @@ class ZeroCopyRingBuffer:
       atomics. Python's GIL does not guarantee atomicity across mmap.write
       calls (which release the GIL). This is correct, not lock-free.
     """
+
     __slots__ = ("config", "_mask", "_total_size", "_mmap", "_lock")
 
     HEADER_SIZE: int = _HEADER_SIZE
@@ -106,14 +108,10 @@ class ZeroCopyRingBuffer:
     def _read_slice_view(self, start: int, length: int) -> np.ndarray:
         cap = self.config.capacity_samples
         first_len = min(length, cap - start)
-        first = np.frombuffer(
-            self._mmap, dtype=np.int16, count=first_len,
-            offset=self._payload_offset(start)).copy()
+        first = np.frombuffer(self._mmap, dtype=np.int16, count=first_len, offset=self._payload_offset(start)).copy()
         if first_len == length:
             return first
-        second = np.frombuffer(
-            self._mmap, dtype=np.int16, count=length - first_len,
-            offset=_HEADER_SIZE).copy()
+        second = np.frombuffer(self._mmap, dtype=np.int16, count=length - first_len, offset=_HEADER_SIZE).copy()
         return np.concatenate([first, second])
 
     def write(self, samples: np.ndarray) -> Tuple[int, WatermarkState]:
@@ -166,13 +164,11 @@ class ZeroCopyRingBuffer:
             start = tail & self._mask
             cap = self.config.capacity_samples
             first_len = min(take, cap - start)
-            first = np.frombuffer(self._mmap, dtype=np.int16,
-                                  count=first_len, offset=self._payload_offset(start))
+            first = np.frombuffer(self._mmap, dtype=np.int16, count=first_len, offset=self._payload_offset(start))
             if first_len == take:
                 view = first
             else:
-                second = np.frombuffer(self._mmap, dtype=np.int16,
-                                       count=take - first_len, offset=_HEADER_SIZE)
+                second = np.frombuffer(self._mmap, dtype=np.int16, count=take - first_len, offset=_HEADER_SIZE)
                 view = np.concatenate([first, second])
             tail += take
             self._write_header(head, tail)
@@ -191,13 +187,11 @@ class ZeroCopyRingBuffer:
             # Fix: handle wrap-around correctly in peek() to match read() behavior
             first_len = min(take, cap - start)
             first = np.frombuffer(
-                self._mmap, dtype=np.int16, count=first_len,
-                offset=self._payload_offset(start)).copy()
+                self._mmap, dtype=np.int16, count=first_len, offset=self._payload_offset(start)
+            ).copy()
             if first_len == take:
                 return first
-            second = np.frombuffer(
-                self._mmap, dtype=np.int16, count=take - first_len,
-                offset=_HEADER_SIZE).copy()
+            second = np.frombuffer(self._mmap, dtype=np.int16, count=take - first_len, offset=_HEADER_SIZE).copy()
             return np.concatenate([first, second])
 
     def available(self) -> int:

@@ -15,6 +15,7 @@ Backend selection:
     SENTINEL_WAL_BACKEND=sqlite           — persistent, WAL mode
     SENTINEL_WAL_PATH=/tmp/sentinel-wal.db (default when sqlite)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -46,18 +47,17 @@ class MemoryWAL:
         self._store: dict[str, Snapshot] = {}
         self._lock = threading.Lock()
 
-    async def record(self, path: str, prev: str | None, *,
-                     action: str = "", workflow_id: str | None = None) -> None:
+    async def record(self, path: str, prev: str | None, *, action: str = "", workflow_id: str | None = None) -> None:
         def _do() -> None:
             with self._lock:
                 self._store[path] = Snapshot(path, prev, action, workflow_id, time.time())
+
         await asyncio.to_thread(_do)
 
     async def rollback_all(self, workflow_id: str | None = None) -> dict[str, Any]:
         def _do() -> dict[str, Any]:
             with self._lock:
-                items = [(p, s) for p, s in self._store.items()
-                         if workflow_id is None or s.workflow_id == workflow_id]
+                items = [(p, s) for p, s in self._store.items() if workflow_id is None or s.workflow_id == workflow_id]
                 restored = 0
                 for _, snap in reversed(items):
                     try:
@@ -72,6 +72,7 @@ class MemoryWAL:
                 for p, _ in items:
                     self._store.pop(p, None)
             return {"restored": restored, "backend": self.name}
+
         return await asyncio.to_thread(_do)
 
     async def mark_committed(self, workflow_id: str) -> None:
@@ -79,12 +80,14 @@ class MemoryWAL:
             with self._lock:
                 for p in [p for p, s in self._store.items() if s.workflow_id == workflow_id]:
                     self._store.pop(p, None)
+
         await asyncio.to_thread(_do)
 
     async def stats(self) -> dict[str, Any]:
         def _do() -> dict[str, Any]:
             with self._lock:
                 return {"backend": self.name, "entries": len(self._store)}
+
         return await asyncio.to_thread(_do)
 
 
@@ -120,16 +123,15 @@ class PersistentWAL:
         db.row_factory = sqlite3.Row
         return db
 
-    async def record(self, path: str, prev: str | None, *,
-                     action: str = "", workflow_id: str | None = None) -> None:
+    async def record(self, path: str, prev: str | None, *, action: str = "", workflow_id: str | None = None) -> None:
         def _do() -> None:
             with self._lock:
                 with self._connect() as db:
                     db.execute(
-                        "INSERT INTO snapshots(path,prev_content,action,workflow_id,created_at)"
-                        " VALUES(?,?,?,?,?)",
+                        "INSERT INTO snapshots(path,prev_content,action,workflow_id,created_at) VALUES(?,?,?,?,?)",
                         (path, prev, action, workflow_id, time.time()),
                     )
+
         await asyncio.to_thread(_do)
 
     async def rollback_all(self, workflow_id: str | None = None) -> dict[str, Any]:
@@ -138,13 +140,11 @@ class PersistentWAL:
                 with self._connect() as db:
                     if workflow_id:
                         rows = db.execute(
-                            "SELECT * FROM snapshots WHERE workflow_id=? AND applied=0"
-                            " ORDER BY id DESC", (workflow_id,),
+                            "SELECT * FROM snapshots WHERE workflow_id=? AND applied=0 ORDER BY id DESC",
+                            (workflow_id,),
                         ).fetchall()
                     else:
-                        rows = db.execute(
-                            "SELECT * FROM snapshots WHERE applied=0 ORDER BY id DESC"
-                        ).fetchall()
+                        rows = db.execute("SELECT * FROM snapshots WHERE applied=0 ORDER BY id DESC").fetchall()
                     restored = 0
                     for r in rows:
                         try:
@@ -158,14 +158,15 @@ class PersistentWAL:
                         except Exception:
                             pass
                 return {"restored": restored, "backend": self.name}
+
         return await asyncio.to_thread(_do)
 
     async def mark_committed(self, workflow_id: str) -> None:
         def _do() -> None:
             with self._lock:
                 with self._connect() as db:
-                    db.execute("UPDATE snapshots SET applied=1 WHERE workflow_id=? AND applied=0",
-                               (workflow_id,))
+                    db.execute("UPDATE snapshots SET applied=1 WHERE workflow_id=? AND applied=0", (workflow_id,))
+
         await asyncio.to_thread(_do)
 
     async def stats(self) -> dict[str, Any]:
@@ -173,12 +174,16 @@ class PersistentWAL:
             with self._lock:
                 with self._connect() as db:
                     total = db.execute("SELECT COUNT(*) FROM snapshots").fetchone()[0]
-                    pend = db.execute(
-                        "SELECT COUNT(*) FROM snapshots WHERE applied=0").fetchone()[0]
+                    pend = db.execute("SELECT COUNT(*) FROM snapshots WHERE applied=0").fetchone()[0]
                     size = os.path.getsize(self.path) if os.path.exists(self.path) else 0
-                    return {"backend": self.name, "total": total,
-                            "pending": pend, "file_bytes": size,
-                            "path": self.path}
+                    return {
+                        "backend": self.name,
+                        "total": total,
+                        "pending": pend,
+                        "file_bytes": size,
+                        "path": self.path,
+                    }
+
         return await asyncio.to_thread(_do)
 
 

@@ -1,6 +1,7 @@
 """
 Runtime tables contract test — verifies the JSON schema and reranker wiring.
 """
+
 import json
 import sys
 from pathlib import Path
@@ -24,9 +25,7 @@ def _find_engine_root() -> Path | None:
 def test_python_runtime_tables():
     engine_root = _find_engine_root()
     if engine_root is None:
-        pytest.skip(
-            "Axelr-backend/core/axelr-sovereign.engine not found in any parent dir"
-        )
+        pytest.skip("Axelr-backend/core/axelr-sovereign.engine not found in any parent dir")
     tables_path = engine_root / "runtime-tables.json"
     if not tables_path.exists():
         pytest.skip(f"runtime-tables.json not found at {tables_path}")
@@ -51,6 +50,5 @@ def test_python_runtime_tables():
     test_tokens = ["they", "were", "their", "going"]
     corrected = reranker.rerank(test_tokens)
     assert "they're" in corrected, (
-        f"homophone correction failed: {test_tokens} → {corrected}. "
-        "Expected \"they're going\" to be in output."
+        f'homophone correction failed: {test_tokens} → {corrected}. Expected "they\'re going" to be in output.'
     )

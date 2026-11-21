@@ -1,4 +1,5 @@
 """PayPal webhook handler with signature verification, idempotency, and state machine integration"""
+
 from __future__ import annotations
 
 import json
@@ -18,8 +19,10 @@ logger = logging.getLogger("axelr.paypal.webhooks")
 processed_webhooks = set()
 _LOCAL_IDEM = processed_webhooks
 
+
 class PayPalWebhookHandler:
     """Handles all PayPal webhook events with full validation and state management"""
+
     _instance: Optional["PayPalWebhookHandler"] = None
     _initialized: bool = False
 
@@ -123,7 +126,9 @@ class PayPalWebhookHandler:
                     if txn_data.get("paypal_capture_id") == paypal_capture_id:
                         txn = await self.store.get_transaction(txn_data["id"])
                         if txn:
-                            await self.store.transition_state(txn.id, TransactionState.REFUNDED, "PayPal refund completed")
+                            await self.store.transition_state(
+                                txn.id, TransactionState.REFUNDED, "PayPal refund completed"
+                            )
                             return
         else:
             for key, data in self.store.in_memory_store.items():
@@ -133,11 +138,14 @@ class PayPalWebhookHandler:
 
         logger.warning(f"No transaction found for refunded PayPal capture: {paypal_capture_id}")
 
+
 def get_webhook_handler() -> PayPalWebhookHandler:
     return PayPalWebhookHandler.get_instance()
 
 
-async def process_webhook_event(headers: Optional[Dict[str, Any]] = None, body: Optional[bytes] = None, payload: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def process_webhook_event(
+    headers: Optional[Dict[str, Any]] = None, body: Optional[bytes] = None, payload: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
     """Process a webhook event without HTTP request context for testing"""
     handler = get_webhook_handler()
     # Handle different argument patterns from tests
@@ -160,6 +168,7 @@ async def process_webhook_event(headers: Optional[Dict[str, Any]] = None, body: 
         def __init__(self, headers_dict, body_bytes):
             self.headers = headers_dict
             self._body = body_bytes
+
         async def body(self):
             return self._body
 

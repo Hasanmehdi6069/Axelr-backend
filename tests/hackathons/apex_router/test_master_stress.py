@@ -4,6 +4,7 @@ Rules for this file:
   * every test is marked `slow` — excluded from fast PR runs
   * thresholds are conservative (CI-friendly); tighten after a week of data
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,13 +20,15 @@ pytestmark = [pytest.mark.slow]
 # A. Concurrency
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_a1_200_parallel_routing_requests(apex_router):
     """200 parallel routing requests must complete without errors."""
+
     async def one(i):
         return await apex_router.route_request(f"request-{i}", {"path": f"/api/v1/resource/{i}"})
-    results = await asyncio.gather(*[one(i) for i in range(200)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[one(i) for i in range(200)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/200 requests failed: {failures[:2]}"
 
@@ -33,10 +36,11 @@ async def test_a1_200_parallel_routing_requests(apex_router):
 @pytest.mark.asyncio
 async def test_a2_concurrent_rule_updates_no_crash(apex_router):
     """20 concurrent rule updates must not crash the router."""
+
     async def update(i):
         return await apex_router.add_rule(f"rule-{i}", {"path": f"/api/v{i}", "target": "service"})
-    results = await asyncio.gather(*[update(i) for i in range(20)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[update(i) for i in range(20)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/20 updates failed"
     rules = await apex_router.get_all_rules()
@@ -46,10 +50,11 @@ async def test_a2_concurrent_rule_updates_no_crash(apex_router):
 @pytest.mark.asyncio
 async def test_a3_parallel_health_checks_no_deadlock(apex_router):
     """100 parallel health checks must complete without deadlock."""
+
     async def check(i):
         return await apex_router.health_check(f"service-{i % 5}")
-    results = await asyncio.gather(*[check(i) for i in range(100)],
-                                    return_exceptions=True)
+
+    results = await asyncio.gather(*[check(i) for i in range(100)], return_exceptions=True)
     failures = [r for r in results if isinstance(r, Exception)]
     assert not failures, f"{len(failures)}/100 health checks failed"
 
@@ -58,11 +63,14 @@ async def test_a3_parallel_health_checks_no_deadlock(apex_router):
 # B. Chaos
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_b1_service_unreachable_mid_routing(apex_router, monkeypatch):
     """Service unreachable mid-routing must return clean error, not crash."""
+
     def mock_unreachable(*args, **kwargs):
         raise ConnectionError("Target service unreachable")
+
     monkeypatch.setattr(apex_router, "route_request", mock_unreachable)
     with pytest.raises(ConnectionError):
         await apex_router.route_request("test-req", {})
@@ -71,8 +79,10 @@ async def test_b1_service_unreachable_mid_routing(apex_router, monkeypatch):
 @pytest.mark.asyncio
 async def test_b2_routing_table_corruption_handled(apex_router, monkeypatch):
     """Corrupted routing table must be handled gracefully."""
+
     def mock_corrupt_table(*args, **kwargs):
         return {"invalid": "state", "missing": "routes"}
+
     monkeypatch.setattr(apex_router, "get_all_rules", mock_corrupt_table)
     rules = await apex_router.get_all_rules()
     assert isinstance(rules, dict)
@@ -81,8 +91,10 @@ async def test_b2_routing_table_corruption_handled(apex_router, monkeypatch):
 @pytest.mark.asyncio
 async def test_b3_request_timeout_handled(apex_router, monkeypatch):
     """Request timeout must be handled gracefully."""
+
     def mock_timeout(*args, **kwargs):
         raise TimeoutError("Routing request timed out")
+
     monkeypatch.setattr(apex_router, "route_request", mock_timeout)
     with pytest.raises(TimeoutError):
         await apex_router.route_request("test-req", {})
@@ -91,6 +103,7 @@ async def test_b3_request_timeout_handled(apex_router, monkeypatch):
 # ══════════════════════════════════════════════════════════════════════════
 # C. Performance envelope
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_c1_routing_latency_p50_p99(apex_router):
@@ -133,6 +146,7 @@ async def test_c3_rule_update_throughput(apex_router):
 # D. Soak — bounded sustained load
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 @pytest.mark.soak
 async def test_d1_60s_soak_no_degradation(apex_router):
@@ -148,4 +162,4 @@ async def test_d1_60s_soak_no_degradation(apex_router):
         iterations += 1
     first, last = statistics.mean(buckets[0]), statistics.mean(buckets[2])
     print(f"\n  soak: {iterations} iters, first20s={first:.0f}ms last20s={last:.0f}ms")
-    assert last < first * 1.5, f"degradation detected: {last/first:.2f}x ratio"
+    assert last < first * 1.5, f"degradation detected: {last / first:.2f}x ratio"

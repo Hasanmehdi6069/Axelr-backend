@@ -16,6 +16,7 @@ Honest scope / correctness envelope
   reference; leak detection is via `MemoryStats.leaked_frames`.
 * **Pool reuse is bounded** per (w, h, c) tuple — see `max_pool_size_per_format`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -52,6 +53,7 @@ class FrameMetadata:
 class VisualFrame:
     """RAII-ish wrapper around a numpy buffer. `dispose()` drops the reference;
     the buffer's lifecycle is owned by `FramePool`."""
+
     _data: Optional[np.ndarray]
     metadata: FrameMetadata
     _is_disposed: bool = False
@@ -59,8 +61,7 @@ class VisualFrame:
     @property
     def data(self) -> np.ndarray:
         if self._is_disposed or self._data is None:
-            raise RuntimeError(
-                f"cannot access disposed frame {self.metadata.frame_id}")
+            raise RuntimeError(f"cannot access disposed frame {self.metadata.frame_id}")
         return self._data
 
     def dispose(self) -> None:
@@ -107,12 +108,14 @@ class FramePool:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     stats: MemoryStats = field(default_factory=MemoryStats)
 
-    async def acquire(self, width: int, height: int, channels: int,
-                      source_id: str) -> VisualFrame:
+    async def acquire(self, width: int, height: int, channels: int, source_id: str) -> VisualFrame:
         key = (width, height, channels)
         metadata = FrameMetadata(
-            frame_id=str(uuid.uuid4()), source_id=source_id,
-            timestamp=time.time(), width=width, height=height,
+            frame_id=str(uuid.uuid4()),
+            source_id=source_id,
+            timestamp=time.time(),
+            width=width,
+            height=height,
             channels=channels,
         )
         async with self.lock:
@@ -131,8 +134,7 @@ class FramePool:
     async def release(self, frame: VisualFrame) -> None:
         if frame._is_disposed:
             return
-        key = (frame.metadata.width, frame.metadata.height,
-               frame.metadata.channels)
+        key = (frame.metadata.width, frame.metadata.height, frame.metadata.channels)
         async with self.lock:
             bucket = self.pool.setdefault(key, [])
             if len(bucket) < self.max_pool_size_per_format:
@@ -158,7 +160,8 @@ class FramePool:
             self.stats.last_gc_run = time.time()
             logger.info(
                 "pool_gc active=%d hits=%d misses=%d mem_mb=%.1f",
-                self.stats.active_frames, self.stats.pool_hits,
+                self.stats.active_frames,
+                self.stats.pool_hits,
                 self.stats.pool_misses,
                 self.stats.current_allocated_bytes / (1024 * 1024),
             )
@@ -169,10 +172,8 @@ class FramePool:
             "pool_hits": self.stats.pool_hits,
             "pool_misses": self.stats.pool_misses,
             "leaked_frames": self.stats.leaked_frames,
-            "current_allocated_mb": round(
-                self.stats.current_allocated_bytes / (1024 * 1024), 2),
-            "total_allocated_mb": round(
-                self.stats.total_allocated_bytes / (1024 * 1024), 2),
+            "current_allocated_mb": round(self.stats.current_allocated_bytes / (1024 * 1024), 2),
+            "total_allocated_mb": round(self.stats.total_allocated_bytes / (1024 * 1024), 2),
             "pooled_formats": len(self.pool),
         }
 
@@ -219,7 +220,9 @@ class OpenCVPipeline:
                     cv2.data.haarcascades + "haarcascade_frontalface_default.xml",
                 )
                 if self.object_detector is None or self.object_detector.empty():
-                    logger.warning("object_detector_empty — detector may be missing, continuing without object detection")
+                    logger.warning(
+                        "object_detector_empty — detector may be missing, continuing without object detection"
+                    )
             except Exception as e:
                 logger.warning(f"Failed to initialize object detector: {e}, continuing without object detection")
         logger.info("cv_models_initialized")
@@ -229,12 +232,13 @@ class OpenCVPipeline:
         self._recording_start_time = time.time()  # Track when recording starts
         self.shutdown_event.clear()
         for i in range(self.max_concurrent_processing):
-            self.processing_tasks.append(
-                asyncio.create_task(self._processing_worker(i)))
-        self.processing_tasks.append(
-            asyncio.create_task(self._memory_loop()))
-        logger.info("opencv_pipeline_started workers=%d recording_started_at=%.2f",
-                    self.max_concurrent_processing, self._recording_start_time)
+            self.processing_tasks.append(asyncio.create_task(self._processing_worker(i)))
+        self.processing_tasks.append(asyncio.create_task(self._memory_loop()))
+        logger.info(
+            "opencv_pipeline_started workers=%d recording_started_at=%.2f",
+            self.max_concurrent_processing,
+            self._recording_start_time,
+        )
 
     async def _processing_worker(self, worker_id: int) -> None:
         worker_start_time = time.time()
@@ -244,41 +248,50 @@ class OpenCVPipeline:
             # Ensure we process frames for the entire recording duration
             current_elapsed = time.time() - worker_start_time
             if current_elapsed >= recording_duration:
-                logger.info("worker_completed_full_recording_duration worker=%d elapsed=%.1fs",
-                           worker_id, current_elapsed)
+                logger.info(
+                    "worker_completed_full_recording_duration worker=%d elapsed=%.1fs", worker_id, current_elapsed
+                )
                 break
 
             try:
-                frame = await asyncio.wait_for(
-                    self.processing_queue.get(), timeout=1.0)
+                frame = await asyncio.wait_for(self.processing_queue.get(), timeout=1.0)
             except asyncio.TimeoutError:
                 # Log periodic status updates during recording
                 if int(current_elapsed) % 30 == 0:
-                    logger.info("recording_in_progress worker=%d elapsed=%.1fs queue_size=%d",
-                               worker_id, current_elapsed, self.processing_queue.qsize())
+                    logger.info(
+                        "recording_in_progress worker=%d elapsed=%.1fs queue_size=%d",
+                        worker_id,
+                        current_elapsed,
+                        self.processing_queue.qsize(),
+                    )
                 continue
 
             start = time.time()
             try:
                 # Blocking cv2 work → worker thread.
-                result = await asyncio.to_thread(
-                    self._detect_faces, frame.data)
+                result = await asyncio.to_thread(self._detect_faces, frame.data)
                 detections = [
-                    {"type": "face", "bbox": [int(x), int(y), int(w), int(h)],
-                     "confidence": 1.0}
+                    {"type": "face", "bbox": [int(x), int(y), int(w), int(h)], "confidence": 1.0}
                     for (x, y, w, h) in result
                 ]
                 logger.debug(
                     "frame_processed worker=%d id=%s detections=%d ms=%.1f elapsed=%.1fs",
-                    worker_id, frame.metadata.frame_id, len(detections),
-                    (time.time() - start) * 1000, time.time() - worker_start_time,
+                    worker_id,
+                    frame.metadata.frame_id,
+                    len(detections),
+                    (time.time() - start) * 1000,
+                    time.time() - worker_start_time,
                 )
                 # Log every 100 processed frames to track progress
                 if worker_id == 0 and int(frame.metadata.frame_id[-3:], 16) % 100 == 0:
                     logger.info("recording_progress_continues worker=%d total_frames_processed", worker_id)
             except Exception as e:
-                logger.error("frame_processing_failed worker=%d err=%s elapsed=%.1fs",
-                             worker_id, e, time.time() - worker_start_time)
+                logger.error(
+                    "frame_processing_failed worker=%d err=%s elapsed=%.1fs",
+                    worker_id,
+                    e,
+                    time.time() - worker_start_time,
+                )
             finally:
                 await self.frame_pool.release(frame)
                 self.processing_queue.task_done()
@@ -307,19 +320,14 @@ class OpenCVPipeline:
                 pass
             with contextlib.suppress(Exception):
                 await self.frame_pool.run_gc()
-                logger.debug("memory_maintenance_completed recording_elapsed=%.1fs",
-                           time.time() - start_time)
+                logger.debug("memory_maintenance_completed recording_elapsed=%.1fs", time.time() - start_time)
 
-    async def submit_frame(self, width: int, height: int, channels: int,
-                           source_id: str, raw_data: bytes) -> str:
+    async def submit_frame(self, width: int, height: int, channels: int, source_id: str, raw_data: bytes) -> str:
         expected = width * height * channels
         if len(raw_data) != expected:
-            raise ValueError(
-                f"raw_data length {len(raw_data)} != {expected} "
-                f"(w={width} h={height} c={channels})")
+            raise ValueError(f"raw_data length {len(raw_data)} != {expected} (w={width} h={height} c={channels})")
         frame = await self.frame_pool.acquire(width, height, channels, source_id)
-        frame.data[:] = np.frombuffer(raw_data, dtype=np.uint8).reshape(
-            height, width, channels)
+        frame.data[:] = np.frombuffer(raw_data, dtype=np.uint8).reshape(height, width, channels)
         await self.processing_queue.put(frame)
         return frame.metadata.frame_id
 
@@ -343,14 +351,13 @@ class OpenCVPipeline:
         # Report leaked frames so callers know to fix their code.
         if self.frame_pool.stats.active_frames:
             self.frame_pool.stats.leaked_frames = self.frame_pool.stats.active_frames
-            logger.warning("frames_leaked_on_shutdown count=%d",
-                           self.frame_pool.stats.active_frames)
+            logger.warning("frames_leaked_on_shutdown count=%d", self.frame_pool.stats.active_frames)
         logger.info("opencv_pipeline_shutdown")
 
     def health(self) -> dict:
         # Calculate recording progress if pipeline is active
         recording_progress = 0.0
-        if hasattr(self, '_recording_start_time'):
+        if hasattr(self, "_recording_start_time"):
             elapsed = time.time() - self._recording_start_time
             recording_progress = min(100.0, (elapsed / 150.0) * 100)
 
@@ -396,8 +403,12 @@ async def init() -> None:
                 break
             # Log progress at 30s intervals
             if int(elapsed) % 30 == 0:
-                logger.info("📹 RECORDING_IN_PROGRESS elapsed=%.1fs/150s queue_size=%d active_frames=%d",
-                           elapsed, _pipeline.processing_queue.qsize(), _pipeline.frame_pool.stats.active_frames)
+                logger.info(
+                    "📹 RECORDING_IN_PROGRESS elapsed=%.1fs/150s queue_size=%d active_frames=%d",
+                    elapsed,
+                    _pipeline.processing_queue.qsize(),
+                    _pipeline.frame_pool.stats.active_frames,
+                )
             await asyncio.sleep(1.0)
 
     asyncio.create_task(track_recording_duration())
@@ -413,6 +424,5 @@ async def shutdown() -> None:
 
 def health() -> dict:
     if _pipeline is None:
-        return {"ok": False, "details": {"reason": "not_initialized",
-                                          "version": __version__}}
+        return {"ok": False, "details": {"reason": "not_initialized", "version": __version__}}
     return _pipeline.health()

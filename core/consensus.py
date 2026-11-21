@@ -17,6 +17,7 @@ Dispatch:
     tier=deep                                     → cognitive (logic+edit)
     tier=≤standard                                → single call
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -55,8 +56,7 @@ def _jaccard(a: set, b: set) -> float:
 def _trigrams(words: list[str]) -> set[tuple[str, str, str]]:
     if len(words) < 3:
         return set()
-    return {(words[i], words[i + 1], words[i + 2])
-            for i in range(len(words) - 2)}
+    return {(words[i], words[i + 1], words[i + 2]) for i in range(len(words) - 2)}
 
 
 def _numeric_agreement(a: str, b: str) -> float:
@@ -82,20 +82,22 @@ def similarity(a: str, b: str) -> dict[str, float]:
     """Compute multi-signal similarity. Never raises."""
     try:
         if a == b:
-            return {"jaccard": 1.0, "trigram": 1.0, "numeric": 1.0,
-                    "code": 1.0, "combined": 1.0}
+            return {"jaccard": 1.0, "trigram": 1.0, "numeric": 1.0, "code": 1.0, "combined": 1.0}
         ta, tb = _tokens(a), _tokens(b)
         j = _jaccard(set(ta), set(tb))
         t = _jaccard(_trigrams(ta), _trigrams(tb))
         n = _numeric_agreement(a, b)
         c = _code_agreement(a, b)
         combined = _W_JACCARD * j + _W_TRIGRAM * t + _W_NUMERIC * n + _W_CODE * c
-        return {"jaccard": round(j, 4), "trigram": round(t, 4),
-                "numeric": round(n, 4), "code": round(c, 4),
-                "combined": round(combined, 4)}
+        return {
+            "jaccard": round(j, 4),
+            "trigram": round(t, 4),
+            "numeric": round(n, 4),
+            "code": round(c, 4),
+            "combined": round(combined, 4),
+        }
     except Exception:
-        return {"jaccard": 0.0, "trigram": 0.0, "numeric": 0.0,
-                "code": 0.0, "combined": 0.0}
+        return {"jaccard": 0.0, "trigram": 0.0, "numeric": 0.0, "code": 0.0, "combined": 0.0}
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -111,25 +113,42 @@ class ConsensusOutcome:
     errors: int = 0
 
     def to_dict(self) -> dict[str, Any]:
-        return {"mode": "consensus", "agreement": round(self.agreement, 3),
-                "aligned": self.aligned, "participants": self.participants,
-                "errors": self.errors, "pairwise": self.pairwise}
+        return {
+            "mode": "consensus",
+            "agreement": round(self.agreement, 3),
+            "aligned": self.aligned,
+            "participants": self.participants,
+            "errors": self.errors,
+            "pairwise": self.pairwise,
+        }
 
 
 async def race_consensus(
-    route_fn: RouteFn, *, workspace: str, task_type: str, prompt: str,
-    history: Any, files: Any, max_tokens: int, temp: float, tier: str,
-    user: dict | None, context: str, request: Any,
-    width: int = 2, timeout_s: float = 22.0, consensus_floor: float = 0.55,
+    route_fn: RouteFn,
+    *,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: Any,
+    files: Any,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None,
+    context: str,
+    request: Any,
+    width: int = 2,
+    timeout_s: float = 22.0,
+    consensus_floor: float = 0.55,
     prefer_non_stream: bool = True,
 ) -> ConsensusOutcome:
     """Fire N concurrent calls, pick the central answer. Never raises."""
     width = max(2, min(3, int(width)))
     tasks = [
         asyncio.create_task(
-            route_fn(workspace, task_type, prompt, history, files,
-                     max_tokens, temp, tier, user, context, request),
-            name=f"consensus::{i}")
+            route_fn(workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context, request),
+            name=f"consensus::{i}",
+        )
         for i in range(width)
     ]
     done, pending = await asyncio.wait(tasks, timeout=max(4.0, float(timeout_s)))
@@ -155,11 +174,13 @@ async def race_consensus(
     if not results:
         return ConsensusOutcome(
             winner={"success": False, "text": "", "provider": "none", "model_used": ""},
-            agreement=0.0, aligned=False, participants=0, errors=errors)
+            agreement=0.0,
+            aligned=False,
+            participants=0,
+            errors=errors,
+        )
     if len(results) == 1:
-        return ConsensusOutcome(
-            winner=results[0], agreement=1.0, aligned=True,
-            participants=1, errors=errors)
+        return ConsensusOutcome(winner=results[0], agreement=1.0, aligned=True, participants=1, errors=errors)
 
     n = len(results)
     avg = [0.0] * n
@@ -177,14 +198,17 @@ async def race_consensus(
         if counts[i]:
             avg[i] /= counts[i]
 
-    winner_idx = max(range(n),
-                     key=lambda i: (avg[i], len(results[i].get("text", ""))))
+    winner_idx = max(range(n), key=lambda i: (avg[i], len(results[i].get("text", ""))))
     agreement = (sum(avg) / n) if n else 1.0
 
     return ConsensusOutcome(
-        winner=results[winner_idx], agreement=agreement,
-        aligned=agreement >= consensus_floor, participants=n,
-        pairwise=pairwise, errors=errors)
+        winner=results[winner_idx],
+        agreement=agreement,
+        aligned=agreement >= consensus_floor,
+        participants=n,
+        pairwise=pairwise,
+        errors=errors,
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -260,7 +284,8 @@ _LOGIC_DIRECTIVE = (
     "• Bullet list of correct, verifiable claims.\n"
     "• Include every identifier, code block, and numeric fact.\n"
     "• No preamble. No prose polish. No sign-off.\n"
-    "</cognitive_stage>")
+    "</cognitive_stage>"
+)
 
 _EDITORIAL_DIRECTIVE = (
     '<cognitive_stage name="editorial">\n'
@@ -269,7 +294,8 @@ _EDITORIAL_DIRECTIVE = (
     "• Remove hedging, filler, and meta-commentary.\n"
     "• Match the user's request shape (code / table / prose).\n"
     "• Add zero new claims — do not invent.\n"
-    "</cognitive_stage>")
+    "</cognitive_stage>"
+)
 
 _VERIFY_DIRECTIVE = (
     '<cognitive_stage name="verify">\n'
@@ -279,7 +305,8 @@ _VERIFY_DIRECTIVE = (
     '• Refusal markers ("I cannot", "As an AI").\n'
     "• Prompt-leak markers (<system_identity>, MASTER_PROMPT).\n"
     "Return the FULL corrected answer.\n"
-    "</cognitive_stage>")
+    "</cognitive_stage>"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -311,26 +338,38 @@ def _select_stages(tier: str) -> tuple[Stage, ...]:
 
 def _stage_prompt(stage: Stage, user_prompt: str, prior_text: str) -> str:
     if not prior_text:
-        return (f"{stage.directive}\n\n"
-                f"<original_request>\n{user_prompt[:2000]}\n</original_request>")
-    return (f"{stage.directive}\n\n"
-            f"<original_request>\n{user_prompt[:2000]}\n</original_request>\n\n"
-            f"<prior_draft>\n{prior_text[:6000]}\n</prior_draft>")
+        return f"{stage.directive}\n\n<original_request>\n{user_prompt[:2000]}\n</original_request>"
+    return (
+        f"{stage.directive}\n\n"
+        f"<original_request>\n{user_prompt[:2000]}\n</original_request>\n\n"
+        f"<prior_draft>\n{prior_text[:6000]}\n</prior_draft>"
+    )
 
 
 async def run_cognitive(
-    route_fn: RouteFn, *, workspace: str, task_type: str, prompt: str,
-    history: Iterable[dict] | None, files: Iterable[dict] | None,
-    max_tokens: int, temp: float, tier: str, user: dict | None = None,
-    context: str = "", request: Any = None, budget_s: float = 22.0,
+    route_fn: RouteFn,
+    *,
+    workspace: str,
+    task_type: str,
+    prompt: str,
+    history: Iterable[dict] | None,
+    files: Iterable[dict] | None,
+    max_tokens: int,
+    temp: float,
+    tier: str,
+    user: dict | None = None,
+    context: str = "",
+    request: Any = None,
+    budget_s: float = 22.0,
     complexity_tier: str | None = None,
 ) -> dict[str, Any]:
     """Run 2-3 sequential specialist passes. Never raises."""
     stage_tier = complexity_tier or tier
     stages = _select_stages(stage_tier)
     if not stages:
-        return await route_fn(workspace, task_type, prompt, history, files,
-                              max_tokens, temp, tier, user, context, request)
+        return await route_fn(
+            workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context, request
+        )
 
     deadline = time.monotonic() + max(4.0, float(budget_s))
     prior_text = ""
@@ -350,9 +389,11 @@ async def run_cognitive(
         remaining = max(2.0, deadline - time.monotonic())
         try:
             r = await asyncio.wait_for(
-                route_fn(workspace, task_type, stage_prompt, None, files,
-                         stage_budget, temp, tier, user, context, request),
-                timeout=remaining)
+                route_fn(
+                    workspace, task_type, stage_prompt, None, files, stage_budget, temp, tier, user, context, request
+                ),
+                timeout=remaining,
+            )
         except (asyncio.TimeoutError, asyncio.CancelledError):
             logger.debug("cognitive_stage_timeout stage=%s", stage.name)
             break
@@ -366,11 +407,13 @@ async def run_cognitive(
         stages_run += 1
 
     if not last_result:
-        return await route_fn(workspace, task_type, prompt, history, files,
-                              max_tokens, temp, tier, user, context, request)
+        return await route_fn(
+            workspace, task_type, prompt, history, files, max_tokens, temp, tier, user, context, request
+        )
 
     last_result["cognitive"] = {
-        "tier": stage_tier, "stages_run": stages_run,
+        "tier": stage_tier,
+        "stages_run": stages_run,
         "stages_attempted": stages_attempted,
         "stages_skipped": stages_skipped,
         "stages_total": len(stages),
@@ -380,7 +423,10 @@ async def run_cognitive(
 
 __all__ = [
     "similarity",
-    "ConsensusOutcome", "race_consensus",
-    "PolishResult", "local_polish",
-    "Stage", "run_cognitive",
+    "ConsensusOutcome",
+    "race_consensus",
+    "PolishResult",
+    "local_polish",
+    "Stage",
+    "run_cognitive",
 ]

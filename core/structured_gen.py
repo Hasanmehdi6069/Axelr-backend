@@ -20,6 +20,7 @@ Env gates
   AXELR_LOCAL_VERIFY  = off | shadow | on   (default off)
   AXELR_GRAMMAR_DIR   = ./grammars
 """
+
 from __future__ import annotations
 
 import ast
@@ -36,12 +37,19 @@ logger = logging.getLogger("axelr.structured_gen")
 
 __all__ = [
     # §1 Router
-    "classify", "RouteDecision", "TASK_CLASSES",
+    "classify",
+    "RouteDecision",
+    "TASK_CLASSES",
     # §2 Grammar
-    "compile_schema", "get_grammar", "grammar_file_for",
-    "GRAMMAR_DIR", "GRAMMAR_CACHE_DIR",
+    "compile_schema",
+    "get_grammar",
+    "grammar_file_for",
+    "GRAMMAR_DIR",
+    "GRAMMAR_CACHE_DIR",
     # §3 Verifier
-    "verify", "Verdict", "VerifierKind",
+    "verify",
+    "Verdict",
+    "VerifierKind",
 ]
 
 
@@ -54,15 +62,35 @@ if _MODE not in ("off", "shadow", "on"):
 
 # (task_class, pattern, verifier_kind, grammar_id). First match wins.
 _CLASS_RULES: tuple[tuple[str, re.Pattern[str], str, str | None], ...] = (
-    ("pii_scan",     re.compile(r"\b(pii|personally identifiable|redact|anonymi[sz]e)\b", re.I), "json_schema", "pii_spans"),
-    ("tool_call",    re.compile(r"\b(function[- ]?call|tool[- ]?call|call the \w+ tool)\b", re.I), "json_schema", "tool_call"),
-    ("classify",     re.compile(r"\b(classify|categori[sz]e|label this|which (?:intent|category))\b", re.I), "json_schema", "classification"),
-    ("extract_json", re.compile(r"\b(extract|parse|pull out|scrape)\b.*\b(json|csv|schema|field|column|row)\b", re.I), "json_schema", "extraction_records"),
+    (
+        "pii_scan",
+        re.compile(r"\b(pii|personally identifiable|redact|anonymi[sz]e)\b", re.I),
+        "json_schema",
+        "pii_spans",
+    ),
+    (
+        "tool_call",
+        re.compile(r"\b(function[- ]?call|tool[- ]?call|call the \w+ tool)\b", re.I),
+        "json_schema",
+        "tool_call",
+    ),
+    (
+        "classify",
+        re.compile(r"\b(classify|categori[sz]e|label this|which (?:intent|category))\b", re.I),
+        "json_schema",
+        "classification",
+    ),
+    (
+        "extract_json",
+        re.compile(r"\b(extract|parse|pull out|scrape)\b.*\b(json|csv|schema|field|column|row)\b", re.I),
+        "json_schema",
+        "extraction_records",
+    ),
     ("extract_json", re.compile(r"\b(json schema|structured (?:data|output))\b", re.I), "json_schema", "json_object"),
-    ("regex_gen",    re.compile(r"\b(regex|regular expression)\b.*\b(build|write|generate|make)\b", re.I), "ast", None),
-    ("touch_fix",    re.compile(r"\b(fix|debug|repair)\b.*\b(code|error|exception|traceback)\b", re.I), "ast", None),
-    ("math",         re.compile(r"\b(calculate|compute|solve)\b|^\s*\d+\s*[\+\-\*\/]\s*\d+", re.I), "numeric", None),
-    ("summarize",    re.compile(r"\b(summari[sz]e|tl;?dr|shorten)\b", re.I), "rouge", None),
+    ("regex_gen", re.compile(r"\b(regex|regular expression)\b.*\b(build|write|generate|make)\b", re.I), "ast", None),
+    ("touch_fix", re.compile(r"\b(fix|debug|repair)\b.*\b(code|error|exception|traceback)\b", re.I), "ast", None),
+    ("math", re.compile(r"\b(calculate|compute|solve)\b|^\s*\d+\s*[\+\-\*\/]\s*\d+", re.I), "numeric", None),
+    ("summarize", re.compile(r"\b(summari[sz]e|tl;?dr|shorten)\b", re.I), "rouge", None),
 )
 
 TASK_CLASSES: tuple[str, ...] = tuple(r[0] for r in _CLASS_RULES) + ("unknown",)
@@ -82,11 +110,13 @@ class RouteDecision:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "route": self.route, "task_class": self.task_class,
+            "route": self.route,
+            "task_class": self.task_class,
             "verifier_kind": self.verifier_kind,
             "grammar_id": self.grammar_id,
             "confidence": round(self.confidence, 3),
-            "reason": self.reason, "signals": list(self.signals),
+            "reason": self.reason,
+            "signals": list(self.signals),
         }
 
 
@@ -127,21 +157,16 @@ def classify(
     elif verifier_kind == "rouge" and tier in _ROUGE_ELIGIBLE_TIERS:
         route, reason = "hybrid", "rouge_paid_tier"
     else:
-        return RouteDecision("api", task_class, verifier_kind, grammar_id,
-                             0.3, "not_locally_verifiable")
+        return RouteDecision("api", task_class, verifier_kind, grammar_id, 0.3, "not_locally_verifiable")
 
     confidence = 0.85 if grammar_id else 0.70
-    signals = (f"class:{task_class}", f"intent:{intent or 'auto'}",
-               f"workspace:{workspace}")
+    signals = (f"class:{task_class}", f"intent:{intent or 'auto'}", f"workspace:{workspace}")
 
     if _MODE == "shadow":
-        logger.info("router_shadow would_route=%s class=%s kind=%s",
-                    route, task_class, verifier_kind)
-        return RouteDecision("api", task_class, verifier_kind, grammar_id,
-                             confidence, f"shadow:{reason}", signals)
+        logger.info("router_shadow would_route=%s class=%s kind=%s", route, task_class, verifier_kind)
+        return RouteDecision("api", task_class, verifier_kind, grammar_id, confidence, f"shadow:{reason}", signals)
 
-    return RouteDecision(route, task_class, verifier_kind, grammar_id,
-                         confidence, reason, signals)
+    return RouteDecision(route, task_class, verifier_kind, grammar_id, confidence, reason, signals)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -171,8 +196,7 @@ def _gbnf_string_literal(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _schema_to_gbnf(schema: dict[str, Any], rule_name: str,
-                    depth: int = 0) -> list[str]:
+def _schema_to_gbnf(schema: dict[str, Any], rule_name: str, depth: int = 0) -> list[str]:
     if depth > _MAX_DEPTH:
         return [f"{rule_name} ::= json_value"]
     t = schema.get("type")
@@ -188,9 +212,7 @@ def _schema_to_gbnf(schema: dict[str, Any], rule_name: str,
             rules.extend(_schema_to_gbnf(sub, sub_rule, depth + 1))
             pname = f"{rule_name}_pair_{_safe_id(key)}"
             pair_names.append(pname)
-            rules.append(
-                f'{pname} ::= {_gbnf_string_literal(key)} ws ":" ws {sub_rule}'
-            )
+            rules.append(f'{pname} ::= {_gbnf_string_literal(key)} ws ":" ws {sub_rule}')
         pair_alt = " | ".join(pair_names)
         rules.append(f'{rule_name}_inner ::= {pair_alt} ("," ws ({pair_alt}))*')
         rules.append(f'{rule_name} ::= "{{" ws {rule_name}_inner? ws "}}"')
@@ -262,15 +284,15 @@ def get_grammar(grammar_id: str) -> str | None:
 _STATIC_GRAMMARS: dict[str, str] = {
     # task_type -> static .gbnf filename (joined to GRAMMAR_DIR verbatim;
     # not passed through _safe_id, which would strip the extension).
-    "extraction":     "extraction_records.gbnf",
-    "structuring":    "json_object.gbnf",
-    "tool_call":      "tool_call.gbnf",
+    "extraction": "extraction_records.gbnf",
+    "structuring": "json_object.gbnf",
+    "tool_call": "tool_call.gbnf",
     "classification": "classification.gbnf",
-    "pii_scan":       "pii_spans.gbnf",
+    "pii_scan": "pii_spans.gbnf",
     # These task types are documented for completeness — no grammar
     # applies, so free-form sampling is used.
-    "frontend":       "",
-    "touch_fix":      "",
+    "frontend": "",
+    "touch_fix": "",
 }
 
 
@@ -312,8 +334,13 @@ class Verdict:
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"passed": self.passed, "reason": self.reason, "kind": self.kind,
-                "degraded": self.degraded, "details": self.details}
+        return {
+            "passed": self.passed,
+            "reason": self.reason,
+            "kind": self.kind,
+            "degraded": self.degraded,
+            "details": self.details,
+        }
 
 
 def _inline_schema_check(text: str, schema: dict[str, Any]) -> tuple[bool, str, dict]:
@@ -327,7 +354,7 @@ def _inline_schema_check(text: str, schema: dict[str, Any]) -> tuple[bool, str, 
         if t == "object":
             if not isinstance(node, dict):
                 return f"{path}:not_object"
-            for k in (s.get("required") or []):
+            for k in s.get("required") or []:
                 if k not in node:
                     return f"{path}:missing:{k}"
             for k, sub in (s.get("properties") or {}).items():
@@ -388,8 +415,7 @@ def _try_jsonschema(text: str, schema: dict[str, Any]) -> tuple[bool, str, dict]
         jsonschema.validate(data, schema)
         return True, "ok", {}
     except jsonschema.ValidationError as e:  # type: ignore[attr-defined]
-        return False, "schema_violation", {
-            "path": list(e.absolute_path)[:4], "msg": e.message[:120]}
+        return False, "schema_violation", {"path": list(e.absolute_path)[:4], "msg": e.message[:120]}
     except Exception as e:
         return False, "schema_error", {"error": str(e)[:120]}
 
@@ -408,8 +434,10 @@ def _verify_ast(text: str) -> tuple[bool, str, dict]:
 
 _ARITH_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*([\+\-\*/])\s*(-?\d+(?:\.\d+)?)")
 _SAFE_OP = {
-    "+": lambda a, b: a + b, "-": lambda a, b: a - b,
-    "*": lambda a, b: a * b, "/": lambda a, b: a / b if b != 0 else None,
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / b if b != 0 else None,
 }
 
 
@@ -432,8 +460,7 @@ def _verify_numeric(text: str, prompt: str) -> tuple[bool, str, dict]:
         return True, "ok_no_required_numbers", {}
     missing = [n for n in required if n not in (text or "")]
     if missing:
-        return False, "numeric_mismatch", {"missing": missing[:4],
-                                            "required": required[:4]}
+        return False, "numeric_mismatch", {"missing": missing[:4], "required": required[:4]}
     return True, "ok", {"checked": len(required)}
 
 
@@ -484,8 +511,7 @@ def verify(
             return Verdict(True, f"unknown_kind:{kind}", kind, degraded=True)
     except Exception as e:
         logger.warning("verify_internal_error kind=%s error=%s", kind, e)
-        return Verdict(True, "verifier_exception", kind, degraded=True,
-                       details={"error": str(e)[:120]})
+        return Verdict(True, "verifier_exception", kind, degraded=True, details={"error": str(e)[:120]})
 
     if _V_MODE == "shadow" and not passed:
         logger.info("verifier_shadow would_fail kind=%s reason=%s", kind, reason)
@@ -493,13 +519,21 @@ def verify(
 
     return Verdict(passed, reason, kind, details=details)
 
+
 __all__ = [
     # §1 Router
-    "classify", "RouteDecision", "TASK_CLASSES",
+    "classify",
+    "RouteDecision",
+    "TASK_CLASSES",
     # §2 Grammar
-    "compile_schema", "get_grammar", "GRAMMAR_DIR", "GRAMMAR_CACHE_DIR",
+    "compile_schema",
+    "get_grammar",
+    "GRAMMAR_DIR",
+    "GRAMMAR_CACHE_DIR",
     # §3 Verifier
-    "verify", "Verdict", "VerifierKind",
+    "verify",
+    "Verdict",
+    "VerifierKind",
 ]
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -511,15 +545,35 @@ if _MODE not in ("off", "shadow", "on"):
 
 # (task_class, pattern, verifier_kind, grammar_id). First match wins.
 _CLASS_RULES: tuple[tuple[str, re.Pattern[str], str, str | None], ...] = (
-    ("pii_scan",     re.compile(r"\b(pii|personally identifiable|redact|anonymi[sz]e)\b", re.I), "json_schema", "pii_spans"),
-    ("tool_call",    re.compile(r"\b(function[- ]?call|tool[- ]?call|call the \w+ tool)\b", re.I), "json_schema", "tool_call"),
-    ("classify",     re.compile(r"\b(classify|categori[sz]e|label this|which (?:intent|category))\b", re.I), "json_schema", "classification"),
-    ("extract_json", re.compile(r"\b(extract|parse|pull out|scrape)\b.*\b(json|csv|schema|field|column|row)\b", re.I), "json_schema", "extraction_records"),
+    (
+        "pii_scan",
+        re.compile(r"\b(pii|personally identifiable|redact|anonymi[sz]e)\b", re.I),
+        "json_schema",
+        "pii_spans",
+    ),
+    (
+        "tool_call",
+        re.compile(r"\b(function[- ]?call|tool[- ]?call|call the \w+ tool)\b", re.I),
+        "json_schema",
+        "tool_call",
+    ),
+    (
+        "classify",
+        re.compile(r"\b(classify|categori[sz]e|label this|which (?:intent|category))\b", re.I),
+        "json_schema",
+        "classification",
+    ),
+    (
+        "extract_json",
+        re.compile(r"\b(extract|parse|pull out|scrape)\b.*\b(json|csv|schema|field|column|row)\b", re.I),
+        "json_schema",
+        "extraction_records",
+    ),
     ("extract_json", re.compile(r"\b(json schema|structured (?:data|output))\b", re.I), "json_schema", "json_object"),
-    ("regex_gen",    re.compile(r"\b(regex|regular expression)\b.*\b(build|write|generate|make)\b", re.I), "ast", None),
-    ("touch_fix",    re.compile(r"\b(fix|debug|repair)\b.*\b(code|error|exception|traceback)\b", re.I), "ast", None),
-    ("math",         re.compile(r"\b(calculate|compute|solve)\b|^\s*\d+\s*[\+\-\*\/]\s*\d+", re.I), "numeric", None),
-    ("summarize",    re.compile(r"\b(summari[sz]e|tl;?dr|shorten)\b", re.I), "rouge", None),
+    ("regex_gen", re.compile(r"\b(regex|regular expression)\b.*\b(build|write|generate|make)\b", re.I), "ast", None),
+    ("touch_fix", re.compile(r"\b(fix|debug|repair)\b.*\b(code|error|exception|traceback)\b", re.I), "ast", None),
+    ("math", re.compile(r"\b(calculate|compute|solve)\b|^\s*\d+\s*[\+\-\*\/]\s*\d+", re.I), "numeric", None),
+    ("summarize", re.compile(r"\b(summari[sz]e|tl;?dr|shorten)\b", re.I), "rouge", None),
 )
 
 TASK_CLASSES: tuple[str, ...] = tuple(r[0] for r in _CLASS_RULES) + ("unknown",)
@@ -539,11 +593,13 @@ class RouteDecision:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "route": self.route, "task_class": self.task_class,
+            "route": self.route,
+            "task_class": self.task_class,
             "verifier_kind": self.verifier_kind,
             "grammar_id": self.grammar_id,
             "confidence": round(self.confidence, 3),
-            "reason": self.reason, "signals": list(self.signals),
+            "reason": self.reason,
+            "signals": list(self.signals),
         }
 
 
@@ -584,21 +640,16 @@ def classify(
     elif verifier_kind == "rouge" and tier in _ROUGE_ELIGIBLE_TIERS:
         route, reason = "hybrid", "rouge_paid_tier"
     else:
-        return RouteDecision("api", task_class, verifier_kind, grammar_id,
-                             0.3, "not_locally_verifiable")
+        return RouteDecision("api", task_class, verifier_kind, grammar_id, 0.3, "not_locally_verifiable")
 
     confidence = 0.85 if grammar_id else 0.70
-    signals = (f"class:{task_class}", f"intent:{intent or 'auto'}",
-               f"workspace:{workspace}")
+    signals = (f"class:{task_class}", f"intent:{intent or 'auto'}", f"workspace:{workspace}")
 
     if _MODE == "shadow":
-        logger.info("router_shadow would_route=%s class=%s kind=%s",
-                    route, task_class, verifier_kind)
-        return RouteDecision("api", task_class, verifier_kind, grammar_id,
-                             confidence, f"shadow:{reason}", signals)
+        logger.info("router_shadow would_route=%s class=%s kind=%s", route, task_class, verifier_kind)
+        return RouteDecision("api", task_class, verifier_kind, grammar_id, confidence, f"shadow:{reason}", signals)
 
-    return RouteDecision(route, task_class, verifier_kind, grammar_id,
-                         confidence, reason, signals)
+    return RouteDecision(route, task_class, verifier_kind, grammar_id, confidence, reason, signals)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -628,8 +679,7 @@ def _gbnf_string_literal(s: str) -> str:
     return '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def _schema_to_gbnf(schema: dict[str, Any], rule_name: str,
-                    depth: int = 0) -> list[str]:
+def _schema_to_gbnf(schema: dict[str, Any], rule_name: str, depth: int = 0) -> list[str]:
     if depth > _MAX_DEPTH:
         return [f"{rule_name} ::= json_value"]
     t = schema.get("type")
@@ -645,9 +695,7 @@ def _schema_to_gbnf(schema: dict[str, Any], rule_name: str,
             rules.extend(_schema_to_gbnf(sub, sub_rule, depth + 1))
             pname = f"{rule_name}_pair_{_safe_id(key)}"
             pair_names.append(pname)
-            rules.append(
-                f'{pname} ::= {_gbnf_string_literal(key)} ws ":" ws {sub_rule}'
-            )
+            rules.append(f'{pname} ::= {_gbnf_string_literal(key)} ws ":" ws {sub_rule}')
         pair_alt = " | ".join(pair_names)
         rules.append(f'{rule_name}_inner ::= {pair_alt} ("," ws ({pair_alt}))*')
         rules.append(f'{rule_name} ::= "{{" ws {rule_name}_inner? ws "}}"')
@@ -733,8 +781,13 @@ class Verdict:
     details: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"passed": self.passed, "reason": self.reason, "kind": self.kind,
-                "degraded": self.degraded, "details": self.details}
+        return {
+            "passed": self.passed,
+            "reason": self.reason,
+            "kind": self.kind,
+            "degraded": self.degraded,
+            "details": self.details,
+        }
 
 
 def _inline_schema_check(text: str, schema: dict[str, Any]) -> tuple[bool, str, dict]:
@@ -748,7 +801,7 @@ def _inline_schema_check(text: str, schema: dict[str, Any]) -> tuple[bool, str, 
         if t == "object":
             if not isinstance(node, dict):
                 return f"{path}:not_object"
-            for k in (s.get("required") or []):
+            for k in s.get("required") or []:
                 if k not in node:
                     return f"{path}:missing:{k}"
             for k, sub in (s.get("properties") or {}).items():
@@ -809,8 +862,7 @@ def _try_jsonschema(text: str, schema: dict[str, Any]) -> tuple[bool, str, dict]
         jsonschema.validate(data, schema)
         return True, "ok", {}
     except jsonschema.ValidationError as e:  # type: ignore[attr-defined]
-        return False, "schema_violation", {
-            "path": list(e.absolute_path)[:4], "msg": e.message[:120]}
+        return False, "schema_violation", {"path": list(e.absolute_path)[:4], "msg": e.message[:120]}
     except Exception as e:
         return False, "schema_error", {"error": str(e)[:120]}
 
@@ -829,8 +881,10 @@ def _verify_ast(text: str) -> tuple[bool, str, dict]:
 
 _ARITH_RE = re.compile(r"(-?\d+(?:\.\d+)?)\s*([\+\-\*/])\s*(-?\d+(?:\.\d+)?)")
 _SAFE_OP = {
-    "+": lambda a, b: a + b, "-": lambda a, b: a - b,
-    "*": lambda a, b: a * b, "/": lambda a, b: a / b if b != 0 else None,
+    "+": lambda a, b: a + b,
+    "-": lambda a, b: a - b,
+    "*": lambda a, b: a * b,
+    "/": lambda a, b: a / b if b != 0 else None,
 }
 
 
@@ -853,8 +907,7 @@ def _verify_numeric(text: str, prompt: str) -> tuple[bool, str, dict]:
         return True, "ok_no_required_numbers", {}
     missing = [n for n in required if n not in (text or "")]
     if missing:
-        return False, "numeric_mismatch", {"missing": missing[:4],
-                                            "required": required[:4]}
+        return False, "numeric_mismatch", {"missing": missing[:4], "required": required[:4]}
     return True, "ok", {"checked": len(required)}
 
 
@@ -905,8 +958,7 @@ def verify(
             return Verdict(True, f"unknown_kind:{kind}", kind, degraded=True)
     except Exception as e:
         logger.warning("verify_internal_error kind=%s error=%s", kind, e)
-        return Verdict(True, "verifier_exception", kind, degraded=True,
-                       details={"error": str(e)[:120]})
+        return Verdict(True, "verifier_exception", kind, degraded=True, details={"error": str(e)[:120]})
 
     if _V_MODE == "shadow" and not passed:
         logger.info("verifier_shadow would_fail kind=%s reason=%s", kind, reason)

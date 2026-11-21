@@ -10,6 +10,7 @@ Requirement coverage:
     N-2        → Settings.from_env()
     N-6        → new_id / now_ms / sha256_hex log helpers
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -32,6 +33,7 @@ logger = logging.getLogger("founder_ops.core")
 # Config (T1.1, N-2)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def _bool(name: str, default: bool) -> bool:
     raw = os.getenv(name)
     if raw is None or raw.strip() == "":
@@ -42,6 +44,7 @@ def _bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class Settings:
     """Immutable, env-driven settings. No secret has a default."""
+
     ollama_url: str
     ollama_model: str
     cloud_fallback_enabled: bool
@@ -74,8 +77,10 @@ settings = Settings.from_env()
 # Errors (T1.2, N-1)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 class AppError(Exception):
     """Base class for all application errors surfaced to HTTP."""
+
     status: int = 500
     code: str = "internal_error"
     default_message: str = "Internal error"
@@ -117,6 +122,7 @@ class ExecutionRefused(AppError):
 # Utilities (T1.6, N-6)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 def now_ms() -> int:
     return int(time.time() * 1000)
 
@@ -133,6 +139,7 @@ def new_id(prefix: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════
 # Pydantic models (T1.4, R-8, R-9, design §4)
 # ═══════════════════════════════════════════════════════════════════════
+
 
 class TaskPayload(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -185,6 +192,7 @@ ENVELOPE_ADAPTER: TypeAdapter[Any] = TypeAdapter(ProposalEnvelope)
 
 class ProposalEditRequest(BaseModel):
     """Founder-supplied edit — validated against the discriminated union."""
+
     envelope: ProposalEnvelope
 
 
@@ -249,22 +257,28 @@ def connect() -> aiosqlite.Connection:
 # Audit (T1.5, R-21, R-22)
 # ═══════════════════════════════════════════════════════════════════════
 
+
 async def record_audit(
-    actor: str, action: str, subject: str, detail: dict[str, Any] | None = None,
+    actor: str,
+    action: str,
+    subject: str,
+    detail: dict[str, Any] | None = None,
 ) -> None:
     """Append one audit row. There is deliberately no update/delete path —
     R-22 requires the log be append-only. Grep confirms only INSERT and
     SELECT appear against `audit_log` anywhere in the codebase."""
     async with connect() as db:
         await db.execute(
-            "INSERT INTO audit_log (ts, actor, action, subject, detail)"
-            " VALUES (?,?,?,?,?)",
+            "INSERT INTO audit_log (ts, actor, action, subject, detail) VALUES (?,?,?,?,?)",
             (now_ms(), actor, action, subject, json.dumps(detail or {})),
         )
         await db.commit()
     logger.info(
         "audit actor=%s action=%s subject=%s detail=%s",
-        actor, action, subject, detail or {},
+        actor,
+        action,
+        subject,
+        detail or {},
     )
 
 
@@ -272,15 +286,17 @@ async def list_audit(limit: int = 100) -> list[dict[str, Any]]:
     """Read-only. Used by the ActivityFeed component (T5.7)."""
     async with connect() as db:
         cur = await db.execute(
-            "SELECT id, ts, actor, action, subject, detail"
-            " FROM audit_log ORDER BY id DESC LIMIT ?",
+            "SELECT id, ts, actor, action, subject, detail FROM audit_log ORDER BY id DESC LIMIT ?",
             (min(max(limit, 1), 500),),
         )
         rows = await cur.fetchall()
     return [
         {
-            "id": r[0], "ts": r[1], "actor": r[2],
-            "action": r[3], "subject": r[4],
+            "id": r[0],
+            "ts": r[1],
+            "actor": r[2],
+            "action": r[3],
+            "subject": r[4],
             "detail": json.loads(r[5]) if r[5] else None,
         }
         for r in rows

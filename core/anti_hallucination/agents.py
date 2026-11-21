@@ -3,6 +3,7 @@
 Adds: circuit breaker integration, matched_text minimization,
 deterministic finalization order. Preserves D1, D3, D6 fixes.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -72,11 +73,15 @@ ABSOLUTE RULES:
 
 
 class ExtractorAgent:
-    def __init__(self, *, timeout_s: float = 60.0,
-                 max_output_tokens: int = 4096,
-                 max_self_correction_retries: int = 2,
-                 allow_llm: bool = True,
-                 circuit_breaker: Optional[CircuitBreaker] = None) -> None:
+    def __init__(
+        self,
+        *,
+        timeout_s: float = 60.0,
+        max_output_tokens: int = 4096,
+        max_self_correction_retries: int = 2,
+        allow_llm: bool = True,
+        circuit_breaker: Optional[CircuitBreaker] = None,
+    ) -> None:
         self.timeout_s = timeout_s
         self.max_output_tokens = max_output_tokens
         self.max_self_correction_retries = max_self_correction_retries
@@ -84,12 +89,20 @@ class ExtractorAgent:
         self.circuit_breaker = circuit_breaker or CircuitBreaker()
         self._det = DeterministicExtractor()
 
-    async def extract(self, *, query: str, target_fields: List[str],
-                      chunks: List[Chunk], workspace: str, tier: str,
-                      correction_hint: Optional[str] = None,
-                      ) -> List[ExtractedClaim]:
+    async def extract(
+        self,
+        *,
+        query: str,
+        target_fields: List[str],
+        chunks: List[Chunk],
+        workspace: str,
+        tier: str,
+        correction_hint: Optional[str] = None,
+    ) -> List[ExtractedClaim]:
         det = self._det.extract(
-            query=query, target_fields=target_fields, chunks=chunks,
+            query=query,
+            target_fields=target_fields,
+            chunks=chunks,
         )
         covered = {c.field_name for c in det}
         missing = [f for f in target_fields if f not in covered]
@@ -102,25 +115,32 @@ class ExtractorAgent:
             return det
         try:
             llm = await self._extract_via_llm(
-                query=query, target_fields=missing, chunks=chunks,
-                workspace=workspace, tier=tier,
+                query=query,
+                target_fields=missing,
+                chunks=chunks,
+                workspace=workspace,
+                tier=tier,
                 correction_hint=correction_hint,
             )
         except (SchemaViolationError, NoProviderAvailableError) as e:
             if det:
-                log.warning("llm_unavailable err=%s kept=%d",
-                            type(e).__name__, len(det))
+                log.warning("llm_unavailable err=%s kept=%d", type(e).__name__, len(det))
                 return det
             raise
         return det + llm
 
-    async def _extract_via_llm(self, *, query, target_fields, chunks,
-                               workspace, tier, correction_hint=None):
+    async def _extract_via_llm(self, *, query, target_fields, chunks, workspace, tier, correction_hint=None):
         user_prompt = self._build_user_prompt(
-            query, target_fields, chunks, correction_hint,
+            query,
+            target_fields,
+            chunks,
+            correction_hint,
         )
         raw = await self._call_llm(
-            EXTRACTOR_SYSTEM_PROMPT, user_prompt, workspace=workspace, tier=tier,
+            EXTRACTOR_SYSTEM_PROMPT,
+            user_prompt,
+            workspace=workspace,
+            tier=tier,
         )
         return self._parse(raw, target_fields)
 
@@ -146,11 +166,10 @@ class ExtractorAgent:
             f"TARGET FIELDS:\n{json.dumps(target_fields)}\n\n"
             f"USER QUERY:\n{query}\n\n"
             f"SOURCE CHUNKS:\n{json.dumps(payload, ensure_ascii=False)}\n"
-            f"{hint}\nReturn ONLY the JSON object {{\"claims\": [...]}}."
+            f'{hint}\nReturn ONLY the JSON object {{"claims": [...]}}.'
         )
 
-    async def _call_llm(self, system: str, user: str,
-                        *, workspace: str, tier: str) -> str:
+    async def _call_llm(self, system: str, user: str, *, workspace: str, tier: str) -> str:
         try:
             from api.providers import (  # type: ignore
                 PROVIDER_FUNC_MAP,
@@ -185,20 +204,21 @@ class ExtractorAgent:
                     await record_provider_result(provider_name, 0.0, success=True)
                     return resp
             except Exception as e:  # noqa: BLE001
-                log.debug("provider_failed provider=%s error=%s",
-                          provider_name, e)
+                log.debug("provider_failed provider=%s error=%s", provider_name, e)
                 self.circuit_breaker.record_failure()
                 await record_provider_result(provider_name, 0.0, success=False)
                 continue
         return await self._local_fallback(system, user, workspace)
 
-    async def _local_fallback(self, system: str, user: str,
-                              workspace: str) -> str:
+    async def _local_fallback(self, system: str, user: str, workspace: str) -> str:
         try:
             from core.twin_engine import execute_local_inference  # type: ignore
+
             text = await asyncio.wait_for(
                 execute_local_inference(
-                    workspace, "extraction", f"{system}\n\n{user}",
+                    workspace,
+                    "extraction",
+                    f"{system}\n\n{user}",
                 ),
                 timeout=self.timeout_s,
             )
@@ -206,9 +226,7 @@ class ExtractorAgent:
                 return text
         except Exception as e:  # noqa: BLE001
             log.debug("local_fallback_failed error=%s", e)
-        raise NoProviderAvailableError(
-            "No provider (remote or local) produced a response for the extractor."
-        )
+        raise NoProviderAvailableError("No provider (remote or local) produced a response for the extractor.")
 
     @staticmethod
     def _strip_fences(s: str) -> str:
@@ -253,10 +271,23 @@ class ExtractorAgent:
         return out
 
 
-_STRICT_FIELD_TOKENS = frozenset({
-    "amount", "total", "price", "cost", "fee", "balance",
-    "id", "code", "number", "date", "time", "email", "phone",
-})
+_STRICT_FIELD_TOKENS = frozenset(
+    {
+        "amount",
+        "total",
+        "price",
+        "cost",
+        "fee",
+        "balance",
+        "id",
+        "code",
+        "number",
+        "date",
+        "time",
+        "email",
+        "phone",
+    }
+)
 _FIELD_TOK_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -266,10 +297,9 @@ class SkepticAgent:
     STRICT_FIELD_RATIO = 0.90
     QUERY_ECHO_SIMILARITY = 0.90
 
-    def cross_examine(self, claim: ExtractedClaim,
-                      chunks_by_id: Dict[str, Chunk],
-                      doc: DocumentBuffer,
-                      query: str = "") -> VerificationResult:
+    def cross_examine(
+        self, claim: ExtractedClaim, chunks_by_id: Dict[str, Chunk], doc: DocumentBuffer, query: str = ""
+    ) -> VerificationResult:
         chunk = chunks_by_id.get(claim.chunk_id)
         if chunk is None:
             return VerificationResult(
@@ -294,7 +324,8 @@ class SkepticAgent:
         snippet_canon, _ = canonicalize(claim.raw_snippet)
         if not snippet_canon:
             return VerificationResult(
-                verified=False, reason="empty raw_snippet",
+                verified=False,
+                reason="empty raw_snippet",
                 reason_code=REASON_EMPTY_SNIPPET,
             )
 
@@ -343,14 +374,11 @@ class SkepticAgent:
             if ratio < self.STRICT_FIELD_RATIO:
                 return VerificationResult(
                     verified=False,
-                    reason=f"strict field '{claim.field_name}' covers "
-                           f"{ratio:.0%} (<90%)",
+                    reason=f"strict field '{claim.field_name}' covers {ratio:.0%} (<90%)",
                     reason_code=REASON_STRICT_THRESHOLD,
                     matched_text=None,
                 )
-        elif value_canon and len(value_canon) < max(
-            2, len(matched_canon) // self.MIN_WEAK_RATIO
-        ):
+        elif value_canon and len(value_canon) < max(2, len(matched_canon) // self.MIN_WEAK_RATIO):
             return VerificationResult(
                 verified=False,
                 reason="claim.value covers <5% of snippet (weak)",
@@ -368,9 +396,9 @@ class SkepticAgent:
                     matched_text=None,
                 )
             import difflib
+
             best = max(
-                (difflib.SequenceMatcher(None, value_canon, q_tok).ratio()
-                 for q_tok in q_canon.split() if q_tok),
+                (difflib.SequenceMatcher(None, value_canon, q_tok).ratio() for q_tok in q_canon.split() if q_tok),
                 default=0.0,
             )
             if best >= self.QUERY_ECHO_SIMILARITY:
@@ -390,7 +418,9 @@ class SkepticAgent:
             verified=True,
             reason="verbatim match; value derivable from source",
             reason_code=REASON_VERBATIM,
-            char_start=abs_start, char_end=abs_end, matched_text=mt,
+            char_start=abs_start,
+            char_end=abs_end,
+            matched_text=mt,
         )
 
 
@@ -399,7 +429,9 @@ class AdjudicatorAgent:
         self.strict = strict
 
     def adjudicate(
-        self, *, document_id: str,
+        self,
+        *,
+        document_id: str,
         claims: List[ExtractedClaim],
         chunks_by_id: Dict[str, Chunk],
         verdicts: List[VerificationResult],
@@ -416,9 +448,7 @@ class AdjudicatorAgent:
         rejection_summary: Dict[str, int] = {}
         for c, v in zip(claims, verdicts):
             if not v.verified:
-                rejection_summary[v.reason_code] = (
-                    rejection_summary.get(v.reason_code, 0) + 1
-                )
+                rejection_summary[v.reason_code] = rejection_summary.get(v.reason_code, 0) + 1
 
         failures = [(c, v) for c, v in zip(claims, verdicts) if not v.verified]
         if failures and self.strict:
@@ -427,9 +457,7 @@ class AdjudicatorAgent:
                 {
                     "document_id": document_id,
                     "failures": [
-                        {"field": c.field_name, "reason": v.reason,
-                         "code": v.reason_code}
-                        for c, v in failures
+                        {"field": c.field_name, "reason": v.reason, "code": v.reason_code} for c, v in failures
                     ],
                     "rejection_summary": rejection_summary,
                 },
@@ -439,15 +467,13 @@ class AdjudicatorAgent:
         if not kept:
             raise UnverifiableDataError(
                 "Source document does not contain explicit data point",
-                {"document_id": document_id,
-                 "rejection_summary": rejection_summary},
+                {"document_id": document_id, "rejection_summary": rejection_summary},
             )
 
         lineage = LineageIndex()
         for c, v in kept:
             canon_value = canonicalize(c.value)[0]
-            lineage.record(c.field_name, canon_value, document_id,
-                           c.chunk_id, v.char_start or 0, v.char_end or 0)
+            lineage.record(c.field_name, canon_value, document_id, c.chunk_id, v.char_start or 0, v.char_end or 0)
 
         seen: set = set()
         verified: List[VerifiedClaim] = []
@@ -458,20 +484,23 @@ class AdjudicatorAgent:
                 continue
             seen.add(key)
             vc = self._to_verified(
-                document_id, chunks_by_id, c, v, lineage,
+                document_id,
+                chunks_by_id,
+                c,
+                v,
+                lineage,
             )
             ev_count, doc_div = lineage.evidence(c.field_name, canon_value)
             vc.verification.evidence_count = ev_count
             vc.verification.doc_diversity = doc_div
             if ev_count > 1:
-                vc.verification.reason = (
-                    f"{vc.verification.reason} "
-                    f"(corroborated by {ev_count} sources)"
-                )
+                vc.verification.reason = f"{vc.verification.reason} (corroborated by {ev_count} sources)"
             verified.append(vc)
 
         payload = VerifiedPayload(
-            document_id=document_id, claims=verified, audit_hash="",
+            document_id=document_id,
+            claims=verified,
+            audit_hash="",
             rejection_summary=rejection_summary,
         )
 
@@ -486,19 +515,19 @@ class AdjudicatorAgent:
             src_canon, _ = canonicalize(ch.text[ls:le])
             val_canon, _ = canonicalize(vc.value)
             if val_canon and val_canon not in src_canon:
-                raise SchemaViolationError(
-                    "Post-build: value not derivable from emitted coordinate"
-                )
+                raise SchemaViolationError("Post-build: value not derivable from emitted coordinate")
 
         payload.audit_hash = compute_audit_hash(payload)
         return payload
 
     @staticmethod
-    def _to_verified(document_id: str,
-                     chunks_by_id: Dict[str, Chunk],
-                     claim: ExtractedClaim,
-                     verdict: VerificationResult,
-                     lineage: LineageIndex) -> VerifiedClaim:
+    def _to_verified(
+        document_id: str,
+        chunks_by_id: Dict[str, Chunk],
+        claim: ExtractedClaim,
+        verdict: VerificationResult,
+        lineage: LineageIndex,
+    ) -> VerifiedClaim:
         chunk = chunks_by_id[claim.chunk_id]
         if verdict.char_start is None or verdict.char_end is None:
             raise SchemaViolationError(
@@ -518,23 +547,29 @@ class AdjudicatorAgent:
         canon_value = canonicalize(claim.value)[0]
         witnesses = lineage.witnesses(claim.field_name, canon_value)
         provenance: List[SourceCoordinate] = []
-        for (doc_id, chunk_id, start, end) in witnesses:
-            if doc_id == document_id and chunk_id == claim.chunk_id \
-               and start == verdict.char_start and end == verdict.char_end:
+        for doc_id, chunk_id, start, end in witnesses:
+            if (
+                doc_id == document_id
+                and chunk_id == claim.chunk_id
+                and start == verdict.char_start
+                and end == verdict.char_end
+            ):
                 continue
             ch = chunks_by_id.get(chunk_id)
             if ch is None:
                 continue
-            provenance.append(SourceCoordinate(
-                document_id=doc_id,
-                chunk_id=chunk_id,
-                char_start=start,
-                char_end=end,
-                bbox=ch.bbox,
-                row_index=ch.row_index,
-                col_index=ch.col_index,
-                json_path=ch.json_path,
-            ))
+            provenance.append(
+                SourceCoordinate(
+                    document_id=doc_id,
+                    chunk_id=chunk_id,
+                    char_start=start,
+                    char_end=end,
+                    bbox=ch.bbox,
+                    row_index=ch.row_index,
+                    col_index=ch.col_index,
+                    json_path=ch.json_path,
+                )
+            )
         return VerifiedClaim(
             field_name=intern_str(claim.field_name),
             value=claim.value,
@@ -546,6 +581,8 @@ class AdjudicatorAgent:
 
 
 __all__ = [
-    "ExtractorAgent", "SkepticAgent", "AdjudicatorAgent",
+    "ExtractorAgent",
+    "SkepticAgent",
+    "AdjudicatorAgent",
     "EXTRACTOR_SYSTEM_PROMPT",
 ]

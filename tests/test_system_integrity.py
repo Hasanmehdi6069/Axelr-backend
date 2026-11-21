@@ -10,6 +10,7 @@ Fixes applied:
   • test_manifest_has_no_orphans has been intentionally removed (conflicts
     with file consolidation). See README note at bottom.
 """
+
 from __future__ import annotations
 
 import importlib
@@ -27,15 +28,14 @@ MANIFEST = Path(__file__).parent / "manifest.json"
 # CI + pytest config
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_ci_runs_pytest():
     ci = ROOT / ".github" / "workflows" / "ci.yml"
     if not ci.exists():
         pytest.skip(f"CI workflow not found at {ci}")
     text = ci.read_text()
     markers = ("pytest tests/", "pytest -q", "python -m pytest", "pytest .")
-    assert any(m in text for m in markers), (
-        "CI workflow does not invoke pytest — tests will not run in CI"
-    )
+    assert any(m in text for m in markers), "CI workflow does not invoke pytest — tests will not run in CI"
 
 
 def test_only_root_pytest_config():
@@ -49,23 +49,18 @@ def test_only_root_pytest_config():
             continue
         if "pytest" in data.get("tool", {}).get("ini_options", {}):
             offenders.append(str(pyproject))
-    assert not offenders, (
-        f"SPLIT PYTEST CONFIG — merge into root pyproject.toml: {offenders}"
-    )
+    assert not offenders, f"SPLIT PYTEST CONFIG — merge into root pyproject.toml: {offenders}"
 
 
 def test_no_stray_pytest_ini():
-    strays = [
-        p for p in ROOT.rglob("pytest.ini")
-        if ".venv" not in str(p)
-        and p.parent not in (ROOT, ROOT / "tests")
-    ]
+    strays = [p for p in ROOT.rglob("pytest.ini") if ".venv" not in str(p) and p.parent not in (ROOT, ROOT / "tests")]
     assert not strays, f"STRAY pytest.ini FILES: {strays}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Manifest — loading & discovery
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def _manifest() -> dict:
     if not MANIFEST.exists():
@@ -83,9 +78,7 @@ def _discover(module: str, attr: str, *, subtract: set | None = None) -> set:
         mod = importlib.import_module(module)
         obj = getattr(mod, attr)
     except Exception as e:
-        pytest.skip(
-            f"discovery unavailable: {module}.{attr} ({type(e).__name__}: {e})"
-        )
+        pytest.skip(f"discovery unavailable: {module}.{attr} ({type(e).__name__}: {e})")
     result = set(obj.values() if hasattr(obj, "values") else obj)
     if subtract:
         result -= subtract
@@ -95,6 +88,7 @@ def _discover(module: str, attr: str, *, subtract: set | None = None) -> set:
 # ═══════════════════════════════════════════════════════════════════════════
 # Drift detection — new surface must be registered in manifest
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def test_all_collections_registered():
     registered = set(_manifest()["appwrite_collections"])
@@ -106,9 +100,13 @@ def test_all_routes_registered():
     registered = set(_manifest()["http_routes"])
     try:
         from api.warhead import create_app
-        discovered = {
-            r.path for r in create_app().routes if hasattr(r, "path")
-        } - {"/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc"}
+
+        discovered = {r.path for r in create_app().routes if hasattr(r, "path")} - {
+            "/openapi.json",
+            "/docs",
+            "/docs/oauth2-redirect",
+            "/redoc",
+        }
     except Exception as e:
         pytest.skip(f"route discovery unavailable: {type(e).__name__}: {e}")
     missing = discovered - registered
@@ -143,21 +141,27 @@ def test_all_gateways_registered():
 # Manifest self-consistency — every referenced test file must exist
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def test_manifest_test_files_exist():
     manifest = _manifest()
     missing = []
     for section in (
-        "appwrite_collections", "http_routes", "mcp_tools", "providers",
-        "tiers", "payment_gateways", "engine_modules", "agent_modules",
+        "appwrite_collections",
+        "http_routes",
+        "mcp_tools",
+        "providers",
+        "tiers",
+        "payment_gateways",
+        "engine_modules",
+        "agent_modules",
         "hackathon_modules",
     ):
         for name, meta in manifest.get(section, {}).items():
             tf = meta.get("test_file")
             if tf and not (ROOT / tf).exists():
                 missing.append(f"{section}/{name} → {tf}")
-    assert not missing, (
-        "manifest points to missing files — either restore the file or "
-        "remove the entry:\n" + "\n".join(missing)
+    assert not missing, "manifest points to missing files — either restore the file or remove the entry:\n" + "\n".join(
+        missing
     )
 
 

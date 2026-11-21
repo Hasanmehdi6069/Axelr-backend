@@ -4,6 +4,7 @@ Circuit Breaker #18, Streaming Reranker #20, Structured Repair #21.
 
 Memory: KV cache cap + ~300 KB bookkeeping.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -35,17 +36,82 @@ except Exception as e:
     logger.warning(f"Failed to load runtime-tables.json, using fallback values: {e}")
     # Fallback values maintain backward compatibility
     _RUNTIME_TABLES = {
-        "homophone_words": ["their","there","they're","to","too","two","your","you're","its","it's","then","than","were","we're","where","whose","who's","right","write","rite","hear","here","weather","whether","affect","effect"],
+        "homophone_words": [
+            "their",
+            "there",
+            "they're",
+            "to",
+            "too",
+            "two",
+            "your",
+            "you're",
+            "its",
+            "it's",
+            "then",
+            "than",
+            "were",
+            "we're",
+            "where",
+            "whose",
+            "who's",
+            "right",
+            "write",
+            "rite",
+            "hear",
+            "here",
+            "weather",
+            "whether",
+            "affect",
+            "effect",
+        ],
         "homophone_context": {
-            "their":{"is":"there", "are":"there", "was":"there", "were":"there", "has":"there", "have":"there", "will":"there", "would":"there", "they":"their", "them":"their", "we":"their", "our":"their", "over":"there", "out":"there", "in":"there", "at":"there"},
-            "to":{"go":"to", "want":"to", "need":"to", "have":"to", "able":"to", "going":"to", "back":"to", "much":"too", "many":"too", "far":"too", "big":"too"},
-            "your":{"you":"you're", "are":"you're", "were":"you're", "going":"you're", "the":"your", "my":"your", "our":"your"},
-            "its":{"it":"it's", "is":"its", "was":"its", "has":"its", "a":"it's", "the":"it's"}
-        }
+            "their": {
+                "is": "there",
+                "are": "there",
+                "was": "there",
+                "were": "there",
+                "has": "there",
+                "have": "there",
+                "will": "there",
+                "would": "there",
+                "they": "their",
+                "them": "their",
+                "we": "their",
+                "our": "their",
+                "over": "there",
+                "out": "there",
+                "in": "there",
+                "at": "there",
+            },
+            "to": {
+                "go": "to",
+                "want": "to",
+                "need": "to",
+                "have": "to",
+                "able": "to",
+                "going": "to",
+                "back": "to",
+                "much": "too",
+                "many": "too",
+                "far": "too",
+                "big": "too",
+            },
+            "your": {
+                "you": "you're",
+                "are": "you're",
+                "were": "you're",
+                "going": "you're",
+                "the": "your",
+                "my": "your",
+                "our": "your",
+            },
+            "its": {"it": "it's", "is": "its", "was": "its", "has": "its", "a": "it's", "the": "it's"},
+        },
     }
 
 
 # ---------- ZLCI #3 ------------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class ContextSnapshot:
@@ -88,7 +154,7 @@ class ContextTracker:
     @staticmethod
     def recent(snapshot: ContextSnapshot, chars: int = 500) -> str:
         start = max(0, snapshot.cursor_position - chars)
-        return snapshot.active_text[start:snapshot.cursor_position]
+        return snapshot.active_text[start : snapshot.cursor_position]
 
 
 class ZeroLatencyContextInjector:
@@ -123,6 +189,7 @@ class ZeroLatencyContextInjector:
 
 
 # ---------- KV cache #9 --------------------------------------------------
+
 
 @dataclass(slots=True)
 class _Entry:
@@ -223,6 +290,7 @@ class TokenRescoringLoop:
 
 # ---------- Streaming Reranker #20 --------------------------------------
 
+
 @dataclass(slots=True)
 class _Hyp:
     text: str
@@ -237,6 +305,7 @@ class StreamingNGramReranker:
     scoring cannot distinguish. Documented as such so no caller mistakes
     it for an actual LM.
     """
+
     __slots__ = ("_beam", "_window", "_repairs")
 
     def __init__(self, beam_width: int = 4, window: int = 5) -> None:
@@ -255,7 +324,7 @@ class StreamingNGramReranker:
     def rerank(self, tokens: List[str]) -> List[str]:
         if len(tokens) < 2:
             return tokens
-        tail = " ".join(tokens[-self._window:])
+        tail = " ".join(tokens[-self._window :])
         for bad, good in self._repairs:
             if tail.endswith(bad):
                 merged = tail[: -len(bad)] + good
@@ -264,6 +333,7 @@ class StreamingNGramReranker:
 
 
 # ---------- SCLB #14 -----------------------------------------------------
+
 
 class StreamingLogitBiasing:
     """#14 SCLB: cooldown-limited biasing term extraction."""
@@ -290,12 +360,31 @@ from axelr_utils import CircuitBreaker
 # ---------- Structured Repair #21 --------------------------------------
 
 _NUM_WORDS: Dict[str, str] = {
-    "zero": "0", "one": "1", "two": "2", "three": "3", "four": "4",
-    "five": "5", "six": "6", "seven": "7", "eight": "8", "nine": "9",
-    "ten": "10", "eleven": "11", "twelve": "12", "thirteen": "13",
-    "fourteen": "14", "fifteen": "15", "sixteen": "16", "seventeen": "17",
-    "eighteen": "18", "nineteen": "19", "twenty": "20", "thirty": "30",
-    "forty": "40", "fifty": "50", "hundred": "100",
+    "zero": "0",
+    "one": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "eleven": "11",
+    "twelve": "12",
+    "thirteen": "13",
+    "fourteen": "14",
+    "fifteen": "15",
+    "sixteen": "16",
+    "seventeen": "17",
+    "eighteen": "18",
+    "nineteen": "19",
+    "twenty": "20",
+    "thirty": "30",
+    "forty": "40",
+    "fifty": "50",
+    "hundred": "100",
 }
 
 
@@ -378,8 +467,20 @@ class StructuredRepair:
 
     @staticmethod
     def _date_sub(m: "re.Match[str]") -> str:
-        month_map = {"january":"01","february":"02","march":"03","april":"04","may":"05","june":"06",
-                     "july":"07","august":"08","september":"09","october":"10","november":"11","december":"12"}
+        month_map = {
+            "january": "01",
+            "february": "02",
+            "march": "03",
+            "april": "04",
+            "may": "05",
+            "june": "06",
+            "july": "07",
+            "august": "08",
+            "september": "09",
+            "october": "10",
+            "november": "11",
+            "december": "12",
+        }
         month = month_map.get(m.group(1).lower(), m.group(1))
         day = m.group(2).zfill(2)
         return f"{month}/{day}/{m.group(3)}"
@@ -399,6 +500,7 @@ class StructuredRepair:
 
 
 # ---------- CloudRouter -------------------------------------------------
+
 
 @dataclass(frozen=True, slots=True)
 class CloudConfig:

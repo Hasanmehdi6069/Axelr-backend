@@ -3,6 +3,7 @@
 UGOS Skill manifest, public API, and optional aiohttp route helpers.
 Runs entirely on-device: Apex Router local tier (Ollama + Gemma) only.
 """
+
 from __future__ import annotations
 
 import logging
@@ -65,14 +66,13 @@ SKILL_MANIFEST: dict[str, Any] = {
     },
 }
 
-PERMISSIONS: tuple[str, ...] = tuple(
-    p["scope"] for p in SKILL_MANIFEST["permissions"]
-)
+PERMISSIONS: tuple[str, ...] = tuple(p["scope"] for p in SKILL_MANIFEST["permissions"])
 
 
 def manifest() -> dict[str, Any]:
     """Return a deep-ish copy of the skill manifest for the UGOS host."""
     import copy
+
     return copy.deepcopy(SKILL_MANIFEST)
 
 
@@ -116,6 +116,7 @@ __all__ = [
 
 # ─── aiohttp wiring (optional — the Skill SDK may call this directly) ───
 
+
 async def init_module(app: Any, root: Optional[str] = None) -> None:
     """UGOS entrypoint: initialize the skill and attach cleanup."""
     nas_root = root or os.getenv("NAS_ROOT") or os.getenv("SKILL_ROOT", "")
@@ -153,6 +154,7 @@ def register_routes(app: Any, prefix: str = "/skill/inbox-organizer") -> None:
         raw = request.match_info.get("day", "")
         try:
             import time as _t
+
             when = _t.mktime(_t.strptime(raw, "%Y-%m-%d"))
         except ValueError:
             return web.json_response({"error": "invalid day, use YYYY-MM-DD"}, status=400)

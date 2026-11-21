@@ -16,6 +16,7 @@ Honest scope / correctness envelope
 * **Agent cleanup on release** — `Resource.waiting_agents` no longer
   accumulates dead agents; `remove_agent` scrubs references.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -114,9 +115,7 @@ class WaitForGraph:
                 logger.warning("cycle_scan_truncated max=%d", _MAX_CYCLES_PER_SCAN)
                 break
 
-            stack: List[tuple[str, Iterable[str]]] = [
-                (start, iter(self.adjacency.get(start, ())))
-            ]
+            stack: List[tuple[str, Iterable[str]]] = [(start, iter(self.adjacency.get(start, ())))]
             path: List[str] = [start]
             in_stack.add(start)
             visited.add(start)
@@ -160,8 +159,7 @@ class DeadlockMonitor:
     check_interval: float = _MONITOR_INTERVAL_S
 
     async def register_agent(self, agent_id: str, process: psutil.Process) -> AgentInfo:
-        thread_ids = await asyncio.to_thread(
-            lambda: [t.id for t in process.threads()])
+        thread_ids = await asyncio.to_thread(lambda: [t.id for t in process.threads()])
         async with self.lock:
             agent = AgentInfo(
                 agent_id=agent_id,
@@ -170,8 +168,7 @@ class DeadlockMonitor:
                 last_heartbeat=time.time(),
             )
             self.agents[agent_id] = agent
-            logger.info("agent_registered id=%s pid=%d threads=%d",
-                        agent_id, process.pid, len(thread_ids))
+            logger.info("agent_registered id=%s pid=%d threads=%d", agent_id, process.pid, len(thread_ids))
             return agent
 
     async def unregister_agent(self, agent_id: str) -> None:
@@ -218,8 +215,7 @@ class DeadlockMonitor:
             if agent_id not in res.waiting_agents:
                 res.waiting_agents.append(agent_id)
             agent.requested_resources.add(resource_id)
-            self.wait_for_graph.add_wait_relation(
-                agent_id, res.owner_agent_id)
+            self.wait_for_graph.add_wait_relation(agent_id, res.owner_agent_id)
             return False
 
     async def release_resource(self, agent_id: str, resource_id: str) -> None:
@@ -240,8 +236,7 @@ class DeadlockMonitor:
                     nxt.requested_resources.discard(resource_id)
                     self.wait_for_graph.remove_wait_relation(nxt_id, agent_id)
 
-    async def _resolve_cycle(self, cycle: List[str],
-                             event: DeadlockEvent) -> None:
+    async def _resolve_cycle(self, cycle: List[str], event: DeadlockEvent) -> None:
         """Kill the OLDEST agent in the cycle (deterministic policy).
 
         Rationale: oldest agent has typically held state longest and is
@@ -252,8 +247,7 @@ class DeadlockMonitor:
             return
         victim_id, victim = min(candidates, key=lambda kv: kv[1].start_time)
 
-        logger.critical("deadlock_resolving victim=%s cycle=%s",
-                        victim_id, cycle)
+        logger.critical("deadlock_resolving victim=%s cycle=%s", victim_id, cycle)
 
         def _kill(pid: int) -> None:
             try:
@@ -274,8 +268,7 @@ class DeadlockMonitor:
     async def _monitor_loop(self) -> None:
         while not self.shutdown_event.is_set():
             try:
-                await asyncio.wait_for(
-                    self.shutdown_event.wait(), timeout=self.check_interval)
+                await asyncio.wait_for(self.shutdown_event.wait(), timeout=self.check_interval)
                 return
             except asyncio.TimeoutError:
                 pass
@@ -283,7 +276,8 @@ class DeadlockMonitor:
             async with self.lock:
                 now = time.time()
                 timed_out = [
-                    aid for aid, a in self.agents.items()
+                    aid
+                    for aid, a in self.agents.items()
                     if a.is_active and (now - a.last_heartbeat) > a.heartbeat_timeout
                 ]
                 cycles = self.wait_for_graph.detect_cycles()
@@ -359,6 +353,5 @@ async def shutdown() -> None:
 
 def health() -> dict:
     if _monitor is None:
-        return {"ok": False, "details": {"reason": "not_initialized",
-                                          "version": __version__}}
+        return {"ok": False, "details": {"reason": "not_initialized", "version": __version__}}
     return _monitor.health()

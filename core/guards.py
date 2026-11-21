@@ -18,6 +18,7 @@ lifecycle contract:
 
 Read-only module. All singletons are constructed lazily.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,6 +38,7 @@ logger = logging.getLogger("axelr.guards")
 
 try:
     import psutil  # type: ignore[import-not-found]
+
     _HAS_PSUTIL = True
 except ImportError:
     psutil = None  # type: ignore[assignment]
@@ -61,9 +63,17 @@ class _ThermalSnap:
 
 
 class _ThermalGuard:
-    __slots__ = ("_cpu_ring", "_task", "_lock", "_running", "_snap",
-                 "_net_prev", "_consecutive_critical", "_swap_warned",
-                 "_net_io_warned")
+    __slots__ = (
+        "_cpu_ring",
+        "_task",
+        "_lock",
+        "_running",
+        "_snap",
+        "_net_prev",
+        "_consecutive_critical",
+        "_swap_warned",
+        "_net_io_warned",
+    )
 
     def __init__(self) -> None:
         cfg = _cfg()
@@ -77,10 +87,16 @@ class _ThermalGuard:
         self._running = False
         self._task: asyncio.Task | None = None
         self._snap = _ThermalSnap(
-            ts=time.time(), cpu_pct=0.0, mem_pct=0.0, swap_pct=0.0,
-            net_recv_mb=0.0, net_sent_mb=0.0,
-            load1=0.0, threads=threading.active_count(),
-            pressure="ok", budget=max(2, cores),
+            ts=time.time(),
+            cpu_pct=0.0,
+            mem_pct=0.0,
+            swap_pct=0.0,
+            net_recv_mb=0.0,
+            net_sent_mb=0.0,
+            load1=0.0,
+            threads=threading.active_count(),
+            pressure="ok",
+            budget=max(2, cores),
         )
 
     def _read_cpu(self) -> float:
@@ -150,8 +166,7 @@ class _ThermalGuard:
             self._swap_warned = False
 
         if (net_recv + net_sent) >= cfg.thermal_net_io_mb and not self._net_io_warned:
-            logger.warning("thermal_net_io_warning total_mb_s=%.1f",
-                           net_recv + net_sent)
+            logger.warning("thermal_net_io_warning total_mb_s=%.1f", net_recv + net_sent)
             self._net_io_warned = True
         elif (net_recv + net_sent) < cfg.thermal_net_io_mb:
             self._net_io_warned = False
@@ -159,8 +174,7 @@ class _ThermalGuard:
         if worst >= cfg.thermal_critical_pct or load1 >= cores * 2.5:
             self._consecutive_critical += 1
             if self._consecutive_critical >= cfg.thermal_circuit_break:
-                logger.critical("thermal_circuit_breaker_triggered "
-                                "consecutive=%d", self._consecutive_critical)
+                logger.critical("thermal_circuit_breaker_triggered consecutive=%d", self._consecutive_critical)
                 pressure, budget = "critical", 0
             else:
                 pressure, budget = "critical", 1
@@ -174,11 +188,16 @@ class _ThermalGuard:
                 pressure, budget = "ok", max(2, cores)
 
         return _ThermalSnap(
-            ts=time.time(), cpu_pct=round(worst, 1),
-            mem_pct=round(mem_pct, 1), swap_pct=round(swap_pct, 1),
-            net_recv_mb=round(net_recv, 2), net_sent_mb=round(net_sent, 2),
-            load1=round(load1, 2), threads=n_threads,
-            pressure=pressure, budget=budget,
+            ts=time.time(),
+            cpu_pct=round(worst, 1),
+            mem_pct=round(mem_pct, 1),
+            swap_pct=round(swap_pct, 1),
+            net_recv_mb=round(net_recv, 2),
+            net_sent_mb=round(net_sent, 2),
+            load1=round(load1, 2),
+            threads=n_threads,
+            pressure=pressure,
+            budget=budget,
         )
 
     async def _loop(self) -> None:
@@ -196,9 +215,13 @@ class _ThermalGuard:
                     self._snap = snap
                 if snap.pressure != prev:
                     logger.info(
-                        "thermal_pressure_change %s->%s cpu=%.1f load1=%.2f "
-                        "budget=%d", prev, snap.pressure, snap.cpu_pct,
-                        snap.load1, snap.budget)
+                        "thermal_pressure_change %s->%s cpu=%.1f load1=%.2f budget=%d",
+                        prev,
+                        snap.pressure,
+                        snap.cpu_pct,
+                        snap.load1,
+                        snap.budget,
+                    )
             except asyncio.CancelledError:
                 return
             except Exception as e:
@@ -236,12 +259,20 @@ class _ThermalGuard:
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             s = self._snap
-        return {"ts": s.ts, "cpu_pct": s.cpu_pct, "mem_pct": s.mem_pct,
-                "swap_pct": s.swap_pct, "net_recv_mb": s.net_recv_mb,
-                "net_sent_mb": s.net_sent_mb, "load1": s.load1,
-                "threads": s.threads, "pressure": s.pressure,
-                "budget": s.budget, "running": self._running,
-                "psutil": _HAS_PSUTIL}
+        return {
+            "ts": s.ts,
+            "cpu_pct": s.cpu_pct,
+            "mem_pct": s.mem_pct,
+            "swap_pct": s.swap_pct,
+            "net_recv_mb": s.net_recv_mb,
+            "net_sent_mb": s.net_sent_mb,
+            "load1": s.load1,
+            "threads": s.threads,
+            "pressure": s.pressure,
+            "budget": s.budget,
+            "running": self._running,
+            "psutil": _HAS_PSUTIL,
+        }
 
 
 _GUARD = _ThermalGuard()
@@ -296,11 +327,9 @@ def enter(reason: str = "manual", *, ceiling_mb: int | None = None) -> None:
         _MICRO.active = True
         _MICRO.reason = (reason or "")[:120]
         _MICRO.entered_at = time.time()
-        _MICRO.ceiling_mb = int(
-            ceiling_mb if ceiling_mb is not None else cfg.micro_volatile_mb)
+        _MICRO.ceiling_mb = int(ceiling_mb if ceiling_mb is not None else cfg.micro_volatile_mb)
         _MICRO.entries += 1
-    logger.warning("micro_volatile_entered reason=%s ceiling_mb=%d",
-                   reason, _MICRO.ceiling_mb)
+    logger.warning("micro_volatile_entered reason=%s ceiling_mb=%d", reason, _MICRO.ceiling_mb)
 
 
 def exit() -> None:
@@ -341,12 +370,14 @@ def clamp_response(text: str) -> str:
 def policy() -> dict[str, Any]:
     cfg = _cfg()
     with _MICRO_LOCK:
-        return {"active": _MICRO.active, "reason": _MICRO.reason,
-                "ceiling_mb": _MICRO.ceiling_mb,
-                "max_tokens": cfg.micro_volatile_tokens,
-                "max_chars": cfg.micro_volatile_chars,
-                "held_s": round(time.time() - _MICRO.entered_at, 1)
-                          if _MICRO.active else 0.0}
+        return {
+            "active": _MICRO.active,
+            "reason": _MICRO.reason,
+            "ceiling_mb": _MICRO.ceiling_mb,
+            "max_tokens": cfg.micro_volatile_tokens,
+            "max_chars": cfg.micro_volatile_chars,
+            "held_s": round(time.time() - _MICRO.entered_at, 1) if _MICRO.active else 0.0,
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -373,8 +404,7 @@ _STOP_GC = threading.Event()
 def _gc_locked() -> None:
     cfg = _cfg()
     now = time.time()
-    stale = [k for k, d in _PENDING.items()
-             if (now - d.issued_at) > cfg.override_ttl_s]
+    stale = [k for k, d in _PENDING.items() if (now - d.issued_at) > cfg.override_ttl_s]
     for k in stale:
         _PENDING.pop(k, None)
     if len(_PENDING) > cfg.override_max_pending:
@@ -389,12 +419,10 @@ def _gc_worker() -> None:
             _gc_locked()
 
 
-threading.Thread(target=_gc_worker, daemon=True,
-                 name="guards-override-gc").start()
+threading.Thread(target=_gc_worker, daemon=True, name="guards-override-gc").start()
 
 
-def issue(ram_free_mb: int, session_id: str = "",
-          *, seconds: int | None = None) -> dict[str, Any]:
+def issue(ram_free_mb: int, session_id: str = "", *, seconds: int | None = None) -> dict[str, Any]:
     cfg = _cfg()
     secs = int(seconds if seconds is not None else cfg.override_seconds)
     secs = max(1, min(secs, 30))
@@ -402,23 +430,30 @@ def issue(ram_free_mb: int, session_id: str = "",
     with _MICRO_LOCK:
         _gc_locked()
         _PENDING[did] = _Decision(
-            decision_id=did, session_id=session_id,
-            ram_free_mb=int(ram_free_mb), seconds=secs,
-            issued_at=time.time())
-    logger.info("advisory_issued decision_id=%s ram_free_mb=%d seconds=%d",
-                did, ram_free_mb, secs)
-    return {"decision_id": did, "kind": "system_resource_advisory",
-            "severity": "warning", "ram_free_mb": int(ram_free_mb),
-            "countdown_seconds": secs, "title": "System Resource Advisory",
-            "message": (f"Device reports only {ram_free_mb} MB free RAM. "
-                        f"Proceeding will run in a restricted 15 MB "
-                        f"micro-volatile envelope. Performance may degrade "
-                        f"and the browser thread could stutter. Proceed at "
-                        f"your own risk."),
-            "actions": [{"id": "abort", "label": "Cancel", "primary": False},
-                        {"id": "proceed", "label": f"Proceed anyway ({secs}s)",
-                         "primary": True}],
-            "auto_proceed_on_timeout": False, "issued_at": time.time()}
+            decision_id=did, session_id=session_id, ram_free_mb=int(ram_free_mb), seconds=secs, issued_at=time.time()
+        )
+    logger.info("advisory_issued decision_id=%s ram_free_mb=%d seconds=%d", did, ram_free_mb, secs)
+    return {
+        "decision_id": did,
+        "kind": "system_resource_advisory",
+        "severity": "warning",
+        "ram_free_mb": int(ram_free_mb),
+        "countdown_seconds": secs,
+        "title": "System Resource Advisory",
+        "message": (
+            f"Device reports only {ram_free_mb} MB free RAM. "
+            f"Proceeding will run in a restricted 15 MB "
+            f"micro-volatile envelope. Performance may degrade "
+            f"and the browser thread could stutter. Proceed at "
+            f"your own risk."
+        ),
+        "actions": [
+            {"id": "abort", "label": "Cancel", "primary": False},
+            {"id": "proceed", "label": f"Proceed anyway ({secs}s)", "primary": True},
+        ],
+        "auto_proceed_on_timeout": False,
+        "issued_at": time.time(),
+    }
 
 
 def record_decision(decision_id: str, proceed: bool) -> None:
@@ -468,11 +503,14 @@ class BurstToken:
         return self._cancelled
 
     def to_dict(self) -> dict[str, Any]:
-        return {"name": self.name, "token_id": self.token_id,
-                "age_s": round(time.monotonic() - self.started_at, 1),
-                "remaining_s": round(self.remaining_s(), 1),
-                "deadline_in_s": round(self.deadline_at - self.started_at, 1),
-                "cancelled": self._cancelled}
+        return {
+            "name": self.name,
+            "token_id": self.token_id,
+            "age_s": round(time.monotonic() - self.started_at, 1),
+            "remaining_s": round(self.remaining_s(), 1),
+            "deadline_in_s": round(self.deadline_at - self.started_at, 1),
+            "cancelled": self._cancelled,
+        }
 
 
 class _BurstScheduler:
@@ -482,35 +520,33 @@ class _BurstScheduler:
         self._lock = threading.Lock()
         self._active: dict[str, BurstToken] = {}
         self._counter = 0
-        self._stats = {"acquired": 0, "released": 0, "expired": 0,
-                       "rejected_cap": 0}
+        self._stats = {"acquired": 0, "released": 0, "expired": 0, "rejected_cap": 0}
 
-    def acquire(self, name: str, *, minutes: float | None = None,
-                on_expire: Callable[[str], None] | None = None
-                ) -> BurstToken | None:
+    def acquire(
+        self, name: str, *, minutes: float | None = None, on_expire: Callable[[str], None] | None = None
+    ) -> BurstToken | None:
         cfg = _cfg()
         requested = minutes if minutes is not None else cfg.burst_default_min
         requested = max(0.5, min(float(requested), cfg.burst_hard_max_min))
         with self._lock:
             if len(self._active) >= cfg.burst_max_active:
                 self._stats["rejected_cap"] += 1
-                logger.warning("burst_rejected name=%s cap=%d",
-                               name, cfg.burst_max_active)
+                logger.warning("burst_rejected name=%s cap=%d", name, cfg.burst_max_active)
                 return None
             self._counter += 1
             now = time.monotonic()
             tok = BurstToken(
-                name=name, started_at=now,
+                name=name,
+                started_at=now,
                 deadline_at=now + requested * 60.0,
                 token_id=f"{name}::{self._counter}",
-                _on_expire=on_expire)
+                _on_expire=on_expire,
+            )
             self._active[tok.token_id] = tok
             self._stats["acquired"] += 1
         try:
             loop = asyncio.get_running_loop()
-            tok._task = loop.create_task(
-                self._expiry_watch(tok),
-                name=f"burst::{tok.token_id}")
+            tok._task = loop.create_task(self._expiry_watch(tok), name=f"burst::{tok.token_id}")
         except RuntimeError:
             pass
         return tok
@@ -526,8 +562,7 @@ class _BurstScheduler:
                 await asyncio.sleep(min(1.0, remaining))
             if tok._cancelled:
                 return
-            logger.warning("burst_expired name=%s token=%s",
-                           tok.name, tok.token_id)
+            logger.warning("burst_expired name=%s token=%s", tok.name, tok.token_id)
             with self._lock:
                 self._stats["expired"] += 1
             if tok._on_expire is not None:
@@ -555,11 +590,13 @@ class _BurstScheduler:
     def stats(self) -> dict[str, Any]:
         cfg = _cfg()
         with self._lock:
-            return {"active": len(self._active),
-                    "max_active": cfg.burst_max_active,
-                    "default_min": cfg.burst_default_min,
-                    "hard_max_min": cfg.burst_hard_max_min,
-                    **dict(self._stats)}
+            return {
+                "active": len(self._active),
+                "max_active": cfg.burst_max_active,
+                "default_min": cfg.burst_default_min,
+                "hard_max_min": cfg.burst_hard_max_min,
+                **dict(self._stats),
+            }
 
     def shutdown(self) -> None:
         with self._lock:
@@ -573,9 +610,9 @@ class _BurstScheduler:
 _BURST = _BurstScheduler()
 
 
-def burst_acquire(name: str, *, minutes: float | None = None,
-                  on_expire: Callable[[str], None] | None = None
-                  ) -> BurstToken | None:
+def burst_acquire(
+    name: str, *, minutes: float | None = None, on_expire: Callable[[str], None] | None = None
+) -> BurstToken | None:
     return _BURST.acquire(name, minutes=minutes, on_expire=on_expire)
 
 
@@ -601,10 +638,10 @@ def burst_shutdown() -> None:
 def _tier_limits(tier: str) -> tuple[int, int]:
     cfg = _cfg()
     return {
-        "free":     (cfg.tok_free_min, cfg.tok_free_day),
-        "pro":      (cfg.tok_pro_min, cfg.tok_pro_day),
+        "free": (cfg.tok_free_min, cfg.tok_free_day),
+        "pro": (cfg.tok_pro_min, cfg.tok_pro_day),
         "business": (cfg.tok_biz_min, cfg.tok_biz_day),
-        "guest":    (cfg.tok_gst_min, cfg.tok_gst_day),
+        "guest": (cfg.tok_gst_min, cfg.tok_gst_day),
     }.get(tier or "free", (cfg.tok_free_min, cfg.tok_free_day))
 
 
@@ -668,10 +705,10 @@ def _mem_check(uid: str, tier: str, est: int) -> tuple[bool, int, int]:
     return True, cap_min - (used_min + est), 0
 
 
-async def _redis_check(uid: str, tier: str,
-                       est: int) -> tuple[bool, int, int] | None:
+async def _redis_check(uid: str, tier: str, est: int) -> tuple[bool, int, int] | None:
     try:
         from .infra import get_redis_client
+
         r = get_redis_client()
     except Exception:
         return None
@@ -690,19 +727,16 @@ async def _redis_check(uid: str, tier: str,
             res = await pipe.execute()
         used_min, used_day = int(res[0]), int(res[2])
         if used_min > cap_min:
-            return False, max(0, cap_min - (used_min - est)), \
-                _MINUTE_S - (now % _MINUTE_S)
+            return False, max(0, cap_min - (used_min - est)), _MINUTE_S - (now % _MINUTE_S)
         if used_day > cap_day:
-            return False, max(0, cap_day - (used_day - est)), \
-                _DAY_S - (now % _DAY_S)
+            return False, max(0, cap_day - (used_day - est)), _DAY_S - (now % _DAY_S)
         return True, cap_min - used_min, 0
     except Exception as e:
         logger.debug("governor_redis_error error=%s", e)
         return None
 
 
-async def reserve(uid: str, tier: str,
-                  est_tokens: int) -> tuple[bool, int, int]:
+async def reserve(uid: str, tier: str, est_tokens: int) -> tuple[bool, int, int]:
     est = max(0, int(est_tokens))
     if est == 0 or not uid:
         return True, 0, 0
@@ -718,6 +752,7 @@ async def settle(uid: str, delta_tokens: int) -> None:
         return
     try:
         from .infra import get_redis_client
+
         r = get_redis_client()
         if r is not None:
             now = int(time.time())
@@ -738,25 +773,36 @@ async def snapshot_usage(uid: str, tier: str) -> dict[str, Any]:
     cap_min, cap_day = _tier_limits(tier)
     try:
         from .infra import get_redis_client
+
         r = get_redis_client()
         if r is not None:
             now = int(time.time())
             um = await r.get(f"tok:{uid}:m:{now // _MINUTE_S}") or 0
             ud = await r.get(f"tok:{uid}:d:{now // _DAY_S}") or 0
-            return {"tier": tier, "min_used": int(um), "min_cap": cap_min,
-                    "day_used": int(ud), "day_cap": cap_day,
-                    "min_remaining": max(0, cap_min - int(um)),
-                    "day_remaining": max(0, cap_day - int(ud))}
+            return {
+                "tier": tier,
+                "min_used": int(um),
+                "min_cap": cap_min,
+                "day_used": int(ud),
+                "day_cap": cap_day,
+                "min_remaining": max(0, cap_min - int(um)),
+                "day_remaining": max(0, cap_day - int(ud)),
+            }
     except Exception:
         pass
     async with _MEM_LOCK:
         b = _get_bucket_lru(uid)
         _prune_bucket(b, time.time())
         um, ud = _sum_bucket(b)
-        return {"tier": tier, "min_used": um, "min_cap": cap_min,
-                "day_used": ud, "day_cap": cap_day,
-                "min_remaining": max(0, cap_min - um),
-                "day_remaining": max(0, cap_day - ud)}
+        return {
+            "tier": tier,
+            "min_used": um,
+            "min_cap": cap_min,
+            "day_used": ud,
+            "day_cap": cap_day,
+            "min_remaining": max(0, cap_min - um),
+            "day_remaining": max(0, cap_day - ud),
+        }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -766,29 +812,45 @@ def audit() -> dict[str, Any]:
     with _MICRO_LOCK:
         return {
             "thermal": snapshot(),
-            "micro_volatile": {"active": _MICRO.active,
-                               "entries": _MICRO.entries,
-                               "exits": _MICRO.exits},
+            "micro_volatile": {"active": _MICRO.active, "entries": _MICRO.entries, "exits": _MICRO.exits},
             "override": {"pending": len(_PENDING)},
             "burst": burst_stats(),
-            "governor": {"users_tracked": len(_MEM),
-                         "max_users": _cfg().tok_max_users},
+            "governor": {"users_tracked": len(_MEM), "max_users": _cfg().tok_max_users},
         }
 
 
 __all__ = [
     # Thermal
-    "start", "stop", "running", "budget", "pressure", "snapshot",
+    "start",
+    "stop",
+    "running",
+    "budget",
+    "pressure",
+    "snapshot",
     # Micro-volatile
-    "enter", "exit", "is_active", "ceiling_mb",
-    "clamp_max_tokens", "clamp_response", "policy",
+    "enter",
+    "exit",
+    "is_active",
+    "ceiling_mb",
+    "clamp_max_tokens",
+    "clamp_response",
+    "policy",
     # Override
-    "issue", "record_decision", "should_proceed",
+    "issue",
+    "record_decision",
+    "should_proceed",
     # Burst
-    "BurstToken", "burst_acquire", "burst_release", "burst_active",
-    "burst_stats", "burst_shutdown",
+    "BurstToken",
+    "burst_acquire",
+    "burst_release",
+    "burst_active",
+    "burst_stats",
+    "burst_shutdown",
     # Governor
-    "estimate_tokens", "reserve", "settle", "snapshot_usage",
+    "estimate_tokens",
+    "reserve",
+    "settle",
+    "snapshot_usage",
     # Audit
     "audit",
 ]

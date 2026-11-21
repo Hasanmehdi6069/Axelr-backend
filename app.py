@@ -1,5 +1,6 @@
 # api/warhead.py — canonical app factory
 """AXELR AI — Canonical FastAPI Application Assembly."""
+
 from __future__ import annotations
 
 import datetime as _dt
@@ -52,13 +53,17 @@ from api.state import state
 
 def _allowed_origins() -> list[str]:
     configured = (ORIGIN or "https://axelr.in").strip().rstrip("/")
-    return list(dict.fromkeys([
-        configured,
-        "https://axelr.in",
-        "http://localhost:5500",
-        "http://127.0.0.1:5500",
-        "https://axelr-backend.onrender.com",
-    ]))
+    return list(
+        dict.fromkeys(
+            [
+                configured,
+                "https://axelr.in",
+                "http://localhost:5500",
+                "http://127.0.0.1:5500",
+                "https://axelr-backend.onrender.com",
+            ]
+        )
+    )
 
 
 def create_app() -> FastAPI:
@@ -78,6 +83,7 @@ def create_app() -> FastAPI:
     # Optional routers (degrade gracefully)
     try:
         from core.dag_orchestrator import router as adjudicator_router
+
         app.include_router(adjudicator_router)
     except Exception as e:
         logger.warning("adjudicator_router_unavailable error=%s", e)
@@ -85,6 +91,7 @@ def create_app() -> FastAPI:
     try:
         from api.qstash_webhook import init_instrumentation
         from api.qstash_webhook import router as qstash_router
+
         app.include_router(qstash_router)
         init_instrumentation(app)
         logger.info("qstash_webhook_router_mounted")
@@ -95,8 +102,8 @@ def create_app() -> FastAPI:
         from api.ai_router import route_ai_request_parallel
         from api.config import get_http_client
         from core.io_pipeline import make_webhook_router
-        app.include_router(make_webhook_router(
-            route_ai_request_parallel, http_client=get_http_client()))
+
+        app.include_router(make_webhook_router(route_ai_request_parallel, http_client=get_http_client()))
         logger.info("webhook_router_mounted")
     except Exception as e:
         logger.warning("webhook_router_unavailable error=%s", e)
@@ -113,7 +120,8 @@ def create_app() -> FastAPI:
         overall_healthy = True
 
         module_statuses["axelr_core"] = {
-            "status": "healthy", "message": "Core infrastructure operational",
+            "status": "healthy",
+            "message": "Core infrastructure operational",
         }
 
         db_healthy = state.db_available and state.client is not None
@@ -166,13 +174,13 @@ def create_app() -> FastAPI:
             health_attr = getattr(mod, "health", None)
             if health_attr is not None:
                 import asyncio as _a
+
                 if _a.iscoroutinefunction(health_attr):
                     return {"module": module_name, **(await health_attr())}
                 return {"module": module_name, **health_attr()}
             return {"module": module_name, "status": "available"}
         except Exception as e:
-            return {"module": module_name, "status": "unavailable",
-                    "error": str(e)[:200]}
+            return {"module": module_name, "status": "unavailable", "error": str(e)[:200]}
 
     # Boot layer (contract + audit)
     with _contextlib_suppress():
@@ -183,6 +191,7 @@ def create_app() -> FastAPI:
 
 def _contextlib_suppress():
     import contextlib
+
     return contextlib.suppress(Exception)
 
 
@@ -192,6 +201,7 @@ logger.info("axelr_app_initialized")
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)
 
 

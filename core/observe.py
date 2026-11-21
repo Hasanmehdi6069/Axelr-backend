@@ -19,6 +19,7 @@ audit() shape, and the same "never raise on the hot path" contract:
 
 Bounded: 128 traces, 64 scopes, 128 providers/scope, 32 samples each.
 """
+
 from __future__ import annotations
 
 import contextlib
@@ -58,11 +59,16 @@ class _Trace:
     summary: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
-        return {"rid": self.rid, "workspace": self.workspace,
-                "intent": self.intent, "started_at": self.started_at,
-                "duration_ms": round((time.monotonic() - self.started_at) * 1000, 2),
-                "status": self.status, "events": self.events[-64:],
-                "summary": self.summary}
+        return {
+            "rid": self.rid,
+            "workspace": self.workspace,
+            "intent": self.intent,
+            "started_at": self.started_at,
+            "duration_ms": round((time.monotonic() - self.started_at) * 1000, 2),
+            "status": self.status,
+            "events": self.events[-64:],
+            "summary": self.summary,
+        }
 
 
 class TraceRing:
@@ -84,8 +90,7 @@ class TraceRing:
         if not self._enabled:
             return
         with self._lock:
-            t = _Trace(rid=rid, workspace=workspace, intent=intent,
-                       started_at=time.monotonic())
+            t = _Trace(rid=rid, workspace=workspace, intent=intent, started_at=time.monotonic())
             self._ring.append(t)
             self._by_id[rid] = t
 
@@ -96,10 +101,13 @@ class TraceRing:
             t = self._by_id.get(rid)
             if t is None or t.finished:
                 return
-            t.events.append({
-                "t_ms": round((time.monotonic() - t.started_at) * 1000, 2),
-                "name": name,
-                **{k: v for k, v in fields.items() if v is not None}})
+            t.events.append(
+                {
+                    "t_ms": round((time.monotonic() - t.started_at) * 1000, 2),
+                    "name": name,
+                    **{k: v for k, v in fields.items() if v is not None},
+                }
+            )
 
     def finish(self, rid: str, status: str, **summary: Any) -> None:
         if not self._enabled:
@@ -140,11 +148,9 @@ def trace_scope(rid: str, workspace: str, intent: str, **summary: Any):
     t0 = time.monotonic()
     try:
         yield rid
-        TRACES.finish(rid, "ok",
-                      duration_ms=(time.monotonic() - t0) * 1000, **summary)
+        TRACES.finish(rid, "ok", duration_ms=(time.monotonic() - t0) * 1000, **summary)
     except Exception as e:
-        TRACES.finish(rid, "error", error=str(e)[:200],
-                      duration_ms=(time.monotonic() - t0) * 1000, **summary)
+        TRACES.finish(rid, "error", error=str(e)[:200], duration_ms=(time.monotonic() - t0) * 1000, **summary)
         raise
 
 
@@ -169,12 +175,17 @@ try:
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
-        _provider = TracerProvider(
-            resource=Resource.create({"service.name": _OTLP_SERVICE}))
-        _provider.add_span_processor(BatchSpanProcessor(
-            OTLPSpanExporter(endpoint=_OTLP_ENDPOINT, timeout=5),
-            max_queue_size=_OTLP_QUEUE_CAP, max_export_batch_size=256,
-            schedule_delay_millis=2000, export_timeout_millis=5000))
+
+        _provider = TracerProvider(resource=Resource.create({"service.name": _OTLP_SERVICE}))
+        _provider.add_span_processor(
+            BatchSpanProcessor(
+                OTLPSpanExporter(endpoint=_OTLP_ENDPOINT, timeout=5),
+                max_queue_size=_OTLP_QUEUE_CAP,
+                max_export_batch_size=256,
+                schedule_delay_millis=2000,
+                export_timeout_millis=5000,
+            )
+        )
         _ot_trace.set_tracer_provider(_provider)
         _tracer = _ot_trace.get_tracer("axelr")
         _OTLP_OK = True
@@ -277,14 +288,16 @@ try:
         get_contextvars,
         unbind_contextvars,
     )
+
     _STRUCTLOG = True
 except Exception:
     _STRUCTLOG = False
-    _fallback: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
-        "axelr_log_ctx", default={})
+    _fallback: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar("axelr_log_ctx", default={})
 
     def bind_contextvars(**kw: Any) -> None:
-        d = dict(_fallback.get()); d.update(kw); _fallback.set(d)
+        d = dict(_fallback.get())
+        d.update(kw)
+        _fallback.set(d)
 
     def unbind_contextvars(*keys: str) -> None:
         d = dict(_fallback.get())
@@ -341,14 +354,24 @@ try:
         except ValueError:
             return getattr(REGISTRY, "_names_to_collectors", {}).get(name)
 
-    _LATENCY = _metric("axelr_provider_latency_seconds", lambda: Histogram(
-        "axelr_provider_latency_seconds", "Provider call latency",
-        ["provider", "model", "outcome"],
-        buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)))
-    _TTFT = _metric("axelr_provider_ttft_seconds", lambda: Histogram(
-        "axelr_provider_ttft_seconds", "Time to first token",
-        ["provider", "model"],
-        buckets=(0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4)))
+    _LATENCY = _metric(
+        "axelr_provider_latency_seconds",
+        lambda: Histogram(
+            "axelr_provider_latency_seconds",
+            "Provider call latency",
+            ["provider", "model", "outcome"],
+            buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+        ),
+    )
+    _TTFT = _metric(
+        "axelr_provider_ttft_seconds",
+        lambda: Histogram(
+            "axelr_provider_ttft_seconds",
+            "Time to first token",
+            ["provider", "model"],
+            buckets=(0.01, 0.025, 0.05, 0.1, 0.2, 0.4, 0.8, 1.6, 3.2, 6.4),
+        ),
+    )
     _PROM_OK = True
 except Exception as e:
     logger.warning("prometheus_unavailable error=%s", e)
@@ -364,16 +387,16 @@ def observe_call(provider: str, model: str, outcome: str, seconds: float) -> Non
     if _LATENCY is None:
         return
     with contextlib.suppress(Exception):
-        _LATENCY.labels(provider=_lbl(provider), model=_lbl(model),
-                        outcome=_lbl(outcome)).observe(max(0.0, float(seconds)))
+        _LATENCY.labels(provider=_lbl(provider), model=_lbl(model), outcome=_lbl(outcome)).observe(
+            max(0.0, float(seconds))
+        )
 
 
 def observe_ttft(provider: str, model: str, seconds: float) -> None:
     if _TTFT is None:
         return
     with contextlib.suppress(Exception):
-        _TTFT.labels(provider=_lbl(provider), model=_lbl(model)) \
-             .observe(max(0.0, float(seconds)))
+        _TTFT.labels(provider=_lbl(provider), model=_lbl(model)).observe(max(0.0, float(seconds)))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -391,8 +414,7 @@ class _Stat:
     failures: int = 0
     ewma_latency_ms: float = 0.0
     last_ts: float = 0.0
-    samples: deque[float] = field(
-        default_factory=lambda: deque(maxlen=_SAMPLE_RING))
+    samples: deque[float] = field(default_factory=lambda: deque(maxlen=_SAMPLE_RING))
 
     def record(self, success: bool, latency_ms: float) -> None:
         self.last_ts = time.monotonic()
@@ -403,9 +425,10 @@ class _Stat:
         latency_ms = max(0.0, float(latency_ms))
         self.samples.append(latency_ms)
         self.ewma_latency_ms = (
-            latency_ms if self.ewma_latency_ms <= 0
-            else _EWMA_ALPHA * latency_ms +
-                 (1 - _EWMA_ALPHA) * self.ewma_latency_ms)
+            latency_ms
+            if self.ewma_latency_ms <= 0
+            else _EWMA_ALPHA * latency_ms + (1 - _EWMA_ALPHA) * self.ewma_latency_ms
+        )
 
     def success_rate(self) -> float:
         n = self.successes + self.failures
@@ -443,8 +466,9 @@ class Meter:
             self._scopes.move_to_end(scope)
         return bucket
 
-    def record(self, scope: str, provider: str, *, success: bool,
-               latency_ms: float, ttft_ms: float | None = None) -> None:
+    def record(
+        self, scope: str, provider: str, *, success: bool, latency_ms: float, ttft_ms: float | None = None
+    ) -> None:
         if not scope or not provider:
             return
         with self._lock:
@@ -493,23 +517,24 @@ class Meter:
         with self._lock:
             if scope is not None:
                 bucket = self._scopes.get(scope, {})
-                return {"scope": scope,
-                        "providers": {p: self._stat_dict(s)
-                                      for p, s in bucket.items()}}
+                return {"scope": scope, "providers": {p: self._stat_dict(s) for p, s in bucket.items()}}
             out: dict[str, Any] = {}
             for scope_name, bucket in self._scopes.items():
-                out[scope_name] = {p: self._stat_dict(s)
-                                   for p, s in bucket.items()}
+                out[scope_name] = {p: self._stat_dict(s) for p, s in bucket.items()}
             return out
 
     @staticmethod
     def _stat_dict(s: _Stat) -> dict[str, float | int]:
-        return {"successes": s.successes, "failures": s.failures,
-                "success_rate": round(s.success_rate(), 3),
-                "ewma_ms": round(s.ewma_latency_ms, 1),
-                "p50_ms": round(s.p(0.50), 1),
-                "p95_ms": round(s.p(0.95), 1),
-                "health": s.health(), "samples": len(s.samples)}
+        return {
+            "successes": s.successes,
+            "failures": s.failures,
+            "success_rate": round(s.success_rate(), 3),
+            "ewma_ms": round(s.ewma_latency_ms, 1),
+            "p50_ms": round(s.p(0.50), 1),
+            "p95_ms": round(s.p(0.95), 1),
+            "health": s.health(),
+            "samples": len(s.samples),
+        }
 
 
 METER = Meter()
@@ -518,15 +543,13 @@ METER = Meter()
 # ═══════════════════════════════════════════════════════════════════════════
 # §6 — Memory tuner (per-request gc.collect(1) + malloc_trim(0))
 # ═══════════════════════════════════════════════════════════════════════════
-_ENABLE_TUNER = os.getenv("AXELR_MEMORY_TUNER", "true").lower() in (
-    "1", "true", "yes")
+_ENABLE_TUNER = os.getenv("AXELR_MEMORY_TUNER", "true").lower() in ("1", "true", "yes")
 _LIBC_NAME = "libc.so.6" if sys.platform.startswith("linux") else None
 
 _armed = False
 _libc: ctypes.CDLL | None = None
 _request_counter = 0
-_tuner_stats: dict[str, int] = {
-    "armed": 0, "trims": 0, "gc1_collected": 0, "libc_loaded": 0}
+_tuner_stats: dict[str, int] = {"armed": 0, "trims": 0, "gc1_collected": 0, "libc_loaded": 0}
 
 
 def _load_libc() -> ctypes.CDLL | None:
@@ -589,6 +612,7 @@ async def trim_middleware(request, call_next):
     every_n = max(1, int(os.getenv("AXELR_TRIM_EVERY_N", "1")))
     if _request_counter % every_n == 0:
         import asyncio
+
         with contextlib.suppress(Exception):
             await asyncio.to_thread(_trim_sync)
     return response
@@ -604,10 +628,14 @@ def tuner_stats() -> dict[str, int]:
 def audit() -> dict[str, Any]:
     return {
         "trace_ring": {"enabled": _RING_ENABLED, "size": _RING_SIZE},
-        "otlp": {"enabled": _OTLP_OK, "endpoint": _OTLP_ENDPOINT or None,
-                 "service": _OTLP_SERVICE, "queue_cap": _OTLP_QUEUE_CAP,
-                 "parents_live": len(_OTLP_PARENTS),
-                 "spans": _otlp_stats["spans"]},
+        "otlp": {
+            "enabled": _OTLP_OK,
+            "endpoint": _OTLP_ENDPOINT or None,
+            "service": _OTLP_SERVICE,
+            "queue_cap": _OTLP_QUEUE_CAP,
+            "parents_live": len(_OTLP_PARENTS),
+            "spans": _otlp_stats["spans"],
+        },
         "log_correlation": {"structlog": _STRUCTLOG, "header": _LOG_HEADER},
         "provider_metrics": {"enabled": _PROM_OK},
         "meter_scopes": len(METER._scopes),
@@ -617,17 +645,31 @@ def audit() -> dict[str, Any]:
 
 __all__ = [
     # Trace
-    "TraceRing", "TRACES", "trace_scope",
+    "TraceRing",
+    "TRACES",
+    "trace_scope",
     # OTLP
-    "span", "record_stage", "finish", "flush_pending_spans",
+    "span",
+    "record_stage",
+    "finish",
+    "flush_pending_spans",
     # Logs
-    "bind", "unbind", "current_id", "new_id", "log_middleware",
+    "bind",
+    "unbind",
+    "current_id",
+    "new_id",
+    "log_middleware",
     # Metrics
-    "observe_call", "observe_ttft",
+    "observe_call",
+    "observe_ttft",
     # Meter
-    "Meter", "METER",
+    "Meter",
+    "METER",
     # Memory tuner
-    "arm", "disarm", "trim_middleware", "tuner_stats",
+    "arm",
+    "disarm",
+    "trim_middleware",
+    "tuner_stats",
     # Audit
     "audit",
 ]

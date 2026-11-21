@@ -14,6 +14,7 @@ Security invariants (each enforceable independently):
   - No memory > MAX_MEMORY_MB (RLIMIT_AS -> MemoryError in child).
   - Every mutation snapshot't in WAL first; failed action -> auto rollback.
 """
+
 from __future__ import annotations
 
 import ast
@@ -35,9 +36,7 @@ from typing import Any
 from .hardening import audit_isolation, wrap_command
 from .wal import make_wal
 
-CURRENT_WORKFLOW_ID: contextvars.ContextVar[str | None] = (
-    contextvars.ContextVar("wf_id", default=None)
-)
+CURRENT_WORKFLOW_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar("wf_id", default=None)
 
 # ── Configuration (env-driven, safe defaults) ──────────────────────────────
 AUDIT_PATH = Path(os.getenv("SENTINEL_AUDIT", "/tmp/sentinel-audit.jsonl"))
@@ -48,10 +47,17 @@ MAX_CPU_S = int(os.getenv("SENTINEL_MAX_CPU_S", "60"))
 OUTPUT_CAP_BYTES = 32 * 1024
 MINIFY_THRESHOLD = 2048
 
-NETWORK_ALLOWLIST = frozenset({
-    "api.atlassian.com", "atlassian.com", "atlassian.net",
-    "localhost", "127.0.0.1", "169.254.169.254", "metadata.vultr.com",
-})
+NETWORK_ALLOWLIST = frozenset(
+    {
+        "api.atlassian.com",
+        "atlassian.com",
+        "atlassian.net",
+        "localhost",
+        "127.0.0.1",
+        "169.254.169.254",
+        "metadata.vultr.com",
+    }
+)
 
 _audit_lock: threading.Lock = threading.Lock()
 _audit_buffer: list[str] = []
@@ -87,6 +93,7 @@ async def audit(entry: dict) -> dict:
 
     try:
         from axelr_vultr.auditing import log_vultr_op
+
         ok = entry.get("phase") in ("executed", "dry_run")
         await log_vultr_op(
             action=entry.get("action", "sentinel"),
@@ -107,6 +114,7 @@ async def tail(n: int = 20) -> list[dict]:
 
     if not AUDIT_PATH.exists():
         return []
+
     def _r() -> list[dict]:
         text = AUDIT_PATH.read_text(encoding="utf-8").strip()
         if not text:
@@ -120,12 +128,14 @@ async def tail(n: int = 20) -> list[dict]:
             except json.JSONDecodeError:
                 pass
         return results
+
     return await asyncio.to_thread(_r)
 
 
 # ── Errors ─────────────────────────────────────────────────────────────────
 class ContainmentViolation(Exception):
     """Raised by the AST shield or path guard. No child is ever spawned."""
+
     def __init__(self, why: str, detail: str = "") -> None:
         super().__init__(f"containment_violation:{why}")
         self.code = "CONTAINMENT_VIOLATION"
@@ -134,27 +144,66 @@ class ContainmentViolation(Exception):
 
 
 # ── AST shield — ban-lists ─────────────────────────────────────────────────
-FORBIDDEN_CALLS = frozenset({
-    "eval", "exec", "compile", "__import__", "globals", "locals",
-    "vars", "breakpoint", "input",
-})
-FORBIDDEN_MODULES = frozenset({
-    "subprocess", "multiprocessing", "ctypes", "cffi", "pty", "fcntl",
-    "signal", "resource", "shutil",
-})
-FORBIDDEN_ATTRS = frozenset({
-    "system", "popen", "spawn", "spawnl", "spawnv", "spawnve",
-    "execv", "execve", "execl", "execle",
-    "fork", "forkpty", "kill", "setuid", "setgid", "chroot", "chmod",
-})
+FORBIDDEN_CALLS = frozenset(
+    {
+        "eval",
+        "exec",
+        "compile",
+        "__import__",
+        "globals",
+        "locals",
+        "vars",
+        "breakpoint",
+        "input",
+    }
+)
+FORBIDDEN_MODULES = frozenset(
+    {
+        "subprocess",
+        "multiprocessing",
+        "ctypes",
+        "cffi",
+        "pty",
+        "fcntl",
+        "signal",
+        "resource",
+        "shutil",
+    }
+)
+FORBIDDEN_ATTRS = frozenset(
+    {
+        "system",
+        "popen",
+        "spawn",
+        "spawnl",
+        "spawnv",
+        "spawnve",
+        "execv",
+        "execve",
+        "execl",
+        "execle",
+        "fork",
+        "forkpty",
+        "kill",
+        "setuid",
+        "setgid",
+        "chroot",
+        "chmod",
+    }
+)
 SENSITIVE_LITERALS = (
-    "/etc/passwd", "/etc/shadow", "/etc/sudoers",
-    "/root/.ssh", "~/.ssh", "/proc/self", "/proc/1",
+    "/etc/passwd",
+    "/etc/shadow",
+    "/etc/sudoers",
+    "/root/.ssh",
+    "~/.ssh",
+    "/proc/self",
+    "/proc/1",
 )
 
 
 # ── Child bootstrap — runs FIRST inside the sandbox child ──────────────────
-_CHILD_BOOTSTRAP = r'''
+_CHILD_BOOTSTRAP = r"""
 import os, sys, socket, builtins
 
 # OS-level limits (may fail under unprivileged constraints — safe to skip)
@@ -194,7 +243,7 @@ def _gconnect(self, addr):
         raise PermissionError("network_egress_denied:" + str(host))
     return _connect(self, addr)
 socket.socket.connect = _gconnect
-'''
+"""
 
 
 # ── WAL snapshot ───────────────────────────────────────────────────────────
@@ -210,7 +259,7 @@ class Engine:
     """Owns the WAL, runs validation, forks the sandbox child."""
 
     def __init__(self) -> None:
-        self.wal = make_wal()          # was: self.wal: dict[Path, Snapshot] = {}
+        self.wal = make_wal()  # was: self.wal: dict[Path, Snapshot] = {}
         self.runs: int = 0
         self.violations: int = 0
         self.rollbacks: int = 0
@@ -249,8 +298,7 @@ class Engine:
                     self.violations += 1
                     raise ContainmentViolation(f"forbidden_attr:{f.attr}")
             elif isinstance(node, (ast.Import, ast.ImportFrom)):
-                mods = ([a.name for a in node.names] if isinstance(node, ast.Import)
-                        else [node.module or ""])
+                mods = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
                 for m in mods:
                     if m.split(".")[0] in forbidden_modules:
                         self.violations += 1
@@ -284,7 +332,9 @@ class Engine:
         p = self.assert_path(target)
         prev = p.read_text(encoding="utf-8") if p.exists() else None
         await self.wal.record(
-            str(p), prev, action="sandbox.write_file",
+            str(p),
+            prev,
+            action="sandbox.write_file",
             workflow_id=workflow_id or CURRENT_WORKFLOW_ID.get(),
         )
         return {"path": str(p), "existed": prev is not None}
@@ -313,14 +363,16 @@ class Engine:
 
         def _exec() -> dict[str, Any]:
             import subprocess
+
             t0 = time.monotonic()
             try:
-                wrapped, isolation = wrap_command(
-                    [sys.executable, "-I", "-B", str(script_file)],
-                    scratch=SANDBOX_ROOT)
+                wrapped, isolation = wrap_command([sys.executable, "-I", "-B", str(script_file)], scratch=SANDBOX_ROOT)
                 proc = subprocess.Popen(
-                    wrapped, cwd=str(SANDBOX_ROOT), env=env,
-                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    wrapped,
+                    cwd=str(SANDBOX_ROOT),
+                    env=env,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
                 )
                 try:
                     out, err = proc.communicate(timeout=wall)
@@ -333,16 +385,22 @@ class Engine:
                 self.total_ms += dur
                 return {
                     "ok": proc.returncode == 0 and not timed_out,
-                    "exit_code": proc.returncode, "timed_out": timed_out,
+                    "exit_code": proc.returncode,
+                    "timed_out": timed_out,
                     "stdout": out[:OUTPUT_CAP_BYTES].decode("utf-8", "replace"),
                     "stderr": err[:OUTPUT_CAP_BYTES].decode("utf-8", "replace"),
                     "duration_ms": dur,
                     "isolation": isolation,
                 }
             except Exception as e:
-                return {"ok": False, "exit_code": -1, "timed_out": False,
-                        "stdout": "", "stderr": str(e),
-                        "duration_ms": round((time.monotonic() - t0) * 1000, 2)}
+                return {
+                    "ok": False,
+                    "exit_code": -1,
+                    "timed_out": False,
+                    "stdout": "",
+                    "stderr": str(e),
+                    "duration_ms": round((time.monotonic() - t0) * 1000, 2),
+                }
             finally:
                 try:
                     script_file.unlink(missing_ok=True)
@@ -353,18 +411,24 @@ class Engine:
 
     # Stats / health
     def stats(self) -> dict[str, Any]:
-        return {"runs": self.runs, "violations": self.violations,
-                "rollbacks": self.rollbacks,
-                "total_ms": round(self.total_ms, 2),
-                "limits": {"wall_s": WALL_CLOCK_S, "memory_mb": MAX_MEMORY_MB,
-                           "cpu_s": MAX_CPU_S}}
+        return {
+            "runs": self.runs,
+            "violations": self.violations,
+            "rollbacks": self.rollbacks,
+            "total_ms": round(self.total_ms, 2),
+            "limits": {"wall_s": WALL_CLOCK_S, "memory_mb": MAX_MEMORY_MB, "cpu_s": MAX_CPU_S},
+        }
 
     async def health(self) -> dict[str, Any]:
         ok = SANDBOX_ROOT.exists() and os.access(str(SANDBOX_ROOT), os.W_OK)
         wal_stats = await self.wal.stats()
-        return {"healthy": ok, **self.stats(), "wal": wal_stats,
-                "isolation": audit_isolation(),
-                "sandbox_root": str(SANDBOX_ROOT)}
+        return {
+            "healthy": ok,
+            **self.stats(),
+            "wal": wal_stats,
+            "isolation": audit_isolation(),
+            "sandbox_root": str(SANDBOX_ROOT),
+        }
 
 
 # ── Token minifier ─────────────────────────────────────────────────────────
@@ -400,9 +464,12 @@ def minify(stdout: str, stderr: str, threshold: int = MINIFY_THRESHOLD) -> dict[
     if count:
         out.append(f"[{count}× repeated]")
     dropped = len(combined) - len("\n".join(out))
-    return {"text": "\n".join(out) + f"\n[... truncated {dropped} bytes ...]",
-            "truncated": True, "original_bytes": len(combined),
-            "dropped_bytes": dropped}
+    return {
+        "text": "\n".join(out) + f"\n[... truncated {dropped} bytes ...]",
+        "truncated": True,
+        "original_bytes": len(combined),
+        "dropped_bytes": dropped,
+    }
 
 
 def sha16(s: str) -> str:

@@ -41,6 +41,7 @@ retries the same broken path forever."
 
 Stats: process-local counters exposed via stats() for observability.
 """
+
 from __future__ import annotations
 
 import logging
@@ -57,35 +58,37 @@ _VERSION = "1.2"
 RouteFn = Callable[..., Awaitable[dict[str, Any]]]
 
 # ── Config ─────────────────────────────────────────────────────────────
-_MAX_EXTRA_CALLS     = max(0, int(os.getenv("AXELR_CONDUCTOR_MAX_CALLS", "3")))
-_DEADLINE_S          = float(os.getenv("AXELR_CONDUCTOR_DEADLINE_S", "25.0"))
-_ENABLE_MEMO         = os.getenv("AXELR_CONDUCTOR_MEMO", "true").lower() in ("1", "true", "yes")
-_MEMO_MAX            = max(16, int(os.getenv("AXELR_CONDUCTOR_MEMO_SIZE", "128")))
-_TEMP_OVERRIDE       = os.getenv("AXELR_CONDUCTOR_TUNE_TEMP", "false").lower() in ("1", "true", "yes")
-_ENABLE_BILINGUAL    = os.getenv("AXELR_CONDUCTOR_BILINGUAL", "true").lower() in ("1", "true", "yes")
-_ENABLE_CONSENSUS    = os.getenv("AXELR_CONDUCTOR_CONSENSUS", "true").lower() in ("1", "true", "yes")
-_ENABLE_SPLIT        = os.getenv("AXELR_CONDUCTOR_SPLIT", "false").lower() in ("1", "true", "yes")
-_CIRCUIT_WINDOW_S    = float(os.getenv("AXELR_CONDUCTOR_CIRCUIT_WINDOW_S", "60.0"))
-_CIRCUIT_COOLDOWN_S  = float(os.getenv("AXELR_CONDUCTOR_CIRCUIT_COOLDOWN_S", "300.0"))
+_MAX_EXTRA_CALLS = max(0, int(os.getenv("AXELR_CONDUCTOR_MAX_CALLS", "3")))
+_DEADLINE_S = float(os.getenv("AXELR_CONDUCTOR_DEADLINE_S", "25.0"))
+_ENABLE_MEMO = os.getenv("AXELR_CONDUCTOR_MEMO", "true").lower() in ("1", "true", "yes")
+_MEMO_MAX = max(16, int(os.getenv("AXELR_CONDUCTOR_MEMO_SIZE", "128")))
+_TEMP_OVERRIDE = os.getenv("AXELR_CONDUCTOR_TUNE_TEMP", "false").lower() in ("1", "true", "yes")
+_ENABLE_BILINGUAL = os.getenv("AXELR_CONDUCTOR_BILINGUAL", "true").lower() in ("1", "true", "yes")
+_ENABLE_CONSENSUS = os.getenv("AXELR_CONDUCTOR_CONSENSUS", "true").lower() in ("1", "true", "yes")
+_ENABLE_SPLIT = os.getenv("AXELR_CONDUCTOR_SPLIT", "false").lower() in ("1", "true", "yes")
+_CIRCUIT_WINDOW_S = float(os.getenv("AXELR_CONDUCTOR_CIRCUIT_WINDOW_S", "60.0"))
+_CIRCUIT_COOLDOWN_S = float(os.getenv("AXELR_CONDUCTOR_CIRCUIT_COOLDOWN_S", "300.0"))
 _CIRCUIT_FAIL_THRESH = max(1, int(os.getenv("AXELR_CONDUCTOR_CIRCUIT_FAILS", "2")))
-_TRACE_MAX           = 40
+_TRACE_MAX = 40
 
 # ── Tier budgets and paths (mutually exclusive) ────────────────────────
 _TIER_BUDGET: dict[str, int] = {
-    "trivial":  0,
+    "trivial": 0,
     "standard": 1,
-    "deep":     2,
+    "deep": 2,
     "critical": 3,
 }
 _PATH_BY_TIER: dict[str, str] = {
-    "trivial":  "single",
+    "trivial": "single",
     "standard": "single",
-    "deep":     "goat",
-    "critical": "cognitive",     # consensus is chosen by _decide_path()
+    "deep": "goat",
+    "critical": "cognitive",  # consensus is chosen by _decide_path()
 }
 _GOAT_TIER_MAP = {
-    "trivial": "shed", "standard": "lite",
-    "deep": "standard", "critical": "deep",
+    "trivial": "shed",
+    "standard": "lite",
+    "deep": "standard",
+    "critical": "deep",
 }
 _GOAT_ROUNDS = {"shed": 1, "lite": 1, "standard": 2, "deep": 3}
 _GOAT_TOKENS = {"shed": 1024, "lite": 1536, "standard": 2048, "deep": 3072}
@@ -146,8 +149,7 @@ def _circuit_record(path: str, ok: bool) -> None:
     if len(fails) >= _CIRCUIT_FAIL_THRESH:
         _CIRCUIT_TRIPPED[path] = now + _CIRCUIT_COOLDOWN_S
         _STATS["circuit_trips"] += 1
-        logger.warning("conductor.circuit_tripped path=%s cooldown_s=%.0f",
-                       path, _CIRCUIT_COOLDOWN_S)
+        logger.warning("conductor.circuit_tripped path=%s cooldown_s=%.0f", path, _CIRCUIT_COOLDOWN_S)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -189,20 +191,27 @@ class _RunContext:
     def record(self, stage: str, **kw: Any) -> None:
         if len(self.trace) >= _TRACE_MAX:
             return
-        self.trace.append({
-            "stage": stage,
-            "t_ms": round((time.monotonic() - self.t0) * 1000, 1),
-            **kw,
-        })
+        self.trace.append(
+            {
+                "stage": stage,
+                "t_ms": round((time.monotonic() - self.t0) * 1000, 1),
+                **kw,
+            }
+        )
 
     def call_kwargs(self, **overrides: Any) -> dict[str, Any]:
         base = {
-            "workspace":  self.workspace, "task_type": self.task_type,
-            "prompt":     self.prompt,    "history":   self.history,
-            "files":      self.files,     "max_tokens": self.max_tokens,
-            "temp":       self.temp,      "tier":      self.tier,
-            "user":       self.user,      "context":   self.context,
-            "request":    self.request,
+            "workspace": self.workspace,
+            "task_type": self.task_type,
+            "prompt": self.prompt,
+            "history": self.history,
+            "files": self.files,
+            "max_tokens": self.max_tokens,
+            "temp": self.temp,
+            "tier": self.tier,
+            "user": self.user,
+            "context": self.context,
+            "request": self.request,
         }
         base.update(overrides)
         return base
@@ -214,11 +223,9 @@ class _RunContext:
 _MEMO: "OrderedDict[tuple, dict[str, Any]]" = OrderedDict()
 
 
-def _memo_key(prompt: str, files: Iterable[dict] | None,
-              tier: str, workspace: str) -> tuple:
+def _memo_key(prompt: str, files: Iterable[dict] | None, tier: str, workspace: str) -> tuple:
     files_key = tuple(
-        (str(f.get("filename", "")), str(f.get("name", "")))
-        for f in (files or []) if isinstance(f, dict)
+        (str(f.get("filename", "")), str(f.get("name", ""))) for f in (files or []) if isinstance(f, dict)
     )
     return (prompt[:500], files_key, tier, workspace)
 
@@ -249,6 +256,7 @@ def _memo_set(key: tuple, value: dict[str, Any]) -> None:
 def _classify(prompt: str, history, files):
     try:
         from core.task_shedder import assess
+
         return assess(prompt, history=history, files=files)
     except Exception as e:
         logger.debug("conductor.classify_failed err=%s", e)
@@ -282,6 +290,7 @@ def _detect_language(prompt: str) -> str:
         return "en"
     try:
         from core.bilingual import detect_language
+
         return detect_language(prompt)
     except Exception:
         return "en"
@@ -292,9 +301,12 @@ def _tune_temp(ctx: _RunContext) -> float:
         return ctx.temp
     try:
         from core.adaptive_control import tune_temperature
+
         return tune_temperature(
-            intent=ctx.intent, task_type=ctx.task_type,
-            tier=ctx.tier, workspace=ctx.workspace,
+            intent=ctx.intent,
+            task_type=ctx.task_type,
+            tier=ctx.tier,
+            workspace=ctx.workspace,
         )
     except Exception:
         return ctx.temp
@@ -308,6 +320,7 @@ def _enrich_context(ctx: _RunContext, prompt: str) -> str:
     if ctx.session_id:
         try:
             from core.adaptive_control import LEDGER
+
             LEDGER.observe(ctx.session_id, prompt)
             anchors = LEDGER.render(ctx.session_id)
             if anchors:
@@ -317,13 +330,12 @@ def _enrich_context(ctx: _RunContext, prompt: str) -> str:
 
     try:
         from core.adaptive_control import stops_for
+
         stops = stops_for(ctx.workspace, ctx.task_type)
         if stops:
             lines = "\n".join(f"  · {s!r}" for s in stops)
             parts.append(
-                "<stop_sequences>\n"
-                "End your output before any of the following appear:\n"
-                f"{lines}\n</stop_sequences>"
+                f"<stop_sequences>\nEnd your output before any of the following appear:\n{lines}\n</stop_sequences>"
             )
     except Exception:
         pass
@@ -331,6 +343,7 @@ def _enrich_context(ctx: _RunContext, prompt: str) -> str:
     if ctx.lang and ctx.lang != "en":
         try:
             from core.bilingual import compose_language_directive
+
             directive = compose_language_directive(ctx.lang)
             if directive:
                 parts.append(directive)
@@ -343,8 +356,7 @@ def _enrich_context(ctx: _RunContext, prompt: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════
 # Path selection — one pipeline runs, never two
 # ═══════════════════════════════════════════════════════════════════════════
-def _decide_path(complexity, task_type: str, workspace: str,
-                 force_path: str | None, ctx: "_RunContext") -> str:
+def _decide_path(complexity, task_type: str, workspace: str, force_path: str | None, ctx: "_RunContext") -> str:
     if force_path:
         return force_path
     if complexity is None:
@@ -357,11 +369,13 @@ def _decide_path(complexity, task_type: str, workspace: str,
     tier = complexity.tier
 
     if tier == "critical":
-        if (_ENABLE_CONSENSUS
-                and not ctx.stream
-                and ctx.budget >= 2
-                and len(ctx.prompt) < 800
-                and _circuit_ok("consensus")):
+        if (
+            _ENABLE_CONSENSUS
+            and not ctx.stream
+            and ctx.budget >= 2
+            and len(ctx.prompt) < 800
+            and _circuit_ok("consensus")
+        ):
             return "consensus"
         if _circuit_ok("cognitive"):
             return "cognitive"
@@ -375,8 +389,7 @@ async def _call(route_fn: RouteFn, **kw: Any) -> dict[str, Any]:
         r = await route_fn(**kw)
     except Exception as e:
         logger.warning("conductor.route_failed err=%s", e)
-        return {"success": False, "text": "", "provider": "none",
-                "model_used": "", "error": str(e)[:200]}
+        return {"success": False, "text": "", "provider": "none", "model_used": "", "error": str(e)[:200]}
     if not isinstance(r, dict):
         return {"success": False, "text": "", "provider": "none", "model_used": ""}
     return r
@@ -400,18 +413,24 @@ async def _execute_goat(ctx: _RunContext, profile: Any) -> dict[str, Any]:
         return await _execute_single(ctx)
     r = await run_cognitive_pipeline(
         route_fn=ctx.route_fn,
-        workspace=ctx.workspace, task_type=ctx.task_type,
-        prompt=ctx.prompt, history=ctx.history, files=ctx.files,
-        max_tokens=ctx.max_tokens, temp=ctx.temp, tier=ctx.tier,
-        user=ctx.user, context=ctx.context, request=ctx.request,
+        workspace=ctx.workspace,
+        task_type=ctx.task_type,
+        prompt=ctx.prompt,
+        history=ctx.history,
+        files=ctx.files,
+        max_tokens=ctx.max_tokens,
+        temp=ctx.temp,
+        tier=ctx.tier,
+        user=ctx.user,
+        context=ctx.context,
+        request=ctx.request,
         profile=profile,
     )
     ok = bool(r.get("success"))
     _circuit_record("goat", ok)
     meta = r.get("goat", {}) if isinstance(r, dict) else {}
     ctx.calls += max(1, int(meta.get("calls", 1)))
-    ctx.record("goat_done", calls=meta.get("calls", 0),
-               tier=meta.get("tier"), ok=ok)
+    ctx.record("goat_done", calls=meta.get("calls", 0), tier=meta.get("tier"), ok=ok)
     return r
 
 
@@ -426,20 +445,34 @@ async def _execute_cognitive(ctx: _RunContext, complexity) -> dict[str, Any]:
     try:
         r = await cog_run(
             ctx.route_fn,
-            workspace=ctx.workspace, task_type=ctx.task_type,
-            prompt=ctx.prompt, history=ctx.history, files=ctx.files,
-            max_tokens=ctx.max_tokens, temp=ctx.temp, tier=ctx.tier,
-            user=ctx.user, context=ctx.context, request=ctx.request,
+            workspace=ctx.workspace,
+            task_type=ctx.task_type,
+            prompt=ctx.prompt,
+            history=ctx.history,
+            files=ctx.files,
+            max_tokens=ctx.max_tokens,
+            temp=ctx.temp,
+            tier=ctx.tier,
+            user=ctx.user,
+            context=ctx.context,
+            request=ctx.request,
             _preassessed=complexity,
         )
     except TypeError:
         # Older cognitive_pipeline without _preassessed kwarg.
         r = await cog_run(
             ctx.route_fn,
-            workspace=ctx.workspace, task_type=ctx.task_type,
-            prompt=ctx.prompt, history=ctx.history, files=ctx.files,
-            max_tokens=ctx.max_tokens, temp=ctx.temp, tier=ctx.tier,
-            user=ctx.user, context=ctx.context, request=ctx.request,
+            workspace=ctx.workspace,
+            task_type=ctx.task_type,
+            prompt=ctx.prompt,
+            history=ctx.history,
+            files=ctx.files,
+            max_tokens=ctx.max_tokens,
+            temp=ctx.temp,
+            tier=ctx.tier,
+            user=ctx.user,
+            context=ctx.context,
+            request=ctx.request,
         )
     ok = bool(r.get("success"))
     _circuit_record("cognitive", ok)
@@ -463,12 +496,21 @@ async def _execute_consensus(ctx: _RunContext) -> dict[str, Any]:
     try:
         outcome = await race_consensus(
             ctx.route_fn,
-            workspace=ctx.workspace, task_type=ctx.task_type,
-            prompt=ctx.prompt, history=ctx.history, files=ctx.files,
-            max_tokens=ctx.max_tokens, temp=ctx.temp, tier=ctx.tier,
-            user=ctx.user, context=ctx.context, request=ctx.request,
-            width=2, timeout_s=max(6.0, ctx.deadline * 0.5),
-            consensus_floor=0.55, prefer_non_stream=True,
+            workspace=ctx.workspace,
+            task_type=ctx.task_type,
+            prompt=ctx.prompt,
+            history=ctx.history,
+            files=ctx.files,
+            max_tokens=ctx.max_tokens,
+            temp=ctx.temp,
+            tier=ctx.tier,
+            user=ctx.user,
+            context=ctx.context,
+            request=ctx.request,
+            width=2,
+            timeout_s=max(6.0, ctx.deadline * 0.5),
+            consensus_floor=0.55,
+            prefer_non_stream=True,
         )
     except Exception as e:
         logger.warning("conductor.consensus_failed err=%s", e)
@@ -479,10 +521,12 @@ async def _execute_consensus(ctx: _RunContext) -> dict[str, Any]:
     ctx.calls += max(1, outcome.participants if outcome else 1)
     result = dict(outcome.winner) if outcome else {}
     result["consensus"] = outcome.to_dict() if outcome else {}
-    ctx.record("consensus_done",
-               participants=outcome.participants if outcome else 0,
-               agreement=round(outcome.agreement, 3) if outcome else 0.0,
-               ok=ok)
+    ctx.record(
+        "consensus_done",
+        participants=outcome.participants if outcome else 0,
+        agreement=round(outcome.agreement, 3) if outcome else 0.0,
+        ok=ok,
+    )
     return result
 
 
@@ -497,6 +541,7 @@ async def _postprocess(ctx: _RunContext, result: dict[str, Any]) -> dict[str, An
     # 1. Deterministic prune + AST repair. Zero provider calls.
     try:
         from core.hardening import ast_repair, prune_system
+
         pruned = prune_system(text)
         repaired, issues = ast_repair(pruned)
         if issues:
@@ -511,6 +556,7 @@ async def _postprocess(ctx: _RunContext, result: dict[str, Any]) -> dict[str, An
     # 2. Local polish — always runs, ~15 µs, zero network.
     try:
         from core.consensus import local_polish
+
         polished = local_polish(text)
         if polished.changed:
             text = polished.text
@@ -524,6 +570,7 @@ async def _postprocess(ctx: _RunContext, result: dict[str, Any]) -> dict[str, An
         return result
     try:
         from core.reflection import repair, scan
+
         r = scan(text)
         if not r.needs_repair:
             ctx.record("reflection_clean")
@@ -532,16 +579,20 @@ async def _postprocess(ctx: _RunContext, result: dict[str, Any]) -> dict[str, An
         ctx.record("reflection_flagged", issues=list(r.issues))
         if not ctx.charge():
             _STATS["reflection_skipped_budget"] += 1
-            result["reflection"] = {"repaired": False, "issues": list(r.issues),
-                                    "reason": "budget"}
+            result["reflection"] = {"repaired": False, "issues": list(r.issues), "reason": "budget"}
             return result
         repaired_text, meta = await repair(
             ctx.route_fn,
-            workspace=ctx.workspace, task_type=ctx.task_type,
-            prompt=ctx.prompt, text=text,
+            workspace=ctx.workspace,
+            task_type=ctx.task_type,
+            prompt=ctx.prompt,
+            text=text,
             max_tokens=min(ctx.max_tokens, 2048),
-            temp=0.2, tier=ctx.tier, user=ctx.user,
-            context=ctx.context, request=ctx.request,
+            temp=0.2,
+            tier=ctx.tier,
+            user=ctx.user,
+            context=ctx.context,
+            request=ctx.request,
         )
         ctx.record("reflection_done", repaired=meta.get("repaired", False))
         if meta.get("repaired"):
@@ -588,8 +639,8 @@ async def run(
     _STATS["requests_total"] += 1
 
     complexity = _classify(prompt, history, files)
-    profile    = _to_goat_profile(complexity)
-    lang       = _detect_language(prompt)
+    profile = _to_goat_profile(complexity)
+    lang = _detect_language(prompt)
 
     # Tier-specific time budgets per user requirements:
     # Free tier: 2-3s, Pro tier: 3-5s, Business tier:5-6s
@@ -597,30 +648,38 @@ async def run(
     if user_tier == "business":
         tier_deadline = 5.5  # 5-6s total for business
     elif user_tier == "pro":
-        tier_deadline = 4.0   # 3-5s total for pro
-    else: # free/guest
-        tier_deadline = 2.5   # 2-3s total for free
+        tier_deadline = 4.0  # 3-5s total for pro
+    else:  # free/guest
+        tier_deadline = 2.5  # 2-3s total for free
 
     final_deadline = deadline_s if deadline_s is not None else min(_DEADLINE_S, tier_deadline)
 
     provisional_budget = (
         max(0, min(int(budget_calls), _MAX_EXTRA_CALLS))
         if budget_calls is not None
-        else min(_TIER_BUDGET.get(complexity.tier if complexity else "standard", 1),
-                 _MAX_EXTRA_CALLS)
+        else min(_TIER_BUDGET.get(complexity.tier if complexity else "standard", 1), _MAX_EXTRA_CALLS)
     )
 
     ctx = _RunContext(
         route_fn=route_fn,
-        workspace=workspace, task_type=task_type, prompt=prompt,
-        history=history, files=files,
-        max_tokens=max_tokens, temp=temp, tier=tier,
-        user=user, context=context, request=request,
-        intent=intent, session_id=session_id,
+        workspace=workspace,
+        task_type=task_type,
+        prompt=prompt,
+        history=history,
+        files=files,
+        max_tokens=max_tokens,
+        temp=temp,
+        tier=tier,
+        user=user,
+        context=context,
+        request=request,
+        intent=intent,
+        session_id=session_id,
         budget=provisional_budget,
         deadline=final_deadline,
         enable_reflection=enable_reflection,
-        stream=stream, lang=lang,
+        stream=stream,
+        lang=lang,
     )
 
     path = _decide_path(complexity, task_type, workspace, force_path, ctx)
@@ -652,8 +711,7 @@ async def run(
             result = await _execute_single(ctx)
     except Exception as e:
         logger.warning("conductor.execute_failed err=%s", e)
-        result = {"success": False, "text": "", "provider": "none",
-                  "model_used": "", "error": str(e)[:200]}
+        result = {"success": False, "text": "", "provider": "none", "model_used": "", "error": str(e)[:200]}
 
     if result.get("success") and result.get("text"):
         try:
@@ -731,12 +789,24 @@ async def stream(
     """Stream entry point for the entire quality stack (enables streaming mode)."""
     return await run(
         route_fn,
-        workspace=workspace, task_type=task_type, prompt=prompt,
-        history=history, files=files, max_tokens=max_tokens, temp=temp,
-        tier=tier, user=user, context=context, request=request,
-        intent=intent, session_id=session_id, budget_calls=budget_calls,
-        deadline_s=deadline_s, force_path=force_path,
-        enable_reflection=enable_reflection, allow_memo=allow_memo,
+        workspace=workspace,
+        task_type=task_type,
+        prompt=prompt,
+        history=history,
+        files=files,
+        max_tokens=max_tokens,
+        temp=temp,
+        tier=tier,
+        user=user,
+        context=context,
+        request=request,
+        intent=intent,
+        session_id=session_id,
+        budget_calls=budget_calls,
+        deadline_s=deadline_s,
+        force_path=force_path,
+        enable_reflection=enable_reflection,
+        allow_memo=allow_memo,
         stream=True,
     )
 

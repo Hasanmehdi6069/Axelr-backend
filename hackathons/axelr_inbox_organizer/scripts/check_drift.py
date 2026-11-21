@@ -4,6 +4,7 @@ The Markdown Skill and the Python engine must describe the same skill:
 same name, same version, same track. This script is the enforceable claim
 that the two halves are one.
 """
+
 from __future__ import annotations
 
 import re

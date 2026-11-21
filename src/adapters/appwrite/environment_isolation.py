@@ -20,8 +20,10 @@ APPWRITE_ENDPOINT = os.getenv("APPWRITE_ENDPOINT", "https://cloud.appwrite.io/v1
 VULTR_API_KEY = os.getenv("VULTR_API_KEY", "")
 VULTR_ENDPOINT = "https://api.vultr.com/v2"
 
+
 class EnvironmentCredentials(BaseModel):
     """Pydantic model for isolated environment credentials"""
+
     project_id: str
     api_key: str
     environment: str = Field(..., regex="^(staging|production)$")
@@ -29,11 +31,12 @@ class EnvironmentCredentials(BaseModel):
     functions_enabled: bool = True
     ssh_keys: List[str] = Field(default_factory=list)
 
-    @validator('ssh_keys')
+    @validator("ssh_keys")
     def validate_production_ssh_keys(cls, v, values):
-        if values.get('environment') == "production" and len(v) < 1:
+        if values.get("environment") == "production" and len(v) < 1:
             raise ValueError("Production environment requires explicit SSH key registration")
         return v
+
 
 class EnvironmentIsolationManager:
     """
@@ -43,6 +46,7 @@ class EnvironmentIsolationManager:
     - Isolated database collections with no cross-environment access
     - Continuous monitoring of Appwrite instances to prevent inactivity pauses
     """
+
     def __init__(self):
         # Initialize separate clients for staging and production
         self.staging_client = self._init_client(STAGING_PROJECT_ID, STAGING_API_KEY)
@@ -92,12 +96,13 @@ class EnvironmentIsolationManager:
         try:
             # Create API key with only read access to non-sensitive collections
             from appwrite.services.users import Users
+
             users = Users(self.production_client)
             api_key = users.create_api_key(
                 user_id=user_id,
                 name=f"temp-production-access-{int(time.time())}",
                 scopes=["databases.read", "functions.read"],  # Restricted to read-only
-                expire=datetime.utcnow() + timedelta(days=expires_in_days)
+                expire=datetime.utcnow() + timedelta(days=expires_in_days),
             )
 
             # Log the access grant
@@ -106,14 +111,14 @@ class EnvironmentIsolationManager:
                 environment="production",
                 access_type="api_key",
                 reason=reason,
-                expires_at=(datetime.utcnow() + timedelta(days=expires_in_days)).isoformat()
+                expires_at=(datetime.utcnow() + timedelta(days=expires_in_days)).isoformat(),
             )
 
             return {
                 "status": "granted",
                 "temp_api_key": api_key["secret"],
                 "expires_at": (datetime.utcnow() + timedelta(days=expires_in_days)).isoformat(),
-                "scopes": api_key["scopes"]
+                "scopes": api_key["scopes"],
             }
         except AppwriteException as e:
             raise RuntimeError(f"Failed to create production API key: {str(e)}")
@@ -132,8 +137,8 @@ class EnvironmentIsolationManager:
                     f"user_id={user_id}",
                     f"access_type={access_type}",
                     "status=approved",
-                    f"expires_at>{datetime.utcnow().isoformat()}"
-                ]
+                    f"expires_at>{datetime.utcnow().isoformat()}",
+                ],
             )
             return len(approvals["documents"]) > 0
         except AppwriteException:
@@ -156,10 +161,10 @@ class EnvironmentIsolationManager:
                     "access_type": access_type,
                     "request_reason": reason,
                     "granted_at": datetime.utcnow().isoformat(),
-                    "expires_at": expires_at
+                    "expires_at": expires_at,
                 },
                 read=["role:system", "role:admin"],
-                write=["role:system"]
+                write=["role:system"],
             )
         except AppwriteException:
             pass
@@ -175,7 +180,7 @@ class EnvironmentIsolationManager:
         results = {
             "staging": self._check_environment_health("staging"),
             "production": self._check_environment_health("production"),
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
 
         # Trigger alerts for any unhealthy instances
@@ -200,8 +205,7 @@ class EnvironmentIsolationManager:
             health_status = health_client.get()
             # Extend check to verify all services are up
             all_services_healthy = all(
-                service.get("status") == "healthy"
-                for service in health_status.get("services", [])
+                service.get("status") == "healthy" for service in health_status.get("services", [])
             )
 
             # Log health check result
@@ -210,7 +214,7 @@ class EnvironmentIsolationManager:
             return {
                 "healthy": all_services_healthy,
                 "last_check": datetime.utcnow().isoformat(),
-                "services": health_status.get("services", [])
+                "services": health_status.get("services", []),
             }
         except AppwriteException as e:
             self._log_health_event(environment, False, {"error": str(e)})
@@ -231,10 +235,10 @@ class EnvironmentIsolationManager:
                     "environment": environment,
                     "is_healthy": is_healthy,
                     "check_timestamp": datetime.utcnow().isoformat(),
-                    "details": details
+                    "details": details,
                 },
                 read=["role:system", "role:admin", "role:devops"],
-                write=["role:system"]
+                write=["role:system"],
             )
         except AppwriteException:
             pass
@@ -250,8 +254,8 @@ class EnvironmentIsolationManager:
                 alert_webhook,
                 json={
                     "text": f"ALERT: The following Appwrite instances are unhealthy: {', '.join(unhealthy_environments)}",
-                    "health_details": health_results
-                }
+                    "health_details": health_results,
+                },
             )
         except requests.exceptions.RequestException:
             pass
@@ -287,7 +291,7 @@ class EnvironmentIsolationManager:
             logs = db_client.list_documents(
                 database_id="monitoring",
                 collection_id=self.monitoring_collection,
-                queries=["limit(1)", f"environment={environment}"]
+                queries=["limit(1)", f"environment={environment}"],
             )
             if logs["documents"]:
                 return datetime.fromisoformat(logs["documents"][0]["check_timestamp"])
@@ -306,7 +310,7 @@ class EnvironmentIsolationManager:
             "staging_isolated": self._validate_staging_isolation(),
             "production_isolated": self._validate_production_isolation(),
             "cross_environment_access_blocked": self._check_cross_environment_access(),
-            "validation_timestamp": datetime.utcnow().isoformat()
+            "validation_timestamp": datetime.utcnow().isoformat(),
         }
 
         return validation_results
@@ -338,6 +342,7 @@ class EnvironmentIsolationManager:
         # Check that staging API keys aren't present in production configuration
         return not (STAGING_API_KEY and PRODUCTION_API_KEY and STAGING_API_KEY == PRODUCTION_API_KEY)
 
+
 # Appwrite scheduled function entry point
 def main(context: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
     """Main entry point for scheduled health monitoring and isolation validation"""
@@ -355,11 +360,7 @@ def main(context: Any, payload: Dict[str, Any]) -> Dict[str, Any]:
         isolation_results = manager.validate_environment_isolation()
 
         context.log("Environment health and isolation checks completed successfully")
-        return {
-            "health": health_results,
-            "isolation": isolation_results,
-            "status": "success"
-        }
+        return {"health": health_results, "isolation": isolation_results, "status": "success"}
     except Exception as e:
         context.error(f"Environment monitoring failed: {str(e)}")
         return {"status": "error", "message": str(e)}

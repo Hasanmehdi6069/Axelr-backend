@@ -13,6 +13,7 @@ can be used to:
   3. Track actual WER/latency per device tier for honest guarantees
   4. Provide real telemetry data for arbitration decisions
 """
+
 from __future__ import annotations
 
 import json
@@ -54,6 +55,7 @@ def trace_id() -> str:
 @dataclass
 class SessionState:
     """Persistent session state for user preferences and history."""
+
     calibration_temperature: float = 1.0
     lexicon: Dict[str, float] = field(default_factory=dict)
     last_activity: float = field(default_factory=time.time)
@@ -160,6 +162,7 @@ class MetricsExporter:
 @dataclass(frozen=True)
 class RamObservation:
     """Snapshot of system RAM state."""
+
     total_gb: float
     free_gb: float
     used_pct: float
@@ -178,6 +181,7 @@ class RamObservation:
 @dataclass(frozen=True)
 class ThermalObservation:
     """CPU/GPU thermal pressure observation."""
+
     cpu_temp_c: Optional[float] = None
     gpu_temp_c: Optional[float] = None
     thermal_pressure: str = "unknown"  # "ok" | "warm" | "hot" | "critical"
@@ -200,12 +204,13 @@ class ThermalObservation:
 @dataclass(frozen=True)
 class AsrObservation:
     """ASR performance observation for WER/latency tracking."""
-    runtime: str          # "ipc_gpu" | "ipc_cpu" | "wasm" | "cloud"
+
+    runtime: str  # "ipc_gpu" | "ipc_cpu" | "wasm" | "cloud"
     audio_duration_s: float
     processing_s: float
     p95_s: float
     p99_s: float
-    wer: float            # Word Error Rate (0.0 = perfect)
+    wer: float  # Word Error Rate (0.0 = perfect)
     token_count: int
     timestamp: float = field(default_factory=time.time)
 
@@ -330,6 +335,7 @@ def sample_ram() -> Optional[RamObservation]:
     """Sample system RAM state. Returns None on failure."""
     try:
         import psutil
+
         m = psutil.virtual_memory()
         return RamObservation(
             total_gb=m.total / 1e9,
@@ -345,12 +351,17 @@ def sample_ram() -> Optional[RamObservation]:
     try:
         if sys.platform == "win32":
             import ctypes
+
             class M(ctypes.Structure):
-                _fields_ = [("dwLength", ctypes.c_ulong),
-                            ("dwMemoryLoad", ctypes.c_ulong),
-                            ("ullTotalPhys", ctypes.c_ulonglong),
-                            ("ullAvailPhys", ctypes.c_ulonglong)]
-            ms = M(); ms.dwLength = ctypes.sizeof(M)
+                _fields_ = [
+                    ("dwLength", ctypes.c_ulong),
+                    ("dwMemoryLoad", ctypes.c_ulong),
+                    ("ullTotalPhys", ctypes.c_ulonglong),
+                    ("ullAvailPhys", ctypes.c_ulonglong),
+                ]
+
+            ms = M()
+            ms.dwLength = ctypes.sizeof(M)
             ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))
             return RamObservation(
                 total_gb=ms.ullTotalPhys / 1e9,
@@ -374,6 +385,7 @@ def sample_thermal() -> ThermalObservation:
 
     try:
         import psutil
+
         cpu_load = psutil.cpu_percent(interval=0.1) / 100.0
 
         if hasattr(psutil, "sensors_temperatures"):
@@ -395,10 +407,15 @@ def sample_thermal() -> ThermalObservation:
 
     try:
         import subprocess
-        out = subprocess.check_output(
-            ["nvidia-smi", "--query-gpu=temperature.gpu,utilization.gpu",
-             "--format=csv,noheader,nounits"], timeout=1
-        ).decode().strip()
+
+        out = (
+            subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=temperature.gpu,utilization.gpu", "--format=csv,noheader,nounits"],
+                timeout=1,
+            )
+            .decode()
+            .strip()
+        )
         parts = out.split(", ")
         if len(parts) >= 2:
             gpu_temp = float(parts[0])
@@ -515,9 +532,9 @@ class GhostTelemetry:
 
         return profile
 
-    def record_asr(self, runtime: str, audio_duration_s: float,
-                   processing_s: float, wer: float = 0.0,
-                   token_count: int = 1) -> None:
+    def record_asr(
+        self, runtime: str, audio_duration_s: float, processing_s: float, wer: float = 0.0, token_count: int = 1
+    ) -> None:
         """Record an ASR observation for WER/latency tracking."""
         obs = AsrObservation(
             runtime=runtime,
@@ -577,11 +594,20 @@ def stop_telemetry() -> None:
 ghost_telemetry = get_ghost_telemetry()
 
 __all__ = [
-    "GhostTelemetry", "TelemetryStore",
-    "RamObservation", "ThermalObservation", "AsrObservation",
-    "sample_ram", "sample_thermal",
-    "get_ghost_telemetry", "start_telemetry", "stop_telemetry",
+    "GhostTelemetry",
+    "TelemetryStore",
+    "RamObservation",
+    "ThermalObservation",
+    "AsrObservation",
+    "sample_ram",
+    "sample_thermal",
+    "get_ghost_telemetry",
+    "start_telemetry",
+    "stop_telemetry",
     "ghost_telemetry",
-    "MetricsExporter", "SessionStore", "SessionState",
-    "new_trace_id", "trace_id",
+    "MetricsExporter",
+    "SessionStore",
+    "SessionState",
+    "new_trace_id",
+    "trace_id",
 ]

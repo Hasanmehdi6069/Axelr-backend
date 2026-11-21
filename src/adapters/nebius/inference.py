@@ -1,4 +1,5 @@
 """Nebius Cloud inference client with robust retry logic, region failover, and cross-region load balancing"""
+
 from __future__ import annotations
 
 import asyncio
@@ -21,6 +22,7 @@ logger = logging.getLogger("axelr.nebius.inference")
 @dataclass(slots=True)
 class RegionCircuitBreaker:
     """Circuit breaker for region health management with health metrics"""
+
     region: str
     failure_count: int = 0
     success_count: int = 0
@@ -68,6 +70,7 @@ class RegionCircuitBreaker:
 @dataclass(frozen=True, slots=True)
 class NebiusSettings:
     """Configuration settings for Nebius Cloud integration"""
+
     api_endpoint: str
     api_key: str
     regions: List[str]
@@ -101,8 +104,7 @@ class NebiusInferenceClient:
     def __init__(self):
         self.settings = NebiusSettings.from_env()
         self.circuit_breakers: Dict[str, RegionCircuitBreaker] = {
-            region: RegionCircuitBreaker(region=region)
-            for region in self.settings.regions
+            region: RegionCircuitBreaker(region=region) for region in self.settings.regions
         }
         self.global_semaphore = asyncio.Semaphore(self.settings.max_concurrent_inferences)
         self._session: Optional[aiohttp.ClientSession] = None
@@ -124,10 +126,7 @@ class NebiusInferenceClient:
 
         self._session = aiohttp.ClientSession(
             timeout=aiohttp.ClientTimeout(total=self.settings.request_timeout),
-            headers={
-                "Authorization": f"Bearer {self.settings.api_key}",
-                "Content-Type": "application/json"
-            }
+            headers={"Authorization": f"Bearer {self.settings.api_key}", "Content-Type": "application/json"},
         )
         # Start connection pooling maintenance loop
         self._cleanup_task = asyncio.create_task(self._connection_pool_maintenance_loop())
@@ -140,7 +139,9 @@ class NebiusInferenceClient:
             try:
                 await asyncio.sleep(30.0)
                 if self._session and not self._session.closed:
-                    logger.debug(f"Connection pool stats: {self._session.connector.used_connections}/{self._session.connector.limit} used")
+                    logger.debug(
+                        f"Connection pool stats: {self._session.connector.used_connections}/{self._session.connector.limit} used"
+                    )
             except asyncio.CancelledError:
                 logger.info("Connection pool maintenance loop cancelled")
                 return
@@ -154,11 +155,13 @@ class NebiusInferenceClient:
         for region in self.settings.regions:
             breaker = self.circuit_breakers[region]
             if await breaker.allow_request():
-                available_regions.append((
-                    breaker.active_requests,  # Primary sort key: active load
-                    breaker.success_count,    # Secondary sort key: success rate
-                    region
-                ))
+                available_regions.append(
+                    (
+                        breaker.active_requests,  # Primary sort key: active load
+                        breaker.success_count,  # Secondary sort key: success rate
+                        region,
+                    )
+                )
 
         if not available_regions:
             return None
@@ -171,11 +174,7 @@ class NebiusInferenceClient:
 
     @inference_retry_wrapper()
     async def create_chat_completion(
-        self,
-        messages: List[Dict[str, str]],
-        model: str = "llama3:70b",
-        stream: bool = False,
-        **kwargs
+        self, messages: List[Dict[str, str]], model: str = "llama3:70b", stream: bool = False, **kwargs
     ) -> Dict[str, Any]:
         """
         Create a chat completion with full validation, retry logic, and region failover.
@@ -183,12 +182,9 @@ class NebiusInferenceClient:
         """
         async with self.global_semaphore:  # Global concurrency limiting
             # Validate request before sending
-            validated_request = validate_inference_request({
-                "model": model,
-                "messages": messages,
-                "stream": stream,
-                **kwargs
-            })
+            validated_request = validate_inference_request(
+                {"model": model, "messages": messages, "stream": stream, **kwargs}
+            )
 
             # Find an available region with least load
             region = await self._get_available_region()
@@ -203,8 +199,7 @@ class NebiusInferenceClient:
 
                 # Send request to Nebius API with non-blocking I/O
                 async with self._session.post(
-                    f"{self.settings.api_endpoint}/chat/completions",
-                    json=validated_request.model_dump()
+                    f"{self.settings.api_endpoint}/chat/completions", json=validated_request.model_dump()
                 ) as response:
                     response.raise_for_status()
                     result = await response.json()

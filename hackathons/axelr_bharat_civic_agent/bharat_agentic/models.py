@@ -5,6 +5,7 @@ Every container is ``dataclass(slots=True)`` with explicit
 JSON blobs. Nested extraction results are :class:`ExtractedField` (never raw
 dicts) so confidence and source-spans survive.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -52,6 +53,7 @@ def utc_now_iso() -> str:
 # Extraction result per field
 # ---------------------------------------------------------------------------
 
+
 @dataclass(slots=True)
 class ExtractedField:
     value: Optional[str] = None
@@ -83,6 +85,7 @@ class ExtractedField:
 # ---------------------------------------------------------------------------
 # Case record
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class CaseRecord:
@@ -150,6 +153,7 @@ class CaseRecord:
 # ---------------------------------------------------------------------------
 # Summary, reminders, approvals, audit, metrics
 # ---------------------------------------------------------------------------
+
 
 @dataclass(slots=True)
 class CaseSummary:
@@ -298,16 +302,13 @@ class MetricsReport:
 
     def to_dict(self) -> Dict[str, Any]:
         return {
-            "generated_at": datetime.fromtimestamp(
-                self.generated_at, tz=timezone.utc).isoformat(timespec="seconds"),
+            "generated_at": datetime.fromtimestamp(self.generated_at, tz=timezone.utc).isoformat(timespec="seconds"),
             "total_cases": self.total_cases,
             "extraction_accuracy": round(self.extraction_accuracy, 4),
-            "per_field_accuracy": {
-                k: round(v, 4) for k, v in self.per_field_accuracy.items()},
+            "per_field_accuracy": {k: round(v, 4) for k, v in self.per_field_accuracy.items()},
             "reminders_sent": self.reminders_sent,
             "reminder_delivery_rate": round(self.reminder_delivery_rate, 4),
-            "average_processing_time_seconds": round(
-                self.average_processing_time_seconds, 4),
+            "average_processing_time_seconds": round(self.average_processing_time_seconds, 4),
             "cases": [c.to_dict() for c in self.cases],
         }
 
@@ -332,20 +333,22 @@ class MetricsReport:
         ]
         for k, v in self.per_field_accuracy.items():
             lines.append(f"| {k} | {v:.2%} |")
-        lines.extend(["", "## Per-case breakdown", "",
-                      "| Case | Field acc. | Time (s) | Reminder |",
-                      "|---|---|---|---|"])
+        lines.extend(
+            ["", "## Per-case breakdown", "", "| Case | Field acc. | Time (s) | Reminder |", "|---|---|---|---|"]
+        )
         for c in self.cases:
             lines.append(
                 f"| {c.case_id} | {c.field_accuracy:.2%} | "
                 f"{c.processing_seconds:.3f} | "
-                f"{'✅' if c.reminder_delivered else '❌'} |")
+                f"{'✅' if c.reminder_delivered else '❌'} |"
+            )
         return "\n".join(lines) + "\n"
 
 
 # ---------------------------------------------------------------------------
 # IDs + crypto helpers
 # ---------------------------------------------------------------------------
+
 
 def new_case_id() -> str:
     return f"case_{uuid.uuid4().hex[:12]}"

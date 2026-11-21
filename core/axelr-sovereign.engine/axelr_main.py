@@ -10,6 +10,7 @@ New in v4.2:
   * --dry-run mode
   * print_health_report() for operational visibility
 """
+
 from __future__ import annotations
 
 import argparse
@@ -106,16 +107,12 @@ class PreflightChecker:
     def _check_device(self, r: PreflightResult) -> None:
         profile = classify()
         if profile.tier == DeviceTier.MOBILE:
-            r.fail("device_tier",
-                   "Mobile-tier device — standalone Python mode not supported. "
-                   "Use --mode browser-only.")
+            r.fail("device_tier", "Mobile-tier device — standalone Python mode not supported. Use --mode browser-only.")
             return
         if profile.tier < DeviceTier.STANDARD:
-            r.pass_("device_tier",
-                   f"{profile.tier.label} — will run whisper-tiny on CPU")
+            r.pass_("device_tier", f"{profile.tier.label} — will run whisper-tiny on CPU")
         else:
-            r.pass_("device_tier",
-                   f"{profile.tier.label} — full features available")
+            r.pass_("device_tier", f"{profile.tier.label} — full features available")
 
     def _check_python(self, r: PreflightResult) -> None:
         if sys.version_info >= self.REQUIRED_PY:
@@ -134,6 +131,7 @@ class PreflightChecker:
     def _check_psutil(self, r: PreflightResult) -> None:
         try:
             import psutil  # noqa: F401
+
             r.pass_("psutil", "available")
         except ImportError:
             r.pass_("psutil", "missing (explicit tier required)")
@@ -264,10 +262,9 @@ async def _run(mode: str, tier: Optional[Tier], dry_run: bool = False) -> None:
 
     try:
         from core import guards
+
         if guards.pressure() == "critical":
-            logger.warning(
-                "thermal_critical: reducing model tier, waiting for device to cool"
-            )
+            logger.warning("thermal_critical: reducing model tier, waiting for device to cool")
             profile = replace(profile, model_size="tiny")
     except ImportError:
         pass
@@ -294,10 +291,14 @@ async def _run(mode: str, tier: Optional[Tier], dry_run: bool = False) -> None:
         return
 
     local_fn = make_local_fn(adapter)
-    cold_start = ColdStartProfiler({
-        "ring_setup": 100.0, "adapter_load": 15000.0,
-        "warm_up": 1000.0, "permissions": 200.0,
-    })
+    cold_start = ColdStartProfiler(
+        {
+            "ring_setup": 100.0,
+            "adapter_load": 15000.0,
+            "warm_up": 1000.0,
+            "permissions": 200.0,
+        }
+    )
     metrics = MetricsCollector()
 
     t0 = metrics.now()
@@ -308,10 +309,12 @@ async def _run(mode: str, tier: Optional[Tier], dry_run: bool = False) -> None:
     cold_start.mark("permissions", metrics.elapsed_ms(t0))
 
     t0 = metrics.now()
-    ring = ZeroCopyRingBuffer(RingBufferConfig(
-        capacity_samples=profile.ring_capacity_samples,
-        sample_rate=profile.sample_rate,
-    ))
+    ring = ZeroCopyRingBuffer(
+        RingBufferConfig(
+            capacity_samples=profile.ring_capacity_samples,
+            sample_rate=profile.sample_rate,
+        )
+    )
     cold_start.mark("ring_setup", metrics.elapsed_ms(t0))
 
     mic = MicrophoneSource(ring)
@@ -331,13 +334,14 @@ async def _run(mode: str, tier: Optional[Tier], dry_run: bool = False) -> None:
 
     pressure = MemoryPressureMonitor(
         PressureConfig(budget_mb=budget.budget_mb, high_watermark=0.85, low_watermark=0.65),
-        on_high=pipeline.degradation.on_high, on_low=pipeline.degradation.on_low)
+        on_high=pipeline.degradation.on_high,
+        on_low=pipeline.degradation.on_low,
+    )
     pressure.start()
 
     hotkeys = HotkeyInterceptor()
     stop_event = asyncio.Event()
-    hotkeys.register(Hotkey(0xBB, MOD_CONTROL | MOD_SHIFT, "start_recording"),
-                     lambda: logger.info("start_hotkey"))
+    hotkeys.register(Hotkey(0xBB, MOD_CONTROL | MOD_SHIFT, "start_recording"), lambda: logger.info("start_hotkey"))
     hotkeys.start()
 
     loop = asyncio.get_running_loop()
@@ -358,12 +362,16 @@ async def _run(mode: str, tier: Optional[Tier], dry_run: bool = False) -> None:
     finally:
         pressure.stop()
         drain.cancel()
-        try: await drain
-        except asyncio.CancelledError: pass
+        try:
+            await drain
+        except asyncio.CancelledError:
+            pass
         await pipeline.stop()
         mic.stop()
-        try: adapter.dispose()
-        except Exception: logger.exception("adapter_dispose_failed")
+        try:
+            adapter.dispose()
+        except Exception:
+            logger.exception("adapter_dispose_failed")
         hotkeys.stop()
         ring.dispose()
         metrics.dump(logger)

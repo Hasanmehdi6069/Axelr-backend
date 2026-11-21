@@ -8,6 +8,7 @@ Everything that answers "what goes in the prompt?" in one file:
     §2 Context window   clip_history(history, max_tokens)
     §3 Prompt vault     build(workspace, intent, prompt) -> directives
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -24,29 +25,71 @@ _WS_RE = re.compile(r"\s+")
 _NON_ALNUM_RE = re.compile(r"[^a-z0-9\-\s]")
 
 _TOP_KEYWORDS: dict[str, str] = {
-    "hi": "conversational", "hello": "conversational", "hey": "conversational",
-    "yo": "conversational", "sup": "conversational", "howdy": "conversational",
-    "thanks": "conversational", "thank": "conversational", "thx": "conversational",
-    "cheers": "conversational", "bye": "conversational", "goodbye": "conversational",
-    "build": "transactional", "create": "transactional", "write": "transactional",
-    "generate": "transactional", "implement": "transactional", "code": "transactional",
-    "develop": "transactional", "scaffold": "transactional", "fix": "transactional",
-    "debug": "transactional", "refactor": "transactional", "optimi": "transactional",
-    "migrate": "transactional", "deploy": "transactional", "convert": "transactional",
-    "render": "transactional", "compile": "transactional",
-    "extract": "extraction", "parse": "extraction", "scrape": "extraction",
-    "summarise": "extraction", "summarize": "extraction", "classify": "extraction",
-    "categorise": "extraction", "categorize": "extraction",
-    "style": "styling", "redesign": "styling", "theme": "styling",
-    "layout": "styling", "polish": "styling", "beautify": "styling",
-    "modernize": "styling", "modernise": "styling",
-    "explain": "strategy", "compare": "strategy", "why": "strategy",
-    "what": "strategy", "how": "strategy", "should": "strategy",
-    "recommend": "strategy", "suggest": "strategy", "advise": "strategy",
-    "plan": "strategy", "roadmap": "strategy", "approach": "strategy",
-    "error": "diagnostic", "exception": "diagnostic", "traceback": "diagnostic",
-    "crash": "diagnostic", "failed": "diagnostic", "broken": "diagnostic",
-    "bug": "diagnostic", "issue": "diagnostic",
+    "hi": "conversational",
+    "hello": "conversational",
+    "hey": "conversational",
+    "yo": "conversational",
+    "sup": "conversational",
+    "howdy": "conversational",
+    "thanks": "conversational",
+    "thank": "conversational",
+    "thx": "conversational",
+    "cheers": "conversational",
+    "bye": "conversational",
+    "goodbye": "conversational",
+    "build": "transactional",
+    "create": "transactional",
+    "write": "transactional",
+    "generate": "transactional",
+    "implement": "transactional",
+    "code": "transactional",
+    "develop": "transactional",
+    "scaffold": "transactional",
+    "fix": "transactional",
+    "debug": "transactional",
+    "refactor": "transactional",
+    "optimi": "transactional",
+    "migrate": "transactional",
+    "deploy": "transactional",
+    "convert": "transactional",
+    "render": "transactional",
+    "compile": "transactional",
+    "extract": "extraction",
+    "parse": "extraction",
+    "scrape": "extraction",
+    "summarise": "extraction",
+    "summarize": "extraction",
+    "classify": "extraction",
+    "categorise": "extraction",
+    "categorize": "extraction",
+    "style": "styling",
+    "redesign": "styling",
+    "theme": "styling",
+    "layout": "styling",
+    "polish": "styling",
+    "beautify": "styling",
+    "modernize": "styling",
+    "modernise": "styling",
+    "explain": "strategy",
+    "compare": "strategy",
+    "why": "strategy",
+    "what": "strategy",
+    "how": "strategy",
+    "should": "strategy",
+    "recommend": "strategy",
+    "suggest": "strategy",
+    "advise": "strategy",
+    "plan": "strategy",
+    "roadmap": "strategy",
+    "approach": "strategy",
+    "error": "diagnostic",
+    "exception": "diagnostic",
+    "traceback": "diagnostic",
+    "crash": "diagnostic",
+    "failed": "diagnostic",
+    "broken": "diagnostic",
+    "bug": "diagnostic",
+    "issue": "diagnostic",
 }
 
 _SUB_PATTERNS: dict[str, tuple[tuple[re.Pattern[str], str], ...]] = {
@@ -106,13 +149,17 @@ class IntentResult:
     signals: tuple[str, ...] = field(default_factory=tuple)
 
     def to_dict(self) -> dict[str, object]:
-        return {"intent": self.intent, "sub_intent": self.sub_intent,
-                "confidence": round(self.confidence, 3),
-                "matched": self.matched_token}
+        return {
+            "intent": self.intent,
+            "sub_intent": self.sub_intent,
+            "confidence": round(self.confidence, 3),
+            "matched": self.matched_token,
+        }
 
 
 def _normalize(prompt: str) -> str:
-    if not prompt: return ""
+    if not prompt:
+        return ""
     clamped = prompt[:_CLAMP]
     return _WS_RE.sub(" ", unicodedata.normalize("NFKC", clamped)).strip()
 
@@ -151,8 +198,7 @@ def classify(prompt: str) -> IntentResult:
     base = 0.55 + min(0.30, best_score / 100.0)
     if best_sub != "generic":
         base += 0.10
-    return IntentResult(best_intent, best_sub, round(max(0.0, min(1.0, base)), 3),
-                        best_token, tuple(signals))
+    return IntentResult(best_intent, best_sub, round(max(0.0, min(1.0, base)), 3), best_token, tuple(signals))
 
 
 def classify_flat(prompt: str) -> str:
@@ -162,8 +208,7 @@ def classify_flat(prompt: str) -> str:
 class IntentRouter:
     __slots__ = ()
 
-    async def classify(self, prompt: str = "",
-                       files: Iterable[dict] | None = None) -> IntentResult:
+    async def classify(self, prompt: str = "", files: Iterable[dict] | None = None) -> IntentResult:
         return classify(prompt)
 
 
@@ -179,20 +224,58 @@ _FENCE_OPEN_RE = re.compile(r"```[a-zA-Z0-9_+-]*\n")
 _MULTISPACE_RE = re.compile(r"[ \t]+")
 _MULTINEWLINE_RE = re.compile(r"\n{3,}")
 
-_FILLERS = frozenset({
-    "please", "kindly", "just", "really", "very", "actually", "basically",
-    "simply", "maybe", "perhaps", "sure", "okay", "ok", "well", "anyway",
-    "so", "thus", "hence", "therefore",
-})
-_NEGATIONS = frozenset({
-    "no", "not", "never", "don't", "dont", "won't", "wont", "can't", "cant",
-    "would", "wouldn't", "could", "couldn't", "should", "shouldn't",
-    "might", "must", "may", "will", "shall",
-})
+_FILLERS = frozenset(
+    {
+        "please",
+        "kindly",
+        "just",
+        "really",
+        "very",
+        "actually",
+        "basically",
+        "simply",
+        "maybe",
+        "perhaps",
+        "sure",
+        "okay",
+        "ok",
+        "well",
+        "anyway",
+        "so",
+        "thus",
+        "hence",
+        "therefore",
+    }
+)
+_NEGATIONS = frozenset(
+    {
+        "no",
+        "not",
+        "never",
+        "don't",
+        "dont",
+        "won't",
+        "wont",
+        "can't",
+        "cant",
+        "would",
+        "wouldn't",
+        "could",
+        "couldn't",
+        "should",
+        "shouldn't",
+        "might",
+        "must",
+        "may",
+        "will",
+        "shall",
+    }
+)
 
 
 def estimate_tokens(text: str) -> int:
-    if not text: return 0
+    if not text:
+        return 0
     return max(1, len(text) // CHARS_PER_TOKEN)
 
 
@@ -205,7 +288,8 @@ class ClipResult:
 
 
 def _strip_fillers(text: str) -> str:
-    if not text: return ""
+    if not text:
+        return ""
     text = _MULTISPACE_RE.sub(" ", text)
     words = text.split()
     kept = [w for w in words if w.lower() not in _FILLERS or w.lower() in _NEGATIONS]
@@ -213,13 +297,15 @@ def _strip_fillers(text: str) -> str:
 
 
 def _shrink_code_blocks(text: str, cap: int = DEFAULT_CODE_FENCE_CAP) -> str:
-    if "```" not in text or len(text) <= cap: return text
+    if "```" not in text or len(text) <= cap:
+        return text
     out: list[str] = []
     pos = 0
     while True:
         idx = text.find("```", pos)
         if idx == -1:
-            out.append(text[pos:]); break
+            out.append(text[pos:])
+            break
         out.append(text[pos:idx])
         m = _FENCE_OPEN_RE.match(text, idx)
         opener_end = m.end() if m else idx + 3
@@ -231,7 +317,7 @@ def _shrink_code_blocks(text: str, cap: int = DEFAULT_CODE_FENCE_CAP) -> str:
             break
         body = text[opener_end:close]
         if len(body) <= cap:
-            out.append(text[idx:close + 3])
+            out.append(text[idx : close + 3])
         else:
             out.append(text[idx:opener_end] + body[:cap] + "\n…[truncated]\n```")
         pos = close + 3
@@ -248,7 +334,8 @@ def _normalise_turn(msg: dict[str, Any]) -> dict[str, Any]:
 
 def clip_history(
     history: Iterable[dict[str, Any]] | None,
-    *, max_tokens: int = DEFAULT_MAX_TOKENS,
+    *,
+    max_tokens: int = DEFAULT_MAX_TOKENS,
     keep_recent: int = DEFAULT_KEEP_RECENT,
     system_anchor: str = "",
     aggressive: bool = True,
@@ -266,8 +353,7 @@ def clip_history(
         if i >= recent_start:
             processed.append(t)
         elif aggressive:
-            processed.append({"role": t["role"],
-                              "text": _shrink_code_blocks(_strip_fillers(t["text"]))})
+            processed.append({"role": t["role"], "text": _shrink_code_blocks(_strip_fillers(t["text"]))})
         else:
             processed.append(t)
     kept_rev: list[dict[str, Any]] = []
@@ -283,16 +369,17 @@ def clip_history(
     kept_rev.reverse()
     truncated = dropped > 0 or len(kept_rev) < len(processed)
     if dropped and aggressive and kept_rev:
-        kept_rev.insert(0, {"role": "system",
-                            "text": f"[{dropped} earlier turn(s) omitted for context budget]"})
+        kept_rev.insert(0, {"role": "system", "text": f"[{dropped} earlier turn(s) omitted for context budget]"})
     if system_anchor:
         kept_rev.insert(0, {"role": "system", "text": system_anchor})
     return ClipResult(kept_rev, dropped, used + estimate_tokens(system_anchor), truncated)
 
 
 def clip_prompt(prompt: str, *, max_tokens: int = 2000) -> tuple[str, bool]:
-    if not prompt: return "", False
-    if estimate_tokens(prompt) <= max_tokens: return prompt, False
+    if not prompt:
+        return "", False
+    if estimate_tokens(prompt) <= max_tokens:
+        return prompt, False
     cap = max_tokens * CHARS_PER_TOKEN
     return prompt[:cap].rstrip() + "\n…[prompt clipped]", True
 
@@ -307,19 +394,19 @@ _THINKING_VARIANTS: tuple[str, ...] = (
     "<reasoning_protocol>\n1. Emit <thinking>.\n"
     "2. Inside: state INTENT, WORKSPACE, VETO (active|inactive).\n"
     "3. Emit </thinking>.\n4. Emit visible reply.\n</reasoning_protocol>",
-    "<reasoning_protocol mode=\"compact\">\n"
+    '<reasoning_protocol mode="compact">\n'
     "<thinking>INTENT=? WORKSPACE=? VETO=?</thinking>\n"
     "Then visible reply only.\n</reasoning_protocol>",
 )
 
 _INTENT_VAULT: dict[str, tuple[str, ...]] = {
     "conversational": (
-        "<intent_veto mode=\"conversational\">\nReply in 1-2 polished human sentences.\n"
+        '<intent_veto mode="conversational">\nReply in 1-2 polished human sentences.\n'
         "Forbidden: code blocks, dashboards, mock data, feature bullet lists,\n"
         "'let me know if...' trailers. Answer like a person.\n</intent_veto>",
-        "<intent_veto mode=\"conversational\">\nOne short paragraph. "
+        '<intent_veto mode="conversational">\nOne short paragraph. '
         "No markdown headings. No code. No lists.\n</intent_veto>",
-        "<intent_veto mode=\"conversational\" density=\"tight\">\n"
+        '<intent_veto mode="conversational" density="tight">\n'
         "Human voice. ≤ 60 words. Zero scaffolding.\n</intent_veto>",
     ),
     "transactional": (
@@ -328,10 +415,10 @@ _INTENT_VAULT: dict[str, tuple[str, ...]] = {
         "* Inline comments only where behaviour is non-obvious.\n"
         "* No explanatory prose above the block.\n"
         "* No 'here is your code' preamble.\n</transactional_directive>",
-        "<transactional_directive mode=\"surgical\">\nReturn the artefact. "
+        '<transactional_directive mode="surgical">\nReturn the artefact. '
         "Not a description of the artefact.\n"
         "One fenced block. Language-tagged. Zero narrative.\n</transactional_directive>",
-        "<transactional_directive mode=\"checklist\">\n1. Fenced code block, correct language tag.\n"
+        '<transactional_directive mode="checklist">\n1. Fenced code block, correct language tag.\n'
         "2. No prose above.\n"
         "3. One-line note only if a non-obvious choice was made.\n</transactional_directive>",
     ),
@@ -339,21 +426,21 @@ _INTENT_VAULT: dict[str, tuple[str, ...]] = {
         "<extraction_directive>\nReturn only the requested field(s). "
         "Format as a compact JSON array\ninside ```json fences. "
         "No commentary, no schema, no explanation.\n</extraction_directive>",
-        "<extraction_directive mode=\"strict\">\n"
+        '<extraction_directive mode="strict">\n'
         "Output shape: ```json\\n[...]\\n```. Only the array. Nothing else.\n</extraction_directive>",
-        "<extraction_directive mode=\"tabular\">\n"
+        '<extraction_directive mode="tabular">\n'
         "Emit a markdown table with one row per record. No preamble.\n</extraction_directive>",
     ),
     "styling": (
-        "<styling_directive era=\"2025\">\nModern SaaS surface. System font stack. "
+        '<styling_directive era="2025">\nModern SaaS surface. System font stack. '
         "Rounded corners on\ninteractive elements. Surface hierarchy via shadows — not 1px\n"
         "solid borders. Generous spacing (p-4+). Flex/grid — never <table>\n"
         "for layout. Coherent palette (slate/zinc/neutral + one accent).\n</styling_directive>",
-        "<styling_directive era=\"2025\" density=\"high\">\n"
+        '<styling_directive era="2025" density="high">\n'
         "Tailwind-first. No Arial/Helvetica hardcodes. Rounded-lg+.\n"
         "Shadow-based hierarchy. p-4 minimum, py-8+ on sections.\n"
         "NEVER: `border: 1px solid #ccc`, `<table>` layout, flat white bg.\n</styling_directive>",
-        "<styling_directive era=\"2025\" mode=\"checklist\">\n"
+        '<styling_directive era="2025" mode="checklist">\n'
         "□ font-sans via system stack\n□ rounded-lg on buttons/cards\n"
         "□ shadow-sm/md on surfaces\n□ flex/grid layout only\n"
         "□ coherent palette, one accent\n□ p-4+ padding, py-8+ on sections\n</styling_directive>",
@@ -362,20 +449,19 @@ _INTENT_VAULT: dict[str, tuple[str, ...]] = {
         "<strategy_directive>\nClean conceptual blueprint with actionable structure. "
         "No code\nblocks unless explicitly requested. Never demand a dataset — if\n"
         "data is missing, describe the shape or schema in the abstract.\n</strategy_directive>",
-        "<strategy_directive mode=\"abstract\">\nFrameworks, trade-offs, decision criteria. "
+        '<strategy_directive mode="abstract">\nFrameworks, trade-offs, decision criteria. '
         "Illustrative, not\nimplementational. Never gate on missing input.\n</strategy_directive>",
-        "<strategy_directive mode=\"numbered\">\n"
+        '<strategy_directive mode="numbered">\n'
         "Numbered blueprint. Each step: action + rationale (one line).\n"
         "No code. No 'I would need…' stalls.\n</strategy_directive>",
     ),
     "diagnostic": (
         "<diagnostic_directive>\nRoot cause first. Then the minimal fix. Then one guard.\n"
         "No 'have you tried' hedging. No 5-step debugging lecture.\n</diagnostic_directive>",
-        "<diagnostic_directive mode=\"rca\">\n1. Cause (one sentence).\n"
+        '<diagnostic_directive mode="rca">\n1. Cause (one sentence).\n'
         "2. Fix (fenced code, language-tagged).\n"
         "3. Guard (one line — test, assertion, or check).\n</diagnostic_directive>",
-        "<diagnostic_directive mode=\"triage\">\n"
-        "State cause. Emit patch. Stop. No apologising.\n</diagnostic_directive>",
+        '<diagnostic_directive mode="triage">\nState cause. Emit patch. Stop. No apologising.\n</diagnostic_directive>',
     ),
 }
 
@@ -383,32 +469,30 @@ _DRIFT_VARIANTS: tuple[str, ...] = (
     "<data_drift_defiance>\nNever halt because data is missing. Never demand a dataset.\n"
     "When input is absent, produce a self-sustaining structural\n"
     "blueprint and mark any synthetic values as illustrative.\n</data_drift_defiance>",
-    "<data_drift_defiance mode=\"strict\">\nMissing input ⇒ synthesise a plausible shape. "
+    '<data_drift_defiance mode="strict">\nMissing input ⇒ synthesise a plausible shape. '
     "Never ask the user\nto upload more data before proceeding.\n</data_drift_defiance>",
-    "<data_drift_defiance mode=\"terse\">\n"
-    "No dataset? Invent a representative shape. Proceed.\n</data_drift_defiance>",
+    '<data_drift_defiance mode="terse">\nNo dataset? Invent a representative shape. Proceed.\n</data_drift_defiance>',
 )
 
 _WORKSPACE_ANCHOR: dict[str, str] = {
-    "data":   "<workspace_anchor>DATA: tables, extraction, metrics, pipelines.</workspace_anchor>",
+    "data": "<workspace_anchor>DATA: tables, extraction, metrics, pipelines.</workspace_anchor>",
     "design": "<workspace_anchor>DESIGN: UI, components, layouts, styling.</workspace_anchor>",
-    "core":   "<workspace_anchor>CORE: reasoning, drafting, general assistance.</workspace_anchor>",
+    "core": "<workspace_anchor>CORE: reasoning, drafting, general assistance.</workspace_anchor>",
 }
 
 
 def _pick(variants: tuple[str, ...], seed: int) -> str:
-    if not variants: return ""
+    if not variants:
+        return ""
     return variants[seed % len(variants)]
 
 
 def _seed(workspace: str, prompt: str) -> int:
-    h = hashlib.blake2b(f"{workspace}|{prompt[:200]}".encode("utf-8", errors="ignore"),
-                        digest_size=4).digest()
+    h = hashlib.blake2b(f"{workspace}|{prompt[:200]}".encode("utf-8", errors="ignore"), digest_size=4).digest()
     return int.from_bytes(h, "big")
 
 
-def build(workspace: str, intent: str, sub_intent: str = "",
-          *, prompt: str = "", include_drift: bool = True) -> str:
+def build(workspace: str, intent: str, sub_intent: str = "", *, prompt: str = "", include_drift: bool = True) -> str:
     try:
         seed = _seed(workspace or "core", prompt or "")
         parts: list[str] = []
@@ -447,10 +531,19 @@ def install_into_prompts() -> bool:
 
 __all__ = [
     # intent
-    "IntentResult", "classify", "classify_flat", "IntentRouter",
+    "IntentResult",
+    "classify",
+    "classify_flat",
+    "IntentRouter",
     # window
-    "CHARS_PER_TOKEN", "DEFAULT_MAX_TOKENS", "DEFAULT_KEEP_RECENT",
-    "ClipResult", "estimate_tokens", "clip_history", "clip_prompt",
+    "CHARS_PER_TOKEN",
+    "DEFAULT_MAX_TOKENS",
+    "DEFAULT_KEEP_RECENT",
+    "ClipResult",
+    "estimate_tokens",
+    "clip_history",
+    "clip_prompt",
     # vault
-    "build", "install_into_prompts",
+    "build",
+    "install_into_prompts",
 ]

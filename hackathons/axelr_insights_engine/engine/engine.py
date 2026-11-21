@@ -8,6 +8,7 @@ Usage:
     db = get_engine()
     await db.insert_for_user("axelr_insights", "user_1", {...})
 """
+
 from __future__ import annotations
 
 import time
@@ -43,11 +44,7 @@ class InsightsEngine:
             level=self._config.log_level,
             context={"component": "insights_engine", "version": __version__},
         )
-        self._sdk = (
-            sdk_factory(self._config)
-            if sdk_factory
-            else AppwriteSDK(self._config)
-        )
+        self._sdk = sdk_factory(self._config) if sdk_factory else AppwriteSDK(self._config)
         self._tables = TablesNamespace(self._sdk)
         self._metrics = self._sdk.metrics
         self._initialized = False
@@ -118,9 +115,7 @@ class InsightsEngine:
             try:
                 report.schema = await verify_all_tables(self._sdk)
                 report.schema_ok = all(
-                    r["table_exists"]
-                    and not r["missing_attributes"]
-                    and not r["missing_indexes"]
+                    r["table_exists"] and not r["missing_attributes"] and not r["missing_indexes"]
                     for r in report.schema.values()
                 )
             except Exception as e:
@@ -186,7 +181,8 @@ class InsightsEngine:
         permissions = self._tables.permissions_for_user(user_id)
         enriched = {**data, "user_id": user_id}
         return await self._tables.create(
-            table, enriched,
+            table,
+            enriched,
             row_id=row_id,
             permissions=permissions,
             idempotency_key=idempotency_key,
@@ -214,7 +210,10 @@ class InsightsEngine:
         return await self._tables.count(table, opts)
 
     async def delete_for_user(
-        self, table: str, user_id: str, row_id: str,
+        self,
+        table: str,
+        user_id: str,
+        row_id: str,
     ) -> bool:
         """Delete a row only if it belongs to `user_id`."""
         row = await self._tables.read(table, row_id, cacheable=False)
@@ -223,7 +222,8 @@ class InsightsEngine:
         if row.get("user_id") != user_id:
             raise AppwriteError(
                 f"row {row_id} does not belong to user {user_id}",
-                status=403, code="forbidden",
+                status=403,
+                code="forbidden",
             )
         return await self._tables.delete(table, row_id)
 
@@ -232,6 +232,7 @@ class InsightsEngine:
     async def sign_in_email(self, email: str, password: str) -> dict[str, Any]:
         """Sign in a user via email/password (session mode)."""
         from appwrite.services.account import Account
+
         account = Account(self._sdk.client)
         session = await self._sdk.call(
             "auth.sign_in_email",
@@ -244,6 +245,7 @@ class InsightsEngine:
     async def sign_in_anonymous(self) -> dict[str, Any]:
         """Create an anonymous session."""
         from appwrite.services.account import Account
+
         account = Account(self._sdk.client)
         session = await self._sdk.call(
             "auth.sign_in_anonymous",
@@ -255,6 +257,7 @@ class InsightsEngine:
 
     async def sign_out(self) -> bool:
         from appwrite.services.account import Account
+
         account = Account(self._sdk.client)
         try:
             await self._sdk.call(
@@ -267,6 +270,7 @@ class InsightsEngine:
 
     async def get_current_user(self) -> dict[str, Any] | None:
         from appwrite.services.account import Account
+
         account = Account(self._sdk.client)
         try:
             user = await self._sdk.call(
@@ -337,34 +341,46 @@ class InsightsEngine:
             started = time.monotonic()
             try:
                 result = await coro
-                steps.append({
-                    "step": name,
-                    "ok": True,
-                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                })
+                steps.append(
+                    {
+                        "step": name,
+                        "ok": True,
+                        "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                    }
+                )
                 return result
             except Exception as e:
-                steps.append({
-                    "step": name,
-                    "ok": False,
-                    "duration_ms": round((time.monotonic() - started) * 1000, 2),
-                    "error": str(e)[:200],
-                })
+                steps.append(
+                    {
+                        "step": name,
+                        "ok": False,
+                        "duration_ms": round((time.monotonic() - started) * 1000, 2),
+                        "error": str(e)[:200],
+                    }
+                )
                 return None
 
-        await _step("create", self._tables.create(
-            table,
-            {
-                "kind": "self_test",
-                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                "status": "ok",
-            },
-            row_id=row_id,
-        ))
+        await _step(
+            "create",
+            self._tables.create(
+                table,
+                {
+                    "kind": "self_test",
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "status": "ok",
+                },
+                row_id=row_id,
+            ),
+        )
         await _step("read", self._tables.read(table, row_id, cacheable=False))
-        await _step("update", self._tables.update(
-            table, row_id, {"status": "updated"},
-        ))
+        await _step(
+            "update",
+            self._tables.update(
+                table,
+                row_id,
+                {"status": "updated"},
+            ),
+        )
         await _step("delete", self._tables.delete(table, row_id))
 
         passed = sum(1 for s in steps if s["ok"])
@@ -379,12 +395,14 @@ class InsightsEngine:
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
+
 def _merge_user_filter(
     options: Any,
     extra_kwargs: dict[str, Any],
     user_id: str,
 ) -> QueryOptions:
     from .models import QueryFilter
+
     if isinstance(options, QueryOptions):
         opts = options.model_copy()
     else:
@@ -398,6 +416,7 @@ def _merge_user_filter(
 
 
 # ── Module-level factory ──────────────────────────────────────────────
+
 
 def create_engine(
     config: AppwriteConfig | dict[str, Any] | None = None,

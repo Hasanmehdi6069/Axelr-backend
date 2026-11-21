@@ -1,4 +1,0 @@
-models/SmolLM2-135M-Instruct-Q4_K_M.gguf
-models/tinybert-6l-768d-fp16.gguf
-models/qwen2.5-0.5b-instruct-iq3_m.gguf
-models/smollm2-360m-instruct-q4_k_m.gguf

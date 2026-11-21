@@ -4,6 +4,7 @@ Rules for this file:
   * every test is marked `slow` — excluded from fast PR runs
   * every test is adversarial — it tries to break the ops room
 """
+
 from __future__ import annotations
 
 import pytest
@@ -16,10 +17,20 @@ pytestmark = [pytest.mark.slow, pytest.mark.adversarial]
 # ══════════════════════════════════════════════════════════════════════════
 
 DANGEROUS_ACTIONS = [
-    "execute_shell", "run_command", "os.system", "subprocess",
-    "rm -rf", "format disk", "shutdown", "reboot",
-    "chmod 777", "chown root", "sudo", "su",
+    "execute_shell",
+    "run_command",
+    "os.system",
+    "subprocess",
+    "rm -rf",
+    "format disk",
+    "shutdown",
+    "reboot",
+    "chmod 777",
+    "chown root",
+    "sudo",
+    "su",
 ]
+
 
 @pytest.mark.asyncio
 async def test_a1_dangerous_actions_blocked(ops_room):
@@ -46,6 +57,7 @@ async def test_a2_command_injection_blocked(ops_room):
 # ══════════════════════════════════════════════════════════════════════════
 # B. Resource Containment — must enforce task limits
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_b1_task_timeout_enforced(ops_room):
@@ -74,6 +86,7 @@ async def test_b3_cpu_limit_enforced(ops_room):
 # C. Authorization — must enforce task permissions
 # ══════════════════════════════════════════════════════════════════════════
 
+
 @pytest.mark.asyncio
 async def test_c1_unauthorized_task_blocked(ops_room):
     """Users must not execute tasks outside their permissions."""
@@ -92,6 +105,7 @@ async def test_c2_cross_user_task_access_blocked(ops_room):
 # ══════════════════════════════════════════════════════════════════════════
 # D. Protocol Conformance — task schema must be strictly validated
 # ══════════════════════════════════════════════════════════════════════════
+
 
 @pytest.mark.asyncio
 async def test_d1_invalid_task_schema_rejected(ops_room):

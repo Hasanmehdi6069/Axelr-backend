@@ -15,6 +15,7 @@ Coverage:
    8. ContradictionDetector         17. ClaimGraphBuilder
    9. ProvenanceChainVerifier       18. HedgingDetector
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -32,9 +33,20 @@ class CausalChainVerifier:
     """A claim asserting causality must have causal language in the source."""
 
     MARKERS = (
-        "because", "causes", "caused", "results in", "leads to",
-        "due to", "therefore", "thus", "hence", "consequently",
-        "as a result", "since", "so that", "gives rise to",
+        "because",
+        "causes",
+        "caused",
+        "results in",
+        "leads to",
+        "due to",
+        "therefore",
+        "thus",
+        "hence",
+        "consequently",
+        "as a result",
+        "since",
+        "so that",
+        "gives rise to",
     )
 
     def __init__(self) -> None:
@@ -192,10 +204,7 @@ class UnitConsistencyChecker:
     )
 
     def units_in(self, text: str) -> List[Tuple[float, str]]:
-        return [
-            (float(m.group(1)), m.group(2).lower())
-            for m in self.UNIT_RE.finditer(text)
-        ]
+        return [(float(m.group(1)), m.group(2).lower()) for m in self.UNIT_RE.finditer(text)]
 
     def verify(self, claim: str, source: str) -> Tuple[bool, str]:
         c_units = self.units_in(claim)
@@ -218,9 +227,18 @@ class StatisticalClaimVerifier:
     """Detect stats claims; require numeric support in the source."""
 
     STAT_MARKERS = (
-        "average", "mean", "median", "mode", "percentile",
-        "standard deviation", "variance", "correlation", "regression",
-        "confidence interval", "p-value", "sample size",
+        "average",
+        "mean",
+        "median",
+        "mode",
+        "percentile",
+        "standard deviation",
+        "variance",
+        "correlation",
+        "regression",
+        "confidence interval",
+        "p-value",
+        "sample size",
     )
     _MARK_RE = re.compile(
         r"\b(" + "|".join(re.escape(m) for m in STAT_MARKERS) + r")\b",
@@ -253,7 +271,8 @@ class ContradictionDetector:
         return tuple(sorted(self._NUM.findall(text)))
 
     def find_contradictions(
-        self, claims: Iterable[str],
+        self,
+        claims: Iterable[str],
     ) -> List[Tuple[str, str]]:
         groups: Dict[str, List[Tuple[str, Tuple[str, ...]]]] = defaultdict(list)
         for c in claims:
@@ -283,8 +302,11 @@ class ProvenanceChainVerifier:
         return hashlib.sha256(data).hexdigest()
 
     def verify_chain(
-        self, payloads: List[Dict[str, Any]],
-        *, hash_key: str = "prev_hash", self_key: str = "hash",
+        self,
+        payloads: List[Dict[str, Any]],
+        *,
+        hash_key: str = "prev_hash",
+        self_key: str = "hash",
     ) -> Tuple[bool, str]:
         prev = ""
         for i, p in enumerate(payloads):
@@ -308,11 +330,13 @@ class SensitivityClassifier:
         "credit_card": re.compile(r"\b(?:\d[ -]?){13,19}\b"),
     }
     FINANCIAL = re.compile(
-        r"\b(?:account|routing|iban|swift|balance|salary|invoice)\b", re.I,
+        r"\b(?:account|routing|iban|swift|balance|salary|invoice)\b",
+        re.I,
     )
     HEALTH = re.compile(
         r"\b(?:diagnosis|prescription|patient|medical record|icd-\d+|"
-        r"blood type|allergy)\b", re.I,
+        r"blood type|allergy)\b",
+        re.I,
     )
 
     def classify(self, text: str) -> Dict[str, Any]:
@@ -338,11 +362,27 @@ class CrossLingualCanonicalizer:
 
     HOMOGLYPHS = {
         # Cyrillic → Latin
-        "а": "a", "е": "e", "о": "o", "р": "p", "с": "c", "у": "y",
-        "х": "x", "і": "i", "ј": "j", "ѕ": "s", "ԁ": "d", "һ": "h",
+        "а": "a",
+        "е": "e",
+        "о": "o",
+        "р": "p",
+        "с": "c",
+        "у": "y",
+        "х": "x",
+        "і": "i",
+        "ј": "j",
+        "ѕ": "s",
+        "ԁ": "d",
+        "һ": "h",
         # Greek → Latin
-        "ο": "o", "α": "a", "ε": "e", "ρ": "p", "τ": "t", "υ": "u",
-        "ν": "v", "χ": "x",
+        "ο": "o",
+        "α": "a",
+        "ε": "e",
+        "ρ": "p",
+        "τ": "t",
+        "υ": "u",
+        "ν": "v",
+        "χ": "x",
     }
 
     def script(self, text: str) -> str:
@@ -374,7 +414,8 @@ class HallucinationPatternDetector:
 
     PATTERNS = {
         "unsourced_study": re.compile(
-            r"\b(?:studies|research)\s+(?:show|suggest|indicate)s?\b", re.I,
+            r"\b(?:studies|research)\s+(?:show|suggest|indicate)s?\b",
+            re.I,
         ),
         "authority_appeal": re.compile(
             r"\b(?:experts|scientists|researchers|doctors)\s+(?:say|agree|believe)\b",
@@ -441,7 +482,10 @@ class ConfidencePropagationEngine:
         self._base[claim_id] = max(0.0, min(1.0, base_confidence))
 
     def add_dependency(
-        self, parent: str, child: str, weight: float = 1.0,
+        self,
+        parent: str,
+        child: str,
+        weight: float = 1.0,
     ) -> None:
         self._deps[parent].append((child, max(0.0, min(1.0, weight))))
 
@@ -468,9 +512,7 @@ class ConfidencePropagationEngine:
 class AdversarialInputDetector:
     """Detect homoglyph, control-char, and RTL-override injection attempts."""
 
-    CTRL_CHARS = frozenset(
-        chr(i) for i in range(0, 32) if chr(i) not in "\t\n\r"
-    ) | {"\x7f"}
+    CTRL_CHARS = frozenset(chr(i) for i in range(0, 32) if chr(i) not in "\t\n\r") | {"\x7f"}
     RTL_OVERRIDE = frozenset({"\u202a", "\u202b", "\u202d", "\u202e"})
 
     def scan(self, text: str) -> Dict[str, int]:
@@ -517,7 +559,7 @@ class SemanticFingerprint:
         toks = self._tokens(text)
         if len(toks) < self.n:
             return {" ".join(toks)} if toks else set()
-        return {" ".join(toks[i:i + self.n]) for i in range(len(toks) - self.n + 1)}
+        return {" ".join(toks[i : i + self.n]) for i in range(len(toks) - self.n + 1)}
 
     def similarity(self, a: str, b: str) -> float:
         fa, fb = self.fingerprints(a), self.fingerprints(b)
@@ -574,11 +616,13 @@ class HedgingDetector:
     """Detect hedging language that lowers claim confidence."""
 
     STRONG = re.compile(
-        r"\b(?:definitely|certainly|always|never|must|proven|guaranteed)\b", re.I,
+        r"\b(?:definitely|certainly|always|never|must|proven|guaranteed)\b",
+        re.I,
     )
     HEDGE = re.compile(
         r"\b(?:might|may|could|possibly|perhaps|probably|likely|"
-        r"seems?|appears?|suggests?|roughly|approximately|about)\b", re.I,
+        r"seems?|appears?|suggests?|roughly|approximately|about)\b",
+        re.I,
     )
 
     def score(self, text: str) -> Dict[str, Any]:
@@ -618,13 +662,23 @@ class EliteFeaturesV2:
 
 
 __all__ = [
-    "CausalChainVerifier", "NumericalPrecisionGuard", "EntityResolver",
-    "QuotationAttributionGuard", "TemporalOrderingVerifier",
-    "UnitConsistencyChecker", "StatisticalClaimVerifier",
-    "ContradictionDetector", "ProvenanceChainVerifier",
-    "SensitivityClassifier", "CrossLingualCanonicalizer",
-    "HallucinationPatternDetector", "ClaimGranularityOptimizer",
-    "ConfidencePropagationEngine", "AdversarialInputDetector",
-    "SemanticFingerprint", "ClaimGraphBuilder", "HedgingDetector",
+    "CausalChainVerifier",
+    "NumericalPrecisionGuard",
+    "EntityResolver",
+    "QuotationAttributionGuard",
+    "TemporalOrderingVerifier",
+    "UnitConsistencyChecker",
+    "StatisticalClaimVerifier",
+    "ContradictionDetector",
+    "ProvenanceChainVerifier",
+    "SensitivityClassifier",
+    "CrossLingualCanonicalizer",
+    "HallucinationPatternDetector",
+    "ClaimGranularityOptimizer",
+    "ConfidencePropagationEngine",
+    "AdversarialInputDetector",
+    "SemanticFingerprint",
+    "ClaimGraphBuilder",
+    "HedgingDetector",
     "EliteFeaturesV2",
 ]

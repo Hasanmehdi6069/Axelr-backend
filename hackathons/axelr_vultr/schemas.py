@@ -78,10 +78,19 @@ class DeploymentRequest(BaseModel):
     @validator("plan")
     def validate_plan(cls, v):
         valid_plans = [
-            "vc2-1c-1gb", "vc2-1c-2gb", "vc2-2c-4gb", "vc2-4c-8gb",
-            "vc2-8c-16gb", "vc2-16c-32gb", "vc2-32c-64gb",
-            "vc3-1c-1gb", "vc3-1c-2gb", "vc3-2c-4gb", "vc3-4c-8gb",
-            "vgpu-1a100-80gb", "vgpu-1h100-80gb",
+            "vc2-1c-1gb",
+            "vc2-1c-2gb",
+            "vc2-2c-4gb",
+            "vc2-4c-8gb",
+            "vc2-8c-16gb",
+            "vc2-16c-32gb",
+            "vc2-32c-64gb",
+            "vc3-1c-1gb",
+            "vc3-1c-2gb",
+            "vc3-2c-4gb",
+            "vc3-4c-8gb",
+            "vgpu-1a100-80gb",
+            "vgpu-1h100-80gb",
         ]
         if v not in valid_plans and not v.startswith("custom-"):
             raise ValueError(f"Invalid plan: {v}. Must be one of {valid_plans}")
@@ -90,10 +99,21 @@ class DeploymentRequest(BaseModel):
     @validator("region")
     def validate_region(cls, v):
         valid_regions = [
-            "us-east", "us-west", "us-south", "us-central",
-            "eu-west", "eu-central", "eu-north",
-            "ap-southeast", "ap-northeast", "ap-south",
-            "au", "in", "sg", "jp", "kr",
+            "us-east",
+            "us-west",
+            "us-south",
+            "us-central",
+            "eu-west",
+            "eu-central",
+            "eu-north",
+            "ap-southeast",
+            "ap-northeast",
+            "ap-south",
+            "au",
+            "in",
+            "sg",
+            "jp",
+            "kr",
         ]
         if v not in valid_regions and not v.startswith("custom-"):
             raise ValueError(f"Invalid region: {v}. Must be one of {valid_regions}")

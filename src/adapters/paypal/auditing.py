@@ -1,4 +1,5 @@
 """Audit logging for all PayPal module operations with secure redaction"""
+
 from __future__ import annotations
 
 import json
@@ -10,8 +11,10 @@ from .core import get_core_module
 
 logger = logging.getLogger("axelr.paypal.audit")
 
+
 class AuditLogger:
     """Secure audit logger that redacts secrets and tracks all money-moving operations"""
+
     _instance: Optional["AuditLogger"] = None
 
     def __new__(cls):
@@ -39,6 +42,7 @@ class AuditLogger:
                 else:
                     redacted[key] = "[REDACTED]"
         return redacted
+
     def log_api_call(
         self,
         method: str,
@@ -53,7 +57,7 @@ class AuditLogger:
             "method": method,
             "url": url,
             "status_code": status_code,
-            "error": error
+            "error": error,
         }
         if error:
             logger.error(f"AUDIT: {json.dumps(log_data)}")
@@ -76,7 +80,7 @@ class AuditLogger:
             "amount": amount,
             "currency": currency,
             "user_id": user_id or "unknown",
-            "initiator": "authenticated_system"  # In production, add actual user ID
+            "initiator": "authenticated_system",  # In production, add actual user ID
         }
         logger.warning(f"AUDIT: MONEY_MOVEMENT {json.dumps(log_data)}")
 
@@ -88,7 +92,7 @@ class AuditLogger:
             "input_hash": input_hash,
             "confidence": confidence,
             "success": success,
-            "error": error
+            "error": error,
         }
         logger.info(f"AUDIT: {json.dumps(log_data)}")
 
@@ -99,14 +103,12 @@ class AuditLogger:
             "operation": "auth",
             "event": event,
             "success": success,
-            "source_ip": source_ip or "unknown"
+            "source_ip": source_ip or "unknown",
         }
         if not success:
             logger.error(f"AUDIT: {json.dumps(log_data)}")
         else:
             logger.info(f"AUDIT: {json.dumps(log_data)}")
-
-
 
 
 def get_audit_logger() -> AuditLogger:

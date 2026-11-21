@@ -6,6 +6,7 @@ top of the previous 220-line version. No breaking API changes.
 
 Memory: ~200 KB (keyword sets + pending buffer).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,6 +41,7 @@ logger = get_logger(__name__)
 # ── PGVC #2 ──────────────────────────────────────────────────────────
 class PredictiveGrammarConstrainer:
     """#2 PGVC: prune vocabulary to domain + recent + common words."""
+
     __slots__ = ("_injector",)
 
     def __init__(self, injector: ZeroLatencyContextInjector) -> None:
@@ -78,6 +80,7 @@ class PredictiveGrammarConstrainer:
 # ── Backpressure #25 ─────────────────────────────────────────────────
 class BackpressureController:
     """#25: ring watermark → sleep hints for the drain loop."""
+
     __slots__ = ("_sleep_low", "_sleep_norm", "_sleep_high")
 
     def __init__(self) -> None:
@@ -96,10 +99,12 @@ class BackpressureController:
 # ── PipelineHealth — real addition ───────────────────────────────────
 class PipelineHealth:
     """Per-stage latency tracking for the pipeline. Real, testable."""
+
     __slots__ = ("_samples", "_stage_order", "_lock")
 
     def __init__(self) -> None:
         import threading
+
         self._samples: Dict[str, List[float]] = {}
         self._stage_order: List[str] = []
         self._lock = threading.Lock()
@@ -144,6 +149,7 @@ class PipelineHealth:
 # ── Elite: CrossEncoderVerifier ───────────────────────────────────────
 class CrossEncoderVerifier:
     """# Elite: lightweight cross-encoder verification for candidate reranking."""
+
     __slots__ = ("_model", "_device", "_threshold")
 
     def __init__(self, threshold: float = 0.7) -> None:
@@ -154,6 +160,7 @@ class CrossEncoderVerifier:
     def _load_model(self) -> bool:
         try:
             from sentence_transformers import CrossEncoder
+
             self._model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", device=self._device)
             return True
         except ImportError:
@@ -183,6 +190,7 @@ class CrossEncoderVerifier:
 # ── Elite: AsyncPartialEmitter ───────────────────────────────────────
 class AsyncPartialEmitter:
     """# Elite: emit partials on a background task to avoid blocking."""
+
     __slots__ = ("_queue", "_task", "_loop")
 
     def __init__(self, loop: asyncio.AbstractEventLoop, cb: Callable[[List[str]], None]) -> None:
@@ -217,8 +225,8 @@ class AsyncPartialEmitter:
                 try:
                     self._queue.put_nowait(None)
                 except asyncio.QueueFull:
-                    pass # If it's full, a sentinel is likely already there or it will be processed soon
-            await asyncio.sleep(0.01) # allow task to process sentinel
+                    pass  # If it's full, a sentinel is likely already there or it will be processed soon
+            await asyncio.sleep(0.01)  # allow task to process sentinel
             self._task.cancel()
             try:
                 await self._task
@@ -237,19 +245,44 @@ class PipelineConfig:
 
 class EnginePipeline:
     """mel → decoder → phonetic → rerank → structured repair → text."""
-    __slots__ = (
-    "profile", "decoder", "phonetic", "injector", "pgvc",
-    "kv_cache", "rescoring", "sclb", "reranker", "repair", "cloud",
-    "_pending", "_running", "degradation", "_on_partial", "_asr_adapter",
-    "_rerank_enabled", "_repair_enabled", "_loop", "_loop_closed", "health",
-    "_buffer_for_drain", "_partial_emitter", "_verifier"
-)
 
-    def __init__(self, profile: Profile, config: PipelineConfig,
-                 local_fn: Callable[[np.ndarray, Optional[np.ndarray]], List[Token]],
-                 asr_adapter: Optional[ASRAdapter] = None,
-                 buffer_for_drain: bool = True) -> None:
+    __slots__ = (
+        "profile",
+        "decoder",
+        "phonetic",
+        "injector",
+        "pgvc",
+        "kv_cache",
+        "rescoring",
+        "sclb",
+        "reranker",
+        "repair",
+        "cloud",
+        "_pending",
+        "_running",
+        "degradation",
+        "_on_partial",
+        "_asr_adapter",
+        "_rerank_enabled",
+        "_repair_enabled",
+        "_loop",
+        "_loop_closed",
+        "health",
+        "_buffer_for_drain",
+        "_partial_emitter",
+        "_verifier",
+    )
+
+    def __init__(
+        self,
+        profile: Profile,
+        config: PipelineConfig,
+        local_fn: Callable[[np.ndarray, Optional[np.ndarray]], List[Token]],
+        asr_adapter: Optional[ASRAdapter] = None,
+        buffer_for_drain: bool = True,
+    ) -> None:
         from axelr_resource import GracefulFeatureLadder
+
         self.profile = profile
         self.decoder = SpeculativeCascadeDecoder(config.decoder, profile, local_fn)
         self.phonetic = PhoneticCorrector()
@@ -271,15 +304,14 @@ class EnginePipeline:
         self.degradation.add(
             "streaming_rerank",
             shed_fn=lambda: setattr(self, "_rerank_enabled", False),
-            reinstate_fn=lambda: setattr(self, "_rerank_enabled", True))
+            reinstate_fn=lambda: setattr(self, "_rerank_enabled", True),
+        )
         self.degradation.add(
             "structured_repair",
             shed_fn=lambda: setattr(self, "_repair_enabled", False),
-            reinstate_fn=lambda: setattr(self, "_repair_enabled", True))
-        self.degradation.add(
-            "cloud_fallback",
-            shed_fn=self._shed_cloud,
-            reinstate_fn=self._reinstate_cloud)
+            reinstate_fn=lambda: setattr(self, "_repair_enabled", True),
+        )
+        self.degradation.add("cloud_fallback", shed_fn=self._shed_cloud, reinstate_fn=self._reinstate_cloud)
         self._rerank_enabled = profile.flags.streaming_rerank
         self._repair_enabled = profile.flags.structured_repair
         self._partial_emitter: Optional[AsyncPartialEmitter] = None
@@ -340,8 +372,9 @@ class EnginePipeline:
     def observe_context(self, accessibility: dict[str, object]) -> None:
         self.injector.update(accessibility)
 
-    async def process_mel(self, log_mel: np.ndarray, pcm: Optional[np.ndarray] = None,
-                          token: Optional[CancellationToken] = None) -> List[str]:
+    async def process_mel(
+        self, log_mel: np.ndarray, pcm: Optional[np.ndarray] = None, token: Optional[CancellationToken] = None
+    ) -> List[str]:
         if not self._running:
             raise RuntimeError("pipeline not running")
         if token is not None and hasattr(token, "throw_if_cancelled"):
@@ -390,7 +423,7 @@ class EnginePipeline:
             runtime="ipc_gpu" if hasattr(self.profile, "gpu_kind") and self.profile.gpu_kind != "none" else "ipc_cpu",
             audio_duration_s=0.0,
             processing_s=decode_duration,
-            token_count=len(tokens)
+            token_count=len(tokens),
         )
         return fixed
 

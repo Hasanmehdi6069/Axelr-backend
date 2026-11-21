@@ -14,6 +14,7 @@ v1.4 fixes vs v1.3:
   * TTL, near-dup threshold, enable_structured_facts config knobs
   * _DeadLetterQueue.remove() for retry workflows
 """
+
 from __future__ import annotations
 
 __version__ = "1.4-PROD"
@@ -57,6 +58,7 @@ def read_source_text(file_path: str, max_bytes: int = 10 * 1024 * 1024) -> str:
 # ── Optional structured logging ─────────────────────────────────────────
 try:
     import structlog  # type: ignore
+
     _LOG = structlog.get_logger("axelr.ghost_agent")
 except Exception:
     _LOG = logging.getLogger("axelr.ghost_agent")
@@ -101,6 +103,7 @@ except Exception:
         class VerificationEngine:  # type: ignore
             """HONEST fallback verifier. High confidence requires verbatim
             substring presence in the source file. No blind trust."""
+
             _SENTENCE_RE = re.compile(r"[^.!?\n]+[.!?]?")
             _NUM_RE = re.compile(r"\b\d+(?:\.\d+)?%?\b")
 
@@ -114,9 +117,9 @@ except Exception:
                         out.append(s)
                 return out[:50]
 
-            def verify_source(self, assertion: str, file_path: str,
-                              line_number: Optional[int] = None,
-                              content: Optional[str] = None) -> VerificationResult:
+            def verify_source(
+                self, assertion: str, file_path: str, line_number: Optional[int] = None, content: Optional[str] = None
+            ) -> VerificationResult:
                 """Verifies verbatim substring presence. Honest failure modes:
                 * <20 chars → Low (too short to verify)
                 * content missing / unreadable → Low (cannot verify)
@@ -160,17 +163,38 @@ except Exception:
                             pairs.append((ordered[i][0], ordered[i + 1][0]))
                 return pairs
 
-            def resolve_contradictions(self, contradictions: List[Tuple[Any, Any]],
-                                       audit_trail: Any) -> None:
+            def resolve_contradictions(self, contradictions: List[Tuple[Any, Any]], audit_trail: Any) -> None:
                 for older, _ in contradictions:
                     older.confidence = ConfidenceRating.LOW
 
         class ContextManager:  # type: ignore
-            _TEXT_EXT = frozenset({
-                ".md", ".txt", ".py", ".js", ".ts", ".json", ".yaml", ".yml",
-                ".toml", ".html", ".css", ".rst", ".log", ".csv", ".ini",
-                ".cfg", ".xml", ".sh", ".bat", ".ps1", ".java", ".go", ".rs",
-            })
+            _TEXT_EXT = frozenset(
+                {
+                    ".md",
+                    ".txt",
+                    ".py",
+                    ".js",
+                    ".ts",
+                    ".json",
+                    ".yaml",
+                    ".yml",
+                    ".toml",
+                    ".html",
+                    ".css",
+                    ".rst",
+                    ".log",
+                    ".csv",
+                    ".ini",
+                    ".cfg",
+                    ".xml",
+                    ".sh",
+                    ".bat",
+                    ".ps1",
+                    ".java",
+                    ".go",
+                    ".rs",
+                }
+            )
             _SIGNAL = (
                 re.compile(r"^\s*#{1,6}\s+\S"),
                 re.compile(r"^\s*[-*+]\s+\S"),
@@ -178,15 +202,52 @@ except Exception:
                 re.compile(r"\bv?\d+\.\d+(?:\.\d+)?\b"),
                 re.compile(r"\b\d{4}-\d{2}-\d{2}\b"),
                 re.compile(r"\b\d+(?:\.\d+)?%"),
-                re.compile(r"\b(?:complete|finished|shipped|released|deployed|"
-                           r"fixed|added|removed|updated|created)\b", re.I),
+                re.compile(
+                    r"\b(?:complete|finished|shipped|released|deployed|"
+                    r"fixed|added|removed|updated|created)\b",
+                    re.I,
+                ),
             )
-            _STOP = frozenset({
-                "the", "a", "an", "and", "or", "of", "to", "for", "in", "on",
-                "with", "by", "from", "is", "are", "was", "were", "be", "been",
-                "being", "this", "that", "these", "those", "it", "its", "as",
-                "at", "we", "you", "they", "i", "he", "she", "but", "not",
-            })
+            _STOP = frozenset(
+                {
+                    "the",
+                    "a",
+                    "an",
+                    "and",
+                    "or",
+                    "of",
+                    "to",
+                    "for",
+                    "in",
+                    "on",
+                    "with",
+                    "by",
+                    "from",
+                    "is",
+                    "are",
+                    "was",
+                    "were",
+                    "be",
+                    "been",
+                    "being",
+                    "this",
+                    "that",
+                    "these",
+                    "those",
+                    "it",
+                    "its",
+                    "as",
+                    "at",
+                    "we",
+                    "you",
+                    "they",
+                    "i",
+                    "he",
+                    "she",
+                    "but",
+                    "not",
+                }
+            )
 
             def __init__(self, workspace_root: Optional[str] = None):
                 self.workspace_root = workspace_root
@@ -205,12 +266,14 @@ except Exception:
                     if not s or len(s) < 5:
                         continue
                     if any(pat.search(s) for pat in self._SIGNAL):
-                        out.append({
-                            "source_file": file_path,
-                            "content": s[:1000],
-                            "line_number": i,
-                            "source_type": "log" if p.suffix.lower() == ".log" else "doc",
-                        })
+                        out.append(
+                            {
+                                "source_file": file_path,
+                                "content": s[:1000],
+                                "line_number": i,
+                                "source_type": "log" if p.suffix.lower() == ".log" else "doc",
+                            }
+                        )
                     if len(out) >= 200:
                         break
                 return out
@@ -218,8 +281,7 @@ except Exception:
             def _tokens(self, text: str) -> set:
                 if not text:
                     return set()
-                return {t for t in re.findall(r"[A-Za-z][A-Za-z0-9_\-]{2,}", text.lower())
-                        if t not in self._STOP}
+                return {t for t in re.findall(r"[A-Za-z][A-Za-z0-9_\-]{2,}", text.lower()) if t not in self._STOP}
 
             def calculate_goal_alignment(self, goal: str, updates: List[Dict[str, Any]]) -> float:
                 if not updates:
@@ -229,16 +291,14 @@ except Exception:
                     return 1.0
                 return sum(1 for u in updates if g & self._tokens(u.get("content", ""))) / len(updates)
 
-            def filter_goal_relevant(self, goal: str,
-                                     updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+            def filter_goal_relevant(self, goal: str, updates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 g = self._tokens(goal)
                 if not g:
                     return list(updates)
                 return [u for u in updates if g & self._tokens(u.get("content", ""))]
 
         class PersistenceStore:  # type: ignore
-            def __init__(self, namespace: str, root_dir: Optional[str] = None,
-                         atomic: bool = True):
+            def __init__(self, namespace: str, root_dir: Optional[str] = None, atomic: bool = True):
                 base = Path(root_dir) if root_dir else Path.home() / ".axelr" / "state"
                 self.dir = base / namespace
                 self.atomic = atomic
@@ -282,19 +342,21 @@ except Exception:
 @dataclass
 class DataPoint:
     """A verified assertion. source_hash and content_hash are real (not fake)."""
+
     assertion: str
     source_path: str
     line_number: Optional[int] = None
     confidence: ConfidenceRating = ConfidenceRating.HIGH
     file_hash: Optional[str] = None  # SHA-256 of source file at scan time
     timestamp: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
-    source_hash: Optional[str] = None   # SHA-256 of source file; None when uncomputable
+    source_hash: Optional[str] = None  # SHA-256 of source file; None when uncomputable
     content_hash: str = ""  # SHA-256 of normalized assertion text
 
 
 @dataclass
 class VerificationAuditTrail:
     """Audit trail with honest confidence. No black-box scoring."""
+
     assertions: List[DataPoint] = field(default_factory=list)
     verified_sources: List[str] = field(default_factory=list)
     contradictions_resolved: int = 0
@@ -308,22 +370,31 @@ class VerificationAuditTrail:
     def _content_hash(text: str) -> str:
         return hashlib.sha256(" ".join(text.split()).lower().encode()).hexdigest()
 
-    def add_assertion(self, assertion: str, source: str, line: Optional[int] = None,
-                      confidence: ConfidenceRating = ConfidenceRating.HIGH,
-                      file_hash: Optional[str] = None,
-                      source_hash: Optional[str] = None,
-                      content_hash: str = "") -> bool:
+    def add_assertion(
+        self,
+        assertion: str,
+        source: str,
+        line: Optional[int] = None,
+        confidence: ConfidenceRating = ConfidenceRating.HIGH,
+        file_hash: Optional[str] = None,
+        source_hash: Optional[str] = None,
+        content_hash: str = "",
+    ) -> bool:
         k = self._key(assertion, source, line)
         if k in self._seen:
             return False
         self._seen.add(k)
-        self.assertions.append(DataPoint(
-            assertion=assertion, source_path=source,
-            line_number=line, confidence=confidence,
-            file_hash=file_hash,
-            source_hash=source_hash,
-            content_hash=content_hash or self._content_hash(assertion),
-        ))
+        self.assertions.append(
+            DataPoint(
+                assertion=assertion,
+                source_path=source,
+                line_number=line,
+                confidence=confidence,
+                file_hash=file_hash,
+                source_hash=source_hash,
+                content_hash=content_hash or self._content_hash(assertion),
+            )
+        )
         if source not in self.verified_sources:
             self.verified_sources.append(source)
         return True
@@ -335,8 +406,7 @@ class VerificationAuditTrail:
 
     def _components(self) -> Dict[str, float]:
         if not self.assertions:
-            return {"base": 0.0, "diversity": 0.0, "coverage": 0.0,
-                    "corroboration": 0.0, "penalty": 0.0, "raw": 0.0}
+            return {"base": 0.0, "diversity": 0.0, "coverage": 0.0, "corroboration": 0.0, "penalty": 0.0, "raw": 0.0}
         total = len(self.assertions)
         high = sum(1 for a in self.assertions if a.confidence == ConfidenceRating.HIGH)
         med = sum(1 for a in self.assertions if a.confidence == ConfidenceRating.MEDIUM)
@@ -351,13 +421,18 @@ class VerificationAuditTrail:
         for a in self.assertions:
             norm = " ".join(a.assertion.lower().split())
             text_to_sources.setdefault(norm, set()).add(a.source_path)
-        avg_corr = (sum(len(s) for s in text_to_sources.values()) / len(text_to_sources)
-                    if text_to_sources else 1.0)
+        avg_corr = sum(len(s) for s in text_to_sources.values()) / len(text_to_sources) if text_to_sources else 1.0
         corroboration = min(avg_corr / 3.0, 1.0) * 0.1
         penalty = min(self.contradictions_resolved * 0.1, 0.5)
         raw = max(0.0, min(1.0, base + diversity + coverage + corroboration - penalty))
-        return {"base": base, "diversity": diversity, "coverage": coverage,
-                "corroboration": corroboration, "penalty": penalty, "raw": raw}
+        return {
+            "base": base,
+            "diversity": diversity,
+            "coverage": coverage,
+            "corroboration": corroboration,
+            "penalty": penalty,
+            "raw": raw,
+        }
 
     def compute_confidence(self) -> float:
         return round(self._components()["raw"] * 10.0, 2)
@@ -448,8 +523,16 @@ class GhostAgentConfig:
     near_dup_threshold: float = 0.9  # NEW: Jaccard similarity for near-dup
     enable_structured_facts: bool = True  # NEW: wire structured-fact extraction
     ignore_dirs: Tuple[str, ...] = (
-        ".git", "__pycache__", ".venv", "venv", "node_modules",
-        "dist", "build", ".mypy_cache", ".pytest_cache", ".axelr",
+        ".git",
+        "__pycache__",
+        ".venv",
+        "venv",
+        "node_modules",
+        "dist",
+        "build",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".axelr",
     )
     ignore_globs: Tuple[str, ...] = ("*.pyc", "*.pyo", "*.so", "*.dll", "*.exe", "*.bin")
     persistence_retries: int = 3
@@ -489,6 +572,7 @@ class _CycleMetrics:
 @dataclass
 class _CycleRecord:
     """Bounded per-cycle history entry for observability."""
+
     status: CycleStatus
     correlation_id: str
     duration_seconds: float
@@ -606,13 +690,31 @@ def derive_state_key(workspace_root: Path) -> bytes:
 
 
 __all__ = [
-    "__version__", "USING_FALLBACK_CORE",
-    "ConfidenceRating", "DataPoint", "VerificationAuditTrail", "StagedOutput",
-    "CycleStatus", "RunResult", "GhostAgentConfig", "GhostAgentExecutionError",
-    "_CycleMetrics", "_CycleRecord", "_Telemetry", "_CircuitBreaker",
-    "_DeadLetterEntry", "_DeadLetterQueue",
-    "hash_source_file", "read_source_text",
-    "sign_state", "verify_state_sig", "derive_state_key",
-    "_LOG", "AxelrError", "VerificationResult", "VerificationEngine",
-    "ContextManager", "PersistenceStore",
+    "__version__",
+    "USING_FALLBACK_CORE",
+    "ConfidenceRating",
+    "DataPoint",
+    "VerificationAuditTrail",
+    "StagedOutput",
+    "CycleStatus",
+    "RunResult",
+    "GhostAgentConfig",
+    "GhostAgentExecutionError",
+    "_CycleMetrics",
+    "_CycleRecord",
+    "_Telemetry",
+    "_CircuitBreaker",
+    "_DeadLetterEntry",
+    "_DeadLetterQueue",
+    "hash_source_file",
+    "read_source_text",
+    "sign_state",
+    "verify_state_sig",
+    "derive_state_key",
+    "_LOG",
+    "AxelrError",
+    "VerificationResult",
+    "VerificationEngine",
+    "ContextManager",
+    "PersistenceStore",
 ]

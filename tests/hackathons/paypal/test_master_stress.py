@@ -17,12 +17,14 @@ class TestPaypalMasterStress:
             tasks = []
 
             for i in range(concurrency):
-                task = paypal_engine.process_payment({
-                    "amount": random.uniform(1.0, 10000.0),
-                    "currency": random.choice(["USD", "EUR", "GBP", "INR", "JPY"]),
-                    "payment_method": random.choice(["card", "paypal", "bank_transfer"]),
-                    "order_id": f"stress_order_{i}_{int(time.time())}"
-                })
+                task = paypal_engine.process_payment(
+                    {
+                        "amount": random.uniform(1.0, 10000.0),
+                        "currency": random.choice(["USD", "EUR", "GBP", "INR", "JPY"]),
+                        "payment_method": random.choice(["card", "paypal", "bank_transfer"]),
+                        "order_id": f"stress_order_{i}_{int(time.time())}",
+                    }
+                )
                 tasks.append(task)
 
             responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -31,18 +33,24 @@ class TestPaypalMasterStress:
             success_count = sum(1 for r in responses if not isinstance(r, Exception) and r.get("success", False))
             error_count = sum(1 for r in responses if isinstance(r, Exception) or not r.get("success", False))
 
-            results.append({
-                "concurrency": concurrency,
-                "duration": end_time - start_time,
-                "success_count": success_count,
-                "error_count": error_count,
-                "throughput": concurrency / (end_time - start_time),
-                "success_rate": success_count / concurrency if concurrency > 0 else 0
-            })
+            results.append(
+                {
+                    "concurrency": concurrency,
+                    "duration": end_time - start_time,
+                    "success_count": success_count,
+                    "error_count": error_count,
+                    "throughput": concurrency / (end_time - start_time),
+                    "success_rate": success_count / concurrency if concurrency > 0 else 0,
+                }
+            )
 
         for result in results:
-            assert result["success_rate"] >= 0.95, f"Success rate too low at concurrency {result['concurrency']}: {result['success_rate']}"
-            assert result["throughput"] >= 100, f"Throughput too low at concurrency {result['concurrency']}: {result['throughput']} req/s"
+            assert result["success_rate"] >= 0.95, (
+                f"Success rate too low at concurrency {result['concurrency']}: {result['success_rate']}"
+            )
+            assert result["throughput"] >= 100, (
+                f"Throughput too low at concurrency {result['concurrency']}: {result['throughput']} req/s"
+            )
 
     @pytest.mark.asyncio
     async def test_payment_state_machine_stress(self, paypal_engine):
@@ -65,7 +73,9 @@ class TestPaypalMasterStress:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         valid_states = sum(1 for r in results if r in states)
-        assert valid_states / total_transitions >= 0.99, f"Invalid state transitions: {valid_states / total_transitions}"
+        assert valid_states / total_transitions >= 0.99, (
+            f"Invalid state transitions: {valid_states / total_transitions}"
+        )
 
     @pytest.mark.asyncio
     async def test_soak_payment_processing(self, paypal_engine):
@@ -79,12 +89,14 @@ class TestPaypalMasterStress:
             tasks = []
 
             for i in range(batch_size):
-                task = paypal_engine.process_payment({
-                    "amount": random.uniform(10.0, 5000.0),
-                    "currency": "USD",
-                    "payment_method": "card",
-                    "order_id": f"soak_order_{processed + i}_{int(time.time())}"
-                })
+                task = paypal_engine.process_payment(
+                    {
+                        "amount": random.uniform(10.0, 5000.0),
+                        "currency": "USD",
+                        "payment_method": "card",
+                        "order_id": f"soak_order_{processed + i}_{int(time.time())}",
+                    }
+                )
                 tasks.append(task)
 
             responses = await asyncio.gather(*tasks, return_exceptions=True)
@@ -106,11 +118,7 @@ class TestPaypalMasterStress:
             tasks = []
 
             for i in range(burst_size):
-                task = paypal_engine.verify_webhook_signature(
-                    f"payload_{i}",
-                    f"signature_{i}",
-                    int(time.time())
-                )
+                task = paypal_engine.verify_webhook_signature(f"payload_{i}", f"signature_{i}", int(time.time()))
                 tasks.append(task)
 
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -119,8 +127,12 @@ class TestPaypalMasterStress:
             rate_limit_hits = sum(1 for r in results if isinstance(r, dict) and r.get("rate_limited", False))
             success_count = sum(1 for r in results if not isinstance(r, Exception) and r.get("success", False))
 
-            assert rate_limit_hits < burst_size * 0.1, f"Too many rate limit hits at burst {burst_size}: {rate_limit_hits}"
-            assert success_count / burst_size >= 0.9, f"Success rate too low at burst {burst_size}: {success_count / burst_size}"
+            assert rate_limit_hits < burst_size * 0.1, (
+                f"Too many rate limit hits at burst {burst_size}: {rate_limit_hits}"
+            )
+            assert success_count / burst_size >= 0.9, (
+                f"Success rate too low at burst {burst_size}: {success_count / burst_size}"
+            )
 
     @pytest.mark.asyncio
     async def test_refund_processing_stress(self, paypal_engine):
@@ -128,23 +140,33 @@ class TestPaypalMasterStress:
         tasks = []
 
         for i in range(concurrent_refunds):
-            task = paypal_engine.process_refund({
-                "payment_id": f"payment_{random.randint(1, 10000)}",
-                "amount": random.uniform(1.0, 1000.0),
-                "reason": random.choice(["customer_request", "duplicate", "fraud", "other"])
-            })
+            task = paypal_engine.process_refund(
+                {
+                    "payment_id": f"payment_{random.randint(1, 10000)}",
+                    "amount": random.uniform(1.0, 1000.0),
+                    "reason": random.choice(["customer_request", "duplicate", "fraud", "other"]),
+                }
+            )
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         success_count = sum(1 for r in results if not isinstance(r, Exception) and r.get("success", False))
-        assert success_count / concurrent_refunds >= 0.95, f"Refund success rate too low: {success_count / concurrent_refunds}"
+        assert success_count / concurrent_refunds >= 0.95, (
+            f"Refund success rate too low: {success_count / concurrent_refunds}"
+        )
 
     @pytest.mark.asyncio
     async def test_currency_conversion_stress(self, paypal_engine):
         conversion_pairs = [
-            ("USD", "EUR"), ("EUR", "GBP"), ("GBP", "INR"), ("INR", "JPY"),
-            ("JPY", "USD"), ("USD", "GBP"), ("EUR", "INR"), ("GBP", "JPY")
+            ("USD", "EUR"),
+            ("EUR", "GBP"),
+            ("GBP", "INR"),
+            ("INR", "JPY"),
+            ("JPY", "USD"),
+            ("USD", "GBP"),
+            ("EUR", "INR"),
+            ("GBP", "JPY"),
         ]
 
         concurrent_conversions = 1000
@@ -152,17 +174,15 @@ class TestPaypalMasterStress:
 
         for i in range(concurrent_conversions):
             from_curr, to_curr = random.choice(conversion_pairs)
-            task = paypal_engine.convert_currency(
-                random.uniform(1.0, 10000.0),
-                from_curr,
-                to_curr
-            )
+            task = paypal_engine.convert_currency(random.uniform(1.0, 10000.0), from_curr, to_curr)
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         valid_conversions = sum(1 for r in results if not isinstance(r, Exception) and r.get("rate", 0) > 0)
-        assert valid_conversions / concurrent_conversions >= 0.99, f"Conversion success rate too low: {valid_conversions / concurrent_conversions}"
+        assert valid_conversions / concurrent_conversions >= 0.99, (
+            f"Conversion success rate too low: {valid_conversions / concurrent_conversions}"
+        )
 
     @pytest.mark.asyncio
     async def test_webhook_processing_stress(self, paypal_engine):
@@ -172,15 +192,19 @@ class TestPaypalMasterStress:
         tasks = []
         for i in range(webhook_count):
             event_type = random.choice(event_types)
-            task = paypal_engine.process_webhook_event({
-                "id": f"evt_{i}_{int(time.time())}",
-                "type": event_type,
-                "created_at": datetime.utcnow().isoformat(),
-                "data": {"payment_id": f"pay_{random.randint(1, 10000)}"}
-            })
+            task = paypal_engine.process_webhook_event(
+                {
+                    "id": f"evt_{i}_{int(time.time())}",
+                    "type": event_type,
+                    "created_at": datetime.utcnow().isoformat(),
+                    "data": {"payment_id": f"pay_{random.randint(1, 10000)}"},
+                }
+            )
             tasks.append(task)
 
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         processed = sum(1 for r in results if not isinstance(r, Exception) and r.get("processed", False))
-        assert processed / webhook_count >= 0.98, f"Webhook processing success rate too low: {processed / webhook_count}"
+        assert processed / webhook_count >= 0.98, (
+            f"Webhook processing success rate too low: {processed / webhook_count}"
+        )
