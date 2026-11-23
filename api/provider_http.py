@@ -15,9 +15,10 @@ The registry `PROVIDER_HTTP` is a `dict[str, Callable]`.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
-from typing import Any
+from typing import Any, AsyncIterator
 
 import aiohttp
 
@@ -83,6 +84,51 @@ async def _post_json(
             return await resp.json()
 
 
+async def _post_stream(
+    url: str,
+    headers: dict[str, str],
+    payload: dict[str, Any],
+    timeout: int = 60,
+) -> AsyncIterator[str]:
+    """POST JSON with streaming, yield tokens as they arrive. Raises on non-2xx."""
+    async with aiohttp.ClientSession() as session:
+        async with session.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=aiohttp.ClientTimeout(total=timeout),
+        ) as resp:
+            if resp.status >= 400:
+                err = await resp.text()
+                logger.error(
+                    "provider_http_stream_failed status=%d url=%s err=%s",
+                    resp.status,
+                    url,
+                    err[:300],
+                )
+                raise Exception(f"HTTP {resp.status}: {err[:200]}")
+            
+            buffer = ""
+            async for chunk in resp.content.iter_chunked(1024):
+                buffer += chunk.decode("utf-8")
+                while "\n" in buffer:
+                    line, buffer = buffer.split("\n", 1)
+                    line = line.strip()
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data == "[DONE]":
+                        return
+                    try:
+                        json_data = json.loads(data)
+                        if "choices" in json_data and len(json_data["choices"]) > 0:
+                            delta = json_data["choices"][0].get("delta", {})
+                            if "content" in delta and delta["content"]:
+                                yield delta["content"]
+                    except Exception:
+                        continue
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # §2 — Non-standard adapters
 # ═══════════════════════════════════════════════════════════════════════════
@@ -91,11 +137,14 @@ async def gemini_adapter(
     max_tokens: int,
     temp: float,
     model: str | None = None,
-) -> str:
+    stream: bool = False,
+) -> str | AsyncIterator[str]:
     if not GEMINI_API_KEY:
         raise Exception("GEMINI_API_KEY missing")
     model_name = model or (GEMINI_MODELS[0] if GEMINI_MODELS else "gemini-1.5-flash")
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
+    if stream:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:streamGenerateContent?key={GEMINI_API_KEY}"
     payload = {
         "contents": [{"parts": [{"text": prompt}]}],
         "generationConfig": {
@@ -112,6 +161,33 @@ async def gemini_adapter(
             )
         ],
     }
+    if stream:
+        async def _gemini_stream():
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, headers={"Content-Type": "application/json"}, json=payload) as resp:
+                    if resp.status >= 400:
+                        err = await resp.text()
+                        raise Exception(f"Gemini stream failed: {err[:200]}")
+                    buffer = ""
+                    async for chunk in resp.content.iter_chunked(1024):
+                        buffer += chunk.decode("utf-8")
+                        while "\n" in buffer:
+                            line, buffer = buffer.split("\n", 1)
+                            line = line.strip()
+                            if not line or line.startswith("[") or line.startswith("]"):
+                                continue
+                            if line.startswith("data: "):
+                                data = line[6:]
+                                try:
+                                    json_data = json.loads(data)
+                                    if "candidates" in json_data and len(json_data["candidates"]) > 0:
+                                        parts = json_data["candidates"][0].get("content", {}).get("parts", [])
+                                        for part in parts:
+                                            if "text" in part and part["text"]:
+                                                yield part["text"]
+                                except Exception:
+                                    continue
+        return _gemini_stream()
     data = await _post_json(url, {"Content-Type": "application/json"}, payload)
     try:
         return data["candidates"][0]["content"]["parts"][0]["text"]
@@ -124,7 +200,8 @@ async def cloudflare_adapter(
     max_tokens: int,
     temp: float,
     model: str | None = None,
-) -> str:
+    stream: bool = False,
+) -> str | AsyncIterator[str]:
     if not CLOUDFLARE_API_KEY or not CLOUDFLARE_ACCOUNT_ID:
         raise Exception("Cloudflare credentials missing")
     url = f"https://api.cloudflare.com/client/v4/accounts/{CLOUDFLARE_ACCOUNT_ID}/ai/run/{model or CLOUDFLARE_MODEL}"
@@ -132,12 +209,12 @@ async def cloudflare_adapter(
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": max_tokens,
         "temperature": temp,
+        "stream": stream,
     }
-    data = await _post_json(
-        url,
-        {"Authorization": f"Bearer {CLOUDFLARE_API_KEY}", "Content-Type": "application/json"},
-        payload,
-    )
+    headers = {"Authorization": f"Bearer {CLOUDFLARE_API_KEY}", "Content-Type": "application/json"}
+    if stream:
+        return _post_stream(url, headers, payload)
+    data = await _post_json(url, headers, payload)
     return data.get("result", {}).get("response", "")
 
 
@@ -157,7 +234,8 @@ def _openai_compat(
         max_tokens: int,
         temp: float,
         model: str | None = None,
-    ) -> str:
+        stream: bool = False,
+    ) -> str | AsyncIterator[str]:
         if not key:
             raise Exception(f"{name}: API key missing")
         headers: dict[str, str] = {"Content-Type": "application/json"}
@@ -169,8 +247,10 @@ def _openai_compat(
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
             "temperature": temp,
-            "stream": False,
+            "stream": stream,
         }
+        if stream:
+            return _post_stream(base_url, headers, payload)
         try:
             data = await _post_json(base_url, headers, payload)
         except Exception as e:

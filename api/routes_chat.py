@@ -917,6 +917,114 @@ async def extract_stream(
     return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
+@router.post("/api/chat_stream", response_model=None)
+@limiter.limit("10/minute")
+async def chat_stream(
+    request: Request,
+    user: dict = Depends(get_current_user),
+    prompt: str = Form(...),
+    workspace: str | None = Form(None),
+    task_type: str | None = Form(None),
+    sessionId: str | None = Form(None),
+    projectId: str | None = Form(None),
+    context: str | None = Form(None),
+    files: list[UploadFile] = File(default=[]),
+):
+    allowed, reset_sec = await check_rate_limit(str(user["_id"]), user.get("tier", "free"), "chat_stream")
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail={
+                "code": "QUOTA_EXCEEDED",
+                "message": f"Rate limit exceeded. Try again in {reset_sec} seconds.",
+                "reset": reset_sec,
+            },
+        )
+    if not state.db_available:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    file_infos = [{"filename": f.filename, "mimetype": f.content_type or ""} for f in files]
+    workspace = workspace or detect_workspace(prompt, file_infos)
+    if workspace not in ("data", "design", "core"):
+        workspace = "core"
+    files = _validate_uploads(workspace, files)
+    valid_files = files
+    file_contents = []
+    for f in valid_files:
+        content_bytes = await f.read()
+        file_contents.append(
+            {
+                "filename": f.filename,
+                "mimetype": f.content_type or "application/octet-stream",
+                "content_base64": base64.b64encode(content_bytes).decode("utf-8"),
+            }
+        )
+
+    if task_type is None:
+        task_type = {"data": "extraction", "design": "frontend"}.get(workspace, "structuring")
+    if task_type not in ("extraction", "frontend", "structuring", "touch_fix"):
+        task_type = "extraction" if workspace == "data" else "frontend"
+
+    ObjectId = get_object_id()
+    if sessionId and (not ObjectId or not ObjectId.is_valid(sessionId)):
+        sessionId = None
+    history = []
+    if sessionId and ObjectId:
+        session = await state.sessions_col.find_one({"_id": ObjectId(sessionId), "userId": user["_id"]})
+        if session:
+            history = session.get("messages", [])
+
+    combined_context = context or ""
+    if state.context_registry and state.db_available:
+        with contextlib.suppress(Exception):
+            reg_context = await state.context_registry.get_context(user["_id"], workspace) or ""
+            combined_context += f"\n{reg_context}"
+
+    schema_info = await discover_schema(file_contents)
+    if schema_info:
+        combined_context += f"\nSchema info: {schema_info}\n"
+
+    llm_config = WORKSPACE_LLM_CONFIG.get(workspace, WORKSPACE_LLM_CONFIG["core"])
+    max_tokens = llm_config["max_tokens"]
+    temp = llm_config["temperature"]
+    full_response = ""
+
+    async def event_generator():
+        nonlocal full_response
+        sanitized = sanitize_input(prompt)
+        async for event in stream_ai_response(
+            workspace=workspace,
+            task_type=task_type,
+            prompt=sanitized,
+            history=history,
+            files=file_contents,
+            max_tokens=max_tokens,
+            temp=temp,
+            tier=user.get("tier", "free"),
+            user=user,
+            context=combined_context,
+        ):
+            if "data: " in event and '"text":' in event:
+                with contextlib.suppress(Exception):
+                    payload = json.loads(event.split("data: ", 1)[1].strip())
+                    if "text" in payload:
+                        full_response += payload["text"]
+            yield event
+
+        await _persist_chat_session(
+            user=user,
+            session_id=sessionId,
+            workspace=workspace,
+            command=prompt,
+            full_response=full_response,
+            file_contents=file_contents,
+            project_id=projectId,
+        )
+        yield "event: close\ndata: {}\n\n"
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Non-streaming extraction
 # ═══════════════════════════════════════════════════════════════════════════

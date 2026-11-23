@@ -1,0 +1,29 @@
+{
+  "name": "chat-stream",
+  "runtime": "python-3.12",
+  "timeout": 90,
+  "memory": 512,
+  "entrypoint": "index.py",
+  "envVars": {
+    "OPENAI_API_KEY": "",
+    "ANTHROPIC_API_KEY": "",
+    "GOOGLE_API_KEY": "",
+    "MISTRAL_API_KEY": "",
+    "GROQ_API_KEY": "",
+    "COHERE_API_KEY": "",
+    "TOGETHER_API_KEY": "",
+    "ANTHROPIC_BASE_URL": "",
+    "OPENAI_BASE_URL": "",
+    "GOOGLE_BASE_URL": "",
+    "MISTRAL_BASE_URL": "",
+    "GROQ_BASE_URL": "",
+    "COHERE_BASE_URL": "",
+    "TOGETHER_BASE_URL": "",
+    "STREAMING_FUNCTION_ENABLED": "true",
+    "STREAMING_FUNCTION_TIMEOUT": "90",
+    "STREAMING_FUNCTION_MEMORY": "512"
+  },
+  "events": [],
+  "schedule": "",
+  "enabled": true
+}

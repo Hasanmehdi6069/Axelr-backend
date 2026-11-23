@@ -20,6 +20,11 @@ APPWRITE_ENDPOINT = os.getenv("APPWRITE_ENDPOINT", "https://cloud.appwrite.io/v1
 VULTR_API_KEY = os.getenv("VULTR_API_KEY", "")
 VULTR_ENDPOINT = "https://api.vultr.com/v2"
 
+# Streaming function configuration
+STREAMING_FUNCTION_TIMEOUT = int(os.getenv("STREAMING_FUNCTION_TIMEOUT", "90"))
+STREAMING_FUNCTION_MEMORY = int(os.getenv("STREAMING_FUNCTION_MEMORY", "512"))
+STREAMING_FUNCTION_ENABLED = os.getenv("STREAMING_FUNCTION_ENABLED", "true").lower() == "true"
+
 
 class EnvironmentCredentials(BaseModel):
     """Pydantic model for isolated environment credentials"""

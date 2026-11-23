@@ -299,6 +299,7 @@ class ResilientPipeline:
         tenant_id: str | None = "default",
         request_id: str | None = None,
         want_elite: bool = False,  # RESERVED — accepted, unused
+        stream_enabled: bool = False,
     ) -> AsyncIterator[tuple[str, Any]]:
         """Run the full cascade. Never raises.
 
@@ -484,31 +485,48 @@ class ResilientPipeline:
 
             # Stage 4: remote providers (L1+)
             if AXELR_COGNITION_LEVEL >= 1 and deadline - time.monotonic() > 0.4:
-                res = await self._try_providers(
-                    workspace=workspace,
-                    task_type=task_type,
-                    prompt=prompt,
-                    history=history,
-                    context=context,
-                    max_tokens=max_tokens,
-                    temp=temp,
-                    deadline=deadline,
-                    skip=tried,
-                    relaxed=relaxed,
-                )
-                if res is not None:
-                    yield (
-                        "thinking",
-                        {
-                            "stage": "providers",
-                            "status": "ok",
-                            "winner": res["provider"],
-                            "model": res["model_used"],
-                            "round": round_num,
-                        },
+                if stream_enabled:
+                    async for event in self._try_providers_stream(
+                        workspace=workspace,
+                        task_type=task_type,
+                        prompt=prompt,
+                        history=history,
+                        context=context,
+                        max_tokens=max_tokens,
+                        temp=temp,
+                        deadline=deadline,
+                        skip=tried,
+                        relaxed=relaxed,
+                    ):
+                        yield event
+                        if event[0] == "result":
+                            return
+                else:
+                    res = await self._try_providers(
+                        workspace=workspace,
+                        task_type=task_type,
+                        prompt=prompt,
+                        history=history,
+                        context=context,
+                        max_tokens=max_tokens,
+                        temp=temp,
+                        deadline=deadline,
+                        skip=tried,
+                        relaxed=relaxed,
                     )
-                    yield ("result", _finalize(res))
-                    return
+                    if res is not None:
+                        yield (
+                            "thinking",
+                            {
+                                "stage": "providers",
+                                "status": "ok",
+                                "winner": res["provider"],
+                                "model": res["model_used"],
+                                "round": round_num,
+                            },
+                        )
+                        yield ("result", _finalize(res))
+                        return
                 yield ("thinking", {"stage": "providers", "status": "all_failed", "round": round_num})
 
             # Stage 5: LLM gateway (L2+)
@@ -835,6 +853,124 @@ class ResilientPipeline:
         except Exception:
             return None
         return None
+
+    async def _try_providers_stream(
+        self,
+        *,
+        workspace: str,
+        task_type: str,
+        prompt: str,
+        history: list[dict[str, Any]] | None,
+        context: str,
+        max_tokens: int,
+        temp: float,
+        deadline: float,
+        skip: set[str],
+        relaxed: bool,
+    ) -> AsyncIterator[tuple[str, Any]]:
+        """Streaming version of provider cascade. Yields tokens in real-time."""
+        try:
+            try:
+                from ..api.prompts import _get_system_prompt  # type: ignore
+                from ..api.providers import (  # type: ignore
+                    PROVIDER_FUNC_MAP,
+                    PROVIDER_KEY_CHECK,
+                    PROVIDER_MODELS,
+                    get_dynamically_ranked_providers,
+                )
+                from ..api.state import state  # type: ignore
+            except Exception:
+                from api.prompts import _get_system_prompt  # type: ignore
+                from api.providers import (  # type: ignore
+                    PROVIDER_FUNC_MAP,
+                    PROVIDER_KEY_CHECK,
+                    PROVIDER_MODELS,
+                    get_dynamically_ranked_providers,
+                )
+                from api.state import state  # type: ignore
+        except Exception as e:
+            logger.warning("pipeline_providers_stream_import_failed error=%s", e)
+            return
+
+        try:
+            system_prompt = _get_system_prompt(workspace, task_type)
+        except Exception:
+            system_prompt = "You are Axelr, a helpful AI assistant."
+
+        full_prompt = f"{system_prompt}\n\n"
+        if context:
+            full_prompt += f"Context: {context}\n\n"
+        if history:
+            recent = [
+                f"{m.get('role', 'user')}: {m.get('text', '')}"
+                for m in history[-4:]
+                if isinstance(m, dict) and m.get("text")
+            ]
+            if recent:
+                full_prompt += "Previous conversation:\n" + "\n".join(recent) + "\n\n"
+        full_prompt += f"User request: {prompt}"
+
+        try:
+            ranked = await get_dynamically_ranked_providers(workspace)
+        except Exception:
+            ranked = list(PROVIDER_FUNC_MAP.keys())
+
+        try:
+            from .heartbeat import rank as _hb_rank
+            ranked = _hb_rank(ranked)
+        except Exception:
+            pass
+
+        def _eligible(p: str) -> bool:
+            return p != "local" and p not in skip and PROVIDER_KEY_CHECK.get(p, False) and bool(PROVIDER_MODELS.get(p))
+
+        available = [p for p in ranked if _eligible(p)]
+        seq_deadline = min(deadline, time.monotonic() + _ms(SEQ_BUDGET_MS))
+
+        for p in list(available):
+            if time.monotonic() >= seq_deadline:
+                break
+            if not relaxed:
+                cb = getattr(state, "circuit_breaker", None)
+                if cb is not None:
+                    try:
+                        if not await cb.is_available(p):
+                            continue
+                    except Exception:
+                        pass
+            model = (PROVIDER_MODELS.get(p) or [None])[0]
+            func = PROVIDER_FUNC_MAP.get(p)
+            if not func or not model:
+                continue
+            for attempt in range(2):
+                if time.monotonic() >= seq_deadline:
+                    break
+                try:
+                    t0 = time.monotonic()
+                    stream = await asyncio.wait_for(
+                        func(full_prompt, max_tokens, temp, model, stream=True),
+                        timeout=min(PROVIDER_ATTEMPT_TIMEOUT_S, max(0.5, seq_deadline - time.monotonic())),
+                    )
+                    full_text = ""
+                    async for token in stream:
+                        full_text += token
+                        yield ("token", token)
+                    if full_text and len(full_text.strip()) > 3:
+                        self.stats["provider_wins"] += 1
+                        skip.add(p)
+                        result = _pack(full_text, p, model, (time.monotonic() - t0) * 1000.0)
+                        yield ("thinking", {
+                            "stage": "providers",
+                            "status": "ok",
+                            "winner": p,
+                            "model": model,
+                        })
+                        yield ("result", _finalize(result))
+                        return
+                except Exception as e:
+                    logger.debug("pipeline_provider_stream_fail provider=%s attempt=%d error=%s", p, attempt + 1, e)
+                    await asyncio.sleep(0.15 * (attempt + 1))
+            skip.add(p)
 
     async def _try_gateway(
         self,

@@ -752,23 +752,15 @@ async def stream_ai_response(
         user=user,
         context=context,
         fast_tier=fast_tier,
+        stream_enabled=True,
     ):
         if kind == "thinking":
-            # FIX B3 — pass the pipeline's thinking payload through
-            # unmodified. The previous version emitted literal
-            # `"Logo ... (animation) <stage: status>"` text to the client.
             yield f"event: thinking\ndata: {json.dumps(payload)}\n\n"
             continue
+        if kind == "token":
+            yield f"data: {json.dumps({'text': payload})}\n\n"
+            continue
         if kind == "result":
-            text = sanitize_ai_output(payload.get("text") or "")
-            buf: list[str] = []
-            tokens = text.split()
-            for i, w in enumerate(tokens):
-                buf.append(w)
-                if len(buf) >= 8 or i == len(tokens) - 1:
-                    yield f"data: {json.dumps({'text': ' '.join(buf) + ' '})}\n\n"
-                    buf.clear()
-                    await asyncio.sleep(0)
             elapsed = time.time() - started
             watermark = (
                 f"\n\n---\n*{payload.get('provider', 'axelr')} · {payload.get('model_used', '')} · {elapsed:.2f}s*"
